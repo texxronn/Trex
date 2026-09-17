@@ -61,6 +61,8 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   match — re-append both legs `MATCHED` + one TRANSFER line.
 - The manual resolver is a separate service: a journal follower that calls the
   sequencer API. It is not one of the five phase-1 modules.
+- **Phase 1 (T-b):** `POST /decisions` is fully implemented in trex-sequencer
+  (stage 4), not a stub. Resolution is available over the sequencer API.
 
 **Rules**
 - Deciding whether a new candidate goes to `MATCHED`, `HELD`, `REVIEW` or
@@ -128,5 +130,5 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 - T-a: whether `comment` is also allowed on a manual mark-external re-append
   (currently TRANSFER only; re-append rule 1 would need an exception).
-- T-b: `/decisions` scope in phase 1 (full vs stub — HELD cannot exit without it).
+- T-c: `/decisions` request/response shape and validation (proposal pending).
 - B7, B10 (remaining TRANSFER fields), B11, B14–B23.
