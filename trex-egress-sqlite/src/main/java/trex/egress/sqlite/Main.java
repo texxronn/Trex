@@ -2,11 +2,11 @@ package trex.egress.sqlite;
 
 import java.nio.file.Path;
 
-/** {@code trex-egress-sqlite --journal <path> --db <path> [--poll-seconds N] [--once]} */
+/** {@code trex-egress-sqlite --journal <path> --db <path> [--poll-seconds N (fallback)] [--once]} */
 public final class Main {
 
     private static final String USAGE =
-        "Usage: trex-egress-sqlite --journal <path> --db <path> [--poll-seconds N] [--once]";
+        "Usage: trex-egress-sqlite --journal <path> --db <path> [--poll-seconds N (fallback)] [--once]";
 
     private Main() {}
 
@@ -35,15 +35,17 @@ public final class Main {
             return;
         }
         try (SqliteFollower follower = new SqliteFollower(Path.of(journal), Path.of(database))) {
-            do {
-                int n = follower.pass();
-                if (n > 0) {
-                    System.out.println("mirrored " + n + " lines");
-                }
-                if (!once) {
-                    Thread.sleep(pollSeconds * 1000);
-                }
-            } while (!once);
+            if (once) {
+                report(follower.pass());
+            } else {
+                follower.follow(pollSeconds * 1000, Main::report);
+            }
+        }
+    }
+
+    private static void report(int mirrored) {
+        if (mirrored > 0) {
+            System.out.println("mirrored " + mirrored + " lines");
         }
     }
 }

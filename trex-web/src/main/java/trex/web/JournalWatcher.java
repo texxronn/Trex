@@ -1,24 +1,16 @@
 package trex.web;
 
 import trex.journal.FramedReader;
+import trex.journal.JournalChanges;
 
 import java.io.IOException;
-import java.nio.file.ClosedWatchServiceException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardWatchEventKinds;
-import java.nio.file.WatchEvent;
-import java.nio.file.WatchKey;
-import java.nio.file.WatchService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -26,7 +18,7 @@ import java.util.function.Supplier;
  * Follows the journal file and keeps a {@link Fold} of it (SPEC §5.4, §5.5). Nothing is persisted:
  * the fold is rebuilt from offset 0 at startup, and again whenever the file shrinks below the tail
  * offset or a read fails (e.g. the journal was replaced by a materialize).
- * Reads are triggered by file-change events (WatchService, inotify on Linux) with a slow fallback poll.
+ * Reads are triggered by journal change events ({@link JournalChanges}) with a slow fallback poll.
  */
 public final class JournalWatcher<V> implements AutoCloseable {
 
@@ -42,8 +34,9 @@ public final class JournalWatcher<V> implements AutoCloseable {
     private long offset;
     private long n;
     private boolean refold;
-    private ScheduledExecutorService scheduler;
-    private WatchService watchService;
+    private JournalChanges changes;
+    private Thread loop;
+    private volatile boolean closed;
 
     public JournalWatcher(Path journal, Clock clock, Supplier<Fold<V>> folds) {
         this.journal = journal.toAbsolutePath();
@@ -101,43 +94,23 @@ public final class JournalWatcher<V> implements AutoCloseable {
     }
 
     /**
-     * Start event-driven tailing plus a fallback poll every {@code fallbackPollMillis}.
-     * If the directory cannot be watched, the fallback poll alone keeps working.
+     * Start event-driven tailing: read now, then read again on every journal change event or after
+     * {@code fallbackPollMillis} without one (missed events, filesystems without inotify).
      */
     public JournalWatcher<V> start(long fallbackPollMillis) {
-        scheduler = Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "journal-fallback-poll"));
-        scheduler.scheduleWithFixedDelay(this::poll, 0, fallbackPollMillis, TimeUnit.MILLISECONDS);
-        try {
-            watchService = FileSystems.getDefault().newWatchService();
-            journal.getParent().register(watchService, StandardWatchEventKinds.ENTRY_CREATE,
-                StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE);
-            daemon(this::watchLoop, "journal-watch").start();
-        } catch (IOException | RuntimeException e) {
-            System.err.println("journal watch unavailable, using fallback poll only: " + e.getMessage());
-        }
-        return this;
-    }
-
-    private void watchLoop() {
-        Path name = journal.getFileName();
-        try {
-            while (true) {
-                WatchKey key = watchService.take();
-                boolean relevant = false;
-                for (WatchEvent<?> event : key.pollEvents()) {
-                    relevant |= event.kind() == StandardWatchEventKinds.OVERFLOW || name.equals(event.context());
-                }
-                if (relevant) {
+        changes = new JournalChanges(journal);   // registered before the first read: nothing is missed
+        loop = daemon(() -> {
+            try {
+                while (!closed) {
                     poll();
+                    changes.await(fallbackPollMillis);
                 }
-                if (!key.reset()) {
-                    System.err.println("journal directory no longer watchable; using fallback poll only");
-                    return;
-                }
+            } catch (InterruptedException e) {
+                // shutting down
             }
-        } catch (InterruptedException | ClosedWatchServiceException e) {
-            // shutting down
-        }
+        }, "journal-watch");
+        loop.start();
+        return this;
     }
 
     private static Thread daemon(Runnable r, String name) {
@@ -148,15 +121,12 @@ public final class JournalWatcher<V> implements AutoCloseable {
 
     @Override
     public void close() {
-        if (scheduler != null) {
-            scheduler.shutdownNow();
+        closed = true;
+        if (loop != null) {
+            loop.interrupt();
         }
-        if (watchService != null) {
-            try {
-                watchService.close();
-            } catch (IOException ignored) {
-                // best effort
-            }
+        if (changes != null) {
+            changes.close();
         }
     }
 }

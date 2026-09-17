@@ -80,6 +80,41 @@ class SqliteFollowerTest {
     }
 
     @Test
+    void followWakesOnJournalChangeWithoutWaitingForFallback() throws Exception {
+        Path journal = dir.resolve("journal.jsonl");
+        Path db = dir.resolve("mirror.db");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(lines(1, 2));
+        }
+        java.util.concurrent.atomic.AtomicInteger mirrored = new java.util.concurrent.atomic.AtomicInteger();
+        try (SqliteFollower f = new SqliteFollower(journal, db)) {
+            Thread follower = Thread.ofVirtual().start(() -> {
+                try {
+                    f.follow(60_000, mirrored::addAndGet);
+                } catch (InterruptedException | java.sql.SQLException e) {
+                    // stopped
+                }
+            });
+            try {
+                long deadline = System.currentTimeMillis() + 5_000;
+                while (mirrored.get() < 2 && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(20);
+                }
+                Files.write(journal, JsonlJournal.serialize(lines(3, 5)), StandardOpenOption.APPEND);
+                deadline = System.currentTimeMillis() + 5_000;
+                while (mirrored.get() < 5 && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(20);
+                }
+                assertEquals(5, mirrored.get(), "woken by the change event, far before the 60 s fallback");
+            } finally {
+                follower.interrupt();
+                follower.join(5_000);
+            }
+        }
+        assertEquals(LongStream.rangeClosed(1, 5).boxed().toList(), ns(db));
+    }
+
+    @Test
     void redeliveryIsANoOp() throws Exception {
         Path journal = dir.resolve("journal.jsonl");
         Path db = dir.resolve("mirror.db");

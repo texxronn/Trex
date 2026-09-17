@@ -3,6 +3,7 @@ package trex.egress.sqlite;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import trex.core.CanonicalEvent;
 import trex.journal.FramedReader;
+import trex.journal.JournalChanges;
 import trex.journal.Json;
 
 import java.nio.file.Path;
@@ -13,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.function.IntConsumer;
 
 /**
  * Log-mirror follower into SQLite (WAL): one row per journal line keyed by n (SPEC §5.3).
@@ -65,6 +67,19 @@ public final class SqliteFollower implements AutoCloseable {
             }
         }
         db.setAutoCommit(false);
+    }
+
+    /**
+     * Follow until interrupted: a pass now, then a pass on every journal change event, or after
+     * {@code fallbackMillis} without one. {@code onPass} receives each pass's consumed-line count.
+     */
+    public void follow(long fallbackMillis, IntConsumer onPass) throws SQLException, InterruptedException {
+        try (JournalChanges changes = new JournalChanges(journal)) {
+            while (!Thread.currentThread().isInterrupted()) {
+                onPass.accept(pass());
+                changes.await(fallbackMillis);
+            }
+        }
     }
 
     /** One follower pass. Returns the number of journal lines consumed. */

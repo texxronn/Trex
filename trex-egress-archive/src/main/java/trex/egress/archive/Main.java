@@ -2,11 +2,11 @@ package trex.egress.archive;
 
 import java.nio.file.Path;
 
-/** {@code trex-egress-archive --journal <path> --archive <path> [--poll-seconds N] [--once]} */
+/** {@code trex-egress-archive --journal <path> --archive <path> [--poll-seconds N (fallback)] [--once]} */
 public final class Main {
 
     private static final String USAGE =
-        "Usage: trex-egress-archive --journal <path> --archive <path> [--poll-seconds N] [--once]";
+        "Usage: trex-egress-archive --journal <path> --archive <path> [--poll-seconds N (fallback)] [--once]";
 
     private Main() {}
 
@@ -35,14 +35,16 @@ public final class Main {
             return;
         }
         ArchiveFollower follower = new ArchiveFollower(Path.of(journal), Path.of(archive));
-        do {
-            int n = follower.pass();
-            if (n > 0) {
-                System.out.println("archived " + n + " lines");
-            }
-            if (!once) {
-                Thread.sleep(pollSeconds * 1000);
-            }
-        } while (!once);
+        if (once) {
+            report(follower.pass());
+        } else {
+            follower.follow(pollSeconds * 1000, Main::report);
+        }
+    }
+
+    private static void report(int archived) {
+        if (archived > 0) {
+            System.out.println("archived " + archived + " lines");
+        }
     }
 }

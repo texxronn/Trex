@@ -1,6 +1,7 @@
 package trex.egress.archive;
 
 import trex.journal.FramedReader;
+import trex.journal.JournalChanges;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -9,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.function.IntConsumer;
 
 import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -31,6 +33,19 @@ public final class ArchiveFollower {
         this.journal = journal;
         this.archive = archive;
         this.offsetFile = archive.resolveSibling(archive.getFileName() + ".offset");
+    }
+
+    /**
+     * Follow until interrupted: a pass now, then a pass on every journal change event, or after
+     * {@code fallbackMillis} without one. {@code onPass} receives each pass's archived-line count.
+     */
+    public void follow(long fallbackMillis, IntConsumer onPass) throws IOException, InterruptedException {
+        try (JournalChanges changes = new JournalChanges(journal)) {
+            while (!Thread.currentThread().isInterrupted()) {
+                onPass.accept(pass());
+                changes.await(fallbackMillis);
+            }
+        }
     }
 
     /** One follower pass. Returns the number of lines newly archived. */

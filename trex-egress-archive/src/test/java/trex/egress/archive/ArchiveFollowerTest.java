@@ -60,6 +60,40 @@ class ArchiveFollowerTest {
     }
 
     @Test
+    void followWakesOnJournalChangeWithoutWaitingForFallback() throws Exception {
+        Path journal = dir.resolve("journal.jsonl");
+        Path archive = dir.resolve("archive.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(lines(1, 2));
+        }
+        java.util.concurrent.atomic.AtomicInteger archived = new java.util.concurrent.atomic.AtomicInteger();
+        Thread follower = Thread.ofVirtual().start(() -> {
+            try {
+                new ArchiveFollower(journal, archive).follow(60_000, archived::addAndGet);
+            } catch (InterruptedException | IOException e) {
+                // stopped
+            }
+        });
+        try {
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (archived.get() < 2 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertEquals(2, archived.get());
+            Files.write(journal, JsonlJournal.serialize(lines(3, 4)), StandardOpenOption.APPEND);
+            deadline = System.currentTimeMillis() + 5_000;
+            while (archived.get() < 4 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertEquals(4, archived.get(), "woken by the change event, far before the 60 s fallback");
+            assertArrayEquals(Files.readAllBytes(journal), Files.readAllBytes(archive));
+        } finally {
+            follower.interrupt();
+            follower.join(5_000);
+        }
+    }
+
+    @Test
     void crashAfterArchiveWriteBeforeOffsetPersistDoesNotDuplicate() throws IOException {
         Path journal = dir.resolve("journal.jsonl");
         Path archive = dir.resolve("archive.jsonl");
