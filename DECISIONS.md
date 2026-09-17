@@ -231,8 +231,19 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   `[[array-of-tables]]`, `key = value` with strings, integers, booleans, arrays
   of strings, `#` comments. Anything else is a config error at startup.
 
+### B18 — Durability (fsync)
+- Keep SPEC §3.1: one `force(true)` per `appendBatch` (per API call, not per
+  transaction), before in-memory state is updated and success returned.
+- No `fsync` policy option in `sequencer.toml`; always on.
+- Follower batching is done with the follower `pollSeconds` setting (§6), not
+  by delaying fsync.
+- Throttled/deferred fsync rejected: acked batches lost on crash, followers
+  running ahead of the truncated journal, `n` reuse corrupting mirrors.
+- Group commit (shared fsync, ack after fsync) is a later optimisation, only if
+  throughput is measured to be a problem.
+
 ### B12, B13, B25, B26 — watermark / aging details — *moot under T*
 
 ## Open
 
-- B18–B23.
+- B19–B23.
