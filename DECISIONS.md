@@ -284,8 +284,22 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   REAL.
 - The follower holds no transaction-state logic.
 
+### B22 — Read consistency
+- After each successful commit the sequencer publishes an immutable snapshot
+  of in-memory state via an `AtomicReference`. `GET /head`, `/held`, `/review`
+  read the snapshot: lock-free, never a half-applied batch. Mutations stay
+  under the single write lock.
+
+### B23 — Bank-specific behavior (amends SPEC §9 "select bank-specific behavior")
+- Bank-specific behavior is encapsulated in ingress adapters. The sequencer
+  has none: it uses the registry only to validate `accountRef` and stamp
+  `currency` (and hold `fireflyAccountId`). The registry `format` field is for
+  adapters.
+
+### B24 — SPEC §5.3 wording slip — no action.
+
 ### B12, B13, B25, B26 — watermark / aging details — *moot under T*
 
 ## Open
 
-- B21–B23.
+- B21 follow-up: optional SQL view of current state per `external_id` (latest `n`).
