@@ -31,8 +31,9 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 **Re-append rules**
 1. A re-appended line is identical to the previous line for that
-   `external_id` except `n`, `state` and `flags` (`ingestedAt`, `balance`,
-   `description`, … unchanged).
+   `external_id` except `n`, `state`, `flags` and `comment` (`ingestedAt`,
+   `balance`, `description`, … unchanged). `comment` on a re-appended line is
+   the comment of the decision that caused it, else `null` (not carried over).
 2. Allowed transitions: HELD→MATCHED, HELD→EXTERNAL, REVIEW→MATCHED,
    REVIEW→EXTERNAL. Any other requested transition is `Rejected`, nothing
    appended.
@@ -49,10 +50,10 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 - `accountRef` = account of the negative-amount (from) leg.
 - New field **`toAccountRef`** = account of the positive-amount (to) leg;
   `null` on non-TRANSFER lines. JSON position: immediately after `accountRef`.
-- New optional field **`comment`** (nullable string): free-text note,
-  supplied via `POST /decisions` when a transfer is confirmed manually; `null`
-  otherwise. JSON position: immediately before `ingestedAt`. Never part of
-  identity (`transferId` is from leg ids only).
+- New optional field **`comment`** on every line (nullable string): free-text
+  note supplied via `POST /decisions`; `null` on lines not produced by a
+  decision. JSON position: immediately before `ingestedAt`. Never part of
+  identity.
 - TRANSFER lines are the only projectable unit for transfers.
 
 **Manual resolution** (`POST /decisions`)
@@ -69,9 +70,10 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 **`POST /decisions` contract (T-c)**
 - Request: `{ "allOrNone": false, "decisions": [ ... ] }`, each decision
   `{ "decisionRef", "action", ... }`:
-  - `MARK_EXTERNAL`: `externalId`.
-  - `CONFIRM_TRANSFER`: `legA`, `legB`, optional `comment`.
-  - `DISMISS_DUP`: `externalId` (see B7).
+  - `MARK_EXTERNAL`: `externalId`, optional `comment`.
+  - `CONFIRM_TRANSFER`: `legA`, `legB`, optional `comment` (set on the TRANSFER
+    line and both re-appended legs).
+  - `DISMISS_DUP`: `externalId`, optional `comment` (see B7).
 - Response: `{ batchHandle, batchStatus, results }` (same envelope as
   `/candidates`). Success → `Resolved(decisionRef, externalId, n)` (leg id for
   MARK_EXTERNAL, `TRF-…` id for CONFIRM_TRANSFER); failure →
@@ -177,6 +179,4 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 ## Open
 
-- T-a: whether `comment` is also allowed on a manual mark-external re-append
-  (currently TRANSFER only; re-append rule 1 would need an exception).
 - B10 (remaining TRANSFER fields), B11, B15–B23.
