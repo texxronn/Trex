@@ -204,6 +204,7 @@ public interface Journal {
 **JSONL writer rules:**
 - One event per line, `\n`-terminated, UTF-8, deterministic field order (§2.2).
 - Byte format: null fields are **written** (not omitted); `flags` always an array (`[]` when empty); `legIds` `null` on non-TRANSFER lines; `LocalDate`/`Instant` as ISO-8601 strings.
+- When the journal file is created (new journal, or a materialize copy), fsync the file and its parent directory, so the directory entry itself survives a crash.
 - Open target with `O_APPEND`. `appendBatch` serializes all events to one byte block, writes it fully, then `force(true)` (fsync) **before** the sequencer updates in-memory state / returns success. One fsync per `appendBatch` (i.e. per API call), always — there is no fsync policy option. Crash before fsync ⇒ torn tail ⇒ truncated on next recovery ⇒ batch simply absent ⇒ adapter retries (idempotent).
 - **Framing on read** (`trex-journal` `FramedReader`, shared by every reader): a record is complete iff it ends in `\n` **and** parses as a `CanonicalEvent`. A trailing partial line is *not* returned and the read offset is *not* advanced past it. A `\n`-terminated line that does not parse is corruption: readers stop with an error (recovery aborts startup) — never skip or truncate it.
 
@@ -324,6 +325,10 @@ Use **pattern-matching `switch` over sealed `MatchOutcome`/`IdentityStrategy`** 
   - `DISMISS_DUP` → re-appended with `flags = []`, state unchanged, `comment`.
 - All accepted decisions in one request are one atomic `appendBatch` (line order: re-appended legs, then TRANSFER lines).
 - Not in phase 1: "keep-both" and "MAN-" manual entries.
+
+**Binding:** the API has no authentication, so it listens on `bindHost:bindPort` with `bindHost` defaulting to `127.0.0.1`; any other host must be set explicitly, and the sequencer prints a warning at startup.
+
+**Decisions are final:** there is no undo. A mistaken decision cannot be reversed through the API; this is why the resolver double-confirms every action (§5.4).
 
 **Single-writer:** guard all mutating endpoints with one write lock (or a single-threaded executor) so appends are serialized. Reads are lock-free over the published snapshot (§3.2).
 
@@ -472,7 +477,7 @@ All config files are TOML, read by a hand-written subset parser in trex-sequence
 
 - `accounts.toml` — the registry (the spine): per account `ref`, `format` (`ing|cba|bw`), `currency` (`AUD|USD|INR`), `fireflyAccountId`. The sequencer uses it only to validate `accountRef` and stamp `currency` (and hold `fireflyAccountId`); `format` is for adapters.
 - `transfers.toml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
-- `sequencer.toml` — `journal.source`, `journal.target`, `apiPort`. (No fsync option — always fsync, §3.1.)
+- `sequencer.toml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `[journal] source`, `target`. (No fsync option — always fsync, §3.1.)
 - Follower config — `journalPath`, sink path, `pollSeconds` = fallback wake interval (command-line flags: `--journal`, `--archive`/`--db`, `--poll-seconds`, `--once`).
 - Resolver config — command-line flags (§5.4).
 - Firefly API token: env var / systemd credential, **never** in config or repo.

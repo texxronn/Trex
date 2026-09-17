@@ -338,3 +338,10 @@ User asked for a plain, compact, read-only grid on the resolver's model (SSE, pa
 - User approved: archive and SQLite followers use the same file-change trigger as the web followers instead of sleeping `pollSeconds`.
 - One implementation, `JournalChanges` in `trex-journal` (WatchService on the journal directory), shared by the followers and `trex-web`'s `JournalWatcher`. Registered before the first pass so a change between a pass and the wait is not lost.
 - `pollSeconds` remains as the fallback interval.
+
+## Post-build review (S)
+
+- S1 Sequencer binding: the API bound all interfaces (`0.0.0.0`) with no authentication. `sequencer.toml` now has `bindHost` (default `127.0.0.1`) and `bindPort` (replaces `apiPort`); a non-loopback host prints a warning.
+- S2 Decisions are final (user): no undo decision. Mistakes are prevented by the resolver's double confirmation, not reversed.
+- S3 Directory fsync: when the journal file is created (new journal or materialize copy), fsync file and parent directory so the directory entry survives a crash.
+- S4 Real ING export validation: user will check against a real export before first real ingest (pending).
