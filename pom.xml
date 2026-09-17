@@ -16,6 +16,7 @@
     <module>trex-ingress-ing</module>
     <module>trex-egress-archive</module>
     <module>trex-egress-sqlite</module>
+    <module>trex-resolver</module>
   </modules>
 
   <properties>
