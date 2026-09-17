@@ -45,9 +45,20 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
    HELD line.
 
 **TRANSFER line**
-- `external_id = transferKey = TRF-…`, `state = MATCHED`,
-  `legIds = [legA, legB]`, `n` after its legs.
+- `external_id = transferKey = TRF-…` (`TRF-<receipt>` for T1,
+  `transferId(a,b)` otherwise, per SPEC §2.4), `typeHint = TRANSFER`,
+  `state = MATCHED`, `legIds = [fromLeg, toLeg]`, `n` after its legs.
 - `accountRef` = account of the negative-amount (from) leg.
+- `amount` = absolute value (positive cents); direction is given by
+  `accountRef` → `toAccountRef`.
+- `date`, `currency`, `description`, `rawDescription`, `source` copied from the
+  from leg.
+- `balance = 0` (not meaningful for a transfer).
+- `receipt` = shared receipt for T1, else `null`.
+- `confidence` = `EXACT` for T1 or manual pairing, `HIGH` for T3.
+- `provenance` = `BANK` for automatic match, `AUTHORED` for manual pairing.
+- `flags = []`; `corrects`, `counterpartyBsb`, `counterpartyAcct`,
+  `foreignAmount`, `foreignCurrency` = `null`.
 - New field **`toAccountRef`** = account of the positive-amount (to) leg;
   `null` on non-TRANSFER lines. JSON position: immediately after `accountRef`.
 - New optional field **`comment`** on every line (nullable string): free-text
@@ -179,4 +190,4 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 ## Open
 
-- B10 (remaining TRANSFER fields), B11, B15–B23.
+- B11, B15–B23.
