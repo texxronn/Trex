@@ -36,7 +36,11 @@ public final class JsonlJournal implements Journal, AutoCloseable {
     public JsonlJournal(Path path) {
         this.path = path;
         try {
+            boolean created = java.nio.file.Files.notExists(path);
             this.channel = FileChannel.open(path, CREATE, WRITE, APPEND);
+            if (created) {
+                Recovery.syncFileAndDirectory(path);
+            }
             this.head = channel.size();
         } catch (IOException e) {
             throw new UncheckedIOException(e);

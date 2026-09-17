@@ -26,12 +26,24 @@ public final class Main {
         JsonlJournal journal = new JsonlJournal(config.journalTarget());
         Ledger ledger = Fold.fold(journal);
         Sequencer sequencer = new Sequencer(journal, ledger, config.registry(), config.rules(), Clock.systemUTC());
-        HttpApi api = new HttpApi(sequencer, config.apiPort(), HttpApi.DEFAULT_MAX_BODY_BYTES).start();
+        HttpApi api = new HttpApi(sequencer, config.bindHost(), config.bindPort(), HttpApi.DEFAULT_MAX_BODY_BYTES).start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             api.close();
             journal.close();
         }));
-        System.out.printf("trex-sequencer listening on port %d; journal %s head=%d n=%d%n",
-            api.port(), config.journalTarget(), head, ledger.highWaterN());
+        System.out.printf("trex-sequencer listening on %s:%d; journal %s head=%d n=%d%n",
+            config.bindHost(), api.port(), config.journalTarget(), head, ledger.highWaterN());
+        if (!isLoopback(config.bindHost())) {
+            System.out.println("WARNING: API has no authentication and is bound to " + config.bindHost()
+                + "; anyone who can reach it can ingest candidates and make decisions");
+        }
+    }
+
+    private static boolean isLoopback(String host) {
+        try {
+            return java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return false;
+        }
     }
 }

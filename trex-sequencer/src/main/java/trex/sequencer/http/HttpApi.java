@@ -29,11 +29,16 @@ public final class HttpApi implements AutoCloseable {
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
+    /** Loopback-only API (tests and local use). */
     public HttpApi(Sequencer sequencer, int port, long maxBodyBytes) {
+        this(sequencer, "127.0.0.1", port, maxBodyBytes);
+    }
+
+    public HttpApi(Sequencer sequencer, String bindHost, int port, long maxBodyBytes) {
         this.sequencer = sequencer;
         this.maxBodyBytes = maxBodyBytes;
         try {
-            this.server = HttpServer.create(new InetSocketAddress(port), 0);
+            this.server = HttpServer.create(new InetSocketAddress(bindHost, port), 0);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

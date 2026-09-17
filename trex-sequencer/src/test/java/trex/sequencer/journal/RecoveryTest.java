@@ -79,6 +79,16 @@ class RecoveryTest {
     }
 
     @Test
+    void syncFileAndDirectoryWorksOnNewFiles() throws IOException {
+        Path p = dir.resolve("fresh.jsonl");
+        Files.createFile(p);
+        Recovery.syncFileAndDirectory(p);
+        try (JsonlJournal j = new JsonlJournal(dir.resolve("created-by-journal.jsonl"))) {
+            assertEquals(0, j.headOffset());
+        }
+    }
+
+    @Test
     void missingSourceAborts() {
         assertThrows(IllegalStateException.class,
             () -> Recovery.recover(dir.resolve("absent.jsonl"), dir.resolve("target.jsonl")));

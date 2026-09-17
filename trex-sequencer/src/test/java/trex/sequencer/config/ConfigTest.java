@@ -24,7 +24,7 @@ class ConfigTest {
     }
 
     private static final String SEQUENCER = """
-        apiPort = 8080
+        bindPort = 8080
         [journal]
         source = "journal.jsonl"
         target = "journal.jsonl"
@@ -45,12 +45,23 @@ class ConfigTest {
     void loadsConfigDirectory() throws IOException {
         write(SEQUENCER, ACCOUNTS, TRANSFERS);
         Config c = Config.load(dir);
-        assertEquals(8080, c.apiPort());
+        assertEquals(8080, c.bindPort());
+        assertEquals("127.0.0.1", c.bindHost());
         assertEquals(dir.resolve("journal.jsonl"), c.journalSource());
         assertEquals("AUD", c.registry().find("ing-savings").orElseThrow().currency());
         assertTrue(c.rules().isTransferShaped("FAST TRANSFER to CBA"));
         assertFalse(c.rules().isTransferShaped("Woolworths"));
         assertEquals(3, c.rules().windowDays());
+    }
+
+    @Test
+    void bindHostCanBeSetAndOldApiPortIsRejected() throws IOException {
+        write("bindHost = \"0.0.0.0\"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
+        assertEquals("0.0.0.0", Config.load(dir).bindHost());
+        write(SEQUENCER.replace("bindPort", "apiPort"), ACCOUNTS, TRANSFERS);
+        assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
+        write("bindHost = \" \"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
+        assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
 
     @Test

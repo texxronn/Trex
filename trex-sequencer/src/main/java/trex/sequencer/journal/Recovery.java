@@ -30,12 +30,14 @@ public final class Recovery {
             if (sameFile(source, target)) {
                 if (Files.notExists(target)) {
                     Files.createFile(target);
+                    syncFileAndDirectory(target);
                 }
             } else {
                 if (Files.notExists(source)) {
                     throw new IllegalStateException("journal.source does not exist: " + source);
                 }
                 Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                syncFileAndDirectory(target);
                 if (!Arrays.equals(sha256(source), sha256(target))) {
                     throw new IllegalStateException("materialize verification failed: sha256(source) != sha256(target)");
                 }
@@ -65,6 +67,24 @@ public final class Recovery {
             if (ch.size() > end) {
                 ch.truncate(end);
                 ch.force(true);
+            }
+        }
+    }
+
+    /**
+     * Make a newly created journal file durable: its data and its directory entry (SPEC §3.1).
+     * Directory fsync is best effort on platforms that cannot open a directory for sync.
+     */
+    public static void syncFileAndDirectory(Path file) throws IOException {
+        try (FileChannel ch = FileChannel.open(file, StandardOpenOption.WRITE)) {
+            ch.force(true);
+        }
+        Path dir = file.toAbsolutePath().getParent();
+        try (FileChannel ch = FileChannel.open(dir, StandardOpenOption.READ)) {
+            ch.force(true);
+        } catch (IOException e) {
+            if (!System.getProperty("os.name", "").toLowerCase().contains("win")) {
+                throw e;
             }
         }
     }

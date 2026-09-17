@@ -18,7 +18,7 @@ import java.util.Set;
  * {@code sequencer.toml}, {@code accounts.toml} and {@code transfers.toml}. SPEC §6.
  * Relative journal paths resolve against the config directory.
  */
-public record Config(Path journalSource, Path journalTarget, int apiPort,
+public record Config(Path journalSource, Path journalTarget, String bindHost, int bindPort,
                      AccountRegistry registry, TransferRules rules) {
 
     private static final Set<String> FORMATS = Set.of("ing", "cba", "bw");
@@ -29,14 +29,18 @@ public record Config(Path journalSource, Path journalTarget, int apiPort,
         Map<String, Object> accounts = read(configDir.resolve("accounts.toml"));
         Map<String, Object> transfers = read(configDir.resolve("transfers.toml"));
 
-        allowOnly("sequencer.toml", sequencer, Set.of("apiPort", "journal"));
+        allowOnly("sequencer.toml", sequencer, Set.of("bindHost", "bindPort", "journal"));
         Map<String, Object> journal = table("sequencer.toml", sequencer, "journal");
         allowOnly("sequencer.toml [journal]", journal, Set.of("source", "target"));
         Path source = configDir.resolve(string("sequencer.toml [journal]", journal, "source"));
         Path target = configDir.resolve(string("sequencer.toml [journal]", journal, "target"));
-        long port = integer("sequencer.toml", sequencer, "apiPort");
+        String host = sequencer.containsKey("bindHost") ? string("sequencer.toml", sequencer, "bindHost") : "127.0.0.1";
+        if (host.isBlank()) {
+            throw new IllegalArgumentException("sequencer.toml: bindHost must not be blank");
+        }
+        long port = integer("sequencer.toml", sequencer, "bindPort");
         if (port < 0 || port > 65535) {
-            throw new IllegalArgumentException("sequencer.toml: apiPort out of range: " + port);
+            throw new IllegalArgumentException("sequencer.toml: bindPort out of range: " + port);
         }
 
         allowOnly("accounts.toml", accounts, Set.of("account"));
@@ -61,7 +65,7 @@ public record Config(Path journalSource, Path journalTarget, int apiPort,
         if (!(allowlist instanceof List<?> patterns)) {
             throw new IllegalArgumentException("transfers.toml: 'allowlist' must be an array of strings");
         }
-        return new Config(source, target, (int) port, new AccountRegistry(list),
+        return new Config(source, target, host, (int) port, new AccountRegistry(list),
             new TransferRules(patterns.stream().map(String.class::cast).toList(), Math.toIntExact(windowDays)));
     }
 
