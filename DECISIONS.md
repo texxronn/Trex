@@ -1,8 +1,9 @@
 # trex — resolved ambiguities
 
-Resolutions to gaps and conflicts found while reviewing SPEC.md before
-implementation. SPEC.md remains the authority except where an entry below
-explicitly **amends** it. Numbering (B1…) follows the pre-implementation review.
+Rationale log for gaps and conflicts found while reviewing SPEC.md before
+implementation. **All entries below are folded into SPEC.md, which is the sole
+authority.** This file records *why*. Numbering (B1…) follows the
+pre-implementation review.
 
 ## Amendments to SPEC.md
 

@@ -5,18 +5,18 @@ A build spec for three components, pitched for Claude Code generation:
 2. **A sample ingress adapter** — ING CSV → candidates → trex
 3. **Two sample egress followers** — `toArchive` and `toSQLiteWAL`
 
-Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decisions. This document is the *how to build it*; that one is the *why*. Where they conflict, the invariants in §0 win.
+Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decisions. This document is the *how to build it*; that one is the *why*. Where they conflict, the invariants in §0 win. Pre-implementation review decisions are folded into this document; `DECISIONS.md` records the rationale (B-numbers and T refer to it).
 
 ---
 
 ## 0. Non-negotiable invariants (every component honors these)
 
-1. **`external_id` is the sole identity.** Natural key (ING `Receipt`) ▸ else content hash `sha256(accountRef|date|amount|rawDescription|occ)[:16]` — hashes the **verbatim** `rawDescription`, never the cleaned `description`, so description cleanup stays soft and can evolve without shifting ids. **`balance` is never in identity *or* transaction semantics** — it is provenance/reconciliation data only (see §2.2 field doc and §5).
-2. **The journal is append-only, single-writer, immutable.** No update, no delete. Corrections are new events with `corrects`.
-3. **`n` is a monotonic long, assigned once at first ingest of a distinct `external_id`, then preserved forever** (read back on replay). Never in identity, referenced by nothing.
-4. **Amounts are `long` cents (fixed ×100 — every account is AUD/USD/INR, all 2-decimal).** `BigDecimal` appears **only at the CSV parse boundary** to convert a decimal string to cents (scale-checked); never `double`/`float`, never in the core.
+1. **`external_id` is the sole identity of a transaction.** Natural key (ING `Receipt`) ▸ else content hash `sha256(accountRef|date|amount|rawDescription|occ)[:16]` — hashes the **verbatim** `rawDescription`, never the cleaned `description`, so description cleanup stays soft and can evolve without shifting ids. **`balance` is never in identity *or* transaction semantics** — it is provenance/reconciliation data only (see §2.2 field doc and §5). An `external_id` may appear on several journal lines (versions, §3.2); it is not a line key.
+2. **The journal is append-only, single-writer, immutable.** No update, no delete. A state change is a new line (a re-appended version, §3.2); corrections are new events with `corrects`.
+3. **`n` is the journal record sequence: a `long`, unique per journal line, strictly increasing, starting at 1.** Assigned when the line is appended, preserved forever (read back on replay). Never in identity. Every line — including a re-appended version of an existing transaction — takes the next `n`.
+4. **Amounts are `long` cents (fixed ×100 — every account is AUD/USD/INR, all 2-decimal).** `BigDecimal` appears **only at the CSV parse boundary** to convert a decimal string to cents (scale-checked, never rounded); never `double`/`float`, never in the core.
 5. **Projection to any sink is one-way and idempotent.** Re-delivery must be a no-op.
-6. **Accuracy over recall.** Ambiguity → review queue, never a guess.
+6. **Accuracy over recall.** Ambiguity → review, never a guess.
 
 ---
 
@@ -38,12 +38,13 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
     trex-egress-sqlite/
       pom.xml
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the five `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`.
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the five `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. There is no shared egress module; the follower loop (§5.1) is duplicated minimally in each follower.
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
-  - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time). Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines).
+  - `com.fasterxml.jackson.core:jackson-annotations` — **the only dependency of trex-core** (for `@JsonPropertyOrder`; no databind in core).
+  - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in sequencer, ingress and followers. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
   - `org.xerial:sqlite-jdbc` (egress-sqlite only).
   - `org.junit.jupiter:junit-jupiter` (tests).
-  - **JDK-only for the rest:** `java.net.http.HttpClient` (adapters → trex), `com.sun.net.httpserver.HttpServer` (trex API — **confirmed choice; zero-dep, no Javalin**), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`.
+  - **JDK-only for the rest:** `java.net.http.HttpClient` (adapters → trex), `com.sun.net.httpserver.HttpServer` (trex API — **confirmed choice; zero-dep, no Javalin**), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`. Config files are TOML read by a hand-written subset parser (§6) — no TOML library.
   - **gzip note:** neither `HttpServer` nor `HttpClient` handles content-coding automatically — both directions are manual (§3.6, §4).
 
 ---
@@ -56,7 +57,7 @@ Pure, deterministic, no I/O. This is where the Java-25 algebraic modelling lives
 ```java
 public record Candidate(
     String candidateRef,      // adapter-local id for correlating the response (e.g. "row-12")
-    String accountRef,        // registry key; implies bank format + currency + firefly id
+    String accountRef,        // registry key; implies currency + firefly id
     LocalDate date,
     long amount,              // signed cents (×100); -ve = money out
     String rawDescription,    // verbatim
@@ -71,27 +72,28 @@ public record Candidate(
 
 ### 2.2 CanonicalEvent (journal record — one JSONL line)
 ```java
-@JsonPropertyOrder({ "n","externalId","accountRef","currency","date","amount","balance",
-    "description","rawDescription","typeHint","transferKey","legIds","corrects","stateSnapshot","confidence",
+@JsonPropertyOrder({ "n","externalId","accountRef","toAccountRef","currency","date","amount","balance",
+    "description","rawDescription","typeHint","transferKey","legIds","corrects","state","confidence",
     "flags","provenance","source","receipt","counterpartyBsb","counterpartyAcct",
-    "foreignAmount","foreignCurrency","ingestedAt" })
+    "foreignAmount","foreignCurrency","comment","ingestedAt" })
 public record CanonicalEvent(
-    long n,
+    long n,                   // journal line sequence (§0.3)
     String externalId,
-    String accountRef,
+    String accountRef,        // TRANSFER: the from (negative-amount) leg's account
+    String toAccountRef,      // TRANSFER only: the to (positive-amount) leg's account; else null
     String currency,          // stamped from registry (account attribute; no conversion)
     LocalDate date,
-    long amount,              // cents
-    long balance,             // cents. PROVENANCE/RECONCILIATION ONLY — never identity, never transaction semantics
-    String description,       // cleaned
+    long amount,              // cents. Signed on transaction lines; TRANSFER: absolute value (direction = accountRef → toAccountRef)
+    long balance,             // cents. PROVENANCE/RECONCILIATION ONLY — never identity, never transaction semantics. TRANSFER: 0
+    String description,       // cleaned (§3.3)
     String rawDescription,
     TypeHint typeHint,
-    String transferKey,       // nullable; set on the collapsed transfer + its two legs
-    List<String> legIds,      // TRANSFER events only: the two leg external_ids collapsed; else null/[]
+    String transferKey,       // nullable; TRANSFER line: its TRF- id; legs: set only if matched when that line was appended
+    List<String> legIds,      // TRANSFER only: [fromLeg, toLeg] external_ids; else null
     String corrects,          // nullable; external_id this reverses/corrects
-    EventState stateSnapshot, // append-time snapshot, AUDIT ONLY — NOT authoritative. Runtime state = derivedState(externalId), §3.2
-    Confidence confidence,    // nullable
-    List<Flag> flags,
+    EventState state,         // state of this version. Latest line (highest n) per externalId is AUTHORITATIVE (§3.2)
+    Confidence confidence,    // nullable; set on TRANSFER lines
+    List<Flag> flags,         // never null; empty = []
     Provenance provenance,
     String source,            // e.g. "ing-csv"
     String receipt,           // nullable
@@ -99,7 +101,8 @@ public record CanonicalEvent(
     String counterpartyAcct,  // nullable
     Long foreignAmount,       // nullable cents; superset for cross-currency (phase 2), null in phase 1
     String foreignCurrency,   // nullable; superset (phase 2)
-    Instant ingestedAt
+    String comment,           // nullable; free text from a POST /decisions decision, else null. Never identity
+    Instant ingestedAt        // stamped from an injected java.time.Clock on first append; never restamped
 ) {}
 ```
 
@@ -108,8 +111,8 @@ public record CanonicalEvent(
 public enum Provenance { BANK, AUTHORED }
 public enum TypeHint   { WITHDRAWAL, DEPOSIT, TRANSFER }
 public enum Confidence { EXACT, HIGH, REVIEW }
-public enum Flag       { POTENTIAL_DUP, LATE_ARRIVAL }
-public enum EventState { EMITTED, HELD, MATCHED, AGED_OUT, REVIEW, EXTERNAL }
+public enum Flag       { POTENTIAL_DUP }
+public enum EventState { HELD, MATCHED, REVIEW, EXTERNAL }
 
 // Identity tier — sealed so the id function is exhaustive & centralized
 public sealed interface IdentityStrategy permits NaturalKey, ContentHash {}
@@ -117,7 +120,7 @@ public record NaturalKey(String accountRef, String receipt) implements IdentityS
 public record ContentHash(String accountRef, LocalDate date, long amount,
                           String rawDescription, int occ) implements IdentityStrategy {}
 
-// Per-candidate outcome returned in the batch response
+// Per-candidate / per-decision outcome returned in the batch response
 public sealed interface CandidateResult
     permits Resolved, DroppedDuplicate, Held, Flagged, Rejected {}
 public record Resolved(String candidateRef, String externalId, long n) implements CandidateResult {}
@@ -132,10 +135,10 @@ public enum BatchStatus { COMMITTED, PARTIAL, REJECTED }
 // Matcher outcome — sealed so the matcher switch is exhaustive
 public sealed interface MatchOutcome
     permits ExactTransfer, FuzzyTransfer, AmbiguousTransfer, HeldLeg, NotTransfer {}
-public record ExactTransfer(String legA, String legB, String transferId) implements MatchOutcome {} // T1/T2
+public record ExactTransfer(String legA, String legB, String transferId) implements MatchOutcome {} // T1
 public record FuzzyTransfer(String legA, String legB, String transferId) implements MatchOutcome {} // T3 high
-public record AmbiguousTransfer(String leg, List<String> candidates)     implements MatchOutcome {} // T3 → review
-public record HeldLeg(String leg)                                        implements MatchOutcome {} // no contra yet
+public record AmbiguousTransfer(String leg, List<String> candidates)     implements MatchOutcome {} // >1 contra → REVIEW
+public record HeldLeg(String leg)                                        implements MatchOutcome {} // transfer-shaped, no contra yet
 public record NotTransfer(String leg)                                    implements MatchOutcome {} // ordinary → EXTERNAL
 
 // Occurrence signature (content-hash banks)
@@ -145,11 +148,13 @@ public record Sig(String accountRef, LocalDate date, long amount, String rawDesc
 ### 2.4 Identity (trex-core/Ids)
 ```java
 String externalId(IdentityStrategy s);   // sha256 of a canonical string, first 16 hex chars
-String transferId(String receipt);       // "TRF-" + receipt   (ING)
-String transferId(String idA, String idB);// "TRF-" + sha256(sorted(idA,idB))[:16]  (cross-bank)
+String transferId(String receipt);       // "TRF-" + receipt   (T1, shared receipt)
+String transferId(String idA, String idB);// "TRF-" + sha256("tr|" + min(idA,idB) + "|" + max(idA,idB))[:16]  (T3 / manual)
 ```
 - Canonical string for `NaturalKey`: `"nk|" + accountRef + "|" + receipt`.
 - Canonical string for `ContentHash`: `"ch|" + accountRef + "|" + date(ISO) + "|" + Long.toString(amount) + "|" + rawDescription + "|" + occ`. (`long` cents has exactly one representation — no `10.0`-vs-`10.00` hazard.)
+- Hashing: canonical string encoded **UTF-8**, SHA-256, **lowercase** hex, first 16 hex chars. `min`/`max` are `String.compareTo` order.
+- `rawDescription` is the CSV-unquoted field value, **untrimmed**.
 - **Frozen:** the exact string format and hashing are the identity contract. Do not reorder/reformat after go-live.
 
 ### 2.5 Occurrence index (Stream Gatherer)
@@ -161,6 +166,8 @@ List<OccCandidate> assignOcc(List<Candidate> batch);
 record OccCandidate(Candidate c, int occ) {}   // occ = 0 for natural-key
 ```
 Determinism requirement: within a batch, identical-`Sig` candidates get stable ascending `occ` in input order. **A signature-group must never span two calls.** The unit that guarantees this is `(account, day)`; since a file is one account, the rule reduces to *never split a calendar day across calls* — the ingress client (§4) may split a large file, but only on whole-day boundaries.
+
+Input row order is not assumed to be meaningful (§4): `occ` follows the order rows arrive in. The same file always yields the same ids; a re-exported file that reorders identical-`Sig` rows may swap their `occ` — accepted, and it surfaces as `POTENTIAL_DUP` because their balances differ (§3.3).
 
 ---
 
@@ -179,7 +186,8 @@ public interface Journal {
 ```
 **JSONL writer rules:**
 - One event per line, `\n`-terminated, UTF-8, deterministic field order (§2.2).
-- Open target with `O_APPEND`. `appendBatch` serializes all events to one byte block, does a single write, then `force(true)` (fsync) **before** the sequencer updates in-memory state / returns success. Crash before fsync ⇒ torn tail ⇒ truncated on next recovery ⇒ batch simply absent ⇒ adapter retries (idempotent).
+- Byte format: null fields are **written** (not omitted); `flags` always an array (`[]` when empty); `legIds` `null` on non-TRANSFER lines; `LocalDate`/`Instant` as ISO-8601 strings.
+- Open target with `O_APPEND`. `appendBatch` serializes all events to one byte block, writes it fully, then `force(true)` (fsync) **before** the sequencer updates in-memory state / returns success. One fsync per `appendBatch` (i.e. per API call), always — there is no fsync policy option. Crash before fsync ⇒ torn tail ⇒ truncated on next recovery ⇒ batch simply absent ⇒ adapter retries (idempotent).
 - **Framing on read:** a record is complete iff it ends in `\n` **and** parses as a `CanonicalEvent`. A trailing partial line is *not* returned and the read offset is *not* advanced past it.
 
 ### 3.2 Recovery / materialize (startup)
@@ -190,44 +198,38 @@ if source == target:
     truncate any torn tail             // truncate file to that boundary
     openForAppend(target)
 else:                                   // materialize (shm transport, migration, restore)
-    byteCopy(source -> target)          // Files.copy / FileChannel.transferTo — NEVER re-serialize
+    byteCopy(source -> target)          // Files.copy / FileChannel.transferTo — NEVER re-serialize; overwrites target
     verify: sha256(source) == sha256(target)  else ABORT
     scanToLastCompleteRecord(target); truncate torn tail
     openForAppend(target)
 ```
-Then **fold** the journal into memory (this *is* self-ingest). **Current lifecycle state is DERIVED by replaying, never read from the stored `stateSnapshot`** — the journal is immutable, so a HELD→MATCHED transition is never a mutation; it's implied by later events. This keeps append-only intact and makes restart reproduce identical state. The two are distinct and must not be conflated:
-- `event.stateSnapshot` — the state as recorded when *that* event was appended. Audit/debug only. May be stale (e.g. a leg written `HELD` that a later TRANSFER has since matched).
-- `derivedState(externalId)` — the authoritative *current* state, computed by the fold below. This is what every consumer/projector/query uses.
+When `source != target`, **source is authoritative**: target is overwritten on every startup. Keeping source current is the operator's responsibility.
+
+Then **fold** the journal into memory (this *is* self-ingest). The journal is a log of **versions**: when a transaction's state changes, a full copy of it is re-appended with a new `n` and the new `state` (§3.3, §3.4). **The latest line (highest `n`) for an `externalId` is its authoritative current state.** Nothing is ever rewritten; restart reproduces identical state.
 ```
-pass 1 — index every replayed event:
-    seenIds.put(externalId, event)          // dedup set (+ balance for drift check)
+for each replayed line, in journal order:
+    if externalId not in firstLine: firstLine[externalId] = line   // dedup set; balance for drift check
+    latest[externalId] = line                                     // current version
     highWaterN = max(highWaterN, n)
-    if typeHint == TRANSFER: matchedLegs.addAll(event.legIds)   // legs a transfer resolved
-    if event is a WATERMARK control event: watermark[account] = date
-    lastBalance[accountRef] = balance
-pass 2 — derive current state per ordinary event:
-    if externalId in matchedLegs:                 -> MATCHED   (not projected; its TRANSFER is)
-    else if transfer-shaped and not matched:
-        if date > watermark[account]:             -> HELD      (add to suspense worklist)
-        else:                                     -> EXTERNAL  (aged out)
-    else:                                         -> EXTERNAL  (ordinary)
-    if flags∋POTENTIAL_DUP/LATE_ARRIVAL or AmbiguousTransfer -> reviewQueue
+derived views (from latest):
+    held   = { id | latest[id].state == HELD }
+    review = { id | latest[id].state == REVIEW  or  POTENTIAL_DUP ∈ latest[id].flags }
 ```
-The stored `stateSnapshot` is append-time audit only. The authoritative accessor, computed from the fold structures above, is:
-```java
-// authoritative CURRENT state — computed, never read from event.stateSnapshot
-EventState derivedState(String externalId);
-//   in matchedLegs                         -> MATCHED
-//   transfer-shaped & unmatched & date>wm  -> HELD
-//   transfer-shaped & unmatched & date<=wm -> EXTERNAL (aged)
-//   otherwise                              -> EXTERNAL
-```
-Because the fold is deterministic over (events + WATERMARK control events), a crash-restart or a from-scratch rebuild reconstructs `derivedState`, suspense, matched, review and watermarks exactly.
+Rules are **never re-evaluated** on replay — replay uses stored `state` only, so tuning rules (§3.4) affects future ingests only.
+
+**Re-append rules** (every re-appended version):
+1. Identical to the previous line for that `externalId` except `n`, `state`, `flags` and `comment` (`ingestedAt`, `balance`, `description`, … unchanged). `comment` is the comment of the decision that caused the re-append, else `null` (not carried over).
+2. Allowed state transitions: HELD→MATCHED, HELD→EXTERNAL, REVIEW→MATCHED, REVIEW→EXTERNAL. A flag-only re-append (§3.3 dedup, `DISMISS_DUP`) keeps `state` unchanged.
+
+**Read consistency:** after each successful commit the sequencer publishes an immutable snapshot of in-memory state via an `AtomicReference`. Read endpoints use the snapshot: lock-free, never a half-applied batch.
 
 ### 3.3 Ingress pipeline (`POST /candidates`)
 Validate-all-then-commit (atomic per batch):
 ```
-1. parse body -> List<Candidate>; assign candidateRefs if absent
+1. parse body to a JSON tree; bind each batch element individually
+     malformed body / wrong top-level structure -> 400, nothing appended
+     malformed element                          -> Rejected(ref, reason)
+   missing candidateRef -> "idx-" + zeroBasedIndex
 2. VALIDATE each (accountRef known via registry? amount/date/balance present & parseable?).
    On any hard Rejected, branch on the request's `allOrNone` (default false):
      allOrNone=true  -> append NOTHING; batchStatus=REJECTED; results carry every Rejected
@@ -235,41 +237,78 @@ Validate-all-then-commit (atomic per batch):
    NOTE: allOrNone governs VALIDATION rejects only; it never weakens append atomicity (§3.1).
 3. assignOcc(batch)                       // §2.5, over the surviving candidates
 4. for each candidate -> mint externalId (NaturalKey if receipt else ContentHash)
-5. DEDUP: if externalId in seenIds:
-       same balance      -> DroppedDuplicate
-       different balance  -> Flagged(POTENTIAL_DUP) -> reviewQueue  (occ drift / collision)
-6. MATCH (transfer state machine, §3.4) on the surviving new events
-7. assign n = ++highWaterN for each genuinely-new externalId (preserve for held re-presentation)
-8. build List<CanonicalEvent> to persist: stamp `currency` (registry), `source`, `ingestedAt`;
-   set `typeHint` (TRANSFER for a collapsed transfer, else DEPOSIT/WITHDRAWAL by amount sign);
-   set `stateSnapshot` (append-time); a collapsed TRANSFER carries `legIds=[idA,idB]`
-9. journal.appendBatch(events)            // atomic; fsync
-10. update in-memory state (seenIds, suspense, reviewQueue, matchedLegs, lastBalance)
-11. respond { batchHandle, batchStatus: COMMITTED | PARTIAL, results:[...] }
+5. DEDUP against firstLine (and earlier candidates in this batch):
+       same balance                                   -> DroppedDuplicate, nothing appended
+       different balance, latest already POTENTIAL_DUP -> Flagged(POTENTIAL_DUP), nothing appended
+       different balance otherwise                     -> re-append latest version, state unchanged,
+                                                          flags=[POTENTIAL_DUP]; Flagged(POTENTIAL_DUP)
+6. MATCH (§3.4) each genuinely-new candidate, in input order -> new-leg state
+       ExactTransfer / FuzzyTransfer -> MATCHED (contra: new leg in batch → MATCHED directly;
+                                        existing HELD leg → re-appended MATCHED) + a TRANSFER line
+       AmbiguousTransfer             -> REVIEW    (only the incoming leg; other legs untouched)
+       HeldLeg                       -> HELD
+       NotTransfer                   -> EXTERNAL
+7. build lines to persist, in this order:
+       a. new legs (input order): stamp `currency` (registry), `source`, `ingestedAt` (Clock);
+          `description` = clean(rawDescription); typeHint = WITHDRAWAL if amount < 0 else DEPOSIT;
+          flags=[]; confidence=null
+       b. re-appended versions (dedup flags, matched HELD legs)
+       c. TRANSFER lines (§3.4)
+   assign n = ++highWaterN to each line in that order
+8. journal.appendBatch(lines)             // atomic; fsync
+9. update in-memory state (firstLine, latest, highWaterN) and publish snapshot
+10. respond { batchHandle, batchStatus: COMMITTED | PARTIAL | REJECTED, results:[...] }
+       results per candidate: new EXTERNAL / MATCHED -> Resolved(ref, id, n); HELD -> Held;
+       REVIEW -> Flagged(ref, id, []); dedup -> DroppedDuplicate / Flagged(POTENTIAL_DUP); Rejected
 ```
+`clean(rawDescription)` is one swappable pure function: trim, collapse internal whitespace runs to a single space. It never affects identity.
+
 `batchHandle` = server-minted per submission (UUID or a monotonic long), returned for audit, **not** supplied by caller. Under `PARTIAL`/`REJECTED` the caller **must** read `results` to learn what landed (a bare status is insufficient).
 
-### 3.4 Transfer matcher + state machine
-Default `EXTERNAL`; only allowlisted transfer-shaped legs are held.
-- **Allowlist (config, `transfers.toml`):** shared-receipt shape, `Internal Transfer`, `To my account`, Osko/PayID/`Fast Transfer`.
+### 3.4 Transfer matcher + state rules
+Deciding which state a new candidate gets (`MATCHED` / `HELD` / `REVIEW` / `EXTERNAL`) lives in trex-sequencer and is expected to evolve into a tunable rule set. **Phase 1 starts defensive:** when unsure → HELD or REVIEW, never an automatic guess; rules are loosened later based on what the review workflow shows.
+- **Transfer-shaped:** `rawDescription` matches any allowlist regex from `transfers.toml` (case-insensitive), e.g. `Internal Transfer`, `To my account`, Osko/PayID/`Fast Transfer`. A receipt alone does not make a leg transfer-shaped.
+- **Match pool:** legs whose current state is HELD, plus new legs earlier in the same batch. REVIEW, EXTERNAL and MATCHED legs are never auto-matched.
 - **Tiers (first match wins), as a sealed `MatchOutcome`:**
-  - **T1** same `receipt` in two in-scope accounts, opposite sign → `EXACT` → collapse → `TRF-<receipt>`.
-  - **T3** `|amount|` equal + opposite sign + date within `windowDays` + plausible account pair (+ text corroboration) → `HIGH` → collapse; multiple candidates → `REVIEW`.
-  - else `EXTERNAL`.
-- **State transitions** (`EventState`): NEW → {MATCHED | HELD | REVIEW | EXTERNAL}; HELD → MATCHED (contra arrives later) / REVIEW / AGED_OUT.
-- **Aging is watermark-driven, not wall-clock:** `POST /period-complete {date}` advances a per-account (or global) completeness watermark; only then do still-HELD legs below it become AGED_OUT → EXTERNAL. A `late_arrival` (event dated ≤ a per-account high-water) is `Flagged(LATE_ARRIVAL)` → review. **The watermark advance is itself journaled as a `WATERMARK` control event**, so the fold recomputes aging deterministically on restart (never a wall-clock or in-memory-only decision).
-- **Collapse (confirmed):** keep **both leg events in the journal, marked `MATCHED`**, for audit — never suppress them, never re-append them. Emit an additional collapsed `TRANSFER` `CanonicalEvent` carrying `transferKey` (`TRF-…`) **and `legIds = [idA, idB]`**; a leg's MATCHED status is *derived* from `legIds` membership at fold time, so the immutable legs are never rewritten. That collapsed record is the **projectable unit** (what the Firefly egress posts as one transfer). So a resolved transfer is three journal records — two `MATCHED` legs (audit, not projected) + one `TRANSFER` (projected). Followers/projectors select by `typeHint == TRANSFER` and skip any leg appearing in some TRANSFER's `legIds`, to avoid double-counting.
+  - **T1** same `receipt` in two different accounts, opposite sign (transfer-shaped or not) → `ExactTransfer` → `TRF-<receipt>`, confidence `EXACT`. More than one T1 contra → `AmbiguousTransfer`.
+  - **T3** both legs transfer-shaped, `|amount|` equal, opposite sign, dates within `windowDays`, different accounts, same currency → `FuzzyTransfer` → `transferId(idA,idB)`, confidence `HIGH`. No text corroboration in phase 1. More than one T3 contra → `AmbiguousTransfer`.
+  - (T2 is not defined and not implemented.)
+  - no match: transfer-shaped → `HeldLeg`; otherwise → `NotTransfer`.
+- **No aging.** A HELD leg leaves HELD only by an automatic match or a manual decision (§3.5). There are no watermarks and no time-based transitions.
+- **Collapse:** keep **both leg lines in the journal** for audit. A resolved transfer produces a **TRANSFER line**, the projectable unit (what the Firefly egress posts as one transfer):
+  - `externalId = transferKey = TRF-…`, `typeHint = TRANSFER`, `state = MATCHED`, `legIds = [fromLeg, toLeg]`, `n` after its legs.
+  - `accountRef` = from (negative-amount) leg's account; `toAccountRef` = to (positive-amount) leg's account; `amount = |amount|`.
+  - `date`, `currency`, `description`, `rawDescription`, `source` copied from the from leg; `balance = 0`.
+  - `receipt` = shared receipt for T1, else `null`; `confidence` = `EXACT` (T1 or manual) / `HIGH` (T3); `provenance` = `BANK` (automatic) / `AUTHORED` (manual).
+  - `flags = []`; `corrects`, `counterpartyBsb`, `counterpartyAcct`, `foreignAmount`, `foreignCurrency` = `null`; `comment` from the decision (manual) else `null`.
+- **Journal shape:** legs in two batches → 4 lines (leg A `HELD`, leg B `MATCHED`, leg A re-appended `MATCHED`, TRANSFER). Legs in one batch → 3 lines (two `MATCHED` legs, TRANSFER). Followers/projectors select transfers by `typeHint == TRANSFER` and skip legs listed in some TRANSFER's `legIds`, to avoid double-counting.
 
 Use **pattern-matching `switch` over sealed `MatchOutcome`/`IdentityStrategy`** so adding a tier or state fails compilation until every site handles it.
 
 ### 3.5 HTTP API (JDK HttpServer)
 - `POST /candidates` — body `{ "allOrNone": false, "batch": [Candidate...] }` (`allOrNone` optional, **default false**) → `{ batchHandle, batchStatus: COMMITTED|PARTIAL|REJECTED, results:[CandidateResult...] }`. 200 on all data-level outcomes (incl. `PARTIAL`/`REJECTED`); **non-2xx only on structural/atomicity/internal failure** (nothing appended).
-- `POST /period-complete` — `{ "date": "YYYY-MM-DD", "accountRef": "..."? }` → advances watermark (**appends a `WATERMARK` control event**), returns aged-out events.
-- `POST /decisions` — portal authored events (confirm transfer / keep-both / mark-external / MAN- entry); routed through the same ingress write path with `provenance = AUTHORED`.
-- `GET /review` — pending review items (portal).
-- `GET /held` — HELD legs as the upload worklist (portal).
-- `GET /head` — `{ offset, n }` (followers/portal can poll).
-- **Single-writer:** guard all mutating endpoints with one write lock (or a single-threaded executor) so appends are serialized. Reads are lock-free over the immutable journal.
+- `GET /held` — latest line of every transaction whose current state is HELD, ordered by `n`.
+- `GET /review` — latest line of every transaction whose current state is REVIEW **or** whose latest `flags` contain `POTENTIAL_DUP`, ordered by `n`.
+- `POST /decisions` — manual resolution (below).
+- `GET /head` — `{ offset, n }` (followers/resolver can poll).
+
+`GET /held`, `GET /review` and `POST /decisions` form the **resolution workflow** and are fully implemented in phase 1. The manual resolver is a separate service (a journal follower that calls this API); it is not one of the phase-1 modules.
+
+**`POST /decisions`**
+- Request: `{ "allOrNone": false, "decisions": [ { "decisionRef", "action", ... } ] }`; body binding as §3.3 step 1.
+  - `MARK_EXTERNAL`: `externalId`, optional `comment`.
+  - `CONFIRM_TRANSFER`: `legA`, `legB`, optional `comment`.
+  - `DISMISS_DUP`: `externalId`, optional `comment`.
+- Response: `{ batchHandle, batchStatus, results }` (same envelope as `/candidates`). Success → `Resolved(decisionRef, externalId, n)` (leg id for `MARK_EXTERNAL`/`DISMISS_DUP`, `TRF-…` id for `CONFIRM_TRANSFER`); failure → `Rejected(decisionRef, reason)`. `allOrNone` as in `/candidates`.
+- Rejected when: unknown `externalId`; for `MARK_EXTERNAL`/`CONFIRM_TRANSFER` current state not HELD/REVIEW; for `CONFIRM_TRANSFER` also same leg twice, same account, different currency, amounts not equal-and-opposite, or a leg already used by an earlier decision in the same request (`windowDays` not enforced — human override); for `DISMISS_DUP` the latest line lacks `POTENTIAL_DUP` (any state allowed).
+- Output:
+  - `MARK_EXTERNAL` → leg re-appended with `state = EXTERNAL`, `comment`.
+  - `CONFIRM_TRANSFER` → both legs re-appended `MATCHED` with `comment` + TRANSFER line (`confidence = EXACT`, `provenance = AUTHORED`, `comment`, `transferKey = transferId(idA,idB)`).
+  - `DISMISS_DUP` → re-appended with `flags = []`, state unchanged, `comment`.
+- All accepted decisions in one request are one atomic `appendBatch` (line order: re-appended legs, then TRANSFER lines).
+- Not in phase 1: "keep-both" and "MAN-" manual entries.
+
+**Single-writer:** guard all mutating endpoints with one write lock (or a single-threaded executor) so appends are serialized. Reads are lock-free over the published snapshot (§3.2).
 
 ### 3.6 gzip (negotiated, both directions, manual)
 `HttpServer` has **no** content-coding support, so implement it once and route every handler through two helpers:
@@ -293,15 +332,17 @@ void   writeJson(HttpExchange ex, int status, Object obj); // transparently gzip
 
 ## 4. trex-ingress-ing — sample ingress adapter (ING CSV)
 
-Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract.
+Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract. **All bank-specific behavior lives in ingress adapters**; the sequencer has none. ING is the starter template; CBA/BW adapters follow the same model in a later phase.
 ```
 Usage: trex-ingress-ing --account <accountRef> --url http://trex:PORT <file.csv>
 ```
-- **ING format:** header `Date,Description,Credit,Debit,Balance`; `dd/mm/yyyy`; `amount = coalesce(credit,0) + coalesce(debit,0)` (**debit already negative**); `receipt` via regex `Receipt (No )?(\d+)` on description; balance signed. `rawDescription` = verbatim column.
-- **Amount parsing (cents, the only place `BigDecimal` lives):** each decimal column → cents via `new BigDecimal(str).movePointRight(2).longValueExact()`; **reject** any value with >2 decimals as bad data (`Rejected`). Never `Double.parseDouble(x) * 100` (reintroduces float error). Applies to `amount` and `balance`.
+- **ING format:** header `Date,Description,Credit,Debit,Balance`; `dd/mm/yyyy`; `amount = coalesce(credit,0) + coalesce(debit,0)` (**debit already negative**); `receipt` via regex `Receipt (No )?(\d+)` on description; balance signed. `rawDescription` = verbatim column (CSV-unquoted, untrimmed).
+- **Row order:** not assumed. Rows are sent in file order as-is — no sorting or reversal (§2.5).
+- **Amount parsing (cents, the only place `BigDecimal` lives):** each decimal column → cents via `new BigDecimal(str).movePointRight(2).longValueExact()`. Never `Double.parseDouble(x) * 100` (reintroduces float error), never rounded. Applies to `amount` and `balance`.
+- **Whole-file validation before sending:** the adapter parses and validates the entire file first. Any value with >2 decimals or otherwise not convertible to exact cents → **nothing is sent**; the adapter prints every bad row (file, line, column, value) and exits non-zero. (Dropping a single row could shift `occ` for later identical-`Sig` rows once the fixed row is re-ingested.) Such rows never reach the sequencer or review; fix the file (or parser) and re-run (idempotent).
 - Build one `Candidate` per row; `candidateRef = "row-" + lineNumber`; `provenance = BANK`; leave `currency` unset (sequencer stamps it).
 - **Batching (day-atomic).** Default: whole file = one `/candidates` call. For a very large file the client MAY split across calls, **but only on whole-day boundaries** — never mid-day (occ is `(account,day)`-scoped; a file is already one account, so the rule reduces to *don't split a calendar day*). Algorithm: group rows by date; pack whole day-groups into a call up to a soft size target; **if one day alone exceeds the target, send that day as its own call anyway — a day is the atom, size yields to correctness**. Each call is an ordinary independent batch; the server needs no chunk-awareness, and `allOrNone` applies per call.
-- **Cross-file caveat:** the client keeps a day whole only *within one file*. Pulling whole days per statement (operator discipline) prevents a day splitting across two files; the reconciliation tripwire (Σ ≠ Δbalance) is the backstop if it ever does.
+- **Cross-file caveat:** the client keeps a day whole only *within one file*. Pulling whole days per statement (operator discipline) prevents a day splitting across two files; the reconciliation tripwire (§7 test 6) is the backstop if it ever does.
 - Print the response: per-row status; non-zero exit if `batchStatus != COMMITTED`.
 - HTTP via `java.net.http.HttpClient`; Jackson for (de)serialization.
 - **gzip (mirror of §3.6; also manual — `HttpClient` does not auto-gzip):** gzip the request body and set `Content-Encoding: gzip` (candidate arrays compress ~8–12×, so this is worth it for large backfills); always send `Accept-Encoding: gzip`; and degzip the response **iff** it comes back with `Content-Encoding: gzip`. Keep it symmetric with the server helpers so a plain-mode run (no gzip) still works for quick tests.
@@ -312,11 +353,11 @@ Acceptance: parsing an ING slice yields the same candidates every run (golden fi
 
 ## 5. Egress followers (tail the journal file directly)
 
-Followers **read the journal file directly** (single-writer append-only makes this safe), tail by byte offset with framing, and persist only their offset. They do **not** use the trex HTTP API.
+Followers **read the journal file directly** (single-writer append-only makes this safe), tail by byte offset with framing, and persist only their offset. They do **not** use the trex HTTP API. Both phase-1 followers are **journal mirrors**: one output record per journal line, keyed by `n`, with no transaction-state logic.
 
-### 5.1 Shared follower loop (put in a small `trex-egress-common` or duplicate minimally)
+### 5.1 Shared follower loop (duplicated minimally in each follower)
 ```
-loop (cron / poll interval):
+loop (every pollSeconds):
     channel = open(journalPath, READ)
     channel.position(persistedOffset)
     buffer = read available bytes
@@ -327,37 +368,49 @@ loop (cron / poll interval):
     persist(advancedOffset)                     // only past COMPLETE, consumed records
     # trailing partial line: not consumed, offset not advanced, retried next pass
 ```
-Rule: **advance the offset only after the consume side-effect is durable.** At-least-once + idempotent consumers (never attempt exactly-once via clever offset games).
+Rule: **advance the offset only after the consume side-effect is durable.** At-least-once + idempotent consumers (never attempt exactly-once via clever offset games). Batching of follower work is controlled by `pollSeconds`, never by delaying the sequencer's fsync.
 
 ### 5.2 trex-egress-archive (log-mirror follower)
-- Consume = append the event to an archive JSONL at `archivePath` (cold copy / second location).
-- Idempotent: skip if `externalId` already archived (keep a small seen-set, or dedup by scanning — at volume, a `HashSet` loaded at start is fine).
+- Consume = append the line's event to an archive JSONL at `archivePath` (cold copy / second location).
+- Idempotent by `n`: skip if that `n` is already archived (`n` is strictly increasing, so the highest archived `n`, loaded at start, suffices).
 - Cursor: a plain offset file (`archivePath + ".offset"`). This is a pure mirror — no resolution logic, bare offset is correct.
 
-### 5.3 trex-egress-sqlite (log-mirror follower → SQLite WAL projection)
+### 5.3 trex-egress-sqlite (log-mirror follower → SQLite WAL)
+- The database mirrors the **journal**, not transaction state: one row per journal line, primary key `n`, every `CanonicalEvent` field stored.
 - SQLite with `PRAGMA journal_mode=WAL;`. Schema:
   ```sql
-  CREATE TABLE IF NOT EXISTS events (
-    external_id TEXT PRIMARY KEY, n INTEGER, account_ref TEXT, currency TEXT,
-    date TEXT, amount INTEGER, balance INTEGER, description TEXT, type_hint TEXT,
-    transfer_key TEXT, corrects TEXT, state_snapshot TEXT, provenance TEXT, ingested_at TEXT
+  CREATE TABLE IF NOT EXISTS journal (
+    n INTEGER PRIMARY KEY,
+    external_id TEXT NOT NULL,
+    account_ref TEXT, to_account_ref TEXT, currency TEXT,
+    date TEXT, amount INTEGER, balance INTEGER,
+    description TEXT, raw_description TEXT,
+    type_hint TEXT, transfer_key TEXT, leg_ids TEXT,      -- JSON array or NULL
+    corrects TEXT, state TEXT, confidence TEXT, flags TEXT, -- flags: JSON array
+    provenance TEXT, source TEXT, receipt TEXT,
+    counterparty_bsb TEXT, counterparty_acct TEXT,
+    foreign_amount INTEGER, foreign_currency TEXT,
+    comment TEXT, ingested_at TEXT
   );
+  CREATE INDEX IF NOT EXISTS journal_external_id ON journal(external_id);
   CREATE TABLE IF NOT EXISTS follower_state (k TEXT PRIMARY KEY, offset INTEGER);
   ```
-- **Exactly-once into SQLite for free:** do the `INSERT ... ON CONFLICT(external_id) DO NOTHING` **and** the `follower_state` offset update **in one transaction**. Because SQLite is transactional, insert+offset-advance commit atomically → no at-least-once duplicate window for this sink. (This is the model the file-only archive follower can't have, hence the ON CONFLICT there.)
-- `amount`/`balance` stored as `INTEGER` (cents) — exact and simpler than TEXT; never bind as REAL. `balance` is provenance only (never queried for identity/semantics).
-- The `state_snapshot` column stores `event.stateSnapshot` verbatim (audit). A consumer needing *current* lifecycle state must derive it (fold), **not** read this column — a plain mirror does not track `derivedState`.
+- **Exactly-once into SQLite for free:** do the `INSERT ... ON CONFLICT(n) DO NOTHING` **and** the `follower_state` offset update **in one transaction**. Because SQLite is transactional, insert+offset-advance commit atomically → no at-least-once duplicate window for this sink. (The file-only archive follower can't have this, hence its `n` check.)
+- `amount`/`balance` stored as `INTEGER` (cents) — exact; never bind as REAL. `balance` is provenance only (never queried for identity/semantics).
+- Current state of a transaction = the row with the highest `n` for its `external_id`; the follower itself holds no state logic.
 - Cursor lives in `follower_state`, not a sidecar file.
 
-**Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (collapsed transfers, terminal-state events), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` (Firefly categorizes) and `error_if_duplicate_hash`, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
+**Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` (Firefly categorizes) and `error_if_duplicate_hash`, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
 
 ---
 
 ## 6. Config
 
-- `accounts.toml` — the registry (the spine): per account `ref`, `format` (`ing|cba|bw`), `currency` (`AUD|USD|INR`), `fireflyAccountId`. Sequencer uses it to stamp `currency` and pick behavior; adapters use it only for `format`.
-- `transfers.toml` — allowlist patterns, `windowDays`.
-- `sequencer.toml` — `journal.source`, `journal.target`, `apiPort`, `fsync` policy.
+All config files are TOML, read by a hand-written subset parser in trex-sequencer (JDK-only): `[table]`, `[[array-of-tables]]`, `key = value` with strings, integers, booleans, arrays of strings, `#` comments. Anything else is a config error at startup.
+
+- `accounts.toml` — the registry (the spine): per account `ref`, `format` (`ing|cba|bw`), `currency` (`AUD|USD|INR`), `fireflyAccountId`. The sequencer uses it only to validate `accountRef` and stamp `currency` (and hold `fireflyAccountId`); `format` is for adapters.
+- `transfers.toml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
+- `sequencer.toml` — `journal.source`, `journal.target`, `apiPort`. (No fsync option — always fsync, §3.1.)
 - Follower config — `journalPath`, sink path, `pollSeconds`.
 - Firefly API token: env var / systemd credential, **never** in config or repo.
 
@@ -365,21 +418,21 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
 
 ## 7. Testing (generate alongside code)
 
-Golden-file harness + JUnit 5. Required, mapping to spec §16 assertions:
-1. **Determinism:** ING/CBA/BW slices → identical `Candidate`/`CanonicalEvent` output every run (exclude `n`, `ingestedAt` from comparison — they're processing artifacts).
+Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`; tests that compare journal bytes use a fixed `Clock` and compare full bytes, `ingestedAt` included. Required, mapping to spec §16 assertions:
+1. **Determinism:** identical `Candidate`/`CanonicalEvent` output every run (exclude `n`, `ingestedAt` from comparison — they're processing artifacts). Stage 1: hand-built `Candidate` fixtures; stage 5: ING slice golden file. (CBA/BW when their adapters exist.)
 2. **Identity uniqueness:** distinct `external_id` == row count on natural-key data; unique within occurrence groups on content-hash data.
-3. **Sign correctness:** known debit/credit per bank.
+3. **Sign correctness:** known debit/credit (stage 1 fixtures; stage 5 ING columns).
 4. **Batch idempotency:** POST batch A, then A again → second all `DroppedDuplicate`; nothing new appended.
 5. **Split-batch transfer:** legs in two separate batches → resolve to one `TRF-` id, no duplicate.
-6. **Reconciliation:** Σ(accounted amounts) == Δbalance per account — exact `long`-cent equality, no epsilon/scale fuzz.
-7. **Recovery fold:** append N, restart (fold), in-memory state (seen/held/review/highWaterN) matches pre-restart.
+6. **Reconciliation:** per account, order-independent, over leg lines (TRANSFER lines excluded), first line per `external_id`: each leg links `prev = balance − amount` → `balance`; opening = the `prev` that is no leg's `balance`; closing = the `balance` that is no leg's `prev`; exactly one opening and one closing required (else "unreconcilable" — never guess); assert `Σ amount == closing − opening`, exact `long`-cent equality, no epsilon/scale fuzz.
+7. **Recovery fold:** append N, restart (fold), in-memory state (firstLine/latest/held/review/highWaterN) matches pre-restart.
 8. **Follower resume:** kill follower mid-stream, restart → resumes at persisted offset, no gap/dup.
 9. **Materialize bit-identity:** `source != target` → target byte-identical (hash match), offsets still valid, torn tail truncated.
-10. **gzip transparency:** the four paths ({plain,gzip} in × {plain,gzip} out) all round-trip; a gzipped POST and a plain POST of the same file yield identical journal bytes (gzip is wire-only); an over-cap decompressed body returns `413`.
-11. **Transfer projection unit:** a resolved transfer leaves 3 journal records (2 `MATCHED` legs + 1 `TRANSFER`); the projectable-unit selector returns only the `TRANSFER`, never the legs (no double-count).
+10. **gzip transparency:** the four paths ({plain,gzip} in × {plain,gzip} out) all round-trip; a gzipped POST and a plain POST of the same file yield identical journal bytes (gzip is wire-only; fixed `Clock`); an over-cap decompressed body returns `413`.
+11. **Transfer projection unit:** legs in two batches → 4 journal lines (leg A `HELD`, leg B `MATCHED`, leg A re-appended `MATCHED`, TRANSFER); legs in one batch → 3 lines. The projectable-unit selector returns only the TRANSFER, never the legs (no double-count).
 12. **allOrNone:** a batch with one bad row → `allOrNone:true` appends nothing (`REJECTED`); `allOrNone:false` commits the good rows (`PARTIAL`) and reports the bad one. Neither half-writes; a fixed resubmit re-dedups (no doubles).
-13. **Day-atomic client:** a large ING file split by the client (whole-day calls) yields a byte-identical journal to a single-call ingest of the same file; a deliberately mid-day split is shown to mis-number occ (guard/negative test).
-14. **State re-fold:** after a HELD leg is matched and a watermark advanced, restart-fold reproduces identical suspense/matched/review sets and per-account watermarks — from events + WATERMARK control events alone.
+13. **Day-atomic client:** a large ING file split by the client (whole-day calls) yields a byte-identical journal (fixed `Clock`) to a single-call ingest of the same file; a deliberately mid-day split is shown to mis-number occ (guard/negative test).
+14. **State re-fold:** after a HELD leg is matched and another is resolved by decision, restart-fold reproduces the latest state for every `external_id` and identical held/review sets — from journal lines alone.
 15. **rawDescription hashing:** changing the `description` *cleaning* logic leaves every `external_id` unchanged (identity hashes `rawDescription`, not the cleaned form).
 
 ---
@@ -387,11 +440,11 @@ Golden-file harness + JUnit 5. Required, mapping to spec §16 assertions:
 ## 8. Generation order (for Claude Code)
 
 Build bottom-up; each stage compiles and tests green before the next.
-1. **trex-core:** records, enums, sealed types, `Ids`, `assignOcc` (+ tests 1–3).
-2. **Journal** (JSONL writer/reader, framing, materialize/recover) in trex-sequencer (+ tests 7, 9).
-3. **Ingress pipeline + matcher/state machine** (+ tests 4, 5, 6).
-4. **HTTP API** (`/candidates` with `allOrNone`, `/head`, `/period-complete`+`WATERMARK`; gzip §3.6; `/review`,`/held`,`/decisions` as stubs).
-5. **trex-ingress-ing** against a real ING slice (day-atomic batching, gzip).
+1. **trex-core:** records, enums, sealed types, `Ids`, `assignOcc` (+ tests 1–3 on hand-built fixtures).
+2. **Journal** (JSONL writer/reader, framing, materialize/recover, fold) in trex-sequencer (+ tests 7, 9).
+3. **Ingress pipeline + matcher/state rules + decision logic** (+ tests 4, 5, 6, 11, 14).
+4. **HTTP API** (`/candidates` with `allOrNone`, `/head`, `/held`, `/review`, `/decisions` — all fully implemented; gzip §3.6) (+ tests 10, 12).
+5. **trex-ingress-ing** against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
 6. **trex-egress-archive**, then **trex-egress-sqlite** (+ test 8).
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
@@ -400,6 +453,6 @@ Each component is small and single-purpose; keep trex-core free of any I/O so it
 
 ## 9. Explicitly out of scope here (later phases)
 
-Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; the Firefly egress follower; the review portal; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
+Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; CBA/BW ingress adapters; the Firefly egress follower; the manual resolver service (its sequencer API is in scope, §3.5); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
 
-**Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.toml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and resolve the Firefly account id, (c) select bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.
+**Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.toml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.
