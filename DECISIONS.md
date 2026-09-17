@@ -186,8 +186,29 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 - Tests 10 and 13 use a fixed `Clock`; they compare full journal bytes,
   `ingestedAt` included. `Candidate` is unchanged.
 
+### B11 — Phase-1 matching rules (defensive; tune via REVIEW workflow)
+- Principle: start defensive. When unsure → HELD or REVIEW, never an automatic
+  guess. Rules are loosened later based on what the review workflow shows.
+- **Transfer-shaped:** `rawDescription` matches any allowlist regex
+  (`transfers.toml`), case-insensitive.
+- **Match pool:** legs whose current state is HELD, plus new legs earlier in
+  the same batch. REVIEW, EXTERNAL and MATCHED legs are never auto-matched.
+  Candidates are processed in input order (deterministic).
+- **T1:** same `receipt` in two different accounts, opposite sign → `EXACT`.
+  Applies whether or not the legs are transfer-shaped. More than one T1
+  contra → REVIEW.
+- **T2:** not implemented (undefined in SPEC).
+- **T3:** both legs transfer-shaped, `|amount|` equal, opposite sign, dates
+  within `windowDays`, different accounts, same currency → `HIGH`. No text
+  corroboration in phase 1. More than one T3 contra → REVIEW.
+- On ambiguity only the incoming leg goes to REVIEW; existing HELD legs are not
+  rewritten.
+- No match: transfer-shaped → HELD; otherwise → EXTERNAL. A receipt alone does
+  not make a leg transfer-shaped.
+- `windowDays` is required in `transfers.toml`; no default.
+
 ### B12, B13, B25, B26 — watermark / aging details — *moot under T*
 
 ## Open
 
-- B11, B15–B23.
+- B15–B23.
