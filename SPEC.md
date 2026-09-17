@@ -414,10 +414,10 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
 
 ### 5.4 trex-resolver — manual resolver (admin service)
 An admin web service for the resolution workflow. It is a journal follower (reads the journal file) and an API client (acts only through the sequencer's `POST /decisions`). It never writes the journal.
-- **State:** none persisted. On startup it folds the journal from offset 0 into a `Ledger` (§2.6), then tails it every `--poll-ms`, publishing a `LedgerView` snapshot. If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
+- **State:** none persisted. On startup it folds the journal from offset 0 into a `Ledger` (§2.6), then tails it, publishing a `LedgerView` snapshot. Tailing is event-driven: a `java.nio.file.WatchService` on the journal's directory (inotify on Linux) triggers a read as soon as the journal file is created/modified/deleted (events are hints, never counts; `OVERFLOW` also triggers a read). A fallback read runs every `--poll-ms` (default 10 000) for missed events and filesystems without inotify (NFS, some FUSE/bind mounts). If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
 - **Loop:** user acts → resolver calls `POST /decisions` → sequencer appends lines → resolver tails them → page refreshes. The page reflects the journal, never an optimistic local change.
 - **Web tech:** JDK `HttpServer`; one bundled static page (`index.html`, `app.css`, `app.js`, vanilla JS, no framework, no CDN, no build step). Compact, modern style (light/dark via `prefers-color-scheme`).
-- **Refresh:** the browser polls `GET /api/state` every 2 s. (TODO: Server-Sent Events.)
+- **Refresh:** Server-Sent Events. `GET /api/events` streams `event: state` messages (same JSON as `/api/state`): one on connect, then one whenever the journal offset, `n` or error changes, plus a `: ping` comment every 15 s. The browser uses `EventSource`; while the stream is down it falls back to polling `GET /api/state` every 2 s and stops polling when the stream reconnects. At most 32 concurrent streams (`503` beyond).
 - **Page:** two lists — HELD and REVIEW (same sets as §2.6; REVIEW rows labelled *ambiguous match* or *potential duplicate*). Each row: date, account, amount (cents formatted exactly), raw description, `n`, comment, badges. No pairing suggestions, no resolved-history view.
 - **Actions** (only the existing decisions):
   - `MARK_EXTERNAL` on a HELD/REVIEW row.
@@ -428,13 +428,14 @@ An admin web service for the resolution workflow. It is a journal follower (read
 - **Resolver API:**
   - `GET /`, `/app.css`, `/app.js` — static page.
   - `GET /api/state` → `{ offset, n, updatedAt, error, held:[CanonicalEvent...], review:[CanonicalEvent...] }`.
+  - `GET /api/events` → `text/event-stream` of the same state (above).
   - `POST /api/decisions` — body `{ action, externalId?, legA?, legB?, comment? }` (one decision). The resolver validates `action` ∈ {MARK_EXTERNAL, CONFIRM_TRANSFER, DISMISS_DUP}, builds the sequencer request itself (`decisionRef = "ui-" + UUID`) and returns the sequencer's response.
 - **Security (no authentication, for now):**
   - Binds `127.0.0.1` by default; LAN exposure requires an explicit `--bind`.
   - `POST /api/decisions` requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
   - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
   - Request body cap 64 KB.
-- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (default 1000).
+- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback journal read interval, default 10000).
 
 **Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` (Firefly categorizes) and `error_if_duplicate_hash`, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
 
@@ -492,6 +493,6 @@ Each component is small and single-purpose; keep trex-core free of any I/O so it
 
 ## 9. Explicitly out of scope here (later phases)
 
-Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; CBA/BW ingress adapters; the Firefly egress follower; resolver TODOs (Server-Sent Events, authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
+Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; CBA/BW ingress adapters; the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
 
 **Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.toml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.

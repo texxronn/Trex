@@ -318,3 +318,9 @@ Source: user notes in MANUAL_RESOLVER.txt (admin service; web UI; journal follow
 - R7 Page: HELD and REVIEW lists; select two rows to pair; no suggestions, no history.
 - R8 New module `trex-resolver`; configured by flags.
 - Security (no auth): bind 127.0.0.1 by default; POST requires JSON content type + `X-Trex-Admin: 1` + matching Origin (CSRF); CSP `default-src 'self'`; text inserted via textContent (bank descriptions are untrusted).
+
+### R3a — Live updates (supersedes the polling-first part of R3)
+- Journal change detection via `WatchService` (JDK; inotify-backed on Linux) on the journal directory, not polling: epoll/select cannot wait on regular files (always ready; `EPERM` for epoll), and the external `inotifywait` tool would break JDK-only. FFM-direct inotify rejected: more code, Linux-only, needs native access, no benefit here.
+- A slow fallback read (10 s) stays: events can coalesce/overflow and do not fire on NFS/some FUSE/bind mounts.
+- SSE from the resolver pushes state on change; browser polling remains only as a fallback while the stream is down.
+- Followers keep their `pollSeconds` loop (not changed in this step).
