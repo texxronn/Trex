@@ -1,8 +1,9 @@
 'use strict';
 
 // trex resolver — lists HELD / REVIEW from the journal follower and sends
-// double-confirmed decisions through the resolver API. All bank text is
-// inserted with textContent (never as HTML).
+// double-confirmed decisions through the resolver API. Live updates arrive by
+// Server-Sent Events; polling is only a fallback while the stream is down.
+// All bank text is inserted with textContent (never as HTML).
 
 const POLL_MS = 2000;
 const ADMIN_HEADER = { 'Content-Type': 'application/json', 'X-Trex-Admin': '1' };
@@ -14,6 +15,7 @@ const model = {
   selected: new Set(), // externalIds selected for pairing
   lastKey: null,
   pending: false,
+  live: false,         // true while the event stream is open
 };
 
 // ---------------------------------------------------------------- formatting
@@ -156,7 +158,16 @@ function renderStatus(state, fetchError) {
   box.classList.remove('bad');
   const kb = (state.offset / 1024).toFixed(1);
   const at = new Date(state.updatedAt).toLocaleTimeString();
-  $('status-text').textContent = `n ${state.n} · ${kb} KB · ${at}`;
+  $('status-text').textContent = `${model.live ? 'live' : 'polling'} · n ${state.n} · ${kb} KB · ${at}`;
+}
+
+function apply(state) {
+  renderStatus(state, null);
+  const key = `${state.n}:${state.offset}`;
+  if (key !== model.lastKey) {
+    model.lastKey = key;
+    render(state);
+  }
 }
 
 // ---------------------------------------------------------------- pairing
@@ -293,23 +304,37 @@ async function send(payload, successText) {
 
 let timer = null;
 
+// One-shot fetch; keeps polling only while the event stream is down.
 async function refresh() {
   clearTimeout(timer);
   try {
     const res = await fetch('/api/state', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const state = await res.json();
-    renderStatus(state, null);
-    const key = `${state.n}:${state.offset}`;
-    if (key !== model.lastKey) {
-      model.lastKey = key;
-      render(state);
-    }
+    apply(await res.json());
   } catch (e) {
     renderStatus(null, e.message);
   } finally {
-    timer = setTimeout(refresh, POLL_MS);
+    if (!model.live) timer = setTimeout(refresh, POLL_MS);
   }
+}
+
+function connect() {
+  const source = new EventSource('/api/events');
+  source.addEventListener('open', () => {
+    model.live = true;
+    clearTimeout(timer);
+  });
+  source.addEventListener('state', (e) => {
+    model.live = true;
+    apply(JSON.parse(e.data));
+  });
+  source.addEventListener('error', () => {
+    // EventSource reconnects by itself; poll meanwhile so the page stays current.
+    if (model.live) {
+      model.live = false;
+      refresh();
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -319,4 +344,5 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleSelect(null, false);
   });
   refresh();
+  connect();
 });

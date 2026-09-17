@@ -5,12 +5,12 @@ import java.nio.file.Path;
 import java.time.Clock;
 
 /**
- * {@code trex-resolver --journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 1000]}
+ * {@code trex-resolver --journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]}
  */
 public final class Main {
 
     private static final String USAGE =
-        "Usage: trex-resolver --journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 1000]";
+        "Usage: trex-resolver --journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]";
 
     private Main() {}
 
@@ -19,7 +19,7 @@ public final class Main {
         String sequencerUrl = null;
         int port = 8090;
         String bind = "127.0.0.1";
-        long pollMs = 1000;
+        long pollMs = 10_000;
         try {
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {

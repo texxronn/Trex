@@ -173,6 +173,62 @@ class ResolverServerTest {
     }
 
     @Test
+    void eventStreamPushesStateOnJournalChange() throws Exception {
+        watcher.start(60_000);   // event-driven; fallback far beyond the test's wait
+        try {
+            HttpResponse<java.io.InputStream> res = http.send(
+                HttpRequest.newBuilder(URI.create(base() + "/api/events")).GET().build(),
+                HttpResponse.BodyHandlers.ofInputStream());
+            assertEquals(200, res.statusCode());
+            assertTrue(res.headers().firstValue("Content-Type").orElseThrow().startsWith("text/event-stream"));
+            java.util.concurrent.BlockingQueue<JsonNode> states = new java.util.concurrent.LinkedBlockingQueue<>();
+            Thread reader = Thread.ofVirtual().start(() -> {
+                try (var lines = new java.io.BufferedReader(new java.io.InputStreamReader(res.body(), StandardCharsets.UTF_8))) {
+                    String l;
+                    while ((l = lines.readLine()) != null) {
+                        if (l.startsWith("data: ")) {
+                            states.add(Json.mapper().readTree(l.substring(6)));
+                        }
+                    }
+                } catch (IOException ignored) {
+                    // stream closed at test end
+                }
+            });
+
+            JsonNode first = states.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(0, first.get("held").size());
+
+            ingest("r1", "ing-savings", "2026-06-01", -700, "Osko to Dave");
+            JsonNode next = states.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            while (next != null && next.get("n").asLong() < 1) {
+                next = states.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            assertEquals(1, next.get("held").size());
+            assertEquals(1, resolver.eventClients());
+            reader.interrupt();
+        } finally {
+            watcher.close();
+        }
+    }
+
+    @Test
+    void heartbeatKeepsStreamAliveWithoutChanges() throws Exception {
+        try (ResolverServer fast = new ResolverServer(watcher,
+            new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), "127.0.0.1", 0, 100).start()) {
+            HttpResponse<java.io.InputStream> res = http.send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + fast.port() + "/api/events")).GET().build(),
+                HttpResponse.BodyHandlers.ofInputStream());
+            var lines = new java.io.BufferedReader(new java.io.InputStreamReader(res.body(), StandardCharsets.UTF_8));
+            boolean sawPing = false;
+            for (int i = 0; i < 20 && !sawPing; i++) {
+                sawPing = ": ping".equals(lines.readLine());
+            }
+            assertTrue(sawPing);
+            res.body().close();
+        }
+    }
+
+    @Test
     void unreachableSequencerIs502() throws Exception {
         int deadPort;
         try (java.net.ServerSocket s = new java.net.ServerSocket(0)) {

@@ -22,6 +22,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JournalWatcherTest {
 
@@ -103,6 +104,45 @@ class JournalWatcherTest {
         w.poll();
         assertNull(w.status().error());
         assertEquals(List.of("a", "b"), ids(w.status().view().held()));
+    }
+
+    @Test
+    void fileChangeEventTriggersReadWithoutWaitingForFallbackPoll() throws Exception {
+        Path journal = dir.resolve("journal.jsonl");
+        java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.CountDownLatch seenLine = new java.util.concurrent.CountDownLatch(1);
+        try (JournalWatcher w = new JournalWatcher(journal, clock)) {
+            w.addListener(() -> {
+                changes.incrementAndGet();
+                if (w.status().view().highWaterN() == 1) {
+                    seenLine.countDown();
+                }
+            });
+            w.start(60_000);   // fallback far beyond the test's wait
+            Thread.sleep(300); // let the initial fallback read and watch registration happen
+            int before = changes.get();
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(line(1, "a", EventState.HELD)));
+            }
+            assertTrue(seenLine.await(5, java.util.concurrent.TimeUnit.SECONDS), "watch event should trigger a read");
+            assertEquals(List.of("a"), ids(w.status().view().held()));
+            assertTrue(changes.get() > before);
+        }
+    }
+
+    @Test
+    void listenersAreNotifiedOnlyOnChange() throws Exception {
+        Path journal = dir.resolve("journal.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(line(1, "a", EventState.HELD)));
+        }
+        JournalWatcher w = new JournalWatcher(journal, clock);
+        java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
+        w.addListener(changes::incrementAndGet);
+        w.poll();
+        w.poll();
+        w.poll();
+        assertEquals(1, changes.get());
     }
 
     @Test

@@ -36,6 +36,7 @@ public final class ResolverServer implements AutoCloseable {
 
     private final JournalWatcher watcher;
     private final SequencerClient sequencer;
+    private final EventStreams events;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -49,8 +50,14 @@ public final class ResolverServer implements AutoCloseable {
     }
 
     public ResolverServer(JournalWatcher watcher, SequencerClient sequencer, String bindAddress, int port) {
+        this(watcher, sequencer, bindAddress, port, 15_000);
+    }
+
+    ResolverServer(JournalWatcher watcher, SequencerClient sequencer, String bindAddress, int port, long heartbeatMillis) {
         this.watcher = watcher;
         this.sequencer = sequencer;
+        this.events = new EventStreams(this::stateJson, heartbeatMillis);
+        watcher.addListener(events::publish);
         try {
             server = HttpServer.create(new InetSocketAddress(bindAddress, port), 0);
         } catch (IOException e) {
@@ -77,6 +84,13 @@ public final class ResolverServer implements AutoCloseable {
                     requireMethod(ex, "GET");
                     json(ex, 200, state());
                 }
+                case "/api/events" -> {
+                    requireMethod(ex, "GET");
+                    if (!events.tryAdmit()) {
+                        throw new HttpError(503, "too many event streams");
+                    }
+                    events.stream(ex);
+                }
                 case "/api/decisions" -> {
                     requireMethod(ex, "POST");
                     decisions(ex);
@@ -97,6 +111,18 @@ public final class ResolverServer implements AutoCloseable {
         } finally {
             ex.close();
         }
+    }
+
+    private byte[] stateJson() {
+        try {
+            return Json.mapper().writeValueAsBytes(state());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    int eventClients() {
+        return events.clientCount();
     }
 
     private Map<String, Object> state() {
@@ -236,6 +262,7 @@ public final class ResolverServer implements AutoCloseable {
 
     @Override
     public void close() {
+        events.close();
         server.stop(0);
         executor.shutdown();
     }
