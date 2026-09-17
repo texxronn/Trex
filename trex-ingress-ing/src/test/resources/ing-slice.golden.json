@@ -1,0 +1,7 @@
+[
+  {"candidateRef":"row-2","accountRef":"ing-savings","date":"2026-06-28","amount":-50000,"rawDescription":"Fast Transfer to CBA - Receipt 461234","balance":150025,"receipt":"461234","counterpartyBsb":null,"counterpartyAcct":null,"source":"ing-csv","provenance":"BANK"},
+  {"candidateRef":"row-3","accountRef":"ing-savings","date":"2026-06-28","amount":-450,"rawDescription":"COFFEE CART, SYDNEY","balance":149575,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"source":"ing-csv","provenance":"BANK"},
+  {"candidateRef":"row-4","accountRef":"ing-savings","date":"2026-06-28","amount":-450,"rawDescription":"COFFEE CART, SYDNEY","balance":149125,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"source":"ing-csv","provenance":"BANK"},
+  {"candidateRef":"row-5","accountRef":"ing-savings","date":"2026-06-29","amount":250000,"rawDescription":"Salary Deposit - Receipt No 998877","balance":399125,"receipt":"998877","counterpartyBsb":null,"counterpartyAcct":null,"source":"ing-csv","provenance":"BANK"},
+  {"candidateRef":"row-6","accountRef":"ing-savings","date":"2026-06-30","amount":7,"rawDescription":"Interest \"bonus\"","balance":399132,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"source":"ing-csv","provenance":"BANK"}
+]
