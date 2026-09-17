@@ -242,8 +242,26 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 - Group commit (shared fsync, ack after fsync) is a later optimisation, only if
   throughput is measured to be a problem.
 
+### B19 — Request body binding
+- Parse `/candidates` (and `/decisions`) body to a JSON tree, then bind each
+  element individually. A malformed element → `Rejected(ref, reason)`; the rest
+  follow `allOrNone` rules.
+- Malformed body / wrong top-level structure → `400`, nothing appended.
+- Missing `candidateRef` → `"idx-" + zeroBasedIndex`.
+
+### B20 — Unparseable amounts in the ING adapter (amends SPEC §4)
+- Values with more than 2 decimals (or otherwise not convertible to exact
+  cents) are rejected, never rounded.
+- The adapter parses and validates the **whole file before sending anything**.
+  Any bad value → nothing is sent; the adapter prints every bad row (file,
+  line, column, value) and exits non-zero.
+- Reason: dropping a single row could shift `occ` for later identical-`Sig`
+  rows when the fixed row is re-ingested, changing their `external_id`.
+- Such rows never reach the sequencer, journal or review workflow; the fix is
+  to correct the file (or parser) and re-run (idempotent).
+
 ### B12, B13, B25, B26 — watermark / aging details — *moot under T*
 
 ## Open
 
-- B19–B23.
+- B21–B23.
