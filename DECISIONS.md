@@ -10,8 +10,10 @@ leaves unspecified. Numbering (B1…) follows the pre-implementation review.
 - `TypeHint` gains `WATERMARK`.
 - A watermark advance is journaled as a `CanonicalEvent` with
   `typeHint = WATERMARK`, `externalId = "WM-" + accountRef + "-" + date(ISO)`,
-  `n = 0` (not drawn from `highWaterN`).
-- Followers ignore WATERMARK events.
+  `n = ++highWaterN` like every other event (invariant 3: distinct
+  `external_id` → assigned once, preserved on replay).
+- Followers ignore WATERMARK events, so `n` in follower sinks has gaps;
+  nothing may assume `n` is gap-free.
 
 ### B2 — Jackson annotation in trex-core
 - trex-core depends on `com.fasterxml.jackson.core:jackson-annotations` only
