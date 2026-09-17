@@ -1,7 +1,8 @@
 package trex.sequencer.journal;
 
+import trex.journal.FramedReader;
 import trex.core.CanonicalEvent;
-import trex.sequencer.Json;
+import trex.journal.Json;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

@@ -6,7 +6,7 @@ import trex.sequencer.ingest.Sequencer;
 import trex.sequencer.journal.JsonlJournal;
 import trex.sequencer.journal.Recovery;
 import trex.sequencer.state.Fold;
-import trex.sequencer.state.Ledger;
+import trex.core.state.Ledger;
 
 import java.nio.file.Path;
 import java.time.Clock;

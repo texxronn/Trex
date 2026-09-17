@@ -1,5 +1,6 @@
 package trex.sequencer.journal;
 
+import trex.journal.JournalCorruptException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.core.CanonicalEvent;

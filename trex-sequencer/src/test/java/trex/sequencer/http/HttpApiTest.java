@@ -3,7 +3,7 @@ package trex.sequencer.http;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import trex.sequencer.Json;
+import trex.journal.Json;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

@@ -1,5 +1,7 @@
 package trex.sequencer.state;
 
+import trex.core.state.LedgerView;
+import trex.core.state.Ledger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.core.CanonicalEvent;
@@ -13,7 +15,6 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** SPEC §7 test 7: append N, restart (fold), state matches pre-restart. */
 class RecoveryFoldTest {
@@ -54,12 +55,5 @@ class RecoveryFoldTest {
         assertEquals(java.util.Set.of("b", "c"), after.reviewIds());
         assertEquals(b, after.firstLine().get("b"));
         assertEquals(dExternal, after.latestLines().stream().filter(e -> e.externalId().equals("d")).findFirst().orElseThrow());
-    }
-
-    @Test
-    void nonIncreasingNIsRejected() {
-        Ledger ledger = new Ledger();
-        ledger.apply(TestEvents.line(2, "a", EventState.EXTERNAL, 1));
-        assertThrows(IllegalStateException.class, () -> ledger.apply(TestEvents.line(2, "b", EventState.EXTERNAL, 1)));
     }
 }

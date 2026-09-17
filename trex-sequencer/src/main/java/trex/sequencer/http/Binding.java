@@ -2,7 +2,7 @@ package trex.sequencer.http;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import trex.core.Candidate;
-import trex.sequencer.Json;
+import trex.journal.Json;
 import trex.sequencer.ingest.CandidateInput;
 import trex.sequencer.ingest.DecisionInput;
 

@@ -2,7 +2,7 @@ package trex.sequencer.ingest;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import trex.sequencer.state.LedgerView;
+import trex.core.state.LedgerView;
 
 import java.nio.file.Path;
 

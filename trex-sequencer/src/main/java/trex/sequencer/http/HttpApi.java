@@ -6,7 +6,7 @@ import trex.sequencer.ingest.BatchResponse;
 import trex.sequencer.ingest.CandidateInput;
 import trex.sequencer.ingest.DecisionInput;
 import trex.sequencer.ingest.Sequencer;
-import trex.sequencer.state.LedgerView;
+import trex.core.state.LedgerView;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

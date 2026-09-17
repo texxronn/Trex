@@ -24,8 +24,8 @@ import trex.core.Occurrence;
 import trex.core.Provenance;
 import trex.core.TypeHint;
 import trex.sequencer.journal.Journal;
-import trex.sequencer.state.Ledger;
-import trex.sequencer.state.LedgerView;
+import trex.core.state.Ledger;
+import trex.core.state.LedgerView;
 
 import java.time.Clock;
 import java.util.ArrayList;

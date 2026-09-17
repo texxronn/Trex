@@ -26,7 +26,7 @@ class IngCsvTest {
 
     @Test
     void ingSliceMatchesGoldenFileEveryRun() throws Exception {
-        List<Candidate> golden = TrexClient.MAPPER.readValue(resource("ing-slice.golden.json").toFile(),
+        List<Candidate> golden = trex.journal.Json.mapper().readValue(resource("ing-slice.golden.json").toFile(),
             new TypeReference<List<Candidate>>() {});
         for (int run = 0; run < 3; run++) {
             IngCsv.Parsed parsed = IngCsv.parse(resource("ing-slice.csv"), "ing-savings");

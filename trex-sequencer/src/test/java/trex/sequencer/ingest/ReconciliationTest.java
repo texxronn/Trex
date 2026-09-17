@@ -3,7 +3,7 @@ package trex.sequencer.ingest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.core.Candidate;
-import trex.sequencer.state.Reconciliation;
+import trex.core.state.Reconciliation;
 
 import java.nio.file.Path;
 import java.util.ArrayList;

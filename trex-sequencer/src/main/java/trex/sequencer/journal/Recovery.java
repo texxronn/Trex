@@ -1,5 +1,6 @@
 package trex.sequencer.journal;
 
+import trex.journal.FramedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;

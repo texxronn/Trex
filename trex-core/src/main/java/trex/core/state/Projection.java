@@ -1,4 +1,4 @@
-package trex.sequencer.state;
+package trex.core.state;
 
 import trex.core.CanonicalEvent;
 import trex.core.EventState;

@@ -2,8 +2,9 @@ package trex.egress.sqlite;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import trex.core.CanonicalEvent;
+import trex.journal.FramedReader;
+import trex.journal.Json;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -67,13 +68,13 @@ public final class SqliteFollower implements AutoCloseable {
     }
 
     /** One follower pass. Returns the number of journal lines consumed. */
-    public int pass() throws IOException, SQLException {
+    public int pass() throws SQLException {
         long offset = readOffset();
         int consumed = 0;
         int inTransaction = 0;
-        try (JournalTail tail = new JournalTail(journal, offset);
+        try (FramedReader tail = new FramedReader(journal, offset);
              PreparedStatement insert = db.prepareStatement(INSERT)) {
-            JournalTail.Line line;
+            FramedReader.Framed line;
             long advanced = offset;
             while ((line = tail.next()) != null) {
                 bind(insert, line.event());
@@ -88,7 +89,7 @@ public final class SqliteFollower implements AutoCloseable {
             if (inTransaction > 0) {
                 commit(advanced);
             }
-        } catch (IOException | SQLException | RuntimeException e) {
+        } catch (SQLException | RuntimeException e) {
             db.rollback();
             throw e;
         }
@@ -152,7 +153,7 @@ public final class SqliteFollower implements AutoCloseable {
 
     private static String json(Object value) {
         try {
-            return JournalTail.MAPPER.writeValueAsString(value);
+            return Json.mapper().writeValueAsString(value);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException(ex);
         }

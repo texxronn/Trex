@@ -7,7 +7,7 @@ import trex.core.Confidence;
 import trex.core.EventState;
 import trex.core.Provenance;
 import trex.core.TypeHint;
-import trex.sequencer.state.Projection;
+import trex.core.state.Projection;
 
 import java.nio.file.Path;
 import java.util.List;

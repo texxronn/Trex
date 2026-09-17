@@ -1,5 +1,7 @@
 package trex.egress.archive;
 
+import trex.journal.FramedReader;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -39,9 +41,9 @@ public final class ArchiveFollower {
         long offset = readOffset();
         long advanced = offset;
         int archived = 0;
-        try (JournalTail tail = new JournalTail(journal, offset);
+        try (FramedReader tail = new FramedReader(journal, offset);
              FileChannel out = FileChannel.open(archive, CREATE, WRITE, APPEND)) {
-            JournalTail.Line line;
+            FramedReader.Framed line;
             while ((line = tail.next()) != null) {
                 if (line.event().n() > lastArchivedN) {
                     ByteBuffer buf = ByteBuffer.allocate(line.bytes().length + 1).put(line.bytes()).put((byte) '\n').flip();
@@ -70,8 +72,8 @@ public final class ArchiveFollower {
         }
         long end = 0;
         long lastN = 0;
-        try (JournalTail tail = new JournalTail(archive, 0)) {
-            JournalTail.Line line;
+        try (FramedReader tail = new FramedReader(archive, 0)) {
+            FramedReader.Framed line;
             while ((line = tail.next()) != null) {
                 end = line.endOffset();
                 lastN = line.event().n();

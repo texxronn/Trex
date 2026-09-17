@@ -1,7 +1,7 @@
 package trex.sequencer.http;
 
 import com.sun.net.httpserver.HttpExchange;
-import trex.sequencer.Json;
+import trex.journal.Json;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

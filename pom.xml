@@ -11,6 +11,7 @@
 
   <modules>
     <module>trex-core</module>
+    <module>trex-journal</module>
     <module>trex-sequencer</module>
     <module>trex-ingress-ing</module>
     <module>trex-egress-archive</module>
@@ -30,6 +31,11 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-core</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-journal</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

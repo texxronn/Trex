@@ -1,5 +1,6 @@
 package trex.sequencer.state;
 
+import trex.core.state.Ledger;
 import trex.sequencer.journal.Journal;
 
 import java.util.stream.Stream;

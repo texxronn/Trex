@@ -1,7 +1,6 @@
-package trex.sequencer.journal;
+package trex.journal;
 
 import trex.core.CanonicalEvent;
-import trex.sequencer.Json;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -14,14 +13,15 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 /**
- * Reads framed JSONL records. A record is complete iff it ends in '\n' and parses as a
- * {@link CanonicalEvent}. A trailing line without '\n' is a torn tail: not returned.
- * A '\n'-terminated line that does not parse is corruption and throws.
+ * Reads framed JSONL journal records (SPEC §3.1). A record is complete iff it ends in '\n' and
+ * parses as a {@link CanonicalEvent}. A trailing line without '\n' is a torn/partial tail: not
+ * returned, offset not advanced. A '\n'-terminated line that does not parse is corruption and throws.
+ * Shared by every journal reader: sequencer recovery, followers and the resolver.
  */
 public final class FramedReader implements AutoCloseable {
 
-    /** One complete record and the byte offset just past its '\n'. */
-    public record Framed(CanonicalEvent event, long endOffset) {}
+    /** One complete record: its raw line bytes (without '\n'), the parsed event, and the offset just past its '\n'. */
+    public record Framed(byte[] bytes, CanonicalEvent event, long endOffset) {}
 
     private final FileChannel channel;
     private final InputStream in;
@@ -38,7 +38,7 @@ public final class FramedReader implements AutoCloseable {
         }
     }
 
-    /** Next complete record, or null at end of complete data (a torn tail is left unread). */
+    /** Next complete record, or null at end of complete data (a partial tail is left unread). */
     public Framed next() {
         ByteArrayOutputStream line = new ByteArrayOutputStream(512);
         try {
@@ -46,8 +46,9 @@ public final class FramedReader implements AutoCloseable {
             while ((b = in.read()) != -1) {
                 if (b == '\n') {
                     long lineStart = offset;
-                    offset += line.size() + 1;
-                    return new Framed(parse(line.toByteArray(), lineStart), offset);
+                    byte[] bytes = line.toByteArray();
+                    offset += bytes.length + 1;
+                    return new Framed(bytes, parse(bytes, lineStart), offset);
                 }
                 line.write(b);
             }

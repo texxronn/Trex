@@ -1,12 +1,9 @@
 package trex.ingress.ing;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import trex.core.BatchStatus;
 import trex.core.Candidate;
 import trex.core.CandidateResult;
+import trex.journal.Json;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -33,11 +30,6 @@ public final class TrexClient {
         }
     }
 
-    static final ObjectMapper MAPPER = JsonMapper.builder()
-        .addModule(new JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-        .build();
-
     private final URI candidatesUri;
     private final boolean gzip;
     private final HttpClient http = HttpClient.newHttpClient();
@@ -51,7 +43,7 @@ public final class TrexClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("allOrNone", false);
         body.put("batch", batch);
-        byte[] json = MAPPER.writeValueAsBytes(body);
+        byte[] json = Json.mapper().writeValueAsBytes(body);
 
         HttpRequest.Builder req = HttpRequest.newBuilder(candidatesUri)
             .header("Content-Type", "application/json")
@@ -68,7 +60,7 @@ public final class TrexClient {
         if (res.statusCode() != 200) {
             throw new TrexHttpException(res.statusCode(), new String(payload, java.nio.charset.StandardCharsets.UTF_8));
         }
-        return MAPPER.readValue(payload, Response.class);
+        return Json.mapper().readValue(payload, Response.class);
     }
 
     private static byte[] gzip(byte[] data) throws IOException {

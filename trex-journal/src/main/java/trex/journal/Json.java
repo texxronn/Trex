@@ -1,4 +1,4 @@
-package trex.sequencer;
+package trex.journal;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-/** The one ObjectMapper configuration used for the journal and the API. SPEC §1, §3.1. */
+/** The one ObjectMapper configuration for the journal and the APIs, shared by every module. SPEC §1, §3.1. */
 public final class Json {
 
     private static final ObjectMapper MAPPER = JsonMapper.builder()

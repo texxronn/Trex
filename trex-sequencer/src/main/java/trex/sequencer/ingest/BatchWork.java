@@ -6,7 +6,7 @@ import trex.core.EventState;
 import trex.core.Flag;
 import trex.core.Provenance;
 import trex.core.TypeHint;
-import trex.sequencer.state.Ledger;
+import trex.core.state.Ledger;
 
 import java.time.Instant;
 import java.util.ArrayList;
