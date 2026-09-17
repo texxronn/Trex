@@ -1,19 +1,85 @@
 # trex — resolved ambiguities
 
 Resolutions to gaps and conflicts found while reviewing SPEC.md before
-implementation. SPEC.md remains the authority; entries here fill in what it
-leaves unspecified. Numbering (B1…) follows the pre-implementation review.
+implementation. SPEC.md remains the authority except where an entry below
+explicitly **amends** it. Numbering (B1…) follows the pre-implementation review.
+
+## Amendments to SPEC.md
+
+### T — Transfer semantics: versioned journal, no aging (amends §0.3, §0.1, §2.2, §2.3, §3.2, §3.4, §3.5, §5.2, §5.3, tests 11 & 14)
+
+**Model**
+- The journal is a log of record *versions*. When a transaction's state
+  changes, the sequencer appends a full copy of it with a new `n` and the new
+  `state`.
+- **§0.3 amended:** `n` is the journal record sequence — unique per line,
+  strictly increasing. One `external_id` may appear on several lines.
+- **§0.1 clarified:** `external_id` remains the sole identity of a
+  *transaction*; it is not unique per journal line. The line key is `n`.
+- **§2.2 amended:** `stateSnapshot` is renamed `state`. The line with the
+  highest `n` for an `external_id` is **authoritative** current state.
+- **§3.2 amended:** fold = `current[externalId] = line with highest n`. No
+  state derivation from `legIds`, no watermark.
+
+**No aging**
+- Removed: aging, watermarks, `POST /period-complete`, WATERMARK control
+  event, `EventState.AGED_OUT`, `Flag.LATE_ARRIVAL`.
+- A HELD transaction leaves HELD only by automatic match or manual decision.
+
+**States** (`EventState`): `HELD`, `MATCHED`, `REVIEW`, `EXTERNAL`.
+(`EMITTED`, `AGED_OUT` removed.)
+
+**Re-append rules**
+1. A re-appended line is identical to the previous line for that
+   `external_id` except `n` and `state` (`ingestedAt`, `balance`,
+   `description`, … unchanged).
+2. Allowed transitions: HELD→MATCHED, HELD→EXTERNAL, REVIEW→MATCHED,
+   REVIEW→EXTERNAL. Any other requested transition is `Rejected`, nothing
+   appended.
+3. Dedup (`seenIds`) stays keyed by `external_id`; balance drift check uses the
+   first line.
+4. Line order inside one `appendBatch`: new legs, then re-appended legs, then
+   the TRANSFER line. All in one atomic append.
+5. Both legs in the same batch: each written once, directly `MATCHED` — no
+   HELD line.
+
+**TRANSFER line**
+- `external_id = transferKey = TRF-…`, `state = MATCHED`,
+  `legIds = [legA, legB]`, `n` after its legs.
+- `accountRef` = account of the negative-amount (from) leg.
+- New field **`toAccountRef`** = account of the positive-amount (to) leg;
+  `null` on non-TRANSFER lines. JSON position: immediately after `accountRef`.
+- TRANSFER lines are the only projectable unit for transfers.
+
+**Manual resolution** (`POST /decisions`)
+- Mark external: re-append the leg with `state = EXTERNAL`.
+- Confirm transfer (manual pairing of two legs): same output as an automatic
+  match — re-append both legs `MATCHED` + one TRANSFER line.
+- The manual resolver is a separate service: a journal follower that calls the
+  sequencer API. It is not one of the five phase-1 modules.
+
+**Rules**
+- Deciding whether a new candidate goes to `MATCHED`, `HELD`, `REVIEW` or
+  `EXTERNAL` lives in trex-sequencer and will evolve into a tunable rule set.
+  Phase 1's rule set is the §3.4 allowlist + tiers.
+- Rule changes affect only future ingests; replay uses stored `state`, never
+  re-evaluates rules.
+
+**Followers**
+- §5.2 archive: mirrors every line; idempotency by `n`, not `external_id`.
+- §5.3 sqlite: `INSERT … ON CONFLICT(external_id) DO UPDATE … WHERE
+  excluded.n > events.n` (still idempotent, invariant 5). `state_snapshot`
+  column becomes `state`; add `to_account_ref`.
+
+**Tests**
+- Test 11: split-batch transfer = 4 lines (leg A HELD, leg B, leg A
+  re-appended, TRANSFER); same-batch = 3 lines. Projectable selector returns
+  only the TRANSFER.
+- Test 14: replay reproduces latest state for every `external_id`.
 
 ## Resolved
 
-### B1 — WATERMARK control event representation
-- `TypeHint` gains `WATERMARK`.
-- A watermark advance is journaled as a `CanonicalEvent` with
-  `typeHint = WATERMARK`, `externalId = "WM-" + accountRef + "-" + date(ISO)`,
-  `n = ++highWaterN` like every other event (invariant 3: distinct
-  `external_id` → assigned once, preserved on replay).
-- Followers ignore WATERMARK events, so `n` in follower sinks has gaps;
-  nothing may assume `n` is gap-free.
+### B1 — WATERMARK control event — *superseded by T (no watermarks)*
 
 ### B2 — Jackson annotation in trex-core
 - trex-core depends on `com.fasterxml.jackson.core:jackson-annotations` only
@@ -44,12 +110,18 @@ leaves unspecified. Numbering (B1…) follows the pre-implementation review.
 - ING is the starter adapter template; CBA/BW adapters follow the same model
   in a later phase.
 
+### B8 — Review set — *resolved by T*: review = transactions whose latest line has `state = REVIEW`.
+
 ### B9 — `ingestedAt` and byte-identical journals
 - A non-null `ingestedAt` is retained, never restamped.
 - The sequencer stamps `ingestedAt` from an injected `java.time.Clock`.
 - Tests 10 and 13 use a fixed `Clock`; they compare full journal bytes,
   `ingestedAt` included. `Candidate` is unchanged.
 
+### B12, B13, B25, B26 — watermark / aging details — *moot under T*
+
 ## Open
 
-B1 sub-points (global watermark id; repeated watermark), B7, B8, B10–B24.
+- T-a: recording who made a manual decision (provenance of re-appended line).
+- T-b: `/decisions` scope in phase 1 (full vs stub — HELD cannot exit without it).
+- B7, B10 (remaining TRANSFER fields), B11, B14–B23.
