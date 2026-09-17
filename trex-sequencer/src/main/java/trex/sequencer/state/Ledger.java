@@ -14,6 +14,7 @@ public final class Ledger {
 
     private final Map<String, CanonicalEvent> firstLine = new HashMap<>();
     private final Map<String, CanonicalEvent> latest = new LinkedHashMap<>();
+    private final Map<String, CanonicalEvent> held = new LinkedHashMap<>();
     private long highWaterN;
     private long headOffset;
 
@@ -25,6 +26,10 @@ public final class Ledger {
         firstLine.putIfAbsent(line.externalId(), line);
         latest.remove(line.externalId());   // keep insertion order = order of latest n
         latest.put(line.externalId(), line);
+        held.remove(line.externalId());
+        if (line.state() == trex.core.EventState.HELD) {
+            held.put(line.externalId(), line);
+        }
         highWaterN = line.n();
     }
 
@@ -38,6 +43,15 @@ public final class Ledger {
 
     public CanonicalEvent latest(String externalId) {
         return latest.get(externalId);
+    }
+
+    public boolean contains(String externalId) {
+        return firstLine.containsKey(externalId);
+    }
+
+    /** Current HELD lines, in order of their latest n. */
+    public java.util.Collection<CanonicalEvent> heldLines() {
+        return java.util.Collections.unmodifiableCollection(held.values());
     }
 
     public long highWaterN() {
