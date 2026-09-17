@@ -333,3 +333,8 @@ User asked for a plain, compact, read-only grid on the resolver's model (SSE, pa
 - Basic filter & search only (account, state, type, date range, text). Declined for now: detail drawer, reconciliation/accounts/health panels, projection preview, transfers view, export.
 - G10 (a): separate `trex-grid` process + shared `trex-web` module extracted from the resolver (watcher, SSE, static serving, security headers). Lets the read-only grid be exposed differently from the action-taking resolver.
 - Fill-in: totals only in the Transactions view and excluding TRANSFER lines (legs carry the amounts; journal versions would double-count).
+
+### F1 — Followers wake on journal change
+- User approved: archive and SQLite followers use the same file-change trigger as the web followers instead of sleeping `pollSeconds`.
+- One implementation, `JournalChanges` in `trex-journal` (WatchService on the journal directory), shared by the followers and `trex-web`'s `JournalWatcher`. Registered before the first pass so a change between a pass and the wait is not lost.
+- `pollSeconds` remains as the fallback interval.

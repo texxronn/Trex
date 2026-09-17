@@ -31,7 +31,7 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
     pom.xml           # parent (packaging=pom): modules, <release>25</release>, dependencyManagement
     trex-core/        # pure domain + pure journal-state fold: no HTTP, no DB, no I/O framework
       pom.xml
-    trex-journal/     # shared journal read format: Json mapper config + framed JSONL reader
+    trex-journal/     # shared journal read side: Json mapper config, framed JSONL reader, change signal
       pom.xml
     trex-sequencer/   # the service: journal writer + HTTP API + wiring
       pom.xml
@@ -374,7 +374,8 @@ Followers **read the journal file directly** (single-writer append-only makes th
 
 ### 5.1 Shared follower loop (framed reading via `trex-journal`)
 ```
-loop (every pollSeconds):
+register journal change signal (JournalChanges)   // before the first pass: no change is missed
+loop (wake on journal change event, or after pollSeconds as fallback):
     channel = open(journalPath, READ)
     channel.position(persistedOffset)
     buffer = read available bytes
@@ -385,7 +386,7 @@ loop (every pollSeconds):
     persist(advancedOffset)                     // only past COMPLETE, consumed records
     # trailing partial line: not consumed, offset not advanced, retried next pass
 ```
-Rule: **advance the offset only after the consume side-effect is durable.** At-least-once + idempotent consumers (never attempt exactly-once via clever offset games). Batching of follower work is controlled by `pollSeconds`, never by delaying the sequencer's fsync.
+Rule: **advance the offset only after the consume side-effect is durable.** At-least-once + idempotent consumers (never attempt exactly-once via clever offset games). A follower wakes as soon as the journal changes (`trex-journal` `JournalChanges`: a `WatchService` on the journal's directory — inotify on Linux; an `OVERFLOW` also wakes it; events are hints, never counts); `pollSeconds` is only the fallback for missed events and filesystems without inotify. Batching of follower work is never done by delaying the sequencer's fsync.
 
 ### 5.2 trex-egress-archive (log-mirror follower)
 - Consume = append the line's event to an archive JSONL at `archivePath` (cold copy / second location).
@@ -419,7 +420,7 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
 
 ### 5.4 trex-resolver — manual resolver (admin service)
 An admin web service for the resolution workflow. It is a journal follower (reads the journal file) and an API client (acts only through the sequencer's `POST /decisions`). It never writes the journal.
-- **State:** none persisted. On startup it folds the journal from offset 0 into a `Ledger` (§2.6), then tails it, publishing a `LedgerView` snapshot. Tailing is event-driven: a `java.nio.file.WatchService` on the journal's directory (inotify on Linux) triggers a read as soon as the journal file is created/modified/deleted (events are hints, never counts; `OVERFLOW` also triggers a read). A fallback read runs every `--poll-ms` (default 10 000) for missed events and filesystems without inotify (NFS, some FUSE/bind mounts). If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
+- **State:** none persisted. On startup it folds the journal from offset 0 into a `Ledger` (§2.6), then tails it, publishing a `LedgerView` snapshot. Tailing is event-driven: `JournalChanges` (§5.1) triggers a read as soon as the journal file is created/modified/deleted (events are hints, never counts; `OVERFLOW` also triggers a read). A fallback read runs every `--poll-ms` (default 10 000) for missed events and filesystems without inotify (NFS, some FUSE/bind mounts). If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
 - **Loop:** user acts → resolver calls `POST /decisions` → sequencer appends lines → resolver tails them → page refreshes. The page reflects the journal, never an optimistic local change.
 - **Web tech:** JDK `HttpServer`; one bundled static page (`index.html`, `app.css`, `app.js`, vanilla JS, no framework, no CDN, no build step). Compact, modern style (light/dark via `prefers-color-scheme`).
 - **Refresh:** Server-Sent Events. `GET /api/events` streams `event: state` messages (same JSON as `/api/state`): one on connect, then one whenever the journal offset, `n` or error changes, plus a `: ping` comment every 15 s. The browser uses `EventSource`; while the stream is down it falls back to polling `GET /api/state` every 2 s and stops polling when the stream reconnects. At most 32 concurrent streams (`503` beyond).
@@ -472,7 +473,7 @@ All config files are TOML, read by a hand-written subset parser in trex-sequence
 - `accounts.toml` — the registry (the spine): per account `ref`, `format` (`ing|cba|bw`), `currency` (`AUD|USD|INR`), `fireflyAccountId`. The sequencer uses it only to validate `accountRef` and stamp `currency` (and hold `fireflyAccountId`); `format` is for adapters.
 - `transfers.toml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
 - `sequencer.toml` — `journal.source`, `journal.target`, `apiPort`. (No fsync option — always fsync, §3.1.)
-- Follower config — `journalPath`, sink path, `pollSeconds` (command-line flags: `--journal`, `--archive`/`--db`, `--poll-seconds`, `--once`).
+- Follower config — `journalPath`, sink path, `pollSeconds` = fallback wake interval (command-line flags: `--journal`, `--archive`/`--db`, `--poll-seconds`, `--once`).
 - Resolver config — command-line flags (§5.4).
 - Firefly API token: env var / systemd credential, **never** in config or repo.
 
