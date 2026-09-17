@@ -63,6 +63,33 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   sequencer API. It is not one of the five phase-1 modules.
 - **Phase 1 (T-b):** `POST /decisions` is fully implemented in trex-sequencer
   (stage 4), not a stub. Resolution is available over the sequencer API.
+- `GET /held`, `GET /review` and `POST /decisions` form the resolution
+  workflow; all three are fully implemented in phase 1.
+
+**`POST /decisions` contract (T-c)**
+- Request: `{ "allOrNone": false, "decisions": [ ... ] }`, each decision
+  `{ "decisionRef", "action", ... }`:
+  - `MARK_EXTERNAL`: `externalId`.
+  - `CONFIRM_TRANSFER`: `legA`, `legB`, optional `comment`.
+- Response: `{ batchHandle, batchStatus, results }` (same envelope as
+  `/candidates`). Success → `Resolved(decisionRef, externalId, n)` (leg id for
+  MARK_EXTERNAL, `TRF-…` id for CONFIRM_TRANSFER); failure →
+  `Rejected(decisionRef, reason)`. `allOrNone` as in `/candidates`.
+- All accepted decisions in one request = one atomic `appendBatch`, under the
+  single write lock.
+- Rejected when: unknown `external_id`; current state not HELD/REVIEW; for
+  CONFIRM_TRANSFER also: same leg twice, same account, different currency,
+  amounts not equal-and-opposite, or a leg already used by an earlier decision
+  in the same request. `windowDays` is not enforced (human override).
+- Output: MARK_EXTERNAL → leg re-appended `EXTERNAL`. CONFIRM_TRANSFER → both
+  legs re-appended `MATCHED` + TRANSFER line with `confidence = EXACT`,
+  `provenance = AUTHORED`, `comment`.
+- Not in phase 1: "keep-both" (depends on B7) and "MAN-" manual entries.
+
+**`GET /held`, `GET /review`**
+- Return the latest line (`CanonicalEvent`) of every transaction whose current
+  state is HELD / REVIEW respectively, ordered by `n`. Served from the
+  published in-memory snapshot; gzip per §3.6.
 
 **Rules**
 - Deciding whether a new candidate goes to `MATCHED`, `HELD`, `REVIEW` or
@@ -130,5 +157,4 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 - T-a: whether `comment` is also allowed on a manual mark-external re-append
   (currently TRANSFER only; re-append rule 1 would need an exception).
-- T-c: `/decisions` request/response shape and validation (proposal pending).
 - B7, B10 (remaining TRANSFER fields), B11, B14–B23.
