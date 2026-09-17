@@ -18,6 +18,7 @@
     <module>trex-egress-sqlite</module>
     <module>trex-web</module>
     <module>trex-resolver</module>
+    <module>trex-grid</module>
   </modules>
 
   <properties>
