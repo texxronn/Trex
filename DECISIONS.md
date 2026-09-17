@@ -207,8 +207,32 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   not make a leg transfer-shaped.
 - `windowDays` is required in `transfers.toml`; no default.
 
+### B15 — Description cleaning
+- One pure function: trim, collapse internal whitespace runs to a single
+  space. Swappable; never used for identity (identity hashes `rawDescription`).
+
+### B16 — Row order and reconciliation
+- CSV row order is not assumed (treat as arbitrary). The ING adapter preserves
+  file row order as-is; no sorting or reversal.
+- Consequence accepted: `occ` follows file order. The same file always yields
+  the same ids; a re-exported file that reorders identical-`Sig` rows can swap
+  their `occ` (surfaces as `POTENTIAL_DUP` via differing balances).
+- Reconciliation (test 6) is order-independent, per account, over leg lines
+  (TRANSFER lines excluded), first line per `external_id`:
+  - each leg links `prev = balance − amount` → `balance`;
+  - opening = the `prev` that is no leg's `balance`; closing = the `balance`
+    that is no leg's `prev`;
+  - require exactly one opening and one closing (a single chain), else report
+    "unreconcilable" (never guess);
+  - assert `Σ amount == closing − opening`, exact `long` equality.
+
+### B17 — Config parsing
+- Hand-written TOML subset parser in trex-sequencer (JDK-only): `[table]`,
+  `[[array-of-tables]]`, `key = value` with strings, integers, booleans, arrays
+  of strings, `#` comments. Anything else is a config error at startup.
+
 ### B12, B13, B25, B26 — watermark / aging details — *moot under T*
 
 ## Open
 
-- B15–B23.
+- B18–B23.
