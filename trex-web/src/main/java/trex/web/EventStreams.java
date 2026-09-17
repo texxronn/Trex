@@ -1,4 +1,4 @@
-package trex.resolver;
+package trex.web;
 
 import com.sun.net.httpserver.HttpExchange;
 
@@ -12,15 +12,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
- * Server-Sent Events for the resolver page (SPEC §5.4). Each client's handler thread (a virtual
+ * Server-Sent Events for the follower web pages (SPEC §5.4, §5.5). Each client's handler thread (a virtual
  * thread) blocks until the journal state changes or the heartbeat interval passes. Changes are
  * coalesced: a client always receives the latest state, never a backlog.
  */
-final class EventStreams implements AutoCloseable {
+public final class EventStreams implements AutoCloseable {
 
-    static final int MAX_CLIENTS = 32;
+    public static final int MAX_CLIENTS = 32;
 
-    private final Supplier<byte[]> stateJson;
+    private final String eventName;
+    private final Supplier<byte[]> payloadJson;
     private final long heartbeatMillis;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
     private volatile boolean closed;
@@ -29,13 +30,15 @@ final class EventStreams implements AutoCloseable {
         final Semaphore changed = new Semaphore(0);
     }
 
-    EventStreams(Supplier<byte[]> stateJson, long heartbeatMillis) {
-        this.stateJson = stateJson;
+    /** Each message is {@code event: <eventName>} with the current {@code payloadJson} as data. */
+    public EventStreams(String eventName, Supplier<byte[]> payloadJson, long heartbeatMillis) {
+        this.eventName = eventName;
+        this.payloadJson = payloadJson;
         this.heartbeatMillis = heartbeatMillis;
     }
 
     /** Wake every connected client; called by the journal watcher on change. */
-    void publish() {
+    public void publish() {
         for (Client c : clients) {
             if (c.changed.availablePermits() == 0) {
                 c.changed.release();
@@ -44,12 +47,12 @@ final class EventStreams implements AutoCloseable {
     }
 
     /** @return false if the client limit is reached (caller responds 503) */
-    boolean tryAdmit() {
+    public boolean tryAdmit() {
         return clients.size() < MAX_CLIENTS;
     }
 
     /** Serve one stream until the client disconnects or the server closes. */
-    void stream(HttpExchange ex) throws IOException {
+    public void stream(HttpExchange ex) throws IOException {
         Client client = new Client();
         clients.add(client);
         try {
@@ -58,13 +61,13 @@ final class EventStreams implements AutoCloseable {
             ex.getResponseHeaders().set("X-Accel-Buffering", "no");
             ex.sendResponseHeaders(200, 0);
             OutputStream out = ex.getResponseBody();
-            send(out, stateEvent());
+            send(out, event());
             while (!closed) {
                 boolean changed = client.changed.tryAcquire(heartbeatMillis, TimeUnit.MILLISECONDS);
                 if (closed) {
                     break;
                 }
-                send(out, changed ? stateEvent() : ": ping\n\n".getBytes(StandardCharsets.UTF_8));
+                send(out, changed ? event() : ": ping\n\n".getBytes(StandardCharsets.UTF_8));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -73,9 +76,9 @@ final class EventStreams implements AutoCloseable {
         }
     }
 
-    private byte[] stateEvent() {
-        byte[] json = stateJson.get();
-        byte[] head = "event: state\ndata: ".getBytes(StandardCharsets.UTF_8);
+    private byte[] event() {
+        byte[] json = payloadJson.get();
+        byte[] head = ("event: " + eventName + "\ndata: ").getBytes(StandardCharsets.UTF_8);
         byte[] tail = "\n\n".getBytes(StandardCharsets.UTF_8);
         byte[] event = new byte[head.length + json.length + tail.length];
         System.arraycopy(head, 0, event, 0, head.length);
@@ -89,7 +92,7 @@ final class EventStreams implements AutoCloseable {
         out.flush();
     }
 
-    int clientCount() {
+    public int clientCount() {
         return clients.size();
     }
 

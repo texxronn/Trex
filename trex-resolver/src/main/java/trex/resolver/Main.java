@@ -1,5 +1,8 @@
 package trex.resolver;
 
+import trex.core.state.LedgerView;
+import trex.web.JournalWatcher;
+
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -40,7 +43,7 @@ public final class Main {
             System.exit(64);
             return;
         }
-        JournalWatcher watcher = new JournalWatcher(Path.of(journal), Clock.systemUTC()).start(pollMs);
+        JournalWatcher<LedgerView> watcher = new JournalWatcher<>(Path.of(journal), Clock.systemUTC(), LedgerFold::new).start(pollMs);
         ResolverServer server = new ResolverServer(watcher, new SequencerClient(URI.create(sequencerUrl)), bind, port).start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             server.close();

@@ -1,7 +1,5 @@
-package trex.resolver;
+package trex.web;
 
-import trex.core.state.Ledger;
-import trex.core.state.LedgerView;
 import trex.journal.FramedReader;
 
 import java.io.IOException;
@@ -22,36 +20,40 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
- * Follows the journal file and keeps the folded state (SPEC §5.4). Nothing is persisted: state is
- * rebuilt from offset 0 at startup, and again whenever the file shrinks below the tail offset or a
- * read fails (e.g. the journal was replaced by a materialize).
+ * Follows the journal file and keeps a {@link Fold} of it (SPEC §5.4, §5.5). Nothing is persisted:
+ * the fold is rebuilt from offset 0 at startup, and again whenever the file shrinks below the tail
+ * offset or a read fails (e.g. the journal was replaced by a materialize).
  * Reads are triggered by file-change events (WatchService, inotify on Linux) with a slow fallback poll.
  */
-public final class JournalWatcher implements AutoCloseable {
+public final class JournalWatcher<V> implements AutoCloseable {
 
-    /** Published snapshot for the web API. */
-    public record Status(LedgerView view, long offset, Instant updatedAt, String error) {}
+    /** Published snapshot. {@code n} is the highest journal n applied. */
+    public record Status<V>(V view, long offset, long n, Instant updatedAt, String error) {}
 
     private final Path journal;
     private final Clock clock;
-    private final AtomicReference<Status> status;
+    private final Supplier<Fold<V>> folds;
+    private final AtomicReference<Status<V>> status;
     private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
-    private Ledger ledger = new Ledger();
+    private Fold<V> fold;
     private long offset;
+    private long n;
     private boolean refold;
     private ScheduledExecutorService scheduler;
     private WatchService watchService;
-    private Thread watchThread;
 
-    public JournalWatcher(Path journal, Clock clock) {
+    public JournalWatcher(Path journal, Clock clock, Supplier<Fold<V>> folds) {
         this.journal = journal.toAbsolutePath();
         this.clock = clock;
-        this.status = new AtomicReference<>(new Status(LedgerView.EMPTY, 0, clock.instant(), null));
+        this.folds = folds;
+        this.fold = folds.get();
+        this.status = new AtomicReference<>(new Status<>(fold.snapshot(), 0, 0, clock.instant(), null));
     }
 
-    public Status status() {
+    public Status<V> status() {
         return status.get();
     }
 
@@ -62,33 +64,37 @@ public final class JournalWatcher implements AutoCloseable {
 
     /** Read any newly completed journal lines. Safe to call repeatedly; runs on one thread at a time. */
     public synchronized void poll() {
-        Status before = status.get();
+        Status<V> before = status.get();
         try {
             long size = Files.exists(journal) ? Files.size(journal) : 0;
             if (refold || size < offset) {
-                ledger = new Ledger();
+                fold = folds.get();
                 offset = 0;
+                n = 0;
                 refold = false;
             }
             if (size > offset) {
                 try (FramedReader reader = new FramedReader(journal, offset)) {
                     FramedReader.Framed line;
                     while ((line = reader.next()) != null) {
-                        ledger.apply(line.event());
+                        if (line.event().n() <= n) {
+                            throw new IllegalStateException("n not strictly increasing: " + line.event().n() + " after " + n);
+                        }
+                        fold.apply(line.event());
+                        n = line.event().n();
                         offset = line.endOffset();
                     }
                 }
             }
-            ledger.setHeadOffset(offset);
-            status.set(new Status(ledger.snapshot(), offset, clock.instant(), null));
+            status.set(new Status<>(fold.snapshot(), offset, n, clock.instant(), null));
         } catch (IOException | RuntimeException e) {
             // never let an exception escape: it would cancel the scheduled poll
             refold = true;
-            status.set(new Status(before.view(), before.offset(), clock.instant(), "journal read failed: " + e.getMessage()));
+            status.set(new Status<>(before.view(), before.offset(), before.n(), clock.instant(),
+                "journal read failed: " + e.getMessage()));
         }
-        Status after = status.get();
-        if (after.offset() != before.offset()
-            || after.view().highWaterN() != before.view().highWaterN()
+        Status<V> after = status.get();
+        if (after.offset() != before.offset() || after.n() != before.n()
             || !Objects.equals(after.error(), before.error())) {
             listeners.forEach(Runnable::run);
         }
@@ -98,15 +104,14 @@ public final class JournalWatcher implements AutoCloseable {
      * Start event-driven tailing plus a fallback poll every {@code fallbackPollMillis}.
      * If the directory cannot be watched, the fallback poll alone keeps working.
      */
-    public JournalWatcher start(long fallbackPollMillis) {
+    public JournalWatcher<V> start(long fallbackPollMillis) {
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "journal-fallback-poll"));
         scheduler.scheduleWithFixedDelay(this::poll, 0, fallbackPollMillis, TimeUnit.MILLISECONDS);
         try {
             watchService = FileSystems.getDefault().newWatchService();
             journal.getParent().register(watchService, StandardWatchEventKinds.ENTRY_CREATE,
                 StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE);
-            watchThread = daemon(this::watchLoop, "journal-watch");
-            watchThread.start();
+            daemon(this::watchLoop, "journal-watch").start();
         } catch (IOException | RuntimeException e) {
             System.err.println("journal watch unavailable, using fallback poll only: " + e.getMessage());
         }

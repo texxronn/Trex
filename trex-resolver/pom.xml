@@ -21,6 +21,10 @@
       <groupId>trex</groupId>
       <artifactId>trex-journal</artifactId>
     </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-web</artifactId>
+    </dependency>
     <!-- tests run an in-process sequencer and write real journals -->
     <dependency>
       <groupId>trex</groupId>

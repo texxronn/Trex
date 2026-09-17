@@ -1,4 +1,4 @@
-package trex.resolver;
+package trex.web;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -7,6 +7,8 @@ import trex.core.EventState;
 import trex.core.Flag;
 import trex.core.Provenance;
 import trex.core.TypeHint;
+import trex.core.state.Ledger;
+import trex.core.state.LedgerView;
 import trex.sequencer.journal.JsonlJournal;
 
 import java.nio.file.Files;
@@ -26,6 +28,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JournalWatcherTest {
 
+    static final class LedgerTestFold implements Fold<LedgerView> {
+        private final Ledger ledger = new Ledger();
+
+        @Override
+        public void apply(CanonicalEvent line) {
+            ledger.apply(line);
+        }
+
+        @Override
+        public LedgerView snapshot() {
+            return ledger.snapshot();
+        }
+    }
+
     @TempDir
     Path dir;
 
@@ -44,7 +60,7 @@ class JournalWatcherTest {
     @Test
     void foldsFromZeroThenTailsNewLinesAndIgnoresPartialTail() throws Exception {
         Path journal = dir.resolve("journal.jsonl");
-        JournalWatcher w = new JournalWatcher(journal, clock);
+        JournalWatcher<LedgerView> w = new JournalWatcher<>(journal, clock, LedgerTestFold::new);
         w.poll();
         assertEquals(0, w.status().view().held().size());
         assertNull(w.status().error());
@@ -68,7 +84,7 @@ class JournalWatcherTest {
         Files.write(journal, Arrays.copyOfRange(next, 20, next.length), StandardOpenOption.APPEND);
         w.poll();
         assertEquals(List.of(), ids(w.status().view().held()));
-        assertEquals(3, w.status().view().highWaterN());
+        assertEquals(3, w.status().n());
     }
 
     @Test
@@ -77,7 +93,7 @@ class JournalWatcherTest {
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(line(1, "a", EventState.HELD), line(2, "b", EventState.HELD)));
         }
-        JournalWatcher w = new JournalWatcher(journal, clock);
+        JournalWatcher<LedgerView> w = new JournalWatcher<>(journal, clock, LedgerTestFold::new);
         w.poll();
         assertEquals(2, w.status().view().held().size());
 
@@ -92,7 +108,7 @@ class JournalWatcherTest {
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(line(1, "a", EventState.HELD)));
         }
-        JournalWatcher w = new JournalWatcher(journal, clock);
+        JournalWatcher<LedgerView> w = new JournalWatcher<>(journal, clock, LedgerTestFold::new);
         w.poll();
         Files.writeString(journal, "garbage\n", StandardOpenOption.APPEND);
         w.poll();
@@ -111,10 +127,10 @@ class JournalWatcherTest {
         Path journal = dir.resolve("journal.jsonl");
         java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
         java.util.concurrent.CountDownLatch seenLine = new java.util.concurrent.CountDownLatch(1);
-        try (JournalWatcher w = new JournalWatcher(journal, clock)) {
+        try (JournalWatcher<LedgerView> w = new JournalWatcher<>(journal, clock, LedgerTestFold::new)) {
             w.addListener(() -> {
                 changes.incrementAndGet();
-                if (w.status().view().highWaterN() == 1) {
+                if (w.status().n() == 1) {
                     seenLine.countDown();
                 }
             });
@@ -136,7 +152,7 @@ class JournalWatcherTest {
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(line(1, "a", EventState.HELD)));
         }
-        JournalWatcher w = new JournalWatcher(journal, clock);
+        JournalWatcher<LedgerView> w = new JournalWatcher<>(journal, clock, LedgerTestFold::new);
         java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
         w.addListener(changes::incrementAndGet);
         w.poll();
@@ -152,7 +168,7 @@ class JournalWatcherTest {
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(a, a.reappend(2, EventState.HELD, List.of(Flag.POTENTIAL_DUP), null)));
         }
-        JournalWatcher w = new JournalWatcher(journal, clock);
+        JournalWatcher<LedgerView> w = new JournalWatcher<>(journal, clock, LedgerTestFold::new);
         w.poll();
         assertEquals(List.of("a"), ids(w.status().view().held()));
         assertEquals(List.of("a"), ids(w.status().view().review()));

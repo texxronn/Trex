@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import trex.core.Candidate;
 import trex.core.CandidateResult;
 import trex.core.Provenance;
+import trex.core.state.LedgerView;
 import trex.journal.Json;
 import trex.sequencer.http.HttpApi;
 import trex.sequencer.ingest.Account;
@@ -18,6 +19,7 @@ import trex.sequencer.ingest.TransferRules;
 import trex.sequencer.journal.JsonlJournal;
 import trex.sequencer.journal.Recovery;
 import trex.sequencer.state.Fold;
+import trex.web.JournalWatcher;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -47,7 +49,7 @@ class ResolverServerTest {
     private JsonlJournal journal;
     private Sequencer sequencer;
     private HttpApi sequencerApi;
-    private JournalWatcher watcher;
+    private JournalWatcher<LedgerView> watcher;
     private ResolverServer resolver;
 
     @BeforeEach
@@ -60,7 +62,7 @@ class ResolverServerTest {
             new AccountRegistry(List.of(new Account("ing-savings", "ing", "AUD", "1"), new Account("cba-everyday", "cba", "AUD", "2"))),
             new TransferRules(List.of("Fast Transfer", "Transfer from", "Osko"), 3), clock);
         sequencerApi = new HttpApi(sequencer, 0, HttpApi.DEFAULT_MAX_BODY_BYTES).start();
-        watcher = new JournalWatcher(path, clock);
+        watcher = new JournalWatcher<>(path, clock, LedgerFold::new);
         resolver = new ResolverServer(watcher,
             new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), "127.0.0.1", 0).start();
     }
