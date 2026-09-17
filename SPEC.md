@@ -5,6 +5,7 @@ A build spec for four components, pitched for Claude Code generation:
 2. **A sample ingress adapter** — ING CSV → candidates → trex
 3. **Two sample egress followers** — `toArchive` and `toSQLiteWAL`
 4. **The manual resolver** — an admin web service (journal follower + UI) for the HELD/REVIEW workflow
+5. **The grid** — a read-only, compact, live table of the journal (not a dashboard: dashboards belong to Firefly/Grafana)
 
 Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decisions. This document is the *how to build it*; that one is the *why*. Where they conflict, the invariants in §0 win. Pre-implementation review decisions are folded into this document; `DECISIONS.md` records the rationale (B-numbers and T refer to it).
 
@@ -40,10 +41,14 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
       pom.xml
     trex-egress-sqlite/
       pom.xml
+    trex-web/         # shared web-follower plumbing: journal watcher, SSE, static serving, security headers
+      pom.xml
     trex-resolver/    # manual resolver admin service (§5.4)
       pom.xml
+    trex-grid/        # read-only journal grid (§5.5)
+      pom.xml
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the seven `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the nine `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
   - `com.fasterxml.jackson.core:jackson-annotations` — **the only dependency of trex-core** (for `@JsonPropertyOrder`; no databind in core).
   - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
@@ -437,6 +442,25 @@ An admin web service for the resolution workflow. It is a journal follower (read
   - Request body cap 64 KB.
 - **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback journal read interval, default 10000).
 
+### 5.5 trex-grid — read-only journal grid
+A plain, compact, live table over the journal. Read-only: no actions (decisions stay in the resolver). Same model as the resolver: a journal follower with nothing persisted, event-driven tailing, SSE, JDK `HttpServer`, one bundled vanilla JS page.
+- **Shared plumbing (`trex-web`, used by resolver and grid):** `JournalWatcher<V>` (fold from 0, WatchService-triggered reads + fallback poll, refold on shrink/read error, change listeners — §5.4), `EventStreams` (coalesced SSE with heartbeat and client cap), static page serving with the security headers, JSON/error helpers.
+- **Views (G1):** **Transactions** (default) — the latest line per `externalId`; **Journal** — every line, every version.
+- **Columns (G2):** `n`, date, account, to-account, amount, currency, description, type, state, flags, confidence, provenance, source, receipt, transferKey, comment, ingestedAt, externalId. A compact default set is shown; the rest can be toggled on (column choice kept in the browser's `localStorage`).
+- **Sort (G3):** server-side on any column, asc/desc; click a header to sort, shift-click to add a secondary key. Ties always break by `n` ascending, so paging is stable. Text columns compare case-insensitively; nulls sort last. Default: `n` descending.
+- **Basic filter & search:** account (matches `accountRef` or `toAccountRef`), state, type, date from/to (inclusive), and `q` — case-insensitive substring over raw description, description, comment, externalId, receipt, transferKey.
+- **Paging while data arrives (G4):** every page is computed against a pinned snapshot `asOfN`: the journal lines with `n ≤ asOfN` (Transactions = latest line per id among them). When SSE reports a newer `n`, the page shows a "N new · refresh" chip instead of moving rows. **Follow** mode (like `tail -f`): when on, and on page 1 sorted by `n` descending, the page refreshes automatically.
+- **State (G5):** all journal lines held in memory (append order = `n` order). Each distinct query (view, asOfN, filters, sort) is filtered+sorted once and cached (small LRU); paging slices the cached result.
+- **SSE (G6):** `GET /api/events` streams `event: head` — `{ n, offset, updatedAt, error, lines, transactions, accounts }` — never row data.
+- **URL (G7):** view, sort, page, size, and filters are mirrored in the page's query string (bookmarkable).
+- **Money (G8):** amounts formatted exactly from cents. Footer totals per currency over the filtered set, computed server-side in `long`: Transactions view only, and TRANSFER lines are excluded (their legs already carry the amounts). The Journal view shows counts only (versions would double-count).
+- **Security (G9):** read-only, so no CSRF guard is needed; binds `127.0.0.1` by default (LAN exposure via `--bind` is lower-risk than the resolver's); CSP `default-src 'self'`; bank text via `textContent` only; non-GET → `405`.
+- **API:**
+  - `GET /`, `/app.css`, `/app.js` — static page.
+  - `GET /api/head` — same JSON as the SSE `head` event.
+  - `GET /api/rows?view=transactions|journal&sort=col:asc|desc[,col:dir…]&page=1&size=50&asOfN=&account=&state=&type=&from=&to=&q=` → `{ asOfN, view, page, size, total, rows:[CanonicalEvent...], totals:[{currency, amount, count}] }`. `size` 1–500 (default 50); `asOfN` absent or above the head → current head. Invalid parameters → `400`.
+- **Config (flags):** `--journal <path>`, `--port <n>` (default 8091), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback read interval, default 10000).
+
 **Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` (Firefly categorizes) and `error_if_duplicate_hash`, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
 
 ---
@@ -485,7 +509,8 @@ Build bottom-up; each stage compiles and tests green before the next.
 5. **trex-ingress-ing** against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
 6. **trex-egress-archive**, then **trex-egress-sqlite** (+ test 8).
 7. **Extract shared components:** pure fold (`Ledger`, `LedgerView`, `Projection`, `Reconciliation`) → trex-core; `Json` mapper + `FramedReader` → trex-journal; sequencer, ingress and followers switch to them (no behavior change; all existing tests stay green).
-8. **trex-resolver** (§5.4) (+ tail/refold, API contract, CSRF guard, end-to-end decision round trip through an in-process sequencer).
+8. **trex-resolver** (§5.4) (+ tail/refold, API contract, CSRF guard, end-to-end decision round trip through an in-process sequencer); then extract `trex-web` from it.
+9. **trex-grid** (§5.5) (+ views, filters, sort/tie-break, pinned paging, totals, SSE head events).
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 

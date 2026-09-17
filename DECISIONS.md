@@ -324,3 +324,12 @@ Source: user notes in MANUAL_RESOLVER.txt (admin service; web UI; journal follow
 - A slow fallback read (10 s) stays: events can coalesce/overflow and do not fire on NFS/some FUSE/bind mounts.
 - SSE from the resolver pushes state on change; browser polling remains only as a fallback while the stream is down.
 - Followers keep their `pollSeconds` loop (not changed in this step).
+
+## Grid (G)
+
+User asked for a plain, compact, read-only grid on the resolver's model (SSE, paging, column sort), explicitly not a dashboard (Firefly/Grafana cover that). Folded into SPEC §5.5.
+
+- G1–G9 accepted as proposed: Transactions/Journal views; compact column set with toggles; server-side multi-column sort with `n` tie-break; paging pinned to `asOfN` with a "new rows" chip and Follow mode; in-memory lines with cached query results; SSE carries head info only; URL-mirrored state; exact cents with per-currency totals; read-only security.
+- Basic filter & search only (account, state, type, date range, text). Declined for now: detail drawer, reconciliation/accounts/health panels, projection preview, transfers view, export.
+- G10 (a): separate `trex-grid` process + shared `trex-web` module extracted from the resolver (watcher, SSE, static serving, security headers). Lets the read-only grid be exposed differently from the action-taking resolver.
+- Fill-in: totals only in the Transactions view and excluding TRANSFER lines (legs carry the amounts; journal versions would double-count).
