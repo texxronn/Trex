@@ -31,7 +31,7 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 **Re-append rules**
 1. A re-appended line is identical to the previous line for that
-   `external_id` except `n` and `state` (`ingestedAt`, `balance`,
+   `external_id` except `n`, `state` and `flags` (`ingestedAt`, `balance`,
    `description`, … unchanged).
 2. Allowed transitions: HELD→MATCHED, HELD→EXTERNAL, REVIEW→MATCHED,
    REVIEW→EXTERNAL. Any other requested transition is `Rejected`, nothing
@@ -71,6 +71,7 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   `{ "decisionRef", "action", ... }`:
   - `MARK_EXTERNAL`: `externalId`.
   - `CONFIRM_TRANSFER`: `legA`, `legB`, optional `comment`.
+  - `DISMISS_DUP`: `externalId` (see B7).
 - Response: `{ batchHandle, batchStatus, results }` (same envelope as
   `/candidates`). Success → `Resolved(decisionRef, externalId, n)` (leg id for
   MARK_EXTERNAL, `TRF-…` id for CONFIRM_TRANSFER); failure →
@@ -81,14 +82,19 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   CONFIRM_TRANSFER also: same leg twice, same account, different currency,
   amounts not equal-and-opposite, or a leg already used by an earlier decision
   in the same request. `windowDays` is not enforced (human override).
+  `DISMISS_DUP` is rejected if the latest line lacks `POTENTIAL_DUP` (any state
+  allowed).
 - Output: MARK_EXTERNAL → leg re-appended `EXTERNAL`. CONFIRM_TRANSFER → both
   legs re-appended `MATCHED` + TRANSFER line with `confidence = EXACT`,
-  `provenance = AUTHORED`, `comment`.
+  `provenance = AUTHORED`, `comment`. DISMISS_DUP → re-appended with
+  `flags = []`, state unchanged.
 - Not in phase 1: "keep-both" (depends on B7) and "MAN-" manual entries.
 
 **`GET /held`, `GET /review`**
-- Return the latest line (`CanonicalEvent`) of every transaction whose current
-  state is HELD / REVIEW respectively, ordered by `n`. Served from the
+- `GET /held`: latest line of every transaction whose current state is HELD.
+  `GET /review`: latest line of every transaction whose current state is
+  REVIEW **or** whose latest `flags` contain `POTENTIAL_DUP`. Both ordered by
+  `n`. Served from the
   published in-memory snapshot; gzip per §3.6.
 
 **Rules**
@@ -143,7 +149,23 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 - ING is the starter adapter template; CBA/BW adapters follow the same model
   in a later phase.
 
-### B8 — Review set — *resolved by T*: review = transactions whose latest line has `state = REVIEW`.
+### B7 — Potential duplicate (flag only; revisit later)
+- Candidate whose `external_id` already exists with a **different** balance:
+  re-append the existing transaction with **state unchanged** and
+  `flags = [POTENTIAL_DUP]`. Works for any current state (incl. MATCHED).
+- Same balance → `DroppedDuplicate`, nothing appended.
+- Idempotent: if the latest line already carries `POTENTIAL_DUP`, nothing is
+  appended; result is `Flagged`.
+- The conflicting incoming balance is not stored (response only).
+- Cleared by `DISMISS_DUP` decision.
+- User intends to revisit this design later.
+
+### B8 — Review set — *resolved by T + B7*: see `GET /review`.
+
+### B14 — Same `external_id` twice in one batch
+- Later occurrence is compared with the earlier one using the B7 rule (same
+  balance → `DroppedDuplicate`; different → earlier appended normally, then a
+  flagged re-append).
 
 ### B9 — `ingestedAt` and byte-identical journals
 - A non-null `ingestedAt` is retained, never restamped.
@@ -157,7 +179,4 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 - T-a: whether `comment` is also allowed on a manual mark-external re-append
   (currently TRANSFER only; re-append rule 1 would need an exception).
-- B7 chosen: option (c) — a candidate whose `external_id` exists with a different
-  balance re-appends the existing transaction flagged `POTENTIAL_DUP` for review.
-  Open detail: state change vs flag-only, MATCHED legs, idempotency, how review clears.
-- B10 (remaining TRANSFER fields), B11, B14–B23.
+- B10 (remaining TRANSFER fields), B11, B15–B23.
