@@ -1,0 +1,7 @@
+[Unit]
+Description=trex (sequencer, followers, resolver, grid)
+Documentation=file:///opt/trex/README.md
+Wants=trex-sequencer.service trex-egress-archive.service trex-egress-sqlite.service trex-resolver.service trex-grid.service
+
+[Install]
+WantedBy=multi-user.target

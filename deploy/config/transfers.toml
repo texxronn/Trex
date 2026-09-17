@@ -1,0 +1,17 @@
+# Transfer matching rules — SPEC.md §3.4, §6.
+# A row is "transfer-shaped" when its raw description matches any allowlist regex
+# (case-insensitive, Java regex syntax; single-quoted strings avoid escaping).
+# Transfer-shaped rows without a matching contra leg are HELD for the resolver.
+
+# Maximum days between the two legs of an amount/date (T3) match. Required.
+windowDays = 3
+
+allowlist = [
+  'Internal Transfer',
+  'To my account',
+  'From my account',
+  'Fast Transfer',
+  'Transfer (to|from)',
+  'Osko',
+  'PayID',
+]

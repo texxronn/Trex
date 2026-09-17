@@ -64,6 +64,19 @@ class ConfigTest {
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
 
+    /** The shipped sample configuration (deploy/config) must always load. */
+    @Test
+    void sampleDeployConfigLoads() {
+        Config c = Config.load(Path.of("..", "deploy", "config"));
+        assertEquals("127.0.0.1", c.bindHost());
+        assertEquals(8080, c.bindPort());
+        assertEquals(Path.of("/var/lib/trex/journal/journal.jsonl"), c.journalSource());
+        assertEquals(c.journalSource(), c.journalTarget());
+        assertEquals("AUD", c.registry().find("ing-savings").orElseThrow().currency());
+        assertTrue(c.rules().isTransferShaped("Transfer to CBA"));
+        assertEquals(3, c.rules().windowDays());
+    }
+
     @Test
     void windowDaysIsRequired() throws IOException {
         write(SEQUENCER, ACCOUNTS, "allowlist = [\"x\"]\n");

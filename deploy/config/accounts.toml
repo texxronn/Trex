@@ -1,0 +1,24 @@
+# Account registry — SPEC.md §6. One [[account]] per bank account.
+#   ref              registry key used by adapters (--account) and on every journal line
+#   format           ing | cba | bw  (used by ingress adapters only)
+#   currency         AUD | USD | INR (stamped onto events; no conversion)
+#   fireflyAccountId Firefly III account id (used by the future Firefly egress)
+# An unknown accountRef is always rejected; accounts are never auto-created.
+
+[[account]]
+ref = "ing-savings"
+format = "ing"
+currency = "AUD"
+fireflyAccountId = "1"
+
+[[account]]
+ref = "ing-orange"
+format = "ing"
+currency = "AUD"
+fireflyAccountId = "2"
+
+[[account]]
+ref = "cba-everyday"
+format = "cba"
+currency = "AUD"
+fireflyAccountId = "3"
