@@ -304,3 +304,17 @@ pre-implementation review.
 ## Open
 
 - B21 follow-up: optional SQL view of current state per `external_id` (latest `n`).
+
+## Manual resolver (R)
+
+Source: user notes in MANUAL_RESOLVER.txt (admin service; web UI; journal follower; lists HELD & REVIEW; minimal double-confirmed actions; acts via sequencer API; page updates from the journal; no auth for now). Folded into SPEC §5.4.
+
+- R1 "confirm REVIEW" action: meaning unclear (DISMISS_DUP already exists; HELD→REVIEW is not an allowed transition). Left as TODO.
+- R2 Web tech: JDK HttpServer + bundled static HTML/CSS/vanilla JS (CLAUDE.md: JDK-only, no frameworks). Compact, modern style.
+- R3 Refresh: browser polling first; Server-Sent Events TODO.
+- R4 No persisted resolver state: fold journal from offset 0 at startup, then tail. Journal-shrink detection added (materialize overwrites target, B5), refold from 0.
+- R5 Shared components extracted rather than duplicated or depending on trex-sequencer: pure fold (Ledger, LedgerView, Projection, Reconciliation) → trex-core; Json mapper + FramedReader → new `trex-journal` module; followers drop their JournalTail copies. Reason: the resolver's HELD/REVIEW lists must match the sequencer's `/review` exactly, and framing/corruption rules should have one implementation. Amends SPEC §1, §2, §5.1.
+- R6 Double confirmation: action → dialog with exact effect + optional comment → Confirm sends; result or rejection reason shown. Re-submits are safe (sequencer rejects).
+- R7 Page: HELD and REVIEW lists; select two rows to pair; no suggestions, no history.
+- R8 New module `trex-resolver`; configured by flags.
+- Security (no auth): bind 127.0.0.1 by default; POST requires JSON content type + `X-Trex-Admin: 1` + matching Origin (CSRF); CSP `default-src 'self'`; text inserted via textContent (bank descriptions are untrusted).

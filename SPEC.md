@@ -1,9 +1,10 @@
 # trex — Transaction Sequencer: Java 25 Code Plan
 
-A build spec for three components, pitched for Claude Code generation:
+A build spec for four components, pitched for Claude Code generation:
 1. **trex** — the transaction sequencer service (the journal core)
 2. **A sample ingress adapter** — ING CSV → candidates → trex
 3. **Two sample egress followers** — `toArchive` and `toSQLiteWAL`
+4. **The manual resolver** — an admin web service (journal follower + UI) for the HELD/REVIEW workflow
 
 Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decisions. This document is the *how to build it*; that one is the *why*. Where they conflict, the invariants in §0 win. Pre-implementation review decisions are folded into this document; `DECISIONS.md` records the rationale (B-numbers and T refer to it).
 
@@ -27,9 +28,11 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
   ```
   trex/
     pom.xml           # parent (packaging=pom): modules, <release>25</release>, dependencyManagement
-    trex-core/        # pure domain: no HTTP, no DB, no I/O framework
+    trex-core/        # pure domain + pure journal-state fold: no HTTP, no DB, no I/O framework
       pom.xml
-    trex-sequencer/   # the service: journal I/O + HTTP API + wiring
+    trex-journal/     # shared journal read format: Json mapper config + framed JSONL reader
+      pom.xml
+    trex-sequencer/   # the service: journal writer + HTTP API + wiring
       pom.xml
     trex-ingress-ing/ # sample ingress adapter (CSV → trex)
       pom.xml
@@ -37,11 +40,13 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
       pom.xml
     trex-egress-sqlite/
       pom.xml
+    trex-resolver/    # manual resolver admin service (§5.4)
+      pom.xml
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the five `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. There is no shared egress module; the follower loop (§5.1) is duplicated minimally in each follower.
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the seven `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
   - `com.fasterxml.jackson.core:jackson-annotations` — **the only dependency of trex-core** (for `@JsonPropertyOrder`; no databind in core).
-  - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in sequencer, ingress and followers. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
+  - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
   - `org.xerial:sqlite-jdbc` (egress-sqlite only).
   - `org.junit.jupiter:junit-jupiter` (tests).
   - **JDK-only for the rest:** `java.net.http.HttpClient` (adapters → trex), `com.sun.net.httpserver.HttpServer` (trex API — **confirmed choice; zero-dep, no Javalin**), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`. Config files are TOML read by a hand-written subset parser (§6) — no TOML library.
@@ -169,6 +174,13 @@ Determinism requirement: within a batch, identical-`Sig` candidates get stable a
 
 Input row order is not assumed to be meaningful (§4): `occ` follows the order rows arrive in. The same file always yields the same ids; a re-exported file that reorders identical-`Sig` rows may swap their `occ` — accepted, and it surfaces as `POTENTIAL_DUP` because their balances differ (§3.3).
 
+### 2.6 Journal state fold (pure)
+Pure, I/O-free types every journal reader shares (moved here so the sequencer, followers and resolver agree exactly):
+- `Ledger` — folds journal lines in order: `firstLine[externalId]`, `latest[externalId]` (highest `n`), HELD index, `highWaterN`, head offset. Rejects non-increasing `n`.
+- `LedgerView` — immutable snapshot: `held()` (latest state HELD), `review()` (latest state REVIEW **or** `POTENTIAL_DUP` ∈ latest flags), both ordered by `n`.
+- `Projection.projectableUnits(latestLines)` — TRANSFER lines + EXTERNAL transactions not listed in any TRANSFER's `legIds`.
+- `Reconciliation.reconcile(journalLines)` — §7 test 6 algorithm.
+
 ---
 
 ## 3. trex-sequencer — the service
@@ -188,7 +200,7 @@ public interface Journal {
 - One event per line, `\n`-terminated, UTF-8, deterministic field order (§2.2).
 - Byte format: null fields are **written** (not omitted); `flags` always an array (`[]` when empty); `legIds` `null` on non-TRANSFER lines; `LocalDate`/`Instant` as ISO-8601 strings.
 - Open target with `O_APPEND`. `appendBatch` serializes all events to one byte block, writes it fully, then `force(true)` (fsync) **before** the sequencer updates in-memory state / returns success. One fsync per `appendBatch` (i.e. per API call), always — there is no fsync policy option. Crash before fsync ⇒ torn tail ⇒ truncated on next recovery ⇒ batch simply absent ⇒ adapter retries (idempotent).
-- **Framing on read:** a record is complete iff it ends in `\n` **and** parses as a `CanonicalEvent`. A trailing partial line is *not* returned and the read offset is *not* advanced past it.
+- **Framing on read** (`trex-journal` `FramedReader`, shared by every reader): a record is complete iff it ends in `\n` **and** parses as a `CanonicalEvent`. A trailing partial line is *not* returned and the read offset is *not* advanced past it. A `\n`-terminated line that does not parse is corruption: readers stop with an error (recovery aborts startup) — never skip or truncate it.
 
 ### 3.2 Recovery / materialize (startup)
 Params: `journal.source`, `journal.target` (both paths).
@@ -355,7 +367,7 @@ Acceptance: parsing an ING slice yields the same candidates every run (golden fi
 
 Followers **read the journal file directly** (single-writer append-only makes this safe), tail by byte offset with framing, and persist only their offset. They do **not** use the trex HTTP API. Both phase-1 followers are **journal mirrors**: one output record per journal line, keyed by `n`, with no transaction-state logic.
 
-### 5.1 Shared follower loop (duplicated minimally in each follower)
+### 5.1 Shared follower loop (framed reading via `trex-journal`)
 ```
 loop (every pollSeconds):
     channel = open(journalPath, READ)
@@ -400,6 +412,30 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
 - Current state of a transaction = the row with the highest `n` for its `external_id`; the follower itself holds no state logic.
 - Cursor lives in `follower_state`, not a sidecar file.
 
+### 5.4 trex-resolver — manual resolver (admin service)
+An admin web service for the resolution workflow. It is a journal follower (reads the journal file) and an API client (acts only through the sequencer's `POST /decisions`). It never writes the journal.
+- **State:** none persisted. On startup it folds the journal from offset 0 into a `Ledger` (§2.6), then tails it every `--poll-ms`, publishing a `LedgerView` snapshot. If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
+- **Loop:** user acts → resolver calls `POST /decisions` → sequencer appends lines → resolver tails them → page refreshes. The page reflects the journal, never an optimistic local change.
+- **Web tech:** JDK `HttpServer`; one bundled static page (`index.html`, `app.css`, `app.js`, vanilla JS, no framework, no CDN, no build step). Compact, modern style (light/dark via `prefers-color-scheme`).
+- **Refresh:** the browser polls `GET /api/state` every 2 s. (TODO: Server-Sent Events.)
+- **Page:** two lists — HELD and REVIEW (same sets as §2.6; REVIEW rows labelled *ambiguous match* or *potential duplicate*). Each row: date, account, amount (cents formatted exactly), raw description, `n`, comment, badges. No pairing suggestions, no resolved-history view.
+- **Actions** (only the existing decisions):
+  - `MARK_EXTERNAL` on a HELD/REVIEW row.
+  - `CONFIRM_TRANSFER`: select exactly two rows, then "Pair as transfer" — enabled only if amounts are equal and opposite (non-zero), accounts differ and currencies match. The sequencer remains authoritative.
+  - `DISMISS_DUP` on a row flagged `POTENTIAL_DUP`.
+  - (TODO: "confirm REVIEW" — meaning not yet defined.)
+- **Double confirmation:** an action button opens a confirmation dialog stating the exact effect, with an optional comment. Only its Confirm sends the request. The result is shown: `Resolved` (with `n`) or the sequencer's `Rejected` reason. A repeated submit is harmless — the sequencer rejects it.
+- **Resolver API:**
+  - `GET /`, `/app.css`, `/app.js` — static page.
+  - `GET /api/state` → `{ offset, n, updatedAt, error, held:[CanonicalEvent...], review:[CanonicalEvent...] }`.
+  - `POST /api/decisions` — body `{ action, externalId?, legA?, legB?, comment? }` (one decision). The resolver validates `action` ∈ {MARK_EXTERNAL, CONFIRM_TRANSFER, DISMISS_DUP}, builds the sequencer request itself (`decisionRef = "ui-" + UUID`) and returns the sequencer's response.
+- **Security (no authentication, for now):**
+  - Binds `127.0.0.1` by default; LAN exposure requires an explicit `--bind`.
+  - `POST /api/decisions` requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
+  - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
+  - Request body cap 64 KB.
+- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (default 1000).
+
 **Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` (Firefly categorizes) and `error_if_duplicate_hash`, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
 
 ---
@@ -411,7 +447,8 @@ All config files are TOML, read by a hand-written subset parser in trex-sequence
 - `accounts.toml` — the registry (the spine): per account `ref`, `format` (`ing|cba|bw`), `currency` (`AUD|USD|INR`), `fireflyAccountId`. The sequencer uses it only to validate `accountRef` and stamp `currency` (and hold `fireflyAccountId`); `format` is for adapters.
 - `transfers.toml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
 - `sequencer.toml` — `journal.source`, `journal.target`, `apiPort`. (No fsync option — always fsync, §3.1.)
-- Follower config — `journalPath`, sink path, `pollSeconds`.
+- Follower config — `journalPath`, sink path, `pollSeconds` (command-line flags: `--journal`, `--archive`/`--db`, `--poll-seconds`, `--once`).
+- Resolver config — command-line flags (§5.4).
 - Firefly API token: env var / systemd credential, **never** in config or repo.
 
 ---
@@ -446,6 +483,8 @@ Build bottom-up; each stage compiles and tests green before the next.
 4. **HTTP API** (`/candidates` with `allOrNone`, `/head`, `/held`, `/review`, `/decisions` — all fully implemented; gzip §3.6) (+ tests 10, 12).
 5. **trex-ingress-ing** against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
 6. **trex-egress-archive**, then **trex-egress-sqlite** (+ test 8).
+7. **Extract shared components:** pure fold (`Ledger`, `LedgerView`, `Projection`, `Reconciliation`) → trex-core; `Json` mapper + `FramedReader` → trex-journal; sequencer, ingress and followers switch to them (no behavior change; all existing tests stay green).
+8. **trex-resolver** (§5.4) (+ tail/refold, API contract, CSRF guard, end-to-end decision round trip through an in-process sequencer).
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 
@@ -453,6 +492,6 @@ Each component is small and single-purpose; keep trex-core free of any I/O so it
 
 ## 9. Explicitly out of scope here (later phases)
 
-Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; CBA/BW ingress adapters; the Firefly egress follower; the manual resolver service (its sequencer API is in scope, §3.5); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
+Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; CBA/BW ingress adapters; the Firefly egress follower; resolver TODOs (Server-Sent Events, authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
 
 **Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.toml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.
