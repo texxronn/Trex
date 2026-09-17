@@ -1,0 +1,28 @@
+Transfer semantics
+
+NO Aging Out. All HELD transactions are either automatically resolved or manually resolved. No aging out.
+
+Confirmed Transfer
+------------------
+Ingress1:                                           Trex_Seq Event 
+CanonicalCandiate (Leg1)      ---API-->            
+                                                    Canonical event_type:Transaction (state: HELD) n:1 external_id:ext1
+
+
+Ingress2:
+CanonicalCandidate (Leg2)    ---API-->             
+                                                    Canonical event_type:Transaction (state:Confirmed) n:2 external_id:ext2
+                                                    Canonical event_type:Transaction (state:Confirmed) n:3 external_id:ext1
+						    Canonical event_type:Transfer from:Leg1 to:Leg2 (Should be bank accounts ??) n:4
+
+
+External Transfer
+-----------------
+Ingress1:                                           Trex_Seq Event 
+CanonicalCandiate (Leg1)      ---API-->            
+                                                    Canonical event_type:Transaction (state: HELD) n:1 external_id:ext1
+
+
+ManualResolver: (Maintains and displays a list of HELD transactions) Starts displaying it.
+Action Resolve external_id:ext1  ---API--->
+                                                   Canonical event_type:Transaction (state:EXTERNAL or CONFIRMED expense or income) n:2 external_id:1
