@@ -157,4 +157,7 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 - T-a: whether `comment` is also allowed on a manual mark-external re-append
   (currently TRANSFER only; re-append rule 1 would need an exception).
-- B7, B10 (remaining TRANSFER fields), B11, B14–B23.
+- B7 chosen: option (c) — a candidate whose `external_id` exists with a different
+  balance re-appends the existing transaction flagged `POTENTIAL_DUP` for review.
+  Open detail: state change vs flag-only, MATCHED legs, idempotency, how review clears.
+- B10 (remaining TRANSFER fields), B11, B14–B23.
