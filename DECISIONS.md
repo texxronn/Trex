@@ -119,9 +119,7 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 **Followers**
 - §5.2 archive: mirrors every line; idempotency by `n`, not `external_id`.
-- §5.3 sqlite: `INSERT … ON CONFLICT(external_id) DO UPDATE … WHERE
-  excluded.n > events.n` (still idempotent, invariant 5). `state_snapshot`
-  column becomes `state`; add `to_account_ref`.
+- §5.3 sqlite: see B21 — a journal mirror keyed by `n`.
 
 **Tests**
 - Test 11: split-batch transfer = 4 lines (leg A HELD, leg B, leg A
@@ -259,6 +257,32 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
   rows when the fixed row is re-ingested, changing their `external_id`.
 - Such rows never reach the sequencer, journal or review workflow; the fix is
   to correct the file (or parser) and re-run (idempotent).
+
+### B21 — SQLite follower schema (amends SPEC §5.3)
+- The SQLite database mirrors the **journal**, not transaction state: one row
+  per journal line, primary key `n`. Every `CanonicalEvent` field is stored.
+  ```sql
+  CREATE TABLE IF NOT EXISTS journal (
+    n INTEGER PRIMARY KEY,
+    external_id TEXT NOT NULL,
+    account_ref TEXT, to_account_ref TEXT, currency TEXT,
+    date TEXT, amount INTEGER, balance INTEGER,
+    description TEXT, raw_description TEXT,
+    type_hint TEXT, transfer_key TEXT, leg_ids TEXT,      -- JSON array or NULL
+    corrects TEXT, state TEXT, confidence TEXT, flags TEXT, -- flags: JSON array
+    provenance TEXT, source TEXT, receipt TEXT,
+    counterparty_bsb TEXT, counterparty_acct TEXT,
+    foreign_amount INTEGER, foreign_currency TEXT,
+    comment TEXT, ingested_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS journal_external_id ON journal(external_id);
+  CREATE TABLE IF NOT EXISTS follower_state (k TEXT PRIMARY KEY, offset INTEGER);
+  ```
+- Consume = `INSERT … ON CONFLICT(n) DO NOTHING` + `follower_state` offset
+  update in one transaction (exactly-once into SQLite; invariant 5).
+- `PRAGMA journal_mode=WAL;`. Amounts/balances bound as INTEGER cents, never
+  REAL.
+- The follower holds no transaction-state logic.
 
 ### B12, B13, B25, B26 — watermark / aging details — *moot under T*
 
