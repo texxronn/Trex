@@ -49,6 +49,10 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 - `accountRef` = account of the negative-amount (from) leg.
 - New field **`toAccountRef`** = account of the positive-amount (to) leg;
   `null` on non-TRANSFER lines. JSON position: immediately after `accountRef`.
+- New optional field **`comment`** (nullable string): free-text note,
+  supplied via `POST /decisions` when a transfer is confirmed manually; `null`
+  otherwise. JSON position: immediately before `ingestedAt`. Never part of
+  identity (`transferId` is from leg ids only).
 - TRANSFER lines are the only projectable unit for transfers.
 
 **Manual resolution** (`POST /decisions`)
@@ -122,6 +126,7 @@ explicitly **amends** it. Numbering (B1…) follows the pre-implementation revie
 
 ## Open
 
-- T-a: recording who made a manual decision (provenance of re-appended line).
+- T-a: whether `comment` is also allowed on a manual mark-external re-append
+  (currently TRANSFER only; re-append rule 1 would need an exception).
 - T-b: `/decisions` scope in phase 1 (full vs stub — HELD cannot exit without it).
 - B7, B10 (remaining TRANSFER fields), B11, B14–B23.
