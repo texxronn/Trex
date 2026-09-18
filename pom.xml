@@ -24,9 +24,28 @@
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Reproducible builds: fixes the timestamps Maven writes into jar entries.
+         Without it every rebuild produces different jar bytes, which lands in the
+         image as a different dependency layer and a different digest. -->
+    <project.build.outputTimestamp>2026-09-18T00:00:00Z</project.build.outputTimestamp>
     <jackson.version>2.18.1</jackson.version>
     <sqlite-jdbc.version>3.46.0.0</sqlite-jdbc.version>
     <junit.version>5.11.0</junit.version>
+
+    <!-- Container images (jib). See README "Container images". -->
+    <jib.version>3.4.6</jib.version>
+    <!-- Only the six service modules build an image; jib is skipped everywhere else. -->
+    <jib.skip>true</jib.skip>
+    <!-- Base image pinned by digest: reproducible builds need an immutable base.
+         This is eclipse-temurin:25-jre as of 2026-09-18. To move it, re-resolve the
+         digest (README) — never drop the pin. -->
+    <trex.image.base>eclipse-temurin@sha256:611e326900ba9edcedfb246ede24efc66a911fa496ac623db9f33cae88a2d83b</trex.image.base>
+    <trex.image.prefix>trex</trex.image.prefix>
+    <trex.image.tag>${project.version}</trex.image.tag>
+    <trex.image.os>linux</trex.image.os>
+    <trex.image.arch>amd64</trex.image.arch>
+    <!-- Matches deploy/config/trex.env. Override at runtime with JAVA_TOOL_OPTIONS. -->
+    <trex.image.jvmflags>-XX:+UseSerialGC</trex.image.jvmflags>
   </properties>
 
   <dependencyManagement>
@@ -129,7 +148,95 @@
           <artifactId>maven-shade-plugin</artifactId>
           <version>3.6.0</version>
         </plugin>
+        <plugin>
+          <groupId>com.google.cloud.tools</groupId>
+          <artifactId>jib-maven-plugin</artifactId>
+          <version>${jib.version}</version>
+          <configuration>
+            <skip>${jib.skip}</skip>
+            <from>
+              <image>${trex.image.base}</image>
+              <platforms>
+                <platform>
+                  <os>${trex.image.os}</os>
+                  <architecture>${trex.image.arch}</architecture>
+                </platform>
+              </platforms>
+            </from>
+            <container>
+              <!-- Override the labels inherited from the base image, which otherwise
+                   describe Ubuntu rather than trex. -->
+              <labels>
+                <org.opencontainers.image.title>${project.artifactId}</org.opencontainers.image.title>
+                <org.opencontainers.image.description>${project.artifactId} — part of trex</org.opencontainers.image.description>
+                <org.opencontainers.image.version>${project.version}</org.opencontainers.image.version>
+                <org.opencontainers.image.base.name>${trex.image.base}</org.opencontainers.image.base.name>
+              </labels>
+              <!-- Non-root. Temurin has no service account, so use a plain uid:gid;
+                   the compose volumes are chowned to the same pair. -->
+              <user>1000:1000</user>
+              <workingDirectory>/var/lib/trex</workingDirectory>
+              <jvmFlags>
+                <jvmFlag>${trex.image.jvmflags}</jvmFlag>
+              </jvmFlags>
+              <!-- Reproducible: fixed timestamps, so identical inputs give an
+                   identical digest. Both are jib defaults; pinned here on purpose. -->
+              <creationTime>EPOCH</creationTime>
+              <filesModificationTime>EPOCH_PLUS_SECOND</filesModificationTime>
+            </container>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
   </build>
+
+  <profiles>
+    <!-- mvn package -Pdocker        → build all six images into the Docker daemon
+         mvn package -Pdocker-push   → push all six to ${trex.image.prefix}
+         Both honour DOCKER_HOST; see deploy/bin/trex-docker.sh for Docker contexts. -->
+    <profile>
+      <id>docker</id>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>com.google.cloud.tools</groupId>
+              <artifactId>jib-maven-plugin</artifactId>
+              <executions>
+                <execution>
+                  <id>build-image</id>
+                  <phase>package</phase>
+                  <goals>
+                    <goal>dockerBuild</goal>
+                  </goals>
+                </execution>
+              </executions>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+    <profile>
+      <id>docker-push</id>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>com.google.cloud.tools</groupId>
+              <artifactId>jib-maven-plugin</artifactId>
+              <executions>
+                <execution>
+                  <id>push-image</id>
+                  <phase>package</phase>
+                  <goals>
+                    <goal>build</goal>
+                  </goals>
+                </execution>
+              </executions>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
 </project>

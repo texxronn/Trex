@@ -66,6 +66,22 @@
           </execution>
         </executions>
       </plugin>
+      <!-- Container image: ${trex.image.prefix}/egress-archive:${trex.image.tag}.
+           Shared config (base image, non-root user, reproducible timestamps) is in
+           the parent pom; only the name, entry point and ports differ here. -->
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <configuration>
+          <skip>false</skip>
+          <to>
+            <image>${trex.image.prefix}/egress-archive:${trex.image.tag}</image>
+          </to>
+          <container>
+            <mainClass>trex.egress.archive.Main</mainClass>
+          </container>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 </project>

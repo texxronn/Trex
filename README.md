@@ -59,6 +59,7 @@ mvn clean package          # builds all modules and runs the test suite
 ```
 
 Runnable jars are produced as `<module>/target/<module>-0.1.0-SNAPSHOT-all.jar`.
+Container images are built from the same reactor — see [Container images](#container-images).
 
 ## Quick start (local)
 
@@ -183,6 +184,120 @@ Logs: `journalctl -u trex-sequencer -f` (and likewise for the other units).
 
 On a host without systemd, `deploy/bin/trex.sh` runs the same five services from the
 build tree with the same arguments — see [Quick start](#quick-start-local).
+
+## Container images
+
+Six images, one per service module, built by [jib](https://github.com/GoogleContainerTools/jib)
+straight from Maven. There is no Dockerfile and no build context, so there is no
+`.dockerignore` either: jib assembles layers from the reactor and talks to the Docker
+daemon (or a registry) itself.
+
+| Image | Module | Entry point | Port |
+|---|---|---|---|
+| `trex/sequencer` | trex-sequencer | `trex.sequencer.Main` | 8080 |
+| `trex/resolver` | trex-resolver | `trex.resolver.Main` | 8090 |
+| `trex/grid` | trex-grid | `trex.grid.Main` | 8091 |
+| `trex/egress-archive` | trex-egress-archive | `trex.egress.archive.Main` | — |
+| `trex/egress-sqlite` | trex-egress-sqlite | `trex.egress.sqlite.Main` | — |
+| `trex/ingress-ing` | trex-ingress-ing | `trex.ingress.ing.Main` | — |
+
+Properties of every image:
+
+- base `eclipse-temurin:25-jre`, **pinned by digest** in the parent pom;
+- runs as **uid 1000** (`ubuntu` in the Temurin base), never root;
+- **reproducible** — fixed layer timestamps plus `project.build.outputTimestamp`, so
+  two clean builds of the same commit give the same image digest;
+- **no application data and no config**: the journal, archive and SQLite mirror all
+  live on volumes, and the sequencer's TOML arrives as a mount. Only JVM flags are
+  baked in, and `JAVA_TOOL_OPTIONS` overrides those at runtime.
+
+### Building
+
+```sh
+mvn package -Pdocker                      # all six, into the Docker daemon
+mvn package -Pdocker -am -pl trex-grid    # just one
+mvn package -Pdocker-push                 # build and push instead
+```
+
+`deploy/bin/trex-docker.sh build [module...]` wraps the same commands and takes the
+short image names (`grid`, `egress-sqlite`, …).
+
+> **Always build through the `package` phase.** A bare `mvn jib:dockerBuild` resolves
+> `trex-core` and `trex-journal` from `~/.m2` rather than the reactor; if what is
+> installed there is stale, the image builds fine and then dies at runtime with
+> `NoClassDefFoundError`. For the same reason `-pl` needs `-am`.
+
+Override with `-Dtrex.image.prefix=registry.example.com/trex`, `-Dtrex.image.tag=…`,
+`-Dtrex.image.arch=arm64`. To move the base image, re-resolve its digest and update
+`trex.image.base` — do not replace the pin with a floating tag:
+
+```sh
+docker manifest inspect eclipse-temurin:25-jre > /dev/null   # warm auth, then:
+curl -sI -H "Authorization: Bearer $TOKEN" \
+  -H 'Accept: application/vnd.oci.image.index.v1+json' \
+  https://registry-1.docker.io/v2/library/eclipse-temurin/manifests/25-jre \
+  | grep -i docker-content-digest
+```
+
+### Running with Compose
+
+```sh
+deploy/bin/trex-docker.sh build
+deploy/bin/trex-docker.sh up
+deploy/bin/trex-docker.sh ingest ing-savings statement.csv
+deploy/bin/trex-docker.sh down          # add -v to discard the journal
+```
+
+`compose.yml` starts the sequencer plus the four followers; `ingress` sits behind the
+`tools` profile because it is a one-shot import, not a daemon. The sequencer's config
+is delivered through compose `configs` (file **content**, not a bind mount), the
+journal/archive/sqlite volumes are named volumes, and every published port binds to
+`127.0.0.1` on the Docker host — nothing here is authenticated.
+
+Two details worth knowing:
+
+- Only the sequencer mounts the journal read-write. The followers, resolver and grid
+  get `:ro`, which makes the single-writer invariant a mount-level guarantee.
+- A one-shot `init` container chowns the fresh volumes to uid 1000 and exits; named
+  volumes are created root-owned and the services are not root. It reuses the
+  sequencer image, so nothing extra is pulled.
+
+Useful variables: `TREX_IMAGE_PREFIX`, `TREX_IMAGE_TAG`, `TREX_JAVA_OPTS`,
+`TREX_SEQ_PORT`, `TREX_RESOLVER_PORT`, `TREX_GRID_PORT`, `TREX_POLL_SECONDS`.
+
+### Remote Docker daemon
+
+jib reads `DOCKER_HOST`; it does **not** read Docker's context file, so
+`docker context use` on its own would build locally while compose talked to the remote
+host. `deploy/bin/trex-docker.sh` resolves the active context to a `DOCKER_HOST` and
+exports it, so Maven and compose always agree:
+
+```sh
+docker context create prod --docker host=ssh://trex@prod.example.com
+DOCKER_CONTEXT=prod deploy/bin/trex-docker.sh build
+DOCKER_CONTEXT=prod deploy/bin/trex-docker.sh up
+DOCKER_CONTEXT=prod deploy/bin/trex-docker.sh env   # show what was resolved
+```
+
+Doing it by hand is the same idea:
+
+```sh
+export DOCKER_HOST=$(docker context inspect prod --format '{{.Endpoints.docker.Host}}')
+mvn package -Pdocker && docker compose up -d
+```
+
+Loading six images over SSH is slow; pushing to a registry and letting the remote host
+pull is usually better:
+
+```sh
+TREX_IMAGE_PREFIX=registry.example.com/trex deploy/bin/trex-docker.sh push
+DOCKER_CONTEXT=prod TREX_IMAGE_PREFIX=registry.example.com/trex \
+  deploy/bin/trex-docker.sh up
+```
+
+Volumes and compose `configs` travel to the remote daemon fine. The one thing that
+does not is `ingest`: the CSV is read from a directory on the *daemon's* host, so with
+a remote context the file has to be there (`TREX_CSV_DIR`).
 
 ## Operations
 

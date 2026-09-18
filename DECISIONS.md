@@ -345,3 +345,40 @@ User asked for a plain, compact, read-only grid on the resolver's model (SSE, pa
 - S2 Decisions are final (user): no undo decision. Mistakes are prevented by the resolver's double confirmation, not reversed.
 - S3 Directory fsync: when the journal file is created (new journal or materialize copy), fsync file and parent directory so the directory entry survives a crash.
 - S4 Real ING export validation: user will check against a real export before first real ingest (pending).
+
+## Containers (D)
+
+User asked for a Docker setup: Java 25, Temurin 25 runtime, non-root, reproducible, no
+config or data in the image, Compose for local/integration runs, buildable from Maven,
+usable against a remote daemon via Docker context, and no Kubernetes.
+
+- **jib over a Dockerfile**, as the user preferred if it fits cleanly — it does. No
+  Dockerfile, no build context (so no `.dockerignore`), reproducible layer timestamps
+  by default, and it builds from Maven, which was a requirement rather than a bonus.
+- **One image per service module, not a single multi-service image.** A combined image
+  needs a tenth, packaging-only module, and SPEC §1 fixes the reactor at nine named
+  modules. Per-module jib keeps SPEC.md untouched and is how jib is meant to be used.
+  Cost: six tags instead of one. Rejected alternatives: a `trex-dist` module (would
+  amend SPEC §1), and a multi-stage Dockerfile over the existing shaded jars.
+- **Base pinned by digest** (`eclipse-temurin@sha256:611e…`, = `25-jre`). Reproducibility
+  needs an immutable base; a floating tag would silently change the output.
+- **`project.build.outputTimestamp` in the parent pom.** Without it Maven stamps build
+  times into jar entries, our own SNAPSHOT jars differ on every build, and the image
+  digest moves even though nothing changed. Verified: two clean builds, same digest.
+- **Non-root as uid 1000**, which is the Temurin base's existing `ubuntu` account. jib
+  cannot set file ownership inside layers, so a named volume would stay root-owned; a
+  one-shot `init` container chowns the volumes and exits. Rejected: world-writable data
+  directories baked into the image.
+- **Followers mount the journal `:ro`.** The single-writer invariant (§0.2) becomes a
+  mount-level guarantee, not just a convention.
+- **Config is never baked in.** `deploy/compose/sequencer.toml` is a container variant
+  (`bindHost = "0.0.0.0"`, journal under `/var/lib/trex`) delivered as a compose
+  `config`, i.e. file content rather than a bind mount, so it also works against a
+  remote daemon. Ports are published on `127.0.0.1` only — the API is still unauthenticated.
+- **`deploy/bin/trex-docker.sh` exists for one reason:** jib reads `DOCKER_HOST` but not
+  Docker's context file, so `docker context use` alone would have Maven build locally
+  while compose targeted the remote host. The script resolves the context and exports it.
+- **Images must be built through the `package` phase.** A bare `mvn jib:dockerBuild`
+  resolves inter-module dependencies from `~/.m2`; a stale jar there produced an image
+  that built cleanly and then failed at runtime with `NoClassDefFoundError`. Hence the
+  `docker` profile binding to `package`, and `-am` alongside `-pl` in the script.

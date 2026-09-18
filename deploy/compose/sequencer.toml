@@ -1,0 +1,13 @@
+# trex-sequencer config for the container — SPEC.md §6.
+# Mounted at /etc/trex/sequencer.toml by compose.yml; nothing is baked into the image.
+#
+# bindHost is 0.0.0.0 because the API has to be reachable from outside the network
+# namespace. The API still has no authentication: compose publishes the port on the
+# host's loopback only (127.0.0.1:8080), so exposure is unchanged from the host runs.
+bindHost = "0.0.0.0"
+bindPort = 8080
+
+[journal]
+# source == target: recover in place. Both live on the journal volume, never in the image.
+source = "/var/lib/trex/journal/journal.jsonl"
+target = "/var/lib/trex/journal/journal.jsonl"
