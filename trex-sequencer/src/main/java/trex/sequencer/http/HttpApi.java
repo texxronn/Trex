@@ -51,6 +51,7 @@ public final class HttpApi implements AutoCloseable {
         route("/held", "GET", ex -> Gzip.writeJson(ex, 200, sequencer.view().held()));
         route("/review", "GET", ex -> Gzip.writeJson(ex, 200, sequencer.view().review()));
         route("/head", "GET", this::head);
+        route("/reconcile", "GET", ex -> Gzip.writeJson(ex, 200, sequencer.reconcile()));
         server.createContext("/", ex -> send(ex, 404, "not found"));
         server.setExecutor(executor);
     }

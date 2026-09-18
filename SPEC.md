@@ -311,6 +311,7 @@ Use **pattern-matching `switch` over sealed `MatchOutcome`/`IdentityStrategy`** 
 - `GET /review` — latest line of every transaction whose current state is REVIEW **or** whose latest `flags` contain `POTENTIAL_DUP`, ordered by `n`.
 - `POST /decisions` — manual resolution (below).
 - `GET /head` — `{ offset, n }` (followers/resolver can poll).
+- `GET /reconcile` — per-account reconciliation of the published snapshot using the §7 test 6 algorithm → `{ n, offset, ok, accounts: [ { accountRef, reconcilable, balances, opening, closing, sum } ] }`, accounts sorted by `accountRef`. Read-only and lock-free (no write lock, §3.2 snapshot); appends nothing. `balances` is `reconcilable && sum == closing − opening`; `ok` is true when every account balances (vacuously true for an empty journal). **Never guesses:** a broken chain reports `reconcilable: false` with `opening`/`closing` `0` and the account's `sum` as computed. This is the operational form of the reconciliation tripwire referred to in §4 — until it is reachable at run time, the backstop exists only in the test suite.
 
 `GET /held`, `GET /review` and `POST /decisions` form the **resolution workflow** and are fully implemented in phase 1. The manual resolver is a separate service (a journal follower that calls this API); it is not one of the phase-1 modules.
 

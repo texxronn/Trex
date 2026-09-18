@@ -27,6 +27,7 @@ import trex.core.Provenance;
 import trex.core.TypeHint;
 import trex.sequencer.journal.Journal;
 import trex.core.state.Ledger;
+import trex.core.state.Reconciliation;
 import trex.core.state.LedgerView;
 
 import java.time.Clock;
@@ -76,6 +77,20 @@ public final class Sequencer {
     }
 
     /** Lock-free read of the last committed state. */
+    /**
+     * Reconcile every account over the published snapshot (SPEC §3.5, §7 test 6). Read-only:
+     * no write lock, nothing appended. The first line per externalId is what the algorithm
+     * needs, and the snapshot already holds exactly that.
+     */
+    public ReconcileReport reconcile() {
+        LedgerView snapshot = view();
+        ReconcileReport report = ReconcileReport.of(snapshot.highWaterN(), snapshot.headOffset(),
+            Reconciliation.reconcile(List.copyOf(snapshot.firstLine().values())));
+        // Counts and the verdict only: no amounts in logs (SPEC §1).
+        log.info("reconcile at n={}: {} accounts, ok={}", report.n(), report.accounts().size(), report.ok());
+        return report;
+    }
+
     public LedgerView view() {
         return view.get();
     }

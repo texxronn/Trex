@@ -421,3 +421,30 @@ everywhere including trex-core.
   handler in `HttpApi` previously discarded the stack trace with the response.
 - **Tests run at `warn`** via surefire `systemPropertyVariables`, so assertions are not
   buried in INFO chatter.
+
+## Reconciliation endpoint (R)
+
+`Reconciliation` was production code in trex-core, covered by SPEC §7 test 6, and called
+from exactly one place: a test. SPEC §4 already called it "the reconciliation tripwire …
+the backstop" for a day splitting across statement files, but the backstop could only be
+pulled by writing a JUnit test. Adding an endpoint changes the API contract (§3.5), so
+SPEC was amended first.
+
+- **`GET /reconcile`**, not a CLI or a grid view. It is the sequencer that holds the
+  authoritative snapshot; a follower would reconcile a lagging copy. The resolver and grid
+  can call it later if a UI is wanted.
+- **Over the published snapshot, not a journal re-read.** `LedgerView.firstLine` already
+  holds the first line per `externalId`, which is exactly the algorithm's input, so the
+  endpoint takes no write lock and appends nothing (§3.2 read consistency). A test asserts
+  that reconciling twice leaves `n` and the line count unchanged.
+- **`balances` is returned, not left to the client.** `Reconciliation.Result.balances()` is
+  a derived method, and Jackson does not serialize non-component record accessors, so the
+  report carries it explicitly rather than making every caller recompute
+  `sum == closing - opening`.
+- **`ok` is vacuously true for an empty journal** — nothing fails to balance. The empty
+  `accounts` array makes that unambiguous.
+- **Unreconcilable stays unreconcilable:** `opening`/`closing` are `0` and `reconcilable`
+  is false. Never guess which end of a broken chain is the opening (§7 test 6).
+- **TRANSFER lines stay excluded**, so a matched internal transfer does not count as a
+  third leg; there is a test for that specific case.
+- The log line carries counts and the verdict only — no amounts (§1).

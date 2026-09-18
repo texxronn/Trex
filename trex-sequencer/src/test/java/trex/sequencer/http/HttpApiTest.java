@@ -104,4 +104,49 @@ class HttpApiTest {
             assertEquals("EXTERNAL", review.get(0).get("state").asText());
         }
     }
+
+    @Test
+    void reconcileReportsPerAccountOverHttp() throws Exception {
+        Path j = dir.resolve("reconcile.jsonl");
+        try (ApiServer s = new ApiServer(j, 1 << 20)) {
+            JsonNode empty = json(s.get("/reconcile", false));
+            assertTrue(empty.get("ok").asBoolean(), "an empty journal has nothing that fails to balance");
+            assertEquals(0, empty.get("accounts").size());
+
+            String batch = "{\"batch\":["
+                + row("row-2", "ing-savings", "2026-06-01", "-1999", "Woolworths", "98001") + ","
+                + row("row-3", "ing-savings", "2026-06-01", "-1", "Bank fee", "98000") + ","
+                + row("row-4", "ing-savings", "2026-06-02", "250037", "Salary", "348037") + "]}";
+            assertEquals(200, s.post("/candidates", batch, false, false).status());
+
+            JsonNode report = json(s.get("/reconcile", false));
+            assertTrue(report.get("ok").asBoolean(), () -> "expected a balancing report, got " + report);
+            assertEquals(1, report.get("accounts").size());
+            JsonNode ing = report.get("accounts").get(0);
+            assertEquals("ing-savings", ing.get("accountRef").asText());
+            assertTrue(ing.get("reconcilable").asBoolean());
+            assertTrue(ing.get("balances").asBoolean());
+            assertEquals(100000, ing.get("opening").asLong());
+            assertEquals(348037, ing.get("closing").asLong());
+            assertEquals(248037, ing.get("sum").asLong());
+            // The report names the journal point it was taken at.
+            assertEquals(json(s.get("/head", false)).get("n").asLong(), report.get("n").asLong());
+            assertEquals(json(s.get("/head", false)).get("offset").asLong(), report.get("offset").asLong());
+            // Read-only: reconciling appended nothing.
+            assertEquals(3, report.get("n").asLong());
+        }
+    }
+
+    @Test
+    void reconcileIsReadOnlyAndGzips() throws Exception {
+        try (ApiServer s = new ApiServer(dir.resolve("ro.jsonl"), 1 << 20)) {
+            ApiServer.Reply post = s.post("/reconcile", "{}", false, false);
+            assertEquals(405, post.status());
+
+            ApiServer.Reply gz = s.get("/reconcile", true);
+            assertEquals(200, gz.status());
+            assertEquals("gzip", gz.contentEncoding());
+            assertTrue(json(gz).get("ok").asBoolean());
+        }
+    }
 }

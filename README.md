@@ -146,6 +146,7 @@ output), `3` transport failure, `64` usage.
 | `GET /held` | Latest line of every HELD transaction |
 | `GET /review` | Latest line of every REVIEW or `POTENTIAL_DUP`-flagged transaction |
 | `GET /head` | `{ offset, n }` |
+| `GET /reconcile` | Per-account reconciliation of the current snapshot: `{ n, offset, ok, accounts:[…] }`. Read-only. |
 
 Request and response bodies may be gzip-encoded (`Content-Encoding` / `Accept-Encoding`).
 Full contract: SPEC.md §3.5.
@@ -306,6 +307,28 @@ does not is `ingest`: the CSV is read from a directory on the *daemon's* host, s
 a remote context the file has to be there (`TREX_CSV_DIR`).
 
 ## Operations
+
+**Reconciliation.** `GET /reconcile` runs the balance-chain check (SPEC §7 test 6) over the
+live journal, per account: each leg links `prev = balance − amount` → `balance`, and
+`Σ amount` must equal `closing − opening` to the cent.
+
+```sh
+curl -s http://127.0.0.1:8080/reconcile | python3 -m json.tool
+```
+```json
+{ "n": 5, "offset": 2848, "ok": true,
+  "accounts": [ { "accountRef": "ing-savings", "reconcilable": true, "balances": true,
+                  "opening": 200025, "closing": 399132, "sum": 199107 } ] }
+```
+
+`ok` is true when every account balances. A gap in the chain — a missing row, a day split
+across two statement files — reports `reconcilable: false` for that account, with `opening`
+and `closing` left at `0`: it never guesses which end is which. The `n`/`offset` pin the
+answer to a journal point, so a result can be quoted against a known state rather than a
+wall-clock time.
+
+Worth running after every import, and especially when first validating a real bank export
+against its own balances.
 
 **Startup recovery.** On every start the sequencer scans the journal, truncates a torn
 tail left by a crash (an incomplete last line), and rebuilds its state from the lines.
