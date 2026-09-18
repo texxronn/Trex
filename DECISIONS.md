@@ -382,3 +382,10 @@ usable against a remote daemon via Docker context, and no Kubernetes.
   resolves inter-module dependencies from `~/.m2`; a stale jar there produced an image
   that built cleanly and then failed at runtime with `NoClassDefFoundError`. Hence the
   `docker` profile binding to `package`, and `-am` alongside `-pl` in the script.
+- **Compose hardening matches the systemd units** (added after review): `read_only`,
+  `cap_drop: [ALL]`, `no-new-privileges` and a `/tmp` tmpfs on every service, which is
+  the compose equivalent of `ProtectSystem=strict` / `NoNewPrivileges` / `PrivateDevices`.
+  Two scoped exceptions: `init` keeps `CAP_CHOWN` (its only job), and `egress-sqlite`
+  needs an `exec` tmpfs because sqlite-jdbc unpacks a native library and `dlopen()`s it
+  — tmpfs is `noexec` by default, which made the follower crash-loop with
+  `NativeLibraryNotFoundException`. The exec relaxation is on that one service only.

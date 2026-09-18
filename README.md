@@ -261,6 +261,12 @@ Two details worth knowing:
 - A one-shot `init` container chowns the fresh volumes to uid 1000 and exits; named
   volumes are created root-owned and the services are not root. It reuses the
   sequencer image, so nothing extra is pulled.
+- Every service runs `read_only: true`, `cap_drop: [ALL]` and
+  `no-new-privileges`, matching what the systemd units get from `ProtectSystem=strict`
+  and friends. Writes go to the volumes and to a `/tmp` tmpfs. Two exceptions, both
+  deliberate: `init` keeps `CAP_CHOWN` because that is its whole job, and
+  `egress-sqlite` gets an `exec` tmpfs because sqlite-jdbc unpacks a native library
+  at startup and `dlopen()`s it — the other five keep `/tmp` `noexec`.
 
 Useful variables: `TREX_IMAGE_PREFIX`, `TREX_IMAGE_TAG`, `TREX_JAVA_OPTS`,
 `TREX_SEQ_PORT`, `TREX_RESOLVER_PORT`, `TREX_GRID_PORT`, `TREX_POLL_SECONDS`.
