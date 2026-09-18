@@ -62,6 +62,24 @@ Runnable jars are produced as `<module>/target/<module>-0.1.0-SNAPSHOT-all.jar`.
 
 ## Quick start (local)
 
+[`deploy/bin/trex.sh`](deploy/bin/trex.sh) starts and stops all five services from the
+build tree. On first start it creates a run directory (`run/` by default, override with
+`TREX_RUN`) holding config, journal, logs and pid files; the config is copied from
+`deploy/config` once and is yours to edit after that.
+
+```sh
+deploy/bin/trex.sh start                        # all five, sequencer first
+deploy/bin/trex.sh ingest ing-savings statement.csv
+deploy/bin/trex.sh status
+deploy/bin/trex.sh logs sequencer               # tail -f
+deploy/bin/trex.sh stop                         # reverse order, SIGTERM
+```
+
+Resolve HELD/REVIEW transactions at <http://127.0.0.1:8090>, browse everything at
+<http://127.0.0.1:8091>.
+
+Individual services take the same arguments by hand:
+
 ```sh
 mkdir -p /tmp/trex/journal && cp deploy/config/*.toml /tmp/trex/
 sed -i 's|/var/lib/trex/journal|/tmp/trex/journal|' /tmp/trex/sequencer.toml
@@ -162,6 +180,9 @@ directory. `java` is expected at `/usr/bin/java` — edit `ExecStart=` if your J
 elsewhere.
 
 Logs: `journalctl -u trex-sequencer -f` (and likewise for the other units).
+
+On a host without systemd, `deploy/bin/trex.sh` runs the same five services from the
+build tree with the same arguments — see [Quick start](#quick-start-local).
 
 ## Operations
 
