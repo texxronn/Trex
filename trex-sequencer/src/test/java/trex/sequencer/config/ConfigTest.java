@@ -94,4 +94,28 @@ class ConfigTest {
         write(SEQUENCER, ACCOUNTS.replace("AUD", "EUR"), TRANSFERS);
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
+
+    /**
+     * The container variant (deploy/compose/sequencer.toml) is mounted at run time, so a
+     * bad key there would surface as a failed container start rather than a failed build.
+     * compose delivers all three files into one directory (/etc/trex): the sequencer.toml
+     * from deploy/compose, accounts and transfers from deploy/config. Assemble that same
+     * directory here and load it.
+     */
+    @Test
+    void containerConfigLoads() throws IOException {
+        Files.copy(Path.of("..", "deploy", "compose", "sequencer.toml"), dir.resolve("sequencer.toml"));
+        Files.copy(Path.of("..", "deploy", "config", "accounts.toml"), dir.resolve("accounts.toml"));
+        Files.copy(Path.of("..", "deploy", "config", "transfers.toml"), dir.resolve("transfers.toml"));
+
+        Config c = Config.load(dir);
+        // Binds all interfaces inside the network namespace; compose publishes to loopback.
+        assertEquals("0.0.0.0", c.bindHost());
+        assertEquals(8080, c.bindPort());
+        // Data lives on the volume, never in the image.
+        assertEquals(Path.of("/var/lib/trex/journal/journal.jsonl"), c.journalSource());
+        assertEquals(c.journalSource(), c.journalTarget());
+        assertEquals("AUD", c.registry().find("ing-savings").orElseThrow().currency());
+        assertEquals(3, c.rules().windowDays());
+    }
 }

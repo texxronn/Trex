@@ -149,6 +149,9 @@
               <!-- Tests assert on behaviour, not on log output; raise this to debug
                    when diagnosing a failure. -->
               <org.slf4j.simpleLogger.defaultLogLevel>warn</org.slf4j.simpleLogger.defaultLogLevel>
+              <!-- LoggingPrivacyTest inspects this logger's output; pinned so the test does
+                   not depend on when SimpleLogger happens to initialise. -->
+              <org.slf4j.simpleLogger.log.trex.sequencer.ingest.Sequencer>info</org.slf4j.simpleLogger.log.trex.sequencer.ingest.Sequencer>
             </systemPropertyVariables>
           </configuration>
         </plugin>
