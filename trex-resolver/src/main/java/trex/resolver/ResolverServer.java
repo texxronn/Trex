@@ -12,6 +12,9 @@ import trex.web.JournalWatcher;
 import trex.web.Web;
 import trex.web.Web.HttpError;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -27,6 +30,8 @@ import java.util.concurrent.Executors;
 
 /** Resolver web server: static page, state API, and a CSRF-guarded decisions proxy. SPEC §5.4. */
 public final class ResolverServer implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(ResolverServer.class);
 
     static final int MAX_BODY_BYTES = 64 * 1024;
     static final String ADMIN_HEADER = "X-Trex-Admin";
@@ -65,6 +70,7 @@ public final class ResolverServer implements AutoCloseable {
 
     public ResolverServer start() {
         server.start();
+        log.info("resolver serving on {}", server.getAddress());
         return this;
     }
 
@@ -101,8 +107,11 @@ public final class ResolverServer implements AutoCloseable {
                 }
             }
         } catch (HttpError e) {
+            log.debug("{} {} -> {}: {}", ex.getRequestMethod(), ex.getRequestURI().getPath(),
+                e.status(), e.getMessage());
             Web.error(ex, e.status(), e.getMessage());
         } catch (Exception e) {
+            log.error("{} {} -> 500: unhandled failure", ex.getRequestMethod(), ex.getRequestURI().getPath(), e);
             Web.error(ex, 500, "internal error: " + e.getMessage());
         } finally {
             ex.close();

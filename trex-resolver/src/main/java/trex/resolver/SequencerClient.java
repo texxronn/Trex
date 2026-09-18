@@ -1,5 +1,8 @@
 package trex.resolver;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -10,6 +13,8 @@ import java.time.Duration;
 
 /** Calls the sequencer's POST /decisions. The resolver never writes the journal itself. */
 public final class SequencerClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SequencerClient.class);
 
     public record Reply(int status, String body) {}
 

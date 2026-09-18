@@ -8,6 +8,9 @@ import trex.web.JournalWatcher;
 import trex.web.Web;
 import trex.web.Web.HttpError;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
@@ -18,6 +21,8 @@ import java.util.concurrent.Executors;
 
 /** Read-only grid web server: static page, head, rows, and SSE head events. SPEC §5.5. */
 public final class GridServer implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(GridServer.class);
 
     private static final Map<String, String> STATIC = Map.of(
         "/", "index.html",
@@ -50,6 +55,7 @@ public final class GridServer implements AutoCloseable {
 
     public GridServer start() {
         server.start();
+        log.info("grid serving on {}", server.getAddress());
         return this;
     }
 
@@ -92,8 +98,11 @@ public final class GridServer implements AutoCloseable {
                 }
             }
         } catch (HttpError e) {
+            log.debug("{} {} -> {}: {}", ex.getRequestMethod(), ex.getRequestURI().getPath(),
+                e.status(), e.getMessage());
             Web.error(ex, e.status(), e.getMessage());
         } catch (Exception e) {
+            log.error("{} {} -> 500: unhandled failure", ex.getRequestMethod(), ex.getRequestURI().getPath(), e);
             Web.error(ex, 500, "internal error: " + e.getMessage());
         } finally {
             ex.close();

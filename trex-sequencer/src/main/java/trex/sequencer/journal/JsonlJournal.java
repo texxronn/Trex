@@ -1,5 +1,7 @@
 package trex.sequencer.journal;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import trex.core.CanonicalEvent;
 import trex.journal.Json;
@@ -27,6 +29,8 @@ import static java.nio.file.StandardOpenOption.WRITE;
  * Open only after {@link Recovery} has truncated any torn tail.
  */
 public final class JsonlJournal implements Journal, AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(JsonlJournal.class);
 
     private final Path path;
     private final FileChannel channel;
@@ -62,10 +66,12 @@ public final class JsonlJournal implements Journal, AutoCloseable {
             }
             channel.force(true);
         } catch (IOException e) {
+            log.error("journal append failed at head offset {} for {} events, rolling back", head, events.size(), e);
             rollback();
             throw new UncheckedIOException("journal append failed", e);
         }
         head += block.capacity();
+        log.debug("appended {} events, head offset {}", events.size(), head);
         return head;
     }
 
@@ -76,6 +82,7 @@ public final class JsonlJournal implements Journal, AutoCloseable {
             channel.force(true);
         } catch (IOException e) {
             broken = true;
+            log.error("rollback to offset {} failed; journal is unusable until restart", head, e);
         }
     }
 

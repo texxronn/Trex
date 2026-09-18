@@ -1,5 +1,7 @@
 package trex.web;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.sun.net.httpserver.HttpExchange;
 
 import java.io.IOException;
@@ -17,6 +19,8 @@ import java.util.function.Supplier;
  * coalesced: a client always receives the latest state, never a backlog.
  */
 public final class EventStreams implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(EventStreams.class);
 
     public static final int MAX_CLIENTS = 32;
 
@@ -55,6 +59,7 @@ public final class EventStreams implements AutoCloseable {
     public void stream(HttpExchange ex) throws IOException {
         Client client = new Client();
         clients.add(client);
+        log.debug("SSE client connected to {} ({} of {} slots in use)", eventName, clients.size(), MAX_CLIENTS);
         try {
             ex.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
             ex.getResponseHeaders().set("Cache-Control", "no-store");
@@ -73,6 +78,7 @@ public final class EventStreams implements AutoCloseable {
             Thread.currentThread().interrupt();
         } finally {
             clients.remove(client);
+            log.debug("SSE client disconnected from {} ({} remaining)", eventName, clients.size());
         }
     }
 
@@ -98,6 +104,7 @@ public final class EventStreams implements AutoCloseable {
 
     @Override
     public void close() {
+        log.debug("closing {} stream with {} connected clients", eventName, clients.size());
         closed = true;
         clients.forEach(c -> c.changed.release());
     }

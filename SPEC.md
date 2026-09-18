@@ -50,11 +50,13 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
   ```
   Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the nine `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
-  - `com.fasterxml.jackson.core:jackson-annotations` — **the only dependency of trex-core** (for `@JsonPropertyOrder`; no databind in core).
+  - `com.fasterxml.jackson.core:jackson-annotations` — in trex-core for `@JsonPropertyOrder`; no databind in core.
   - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
   - `org.xerial:sqlite-jdbc` (egress-sqlite only).
   - `org.junit.jupiter:junit-jupiter` (tests).
-  - **JDK-only for the rest:** `java.net.http.HttpClient` (adapters → trex), `com.sun.net.httpserver.HttpServer` (trex API — **confirmed choice; zero-dep, no Javalin**), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`. Config files are TOML read by a hand-written subset parser (§6) — no TOML library.
+  - `org.slf4j:slf4j-api` — logging facade, **every module including trex-core**. A binding (`org.slf4j:slf4j-simple`) is added at runtime scope by the six runnable modules only; libraries never bind. Pinned to 2.0.x, which also overrides the 1.7.x that `sqlite-jdbc` pulls in transitively.
+    Logging must not change behaviour: no logging inside journal serialization (byte stability, §3.1), and the fold in trex-core stays deterministic — a log statement may observe, never decide. Journal lines are financial data: log `externalId`, `n`, counts and states, **never `rawDescription`, `description` or amounts**.
+  - **JDK-only for everything else:** `java.net.http.HttpClient` (adapters → trex), `com.sun.net.httpserver.HttpServer` (trex API — **confirmed choice; zero-dep, no Javalin**), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`. Config files are TOML read by a hand-written subset parser (§6) — no TOML library.
   - **gzip note:** neither `HttpServer` nor `HttpClient` handles content-coding automatically — both directions are manual (§3.6, §4).
 
 ---

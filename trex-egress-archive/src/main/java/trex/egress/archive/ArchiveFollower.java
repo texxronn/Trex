@@ -1,5 +1,7 @@
 package trex.egress.archive;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import trex.journal.JournalChanges;
 
@@ -24,6 +26,8 @@ import static java.nio.file.StandardOpenOption.WRITE;
  */
 public final class ArchiveFollower {
 
+    private static final Logger log = LoggerFactory.getLogger(ArchiveFollower.class);
+
     private final Path journal;
     private final Path archive;
     private final Path offsetFile;
@@ -40,6 +44,8 @@ public final class ArchiveFollower {
      * {@code fallbackMillis} without one. {@code onPass} receives each pass's archived-line count.
      */
     public void follow(long fallbackMillis, IntConsumer onPass) throws IOException, InterruptedException {
+        log.info("archive follower started: journal {} -> archive {} (fallback {} ms)",
+            journal, archive, fallbackMillis);
         try (JournalChanges changes = new JournalChanges(journal)) {
             while (!Thread.currentThread().isInterrupted()) {
                 onPass.accept(pass());
@@ -77,6 +83,9 @@ public final class ArchiveFollower {
         if (advanced != offset) {
             writeOffset(advanced);
         }
+        if (archived > 0) {
+            log.debug("archived {} lines, through n {}, offset {}", archived, lastArchivedN, advanced);
+        }
         return archived;
     }
 
@@ -96,10 +105,13 @@ public final class ArchiveFollower {
         }
         try (FileChannel ch = FileChannel.open(archive, WRITE)) {
             if (ch.size() > end) {
+                log.warn("truncating torn archive tail of {}: discarding {} bytes after offset {}",
+                    archive, ch.size() - end, end);
                 ch.truncate(end);
                 ch.force(true);
             }
         }
+        log.info("archive recovered: resuming after n {}", lastN);
         return lastN;
     }
 
@@ -119,8 +131,8 @@ public final class ArchiveFollower {
         Files.move(tmp, offsetFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         try (FileChannel dir = FileChannel.open(offsetFile.toAbsolutePath().getParent(), READ)) {
             dir.force(true);
-        } catch (IOException ignored) {
-            // directory fsync is not supported on every platform
+        } catch (IOException e) {
+            log.debug("directory fsync unsupported here; the offset file is still durable", e);
         }
     }
 }

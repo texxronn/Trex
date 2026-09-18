@@ -21,6 +21,12 @@
       <groupId>trex</groupId>
       <artifactId>trex-journal</artifactId>
     </dependency>
+    <!-- The binding belongs to the runnable module, never to a library. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <scope>runtime</scope>
+    </dependency>
   </dependencies>
 
   <build>

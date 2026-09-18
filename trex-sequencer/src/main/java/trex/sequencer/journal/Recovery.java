@@ -1,5 +1,7 @@
 package trex.sequencer.journal;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,6 +19,8 @@ import java.util.Arrays;
 /** Startup recovery / materialize. SPEC §3.2. */
 public final class Recovery {
 
+    private static final Logger log = LoggerFactory.getLogger(Recovery.class);
+
     private Recovery() {}
 
     /**
@@ -29,6 +33,7 @@ public final class Recovery {
         try {
             if (sameFile(source, target)) {
                 if (Files.notExists(target)) {
+                    log.info("creating new journal {}", target);
                     Files.createFile(target);
                     syncFileAndDirectory(target);
                 }
@@ -36,14 +41,17 @@ public final class Recovery {
                 if (Files.notExists(source)) {
                     throw new IllegalStateException("journal.source does not exist: " + source);
                 }
+                log.info("materializing journal: {} is authoritative, overwriting {}", source, target);
                 Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
                 syncFileAndDirectory(target);
                 if (!Arrays.equals(sha256(source), sha256(target))) {
                     throw new IllegalStateException("materialize verification failed: sha256(source) != sha256(target)");
                 }
+                log.info("materialize verified: sha256 matches");
             }
             long end = scanToLastCompleteRecord(target);
             truncate(target, end);
+            log.info("journal ready for append: {} head offset {}", target, end);
             return end;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -65,6 +73,9 @@ public final class Recovery {
     private static void truncate(Path path, long end) throws IOException {
         try (FileChannel ch = FileChannel.open(path, StandardOpenOption.WRITE)) {
             if (ch.size() > end) {
+                // A torn tail means the process died mid-append: worth an operator's attention.
+                log.warn("truncating torn tail of {}: discarding {} bytes after the last complete record at offset {}",
+                    path, ch.size() - end, end);
                 ch.truncate(end);
                 ch.force(true);
             }
@@ -86,6 +97,7 @@ public final class Recovery {
             if (!System.getProperty("os.name", "").toLowerCase().contains("win")) {
                 throw e;
             }
+            log.debug("directory fsync unsupported on this platform, continuing", e);
         }
     }
 

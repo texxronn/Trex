@@ -4,6 +4,9 @@ import trex.core.BatchStatus;
 import trex.core.Candidate;
 import trex.core.CandidateResult;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
@@ -12,6 +15,8 @@ import java.util.List;
 
 /** Parse, validate the whole file, send day-atomic batches, print per-row status. */
 public final class IngressRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(IngressRunner.class);
 
     public static final int OK = 0;
     public static final int INVALID_FILE = 1;
@@ -34,6 +39,7 @@ public final class IngressRunner {
             try {
                 response = client.post(call);
             } catch (IOException e) {
+                log.warn("posting {} candidates to the sequencer failed", call.size(), e);
                 out.println("request failed: " + e.getMessage());
                 return TRANSPORT_FAILURE;
             } catch (InterruptedException e) {

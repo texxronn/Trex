@@ -1,5 +1,7 @@
 package trex.sequencer.ingest;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.core.BatchStatus;
 import trex.core.Candidate;
 import trex.core.CandidateResult;
@@ -33,10 +35,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.function.UnaryOperator;
 
 /**
@@ -44,6 +48,8 @@ import java.util.function.UnaryOperator;
  * All mutations run under one lock; readers use the published {@link LedgerView}.
  */
 public final class Sequencer {
+
+    private static final Logger log = LoggerFactory.getLogger(Sequencer.class);
 
     private final Journal journal;
     private final Ledger ledger;
@@ -130,7 +136,10 @@ public final class Sequencer {
             case Pending.Done(CandidateResult r) -> r;
             case Pending.NewLeg(String ref, String id) -> newLegResult(ref, id, m, work);
         }).toList();
-        return new BatchResponse(handle(), anyRejected ? BatchStatus.PARTIAL : BatchStatus.COMMITTED, results);
+        String handle = handle();
+        log.info("candidate batch {}: {} rows, {} journal lines, outcomes {}",
+            handle, inputs.size(), m.lines().size(), outcomes(results));
+        return new BatchResponse(handle, anyRejected ? BatchStatus.PARTIAL : BatchStatus.COMMITTED, results);
     }
 
     private String validate(Candidate c) {
@@ -283,11 +292,17 @@ public final class Sequencer {
             }
         }
         if (anyRejected && allOrNone) {
+            log.info("decision batch rejected as all-or-none: {} of {} decisions invalid",
+                rejects.size(), inputs.size());
             return new BatchResponse(handle(), BatchStatus.REJECTED, rejects);
         }
         BatchWork.Materialized m = commit(work);
-        return new BatchResponse(handle(), anyRejected ? BatchStatus.PARTIAL : BatchStatus.COMMITTED,
-            results.stream().map(f -> f.apply(m)).toList());
+        List<CandidateResult> applied = results.stream().map(f -> f.apply(m)).toList();
+        String handle = handle();
+        // Decisions are final (SPEC §3.5), so record every one that was accepted.
+        log.info("decision batch {}: {} decisions, {} journal lines, outcomes {}",
+            handle, inputs.size(), m.lines().size(), outcomes(applied));
+        return new BatchResponse(handle, anyRejected ? BatchStatus.PARTIAL : BatchStatus.COMMITTED, applied);
     }
 
     private static Optional<String> checkDecision(DecisionInput d, BatchWork work, Set<String> usedLegs) {
@@ -370,5 +385,15 @@ public final class Sequencer {
 
     private static String handle() {
         return UUID.randomUUID().toString();
+    }
+
+    /**
+     * Per-kind counts for a batch log line. Journal lines are financial data, so the
+     * log carries counts and ids only — never a description or an amount (SPEC §1).
+     */
+    private static String outcomes(List<CandidateResult> results) {
+        return results.stream()
+            .collect(Collectors.groupingBy(r -> r.getClass().getSimpleName(), TreeMap::new, Collectors.counting()))
+            .toString();
     }
 }

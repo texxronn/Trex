@@ -332,6 +332,37 @@ their offset and never duplicate.
 and potential duplicates go to REVIEW. Nothing ages out automatically. Work through them
 in the resolver; every action asks for confirmation because decisions cannot be undone.
 
+### Logging
+
+Every module logs through SLF4J; the six runnable modules bind `slf4j-simple` at runtime
+scope (libraries never bind). Logs go to **stderr**, so stdout stays clean for CLI output
+such as the ING adapter's per-row results.
+
+```
+2026-09-18T13:33:44.403Z INFO Sequencer - candidate batch 96c97e25-…: 5 rows, 5 journal lines, outcomes {Held=1, Resolved=4}
+2026-09-18T13:33:29.420Z WARN Main - API has no authentication and is bound to 0.0.0.0; …
+```
+
+Defaults live in each service's `simplelogger.properties`; system properties override
+them, so nothing has to be rebuilt to change level:
+
+```sh
+java -Dorg.slf4j.simpleLogger.defaultLogLevel=debug -jar …
+TREX_JAVA_OPTS=-Dorg.slf4j.simpleLogger.defaultLogLevel=debug docker compose up -d
+```
+
+| Level | What it carries |
+|---|---|
+| `error` | Unhandled 500s, a failed journal append, a failed rollback (journal unusable until restart) |
+| `warn` | Torn tail truncated, journal read failed, change events unavailable, unauthenticated non-loopback bind |
+| `info` | Config loaded, recovery result, bind address, follower start, per-batch outcome counts |
+| `debug` | Per-append head offsets, 4xx responses, SSE connect/disconnect, best-effort failures that are safe to ignore |
+| `trace` | Every fold transition in `Ledger` (guarded — this is the replay hot path) |
+
+**Journal lines are financial data.** Log statements carry `externalId`, `n`, states and
+counts; never `rawDescription`, `description` or an amount. Keep it that way when adding
+log lines — SPEC §1 requires it.
+
 ## Security
 
 There is **no authentication** anywhere in phase 1.

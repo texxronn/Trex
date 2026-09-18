@@ -1,5 +1,7 @@
 package trex.core.state;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.core.CanonicalEvent;
 
 import java.util.HashMap;
@@ -12,6 +14,8 @@ import java.util.Map;
  */
 public final class Ledger {
 
+    private static final Logger log = LoggerFactory.getLogger(Ledger.class);
+
     private final Map<String, CanonicalEvent> firstLine = new HashMap<>();
     private final Map<String, CanonicalEvent> latest = new LinkedHashMap<>();
     private final Map<String, CanonicalEvent> held = new LinkedHashMap<>();
@@ -22,6 +26,13 @@ public final class Ledger {
     public void apply(CanonicalEvent line) {
         if (line.n() <= highWaterN) {
             throw new IllegalStateException("n not strictly increasing: " + line.n() + " after " + highWaterN);
+        }
+        // Guarded: apply() is the replay hot path, and the guard keeps the map lookup
+        // out of it when trace is off. Observes only — the fold stays deterministic.
+        if (log.isTraceEnabled()) {
+            CanonicalEvent previous = latest.get(line.externalId());
+            log.trace("fold n={} {} {} -> {}", line.n(), line.externalId(),
+                previous == null ? "new" : previous.state(), line.state());
         }
         firstLine.putIfAbsent(line.externalId(), line);
         latest.remove(line.externalId());   // keep insertion order = order of latest n

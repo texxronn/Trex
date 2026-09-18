@@ -8,11 +8,16 @@ import trex.sequencer.journal.Recovery;
 import trex.sequencer.state.Fold;
 import trex.core.state.Ledger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.file.Path;
 import java.time.Clock;
 
 /** {@code trex-sequencer <configDir>}: recover, fold, serve. */
 public final class Main {
+
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     private Main() {}
 
@@ -28,14 +33,15 @@ public final class Main {
         Sequencer sequencer = new Sequencer(journal, ledger, config.registry(), config.rules(), Clock.systemUTC());
         HttpApi api = new HttpApi(sequencer, config.bindHost(), config.bindPort(), HttpApi.DEFAULT_MAX_BODY_BYTES).start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("shutting down");
             api.close();
             journal.close();
         }));
-        System.out.printf("trex-sequencer listening on %s:%d; journal %s head=%d n=%d%n",
+        log.info("trex-sequencer listening on {}:{}; journal {} head={} n={}",
             config.bindHost(), api.port(), config.journalTarget(), head, ledger.highWaterN());
         if (!isLoopback(config.bindHost())) {
-            System.out.println("WARNING: API has no authentication and is bound to " + config.bindHost()
-                + "; anyone who can reach it can ingest candidates and make decisions");
+            log.warn("API has no authentication and is bound to {}; anyone who can reach it can "
+                + "ingest candidates and make decisions", config.bindHost());
         }
     }
 

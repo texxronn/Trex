@@ -1,5 +1,7 @@
 package trex.web;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.sun.net.httpserver.HttpExchange;
 import trex.journal.Json;
 
@@ -10,6 +12,8 @@ import java.util.Map;
 
 /** Shared HttpServer helpers for the follower web services: static pages, JSON, errors, headers. */
 public final class Web {
+
+    private static final Logger log = LoggerFactory.getLogger(Web.class);
 
     /** An error mapped to an HTTP status and a JSON {@code {"error": ...}} body. */
     public static final class HttpError extends Exception {
@@ -75,8 +79,8 @@ public final class Web {
     public static void error(HttpExchange ex, int status, String message) {
         try {
             json(ex, status, Map.of("error", message == null ? "" : message));
-        } catch (IOException | RuntimeException ignored) {
-            // response already started or client gone
+        } catch (IOException | RuntimeException e) {
+            log.debug("could not send {} response; the response had started or the client is gone", status, e);
         }
     }
 }

@@ -389,3 +389,35 @@ usable against a remote daemon via Docker context, and no Kubernetes.
   needs an `exec` tmpfs because sqlite-jdbc unpacks a native library and `dlopen()`s it
   — tmpfs is `noexec` by default, which made the follower crash-loop with
   `NativeLibraryNotFoundException`. The exec relaxation is on that one service only.
+
+## Logging (L)
+
+User asked for SLF4J logging throughout the code. SPEC §1 listed the dependencies
+exhaustively and ended with "JDK-only for the rest", so this needed a spec change rather
+than an implementation choice. Options put to the user: `System.Logger` (no SPEC change,
+JDK-only, bridgeable to SLF4J later), SLF4J in the service modules only, or SLF4J
+everywhere including trex-core.
+
+- **User chose SLF4J in every module, trex-core included.** SPEC §1 amended: `slf4j-api`
+  is permitted everywhere, trex-core's "only dependency" clause is gone, and the binding
+  (`slf4j-simple`, runtime scope) belongs to the six runnable modules — libraries never
+  bind one.
+- **Pinned to 2.0.16**, which also displaces the 1.7.36 that `sqlite-jdbc` pulls in
+  transitively. That transitive api with no binding is why the egress-sqlite container
+  used to print `SLF4J: Defaulting to no-operation (NOP) logger`; it no longer does.
+- **The amendment carries two constraints**, because logging must not weaken the
+  invariants: nothing is logged inside journal serialization (byte stability, §3.1), and
+  a log statement may observe but never decide, so the fold stays deterministic.
+- **No amounts or descriptions in logs.** The journal is financial data, so log lines
+  carry `externalId`, `n`, states and counts only. The batch summary logs per-kind
+  counts (`{Held=1, Resolved=4}`), not rows.
+- **trex-core got one call site**, a guarded `trace` of each fold transition in `Ledger`.
+  Its only `catch` rethrows, and log-and-throw would double-report. This is the honest
+  extent of the benefit in core, as flagged before the choice was made.
+- **`System.err` stays for usage messages** (exit 64) and for the ING adapter's per-row
+  results on stdout: those are a CLI contract (README "ING adapter"), not logging.
+- **Five silently swallowed exceptions now log** at `debug`/`warn`: best-effort directory
+  fsyncs, watch-service close, and the two "response already started" paths. The 500
+  handler in `HttpApi` previously discarded the stack trace with the response.
+- **Tests run at `warn`** via surefire `systemPropertyVariables`, so assertions are not
+  buried in INFO chatter.

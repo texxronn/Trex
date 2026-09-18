@@ -1,9 +1,14 @@
 package trex.egress.archive;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.file.Path;
 
 /** {@code trex-egress-archive --journal <path> --archive <path> [--poll-seconds N (fallback)] [--once]} */
 public final class Main {
+
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     private static final String USAGE =
         "Usage: trex-egress-archive --journal <path> --archive <path> [--poll-seconds N (fallback)] [--once]";
@@ -44,7 +49,7 @@ public final class Main {
 
     private static void report(int archived) {
         if (archived > 0) {
-            System.out.println("archived " + archived + " lines");
+            log.info("archived {} lines", archived);
         }
     }
 }

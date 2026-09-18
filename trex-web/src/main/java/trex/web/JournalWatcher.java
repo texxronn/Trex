@@ -1,5 +1,7 @@
 package trex.web;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import trex.journal.JournalChanges;
 
@@ -21,6 +23,8 @@ import java.util.function.Supplier;
  * Reads are triggered by journal change events ({@link JournalChanges}) with a slow fallback poll.
  */
 public final class JournalWatcher<V> implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(JournalWatcher.class);
 
     /** Published snapshot. {@code n} is the highest journal n applied. */
     public record Status<V>(V view, long offset, long n, Instant updatedAt, String error) {}
@@ -61,6 +65,7 @@ public final class JournalWatcher<V> implements AutoCloseable {
         try {
             long size = Files.exists(journal) ? Files.size(journal) : 0;
             if (refold || size < offset) {
+                log.info("refolding {} from offset 0 (size {}, tail offset {})", journal, size, offset);
                 fold = folds.get();
                 offset = 0;
                 n = 0;
@@ -82,6 +87,8 @@ public final class JournalWatcher<V> implements AutoCloseable {
             status.set(new Status<>(fold.snapshot(), offset, n, clock.instant(), null));
         } catch (IOException | RuntimeException e) {
             // never let an exception escape: it would cancel the scheduled poll
+            log.warn("journal read failed at offset {}; serving the last good view and refolding next pass",
+                offset, e);
             refold = true;
             status.set(new Status<>(before.view(), before.offset(), before.n(), clock.instant(),
                 "journal read failed: " + e.getMessage()));
@@ -99,6 +106,8 @@ public final class JournalWatcher<V> implements AutoCloseable {
      */
     public JournalWatcher<V> start(long fallbackPollMillis) {
         changes = new JournalChanges(journal);   // registered before the first read: nothing is missed
+        log.info("watching {} (change events {}, fallback poll {} ms)",
+            journal, changes.available() ? "on" : "off", fallbackPollMillis);
         loop = daemon(() -> {
             try {
                 while (!closed) {
@@ -121,6 +130,7 @@ public final class JournalWatcher<V> implements AutoCloseable {
 
     @Override
     public void close() {
+        log.debug("stopping journal watcher for {}", journal);
         closed = true;
         if (loop != null) {
             loop.interrupt();

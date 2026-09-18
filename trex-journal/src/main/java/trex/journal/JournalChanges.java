@@ -1,5 +1,8 @@
 package trex.journal;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.FileSystems;
@@ -18,6 +21,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class JournalChanges implements AutoCloseable {
 
+    private static final Logger log = LoggerFactory.getLogger(JournalChanges.class);
+
     private final Path fileName;
     private final WatchService watchService;
 
@@ -30,11 +35,14 @@ public final class JournalChanges implements AutoCloseable {
             absolute.getParent().register(ws, StandardWatchEventKinds.ENTRY_CREATE,
                 StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE);
         } catch (IOException | RuntimeException e) {
-            System.err.println("journal change events unavailable, using fallback polling only: " + e.getMessage());
+            log.warn("journal change events unavailable for {}, falling back to polling only", absolute, e);
             closeQuietly(ws);
             ws = null;
         }
         this.watchService = ws;
+        if (ws != null) {
+            log.debug("watching {} for journal changes", absolute.getParent());
+        }
     }
 
     /** Whether change events are delivered (false: only timeouts). */
@@ -99,8 +107,8 @@ public final class JournalChanges implements AutoCloseable {
         if (ws != null) {
             try {
                 ws.close();
-            } catch (IOException ignored) {
-                // best effort
+            } catch (IOException e) {
+                log.debug("closing the watch service failed; nothing depends on it", e);
             }
         }
     }

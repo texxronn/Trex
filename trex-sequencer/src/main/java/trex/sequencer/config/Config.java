@@ -4,6 +4,9 @@ import trex.sequencer.ingest.Account;
 import trex.sequencer.ingest.AccountRegistry;
 import trex.sequencer.ingest.TransferRules;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -20,6 +23,8 @@ import java.util.Set;
  */
 public record Config(Path journalSource, Path journalTarget, String bindHost, int bindPort,
                      AccountRegistry registry, TransferRules rules) {
+
+    private static final Logger log = LoggerFactory.getLogger(Config.class);
 
     private static final Set<String> FORMATS = Set.of("ing", "cba", "bw");
     private static final Set<String> CURRENCIES = Set.of("AUD", "USD", "INR");
@@ -65,6 +70,8 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
         if (!(allowlist instanceof List<?> patterns)) {
             throw new IllegalArgumentException("transfers.toml: 'allowlist' must be an array of strings");
         }
+        log.info("config loaded from {}: {} accounts, {} transfer patterns, windowDays {}, bind {}:{}",
+            configDir, list.size(), patterns.size(), windowDays, host, port);
         return new Config(source, target, host, (int) port, new AccountRegistry(list),
             new TransferRules(patterns.stream().map(String.class::cast).toList(), Math.toIntExact(windowDays)));
     }

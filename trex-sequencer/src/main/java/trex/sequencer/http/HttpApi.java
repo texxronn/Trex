@@ -1,5 +1,7 @@
 package trex.sequencer.http;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import trex.sequencer.ingest.BatchResponse;
@@ -17,6 +19,8 @@ import java.util.concurrent.Executors;
 
 /** JDK HttpServer API. SPEC §3.5. Mutations serialize inside {@link Sequencer}; reads use its snapshot. */
 public final class HttpApi implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(HttpApi.class);
 
     public static final long DEFAULT_MAX_BODY_BYTES = 100L * 1024 * 1024;
 
@@ -53,6 +57,7 @@ public final class HttpApi implements AutoCloseable {
 
     public HttpApi start() {
         server.start();
+        log.info("sequencer API listening on {}:{}", server.getAddress().getHostString(), port());
         return this;
     }
 
@@ -72,12 +77,16 @@ public final class HttpApi implements AutoCloseable {
                     handler.handle(ex);
                 }
             } catch (Gzip.PayloadTooLargeException e) {
+                log.debug("413 {} {}: {}", method, path, e.getMessage());
                 send(ex, 413, e.getMessage());
             } catch (Gzip.UnsupportedEncodingException e) {
+                log.debug("415 {} {}: {}", method, path, e.getMessage());
                 send(ex, 415, e.getMessage());
             } catch (Binding.BadRequestException | java.util.zip.ZipException e) {
+                log.debug("400 {} {}: {}", method, path, e.getMessage());
                 send(ex, 400, e.getMessage());
             } catch (Exception e) {
+                log.error("500 {} {}: unhandled failure", method, path, e);
                 send(ex, 500, "internal error: " + e.getMessage());
             } finally {
                 ex.close();
@@ -105,13 +114,14 @@ public final class HttpApi implements AutoCloseable {
     private static void send(HttpExchange ex, int status, String message) {
         try {
             Gzip.writeJson(ex, status, Map.of("error", message == null ? "" : message));
-        } catch (IOException | RuntimeException ignored) {
-            // response already started or client gone; nothing more to do
+        } catch (IOException | RuntimeException e) {
+            log.debug("could not send {} response; the response had started or the client is gone", status, e);
         }
     }
 
     @Override
     public void close() {
+        log.info("stopping sequencer API");
         server.stop(0);
         executor.shutdown();
     }

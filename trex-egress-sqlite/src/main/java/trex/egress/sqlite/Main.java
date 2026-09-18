@@ -1,9 +1,14 @@
 package trex.egress.sqlite;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.file.Path;
 
 /** {@code trex-egress-sqlite --journal <path> --db <path> [--poll-seconds N (fallback)] [--once]} */
 public final class Main {
+
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     private static final String USAGE =
         "Usage: trex-egress-sqlite --journal <path> --db <path> [--poll-seconds N (fallback)] [--once]";
@@ -45,7 +50,7 @@ public final class Main {
 
     private static void report(int mirrored) {
         if (mirrored > 0) {
-            System.out.println("mirrored " + mirrored + " lines");
+            log.info("mirrored {} lines", mirrored);
         }
     }
 }

@@ -2,11 +2,16 @@ package trex.grid;
 
 import trex.web.JournalWatcher;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.file.Path;
 import java.time.Clock;
 
 /** {@code trex-grid --journal <path> [--port 8091] [--bind 127.0.0.1] [--poll-ms 10000]} */
 public final class Main {
+
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     private static final String USAGE =
         "Usage: trex-grid --journal <path> [--port 8091] [--bind 127.0.0.1] [--poll-ms 10000]";
@@ -43,6 +48,6 @@ public final class Main {
             server.close();
             watcher.close();
         }));
-        System.out.printf("trex-grid on http://%s:%d (journal %s)%n", bind, server.port(), journal);
+        log.info("trex-grid on http://{}:{} (journal {})", bind, server.port(), journal);
     }
 }

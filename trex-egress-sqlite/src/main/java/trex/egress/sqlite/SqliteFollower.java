@@ -2,6 +2,8 @@ package trex.egress.sqlite;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import trex.core.CanonicalEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import trex.journal.JournalChanges;
 import trex.journal.Json;
@@ -21,6 +23,8 @@ import java.util.function.IntConsumer;
  * Inserts and the follower_state offset commit in one transaction, so re-delivery is a no-op.
  */
 public final class SqliteFollower implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(SqliteFollower.class);
 
     static final String SCHEMA = """
         CREATE TABLE IF NOT EXISTS journal (
@@ -67,6 +71,7 @@ public final class SqliteFollower implements AutoCloseable {
             }
         }
         db.setAutoCommit(false);
+        log.info("sqlite mirror ready at {} (WAL)", database);
     }
 
     /**
@@ -74,6 +79,7 @@ public final class SqliteFollower implements AutoCloseable {
      * {@code fallbackMillis} without one. {@code onPass} receives each pass's consumed-line count.
      */
     public void follow(long fallbackMillis, IntConsumer onPass) throws SQLException, InterruptedException {
+        log.info("sqlite follower started: journal {} (fallback {} ms)", journal, fallbackMillis);
         try (JournalChanges changes = new JournalChanges(journal)) {
             while (!Thread.currentThread().isInterrupted()) {
                 onPass.accept(pass());
@@ -105,8 +111,12 @@ public final class SqliteFollower implements AutoCloseable {
                 commit(advanced);
             }
         } catch (SQLException | RuntimeException e) {
+            log.error("sqlite pass failed after {} lines from offset {}; rolling back", consumed, offset, e);
             db.rollback();
             throw e;
+        }
+        if (consumed > 0) {
+            log.debug("mirrored {} lines into sqlite", consumed);
         }
         return consumed;
     }

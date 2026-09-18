@@ -3,6 +3,9 @@ package trex.resolver;
 import trex.core.state.LedgerView;
 import trex.web.JournalWatcher;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -11,6 +14,8 @@ import java.time.Clock;
  * {@code trex-resolver --journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]}
  */
 public final class Main {
+
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     private static final String USAGE =
         "Usage: trex-resolver --journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]";
@@ -49,9 +54,9 @@ public final class Main {
             server.close();
             watcher.close();
         }));
-        System.out.printf("trex-resolver on http://%s:%d (journal %s, sequencer %s)%n", bind, server.port(), journal, sequencerUrl);
+        log.info("trex-resolver on http://{}:{} (journal {}, sequencer {})", bind, server.port(), journal, sequencerUrl);
         if (!bind.equals("127.0.0.1") && !bind.equals("localhost")) {
-            System.out.println("WARNING: no authentication; anyone who can reach this address can resolve transactions");
+            log.warn("no authentication; anyone who can reach {} can resolve transactions", bind);
         }
     }
 }
