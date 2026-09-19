@@ -351,6 +351,7 @@ Source: user notes in MANUAL_RESOLVER.txt (admin service; web UI; journal follow
 - R6 Double confirmation: action → dialog with exact effect + optional comment → Confirm sends; result or rejection reason shown. Re-submits are safe (sequencer rejects).
 - R7 Page: HELD and REVIEW lists; select two rows to pair; no suggestions, no history.
 - R8 New module `trex-resolver`; configured by flags.
+- R9 Narrow screens (amends §5.4 web tech). The desktop table was usable on a phone only by scrolling sideways, with the pair checkbox and the action buttons at opposite ends of the scroll. Below 720px each row becomes a record card: checkbox on a left rail, amount against its date and account, description wrapped in full instead of truncated, badges, `n` and actions on the last line. CSS only, keyed on the existing cell classes (one `col-desc` class added); the JS, the API and the double confirmation are unchanged, and no value is dropped from a row. Tablet (≤1024px) keeps the table and releases the fixed column widths. Touch gets ≥36px controls and 16px text in the comment field (iOS zooms a smaller focused field). Verified in headless Chrome at 390, 820 and 1440 px.
 - Security (no auth): bind 127.0.0.1 by default; POST requires JSON content type + `X-Trex-Admin: 1` + matching Origin (CSRF); CSP `default-src 'self'`; text inserted via textContent (bank descriptions are untrusted).
 
 ### R3a — Live updates (supersedes the polling-first part of R3)
@@ -366,6 +367,7 @@ User asked for a plain, compact, read-only grid on the resolver's model (SSE, pa
 - G1–G9 accepted as proposed: Transactions/Journal views; compact column set with toggles; server-side multi-column sort with `n` tie-break; paging pinned to `asOfN` with a "new rows" chip and Follow mode; in-memory lines with cached query results; SSE carries head info only; URL-mirrored state; exact cents with per-currency totals; read-only security.
 - Basic filter & search only (account, state, type, date range, text). Declined for now: detail drawer, reconciliation/accounts/health panels, projection preview, transfers view, export.
 - G10 (a): separate `trex-grid` process + shared `trex-web` module extracted from the resolver (watcher, SSE, static serving, security headers). Lets the read-only grid be exposed differently from the action-taking resolver.
+- G11 Narrow screens (amends §5.5). The grid stays a table at every width: side-scrolling a dense table is the right shape for a journal, and cards would lose the column-to-column comparison the grid exists for. Only the chrome adapts — below 720px the header wraps with the view switcher on its own full-width row, search takes a full row, the column picker becomes a bottom sheet instead of a popover that runs off-screen, and the footer wraps with the pager kept on the right. Touch gets ≥36px controls and 16px form text. CSS only.
 - Fill-in: totals only in the Transactions view and excluding TRANSFER lines (legs carry the amounts; journal versions would double-count).
 
 ### F1 — Followers wake on journal change
