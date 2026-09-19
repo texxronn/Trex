@@ -24,12 +24,15 @@ if [ "${1:-}" = "--kill" ]; then
 fi
 
 attach() {
-    if [ -n "${TMUX:-}" ]; then
-        tmux switch-client -t "$SESSION"
-    elif [ -t 1 ]; then
-        tmux attach -t "$SESSION"
-    else
+    if [ ! -t 1 ]; then
+        # No terminal (called from a script or an agent): leave it detached.
+        # Checked before $TMUX, or switch-client hijacks whatever client
+        # the caller's tmux session happens to be attached to.
         echo "trex-dev: session $SESSION running detached — tmux attach -t $SESSION"
+    elif [ -n "${TMUX:-}" ]; then
+        tmux switch-client -t "$SESSION"
+    else
+        tmux attach -t "$SESSION"
     fi
 }
 

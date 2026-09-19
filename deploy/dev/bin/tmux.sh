@@ -27,13 +27,15 @@ if [ "${1:-}" = "--kill" ]; then
 fi
 
 attach() {
-    if [ -n "${TMUX:-}" ]; then
-        tmux switch-client -t "$SESSION"
-    elif [ -t 1 ]; then
-        tmux attach -t "$SESSION"
-    else
-        # No terminal to attach to (called from a script): leave it detached.
+    if [ ! -t 1 ]; then
+        # No terminal (called from a script or an agent): leave it detached.
+        # Checked before $TMUX, or switch-client hijacks whatever client
+        # the caller's tmux session happens to be attached to.
         echo "trex-dev: session $SESSION running detached — tmux attach -t $SESSION"
+    elif [ -n "${TMUX:-}" ]; then
+        tmux switch-client -t "$SESSION"
+    else
+        tmux attach -t "$SESSION"
     fi
 }
 
@@ -42,8 +44,6 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     attach
     exit 0
 fi
-
-dirs
 
 # The sequencer owns the journal, so it gets the first panel and a head start;
 # the followers just retry until the file exists, but the log reads better.
