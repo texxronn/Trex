@@ -67,6 +67,11 @@ Resolver UI: <http://127.0.0.1:8090>  ·  Grid: <http://127.0.0.1:8091>
 | `config/grid.env` | trex-grid | shell vars → CLI flags |
 | `config/ingress-ing.env` | trex-ingress-ing | shell vars → CLI flags |
 
+Every value in a `.env` file is written `VAR="${VAR:-default}"`, so exporting
+one wins over the file for a single run:
+
+    ONCE=1 deploy/dev/bin/egress-archive.sh     # drain what is there, print, exit
+
 Only the sequencer reads TOML (SPEC.md §6); the followers, resolver, grid and
 adapter are configured by command-line flags, so their `.env` files are plain
 shell sourced by the scripts, not a second config format.
@@ -87,10 +92,8 @@ seconds instead of minutes, heap 256m.
 - The pid files under `run/pids/` are only a convenience for `stop`/`status`. A
   panel killed with `kill -9` leaves a stale file behind; `status` notices,
   because it checks the process is still that service before believing the pid.
-- The two egress followers open the journal on their first pass and exit if the
-  file does not exist yet, so their scripts wait for it before starting the JVM
-  (up to two minutes) rather than dying in a pane you cannot scroll back. The
-  resolver and grid wait on their own. Nothing in the modules was changed for
-  this harness.
+- Panel order does not matter. A follower started before the sequencer logs
+  `waiting for journal …` and picks up when the file appears (SPEC.md §5.1), so
+  a panel never dies on a race you cannot scroll back to.
 - `reset.sh` deletes the journal. There is no undo for a decision either — both
   are the real semantics, not a dev shortcut.

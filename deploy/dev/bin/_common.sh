@@ -56,21 +56,6 @@ dirs() {
     mkdir -p "$RUN/journal" "$RUN/archive" "$RUN/sqlite" "$PIDS"
 }
 
-# The egress followers open the journal on their first pass and exit if it is
-# not there yet; the resolver and grid tolerate a missing file and wait. In a
-# panel layout the sequencer may still be starting, so hold the followers here
-# instead of letting them die in a pane you cannot read afterwards.
-wait_for_journal() {
-    local file="$1" waited=0
-    [ -f "$file" ] && return 0
-    echo "trex-dev: waiting for $file (start the sequencer)"
-    while [ ! -f "$file" ]; do
-        sleep 0.5
-        waited=$((waited + 1))
-        [ "$waited" -lt 240 ] || die "journal never appeared: $file"
-    done
-}
-
 # A pid file counts only if the process is alive AND still the service we
 # started — pids are reused, and TERMing a stranger is worse than a stale file.
 pid_of() {

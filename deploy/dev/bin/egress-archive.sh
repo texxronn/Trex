@@ -13,7 +13,6 @@ svc_start() {
     load_env egress-archive
     local journal
     journal="$(in_run "$JOURNAL")"
-    [ "${ONCE:-0}" = 1 ] || wait_for_journal "$journal"
     local args=(--journal "$journal" --archive "$(in_run "$ARCHIVE")"
                 --poll-seconds "$POLL_SECONDS")
     [ "${ONCE:-0}" = 1 ] && args+=(--once)

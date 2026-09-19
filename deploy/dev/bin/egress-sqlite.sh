@@ -13,7 +13,6 @@ svc_start() {
     load_env egress-sqlite
     local journal
     journal="$(in_run "$JOURNAL")"
-    [ "${ONCE:-0}" = 1 ] || wait_for_journal "$journal"
     local args=(--journal "$journal" --db "$(in_run "$DB")"
                 --poll-seconds "$POLL_SECONDS")
     [ "${ONCE:-0}" = 1 ] && args+=(--once)
