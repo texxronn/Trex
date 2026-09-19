@@ -304,6 +304,40 @@ pre-implementation review.
 ## Open
 
 - B21 follow-up: optional SQL view of current state per `external_id` (latest `n`).
+- F3 follow-up: egress-follower offset semantics when a recreated journal is shorter than the persisted offset (the resolver's B5 shrink refold has no follower equivalent).
+
+## Follower startup (F)
+
+The dev harness (one panel per component) surfaced a startup order the units hide: both
+egress followers died with `NoSuchFileException` from `FramedReader.<init>` when started
+before the sequencer had created the journal, while the resolver and grid — sharing
+`trex-web/JournalWatcher`, which already guards with `Files.exists` — waited quietly. Two
+implementations of the same loop had disagreed, and SPEC §5.1 said nothing either way, so
+SPEC was amended first (§5.1).
+
+- **A missing journal is a state, not an error.** The follower has nothing to consume yet;
+  that is indistinguishable from an empty journal, which it already handles. Crashing puts
+  the chicken/egg problem in the operator's lap (start ordering, `After=`, retry loops) to
+  save one `Files.exists` check.
+- **No new machinery.** `JournalChanges` registers a `WatchService` on the journal's
+  *parent directory*, not the file, so it is legal to register before the file exists and
+  `ENTRY_CREATE` is already one of the watched kinds. Waiting is the existing wake loop
+  with the pass skipped; nothing polls harder and no new flag appears.
+- **F1 Wait indefinitely**, logging `waiting for journal …` once at `info`. A bounded wait
+  would turn a slow-starting sequencer into a restart loop under `Restart=`, and the bound
+  would have to be guessed. The cost is that a typo'd `--journal` path is quiet after its
+  one line; `status`/`/head` show no progress, and the path is in that log line.
+- **F2 `--once` on a missing journal exits 0**, drained nothing. `--once` is a drain, not
+  an assertion that data exists; zero lines from a missing journal and zero lines from an
+  empty one are the same result and scripts should not have to tell them apart. It does
+  **not** wait — a one-shot that blocks is no longer a one-shot.
+- **F3 The same rule covers a journal that disappears mid-run**, so the loop has one rule
+  rather than a startup special case. This also covers the journal being replaced under a
+  running follower by `source != target` recovery (§3.2).
+- **Not decided here:** a *recreated* journal shorter than a follower's persisted offset.
+  The resolver refolds from 0 on shrink (R4/B5); the egress followers keep a plain offset
+  file and would sit past EOF. Left open — it is an offset-semantics question, not a
+  startup one.
 
 ## Manual resolver (R)
 
