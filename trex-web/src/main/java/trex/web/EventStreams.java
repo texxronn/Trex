@@ -55,8 +55,11 @@ public final class EventStreams implements AutoCloseable {
         return clients.size() < MAX_CLIENTS;
     }
 
-    /** Serve one stream until the client disconnects or the server closes. */
-    public void stream(HttpExchange ex) throws IOException {
+    /**
+     * Serve one stream until the client disconnects or the server closes. A client going away (broken
+     * pipe, connection reset) is the normal end of a stream, so it returns quietly rather than throwing.
+     */
+    public void stream(HttpExchange ex) {
         Client client = new Client();
         clients.add(client);
         log.debug("SSE client connected to {} ({} of {} slots in use)", eventName, clients.size(), MAX_CLIENTS);
@@ -74,6 +77,8 @@ public final class EventStreams implements AutoCloseable {
                 }
                 send(out, changed ? event() : ": ping\n\n".getBytes(StandardCharsets.UTF_8));
             }
+        } catch (IOException e) {
+            log.debug("SSE client on {} went away: {}", eventName, e.toString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {
