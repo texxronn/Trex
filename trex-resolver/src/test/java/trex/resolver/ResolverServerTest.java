@@ -122,6 +122,16 @@ class ResolverServerTest {
     }
 
     @Test
+    void pageAdaptsToNarrowScreensAndTouch() throws Exception {
+        assertTrue(get("/").body().contains("name=\"viewport\" content=\"width=device-width"));
+        String css = get("/app.css").body();
+        assertTrue(css.contains("@media (max-width: 720px)"), "phone: rows become record cards");
+        assertTrue(css.contains("@media (max-width: 1024px)"), "tablet: fixed column widths released");
+        assertTrue(css.contains("@media (pointer: coarse)"), "touch: larger hit targets");
+        assertTrue(css.contains("@media (prefers-reduced-motion: reduce)"));
+    }
+
+    @Test
     void decisionRoundTripUpdatesStateFromTheJournal() throws Exception {
         String dave = ingest("r1", "ing-savings", "2026-06-01", -700, "Osko to Dave");
         String out = ingest("r2", "ing-savings", "2026-06-02", -500, "Fast Transfer");

@@ -92,7 +92,7 @@ function row(line) {
     sel.append(box);
   }
 
-  const desc = el('td');
+  const desc = el('td', 'col-desc');
   const text = el('div', 'desc', line.rawDescription);
   text.title = `${line.rawDescription}\n${line.externalId}`;
   desc.append(text);

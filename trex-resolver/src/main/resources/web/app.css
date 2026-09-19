@@ -271,3 +271,91 @@ input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
 }
 .toast.bad { border-left-color: var(--bad); }
 @keyframes slide { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------------------------------------------------------------- narrow screens
+   The desktop table is unchanged. Two things move: below 1024px the fixed column
+   widths are released so the description takes the slack, and below 720px each row
+   becomes a record card — checkbox on a left rail (pair two legs with a thumb),
+   amount held against the date and account it belongs to, description wrapped in
+   full rather than truncated, badges, n and the actions on the last line. Nothing is
+   dropped: the row still carries every value SPEC §5.4 puts on it. */
+
+@media (max-width: 1024px) {
+  .content { padding: 14px 14px 96px; }
+  .col-acct, .col-amt, .col-act { width: auto; }
+  .desc { max-width: 38vw; }
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    height: auto;
+    min-height: 44px;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    padding: 7px 14px;
+  }
+  .content { padding: 10px 10px 108px; gap: 10px; }
+  .panel-head { flex-wrap: wrap; padding: 9px 12px; }
+  .hint { flex-basis: 100%; margin-left: 0; }
+
+  .table-wrap { overflow-x: visible; }
+  .grid, .grid tbody, .grid tr, .grid td { display: block; }
+  .grid thead { display: none; }
+
+  .grid tr {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "sel date date   amount"
+      "sel acct acct   amount"
+      "sel desc desc   desc"
+      "sel tags n      action";
+    align-items: center;
+    gap: 1px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .grid tbody tr:last-child { border-bottom: 0; }
+  .grid td { padding: 0; border: 0; min-width: 0; }
+
+  .col-sel { grid-area: sel; align-self: start; padding-top: 2px; }
+  .col-date { grid-area: date; color: var(--muted); }
+  .col-n { grid-area: n; text-align: left !important; margin-top: 7px; padding-left: 4px; }
+  .col-n::before { content: "n "; }  /* the header that named it is hidden */
+  .col-acct { grid-area: acct; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .col-amt { grid-area: amount; align-self: start; font-size: 15px; }
+  .col-desc { grid-area: desc; margin-top: 5px; }
+  .col-badge { grid-area: tags; margin-top: 7px; }
+  .col-act { grid-area: action; margin-top: 7px; justify-self: end; }
+
+  .desc { max-width: none; white-space: normal; overflow: visible; }
+
+  .pairbar {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    transform: none;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+  .pair-text { flex-basis: 100%; }
+  #pair-btn { flex: 1; }
+
+  .toasts { left: 12px; right: 12px; top: 60px; }
+  .toast { max-width: none; }
+}
+
+/* Touch input, at any width: thumbs need more than 26px, and iOS zooms a focused
+   field whose text is under 16px. */
+@media (pointer: coarse) {
+  .btn { height: 36px; padding: 0 14px; }
+  .btn + .btn { margin-left: 8px; }
+  .grid td, .grid th { padding-top: 9px; padding-bottom: 9px; }
+  input[type="checkbox"] { width: 18px; height: 18px; }
+  .field textarea { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: none; }
+  .toast { animation: none; }
+}
