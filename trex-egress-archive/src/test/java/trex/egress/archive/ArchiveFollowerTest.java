@@ -20,6 +20,7 @@ import java.util.stream.LongStream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /** SPEC §7 test 8 for the archive follower. */
 class ArchiveFollowerTest {
@@ -110,5 +111,46 @@ class ArchiveFollowerTest {
         assertEquals(2, new ArchiveFollower(journal, archive).pass());
         assertArrayEquals(Files.readAllBytes(journal), Files.readAllBytes(archive));
         assertEquals(0, new ArchiveFollower(journal, archive).pass());
+    }
+
+    @Test
+    void passOnAMissingJournalConsumesNothingAndDoesNotThrow() throws IOException {
+        Path journal = dir.resolve("journal.jsonl");
+        Path archive = dir.resolve("archive.jsonl");
+        ArchiveFollower follower = new ArchiveFollower(journal, archive);
+
+        assertEquals(0, follower.pass(), "started before the sequencer created the journal");
+        assertFalse(Files.exists(archive), "nothing written, so no archive and no cursor either");
+        assertFalse(Files.exists(dir.resolve("archive.jsonl.offset")));
+
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(lines(1, 3));
+        }
+        assertEquals(3, follower.pass(), "the same follower picks up once the journal appears");
+        assertArrayEquals(Files.readAllBytes(journal), Files.readAllBytes(archive));
+    }
+
+    @Test
+    void journalMovedAsideMidRunLeavesTheOffsetAloneAndResumes() throws IOException {
+        Path journal = dir.resolve("journal.jsonl");
+        Path archive = dir.resolve("archive.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(lines(1, 3));
+        }
+        ArchiveFollower follower = new ArchiveFollower(journal, archive);
+        assertEquals(3, follower.pass());
+        byte[] cursorBefore = Files.readAllBytes(dir.resolve("archive.jsonl.offset"));
+
+        // §3.2 recovery replaces the journal under a running follower.
+        Path aside = dir.resolve("journal.jsonl.aside");
+        Files.move(journal, aside);
+        assertEquals(0, follower.pass());
+        assertArrayEquals(cursorBefore, Files.readAllBytes(dir.resolve("archive.jsonl.offset")),
+            "a skipped pass never advances the cursor");
+
+        Files.move(aside, journal);
+        Files.write(journal, JsonlJournal.serialize(lines(4, 5)), StandardOpenOption.APPEND);
+        assertEquals(2, follower.pass(), "resumes where it left off, no gap and no duplicate");
+        assertArrayEquals(Files.readAllBytes(journal), Files.readAllBytes(archive));
     }
 }

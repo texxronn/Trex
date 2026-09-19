@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import trex.journal.JournalChanges;
+import trex.journal.JournalPresence;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -31,12 +32,14 @@ public final class ArchiveFollower {
     private final Path journal;
     private final Path archive;
     private final Path offsetFile;
+    private final JournalPresence presence;
     private long lastArchivedN = -1;
 
     public ArchiveFollower(Path journal, Path archive) {
         this.journal = journal;
         this.archive = archive;
         this.offsetFile = archive.resolveSibling(archive.getFileName() + ".offset");
+        this.presence = new JournalPresence(journal);
     }
 
     /**
@@ -54,8 +57,11 @@ public final class ArchiveFollower {
         }
     }
 
-    /** One follower pass. Returns the number of lines newly archived. */
+    /** One follower pass. Returns the number of lines newly archived; 0 if there is no journal yet. */
     public int pass() throws IOException {
+        if (!presence.ready()) {
+            return 0;       // SPEC §5.1: no journal, no pass; the cursor stays where it is
+        }
         if (lastArchivedN < 0) {
             lastArchivedN = recoverArchive();
         }

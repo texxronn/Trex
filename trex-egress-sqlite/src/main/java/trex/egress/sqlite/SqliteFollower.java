@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.journal.FramedReader;
 import trex.journal.JournalChanges;
+import trex.journal.JournalPresence;
 import trex.journal.Json;
 
 import java.nio.file.Path;
@@ -58,9 +59,11 @@ public final class SqliteFollower implements AutoCloseable {
 
     private final Path journal;
     private final Connection db;
+    private final JournalPresence presence;
 
     public SqliteFollower(Path journal, Path database) throws SQLException {
         this.journal = journal;
+        this.presence = new JournalPresence(journal);
         this.db = DriverManager.getConnection("jdbc:sqlite:" + database);
         try (Statement st = db.createStatement()) {
             st.execute("PRAGMA journal_mode=WAL");
@@ -88,8 +91,11 @@ public final class SqliteFollower implements AutoCloseable {
         }
     }
 
-    /** One follower pass. Returns the number of journal lines consumed. */
+    /** One follower pass. Returns the number of journal lines consumed; 0 if there is no journal yet. */
     public int pass() throws SQLException {
+        if (!presence.ready()) {
+            return 0;       // SPEC §5.1: no journal, no pass; the cursor stays where it is
+        }
         long offset = readOffset();
         int consumed = 0;
         int inTransaction = 0;

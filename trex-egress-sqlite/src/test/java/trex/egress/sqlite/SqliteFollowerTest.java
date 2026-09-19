@@ -183,4 +183,50 @@ class SqliteFollowerTest {
             }
         }
     }
+
+    @Test
+    void passOnAMissingJournalConsumesNothingAndDoesNotThrow() throws Exception {
+        Path journal = dir.resolve("journal.jsonl");
+        Path db = dir.resolve("trex.db");
+        try (SqliteFollower f = new SqliteFollower(journal, db)) {
+            assertEquals(0, f.pass(), "started before the sequencer created the journal");
+
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(lines(1, 3));
+            }
+            assertEquals(3, f.pass(), "the same follower picks up once the journal appears");
+        }
+        assertEquals(3, rowCount(db));
+    }
+
+    @Test
+    void journalMovedAsideMidRunLeavesTheCursorAloneAndResumes() throws Exception {
+        Path journal = dir.resolve("journal.jsonl");
+        Path db = dir.resolve("trex.db");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(lines(1, 3));
+        }
+        try (SqliteFollower f = new SqliteFollower(journal, db)) {
+            assertEquals(3, f.pass());
+
+            // §3.2 recovery replaces the journal under a running follower.
+            Path aside = dir.resolve("journal.jsonl.aside");
+            Files.move(journal, aside);
+            assertEquals(0, f.pass());
+
+            Files.move(aside, journal);
+            Files.write(journal, JsonlJournal.serialize(lines(4, 5)), StandardOpenOption.APPEND);
+            assertEquals(2, f.pass(), "resumes where it left off, no gap and no duplicate");
+        }
+        assertEquals(5, rowCount(db));
+    }
+
+    private static int rowCount(Path db) throws Exception {
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("SELECT count(*) FROM journal")) {
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
 }
