@@ -1,0 +1,13 @@
+# trex-sequencer — dev config (SPEC.md §6).
+# Relative journal paths resolve against THIS directory, so the journal lands in
+# deploy/dev/run/journal/ and never touches /var/lib/trex.
+
+bindHost = "127.0.0.1"
+bindPort = 8080
+
+[journal]
+# source == target: recover in place, which is what you want between restarts.
+# To replay a captured journal read-only-ish, point source at it and keep target
+# here: source is byte-copied over target on every start.
+source = "../run/journal/journal.jsonl"
+target = "../run/journal/journal.jsonl"
