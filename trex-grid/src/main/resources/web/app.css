@@ -225,3 +225,69 @@ body {
 .totals b { color: var(--text); font-weight: 600; }
 .pager { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 #page { width: 56px; text-align: right; }
+
+/* ---------------------------------------------------------------- narrow screens
+   The grid stays a grid: a dense table that scrolls sideways is the right shape for
+   a journal, and turning rows into cards would lose the column comparison that is
+   the whole point. What adapts is the chrome around it — the header wraps, the
+   search takes the width it needs, the column picker becomes a sheet anchored to
+   the bottom of the viewport instead of a popover hanging off a button, and the
+   footer keeps the pager reachable with a thumb. */
+
+@media (max-width: 1024px) {
+  .topbar { padding: 0 12px; gap: 12px; }
+  .toolbar { padding: 7px 12px; }
+  #f-q { width: 200px; flex: 1 1 200px; }
+  .footer { padding: 6px 12px; }
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    height: auto;
+    min-height: 42px;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 7px 12px;
+  }
+  .brand { order: 1; }
+  .status { order: 2; }
+  .segmented { order: 3; flex-basis: 100%; }
+  .segmented button { flex: 1; padding: 5px 10px; }
+
+  .toolbar { padding: 7px 12px; gap: 7px; }
+  #f-q { flex: 1 1 100%; width: auto; }
+  .toolbar .spacer { display: none; }
+  .columns { margin-left: auto; }
+
+  /* A popover pinned to its button runs off a phone screen; a bottom sheet does not. */
+  .popover {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    top: auto;
+    max-height: 60vh;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 2px 4px;
+    padding: 8px;
+  }
+
+  .grid td { max-width: 60vw; }
+
+  .footer { flex-wrap: wrap; gap: 8px 12px; padding: 7px 12px; }
+  .totals { gap: 10px; }
+  .pager { margin-left: auto; }
+}
+
+/* Touch input, at any width: thumbs need more than 26px, and iOS zooms a focused
+   field whose text is under 16px. */
+@media (pointer: coarse) {
+  .btn, .toolbar input, .toolbar select, .footer select, .footer input { height: 36px; }
+  .toolbar input, .toolbar select, .footer select, .footer input { font-size: 16px; }
+  .chip { height: 32px; }
+  .segmented button { padding: 7px 12px; }
+  .grid th { padding-top: 9px; padding-bottom: 9px; }
+  .grid td { padding-top: 7px; padding-bottom: 7px; }
+  .popover label { padding: 7px 6px; }
+  .toggle input { width: 18px; height: 18px; }
+}

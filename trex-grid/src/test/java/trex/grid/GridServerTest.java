@@ -89,6 +89,11 @@ class GridServerTest {
         assertEquals(200, get("/app.js").statusCode());
         assertEquals(200, get("/app.css").statusCode());
         assertEquals(404, get("/nope").statusCode());
+        assertTrue(page.body().contains("name=\"viewport\" content=\"width=device-width"));
+        String css = get("/app.css").body();
+        assertTrue(css.contains("@media (max-width: 720px)"), "phone: chrome wraps, column picker becomes a sheet");
+        assertTrue(css.contains("@media (max-width: 1024px)"), "tablet");
+        assertTrue(css.contains("@media (pointer: coarse)"), "touch: larger hit targets");
     }
 
     @Test
