@@ -17,6 +17,7 @@ you poke it.
 ## Start
 
     deploy/dev/bin/tmux.sh                   # all six panels, tiled
+    deploy/dev/bin/tmux-shells.sh            # same six panels, empty shells, nothing started
 
 or, by hand, one panel each (order matters only for readability — the followers
 retry until the journal exists):
