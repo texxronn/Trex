@@ -24,7 +24,7 @@
 
 categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
              SUBSCRIPTIONS, TRANSPORT, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES, CHILDCARE,
-             HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, SHOPPING, BILLS, TAXES, SAVINGS,
+             HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, SHOPPING, BILLS, TAXES, SAVINGS,
              DISCRETIONARY]
 
 # One-off corrections, evaluated before the rules below. Same mechanism, kept
@@ -177,6 +177,14 @@ rules:
       all:
         - direction: out
         - match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|eschol park|camden tigers|football|soccer club|leisure cent"
+
+  # Hardware and the house, tracked apart from general retail. Only the chain seen in the
+  # data so far; adding another is a config edit, not a code change.
+  - category: HOME_IMPROVEMENT
+    when:
+      all:
+        - direction: out
+        - match: "bunnings|mitre ?10"
 
   # Retail, including the op shops.
   - category: SHOPPING

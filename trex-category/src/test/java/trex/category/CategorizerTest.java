@@ -203,7 +203,7 @@ class CategorizerTest {
         assertEquals(List.of("SALARY", "INTEREST_EARNED", "INTEREST_PAID", "FEES", "VISA_FEES",
             "CASH_WITHDRAW", "INSURANCE", "SUBSCRIPTIONS", "TRANSPORT", "FUEL", "VEHICLE", "GROCERIES",
             "FOOD", "SCHOOL_FEES", "CHILDCARE", "HEALTH_SUPPLIES", "HEALTH", "SPORT_AND_LEISURE",
-            "SHOPPING", "BILLS", "TAXES", "SAVINGS", "DISCRETIONARY"), c.declared());
+            "HOME_IMPROVEMENT", "SHOPPING", "BILLS", "TAXES", "SAVINGS", "DISCRETIONARY"), c.declared());
         assertEquals("GROCERIES", c.categorize(line("a", -8500, "WOOLWORTHS 4321"), Set.of()).category());
         assertEquals("SALARY", c.categorize(line("b", 250000, "Salary Deposit - Receipt No 1"), Set.of()).category());
         // Interest splits by direction: earned is INTEREST, charged is INTEREST_PAID, and the
@@ -261,6 +261,8 @@ class CategorizerTest {
 
         assertEquals("HEALTH_SUPPLIES", c.categorize(line("ag", -17624, "CHEMIST WAREHOUSE"), Set.of()).category());
         assertEquals("HEALTH", c.categorize(line("ah", -64500, "PROSPER HEALTHCARE CEN"), Set.of()).category());
+        // Hardware is tracked apart from general retail.
+        assertEquals("HOME_IMPROVEMENT", c.categorize(line("ai", -4600, "BUNNINGS 402000"), Set.of()).category());
         // A café is FOOD; a restaurant is the thing you would cut, so it stays DISCRETIONARY.
         assertEquals("FOOD", c.categorize(line("n", -450, "Piccolo Me Silverwater"), Set.of()).category());
         assertEquals("DISCRETIONARY", c.categorize(line("o", -8900, "THAI RESTAURANT MINTO"), Set.of()).category());
