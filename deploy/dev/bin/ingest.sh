@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 #
-# trex-ingress-ing — one-shot ING CSV ingest (SPEC.md §4). Not a service: it
-# validates the whole file and sends nothing if any row is bad.
+# trex-ingress — one-shot ingest (SPEC.md §4). Not a service: it validates the
+# whole source and sends nothing if any row is bad.
 #
-#   ingest.sh <accountRef> <file.csv>
-#   ingest.sh ing-savings ../samples/ing-savings.csv
+#   ingest.sh <sourceType> <accountRef> <source>
+#   ingest.sh ing-csv ing-savings ../samples/ing-savings.csv
 #
-# accountRef must exist in ../config/accounts.toml. Relative paths resolve
-# against the current directory. Config: ../config/ingress-ing.env.
+# accountRef must exist in ../config/accounts.yaml. Relative paths resolve
+# against the current directory. Config: ../config/ingress.env.
 
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-[ "$#" -eq 2 ] || die "usage: $(basename "$0") <accountRef> <file.csv>"
-account="$1"
-file="$2"
+[ "$#" -eq 3 ] || die "usage: $(basename "$0") <sourceType> <accountRef> <source>"
+source_type="$1"
+account="$2"
+file="$3"
 [ -f "$file" ] || die "no such file: $file"
 
-load_env ingress-ing
+load_env ingress
 url="${SEQUENCER_URL:-}"
 [ -n "$url" ] || url="http://$TREX_BIND:$TREX_SEQ_PORT"
 
-args=(--account "$account" --url "$url" --batch-rows "$BATCH_ROWS")
+args=(--source-type "$source_type" --account "$account" --sequencer-url "$url" --batch-rows "$BATCH_ROWS")
 [ "${GZIP:-1}" = 0 ] && args+=(--no-gzip)
 
 # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
 exec "$(java_bin)" $JAVA_OPTS \
     "-Dorg.slf4j.simpleLogger.defaultLogLevel=$TREX_LOG_LEVEL" \
-    -jar "$(jar_for ingress-ing)" "${args[@]}" "$file"
+    -jar "$(jar_for ingress)" "${args[@]}" "$file"

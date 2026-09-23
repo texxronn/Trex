@@ -5,6 +5,10 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import trex.category.Categorized;
+import trex.category.Categorizer;
+import trex.category.Transfers;
+import trex.core.CanonicalEvent;
 import trex.core.state.LedgerView;
 import trex.journal.Json;
 import trex.web.EventStreams;
@@ -27,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 
 /** Resolver web server: static page, state API, and a CSRF-guarded decisions proxy. SPEC §5.4. */
 public final class ResolverServer implements AutoCloseable {
@@ -46,17 +51,21 @@ public final class ResolverServer implements AutoCloseable {
 
     private final JournalWatcher<LedgerView> watcher;
     private final SequencerClient sequencer;
+    private final Categorizer categorizer;
     private final EventStreams events;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public ResolverServer(JournalWatcher<LedgerView> watcher, SequencerClient sequencer, String bindAddress, int port) {
-        this(watcher, sequencer, bindAddress, port, 15_000);
+    public ResolverServer(JournalWatcher<LedgerView> watcher, SequencerClient sequencer, Categorizer categorizer,
+                          String bindAddress, int port) {
+        this(watcher, sequencer, categorizer, bindAddress, port, 15_000);
     }
 
-    ResolverServer(JournalWatcher<LedgerView> watcher, SequencerClient sequencer, String bindAddress, int port, long heartbeatMillis) {
+    ResolverServer(JournalWatcher<LedgerView> watcher, SequencerClient sequencer, Categorizer categorizer,
+                   String bindAddress, int port, long heartbeatMillis) {
         this.watcher = watcher;
         this.sequencer = sequencer;
+        this.categorizer = categorizer;
         this.events = new EventStreams("state", this::stateJson, heartbeatMillis);
         watcher.addListener(events::publish);
         try {
@@ -139,7 +148,26 @@ public final class ResolverServer implements AutoCloseable {
         body.put("error", s.error());
         body.put("held", s.view().held());
         body.put("review", s.view().review());
+        // Read-only: the resolver shows what a row's category is and why, but takes no category
+        // action — a correction is a pin in categories.yaml, not a decision (SPEC §0.7, §5.4).
+        body.put("categories", categories(s.view()));
         return body;
+    }
+
+    /** Category per shown row, keyed by n, derived from the same snapshot the rows come from. */
+    private Map<String, Object> categories(LedgerView view) {
+        Set<String> transfers = Transfers.ids(view.latestLines());
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (CanonicalEvent line : Stream.concat(view.held().stream(), view.review().stream()).toList()) {
+            Categorized c = categorizer.categorize(line, transfers);
+            out.put(String.valueOf(line.n()), Map.of(
+                "category", c.category(),
+                "origin", c.origin().name(),
+                "why", c.explain(),
+                // What to paste into categories.yaml to pin this one transaction.
+                "pin", "  - category: <CATEGORY>\n    when: {externalId: [\"" + line.externalId() + "\"]}"));
+        }
+        return out;
     }
 
     private void decisions(HttpExchange ex) throws Exception {
@@ -159,7 +187,7 @@ public final class ResolverServer implements AutoCloseable {
         JsonNode body;
         try {
             body = Json.mapper().readTree(readBody(ex));
-        } catch (IOException e) {
+        } catch (IOException _) {
             throw new HttpError(400, "malformed JSON");
         }
         if (body == null || !body.isObject()) {

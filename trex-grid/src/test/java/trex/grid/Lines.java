@@ -1,5 +1,7 @@
 package trex.grid;
 
+import trex.category.CategoryRules;
+import trex.category.Categorizer;
 import trex.core.CanonicalEvent;
 import trex.core.Confidence;
 import trex.core.EventState;
@@ -7,6 +9,7 @@ import trex.core.Flag;
 import trex.core.Provenance;
 import trex.core.TypeHint;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -14,6 +17,11 @@ import java.util.List;
 final class Lines {
 
     private Lines() {}
+
+    /** Small rules file written against {@link #sample()}; see src/test/resources. */
+    static Categorizer categorizer() {
+        return CategoryRules.load(Path.of("src", "test", "resources", "grid-categories.yaml"));
+    }
 
     static CanonicalEvent line(long n, String id, String account, String date, long amount, String raw, EventState state) {
         return new CanonicalEvent(n, id, account, null, account.startsWith("bw") ? "USD" : "AUD", LocalDate.parse(date), amount,

@@ -20,7 +20,8 @@ public final class Ids {
 
     public static String externalId(IdentityStrategy s) {
         String canonical = switch (s) {
-            case NaturalKey(String accountRef, String receipt) -> "nk|" + accountRef + "|" + receipt;
+            case NaturalKey(String accountRef, var date, String receipt) ->
+                "nk|" + accountRef + "|" + date + "|" + receipt;
             case ContentHash(String accountRef, var date, long amount, String rawDescription, int occ) ->
                 "ch|" + accountRef + "|" + date + "|" + Long.toString(amount) + "|" + rawDescription + "|" + occ;
         };
@@ -31,7 +32,7 @@ public final class Ids {
     public static IdentityStrategy strategyFor(OccCandidate oc) {
         Candidate c = oc.c();
         if (c.hasReceipt()) {
-            return new NaturalKey(c.accountRef(), c.receipt());
+            return new NaturalKey(c.accountRef(), c.date(), c.receipt());
         }
         return new ContentHash(c.accountRef(), c.date(), c.amount(), c.rawDescription(), oc.occ());
     }

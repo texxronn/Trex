@@ -1,0 +1,22 @@
+# Dev account registry (SPEC.md §6). Only these refs are accepted; an unknown
+# accountRef is always rejected and accounts are never auto-created.
+#   ing-savings / ing-orange  two ING accounts, so the transfer matcher has two
+#                             sides to pair (T1 by receipt, T3 by amount/date)
+#   cba-everyday              registered but has no source type yet; use it to see a
+#                             valid-ref/no-data account in /reconcile
+#   bw-usd                    non-AUD, to prove currency is stamped and that a
+#                             cross-currency CONFIRM_TRANSFER is rejected
+
+accounts:
+  - ref: "ing-savings"
+    currency: "AUD"
+    fireflyAccountId: "1"
+  - ref: "ing-orange"
+    currency: "AUD"
+    fireflyAccountId: "2"
+  - ref: "cba-everyday"
+    currency: "AUD"
+    fireflyAccountId: "3"
+  - ref: "bw-usd"
+    currency: "USD"
+    fireflyAccountId: "4"

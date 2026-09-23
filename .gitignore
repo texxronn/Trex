@@ -2,3 +2,8 @@ target/
 *.iml
 .idea/
 run/
+
+# Real statements and the manifests that point at them never belong in git.
+*.local.yaml
+statements/
+*.statements.yaml

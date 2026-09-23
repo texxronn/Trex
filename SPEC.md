@@ -2,7 +2,7 @@
 
 A build spec for four components, pitched for Claude Code generation:
 1. **trex** — the transaction sequencer service (the journal core)
-2. **A sample ingress adapter** — ING CSV → candidates → trex
+2. **The ingress client** — one CLI, one parser per source type (starter: ING CSV) → candidates → trex
 3. **Two sample egress followers** — `toArchive` and `toSQLiteWAL`
 4. **The manual resolver** — an admin web service (journal follower + UI) for the HELD/REVIEW workflow
 5. **The grid** — a read-only, compact, live table of the journal (not a dashboard: dashboards belong to Firefly/Grafana)
@@ -13,12 +13,13 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
 
 ## 0. Non-negotiable invariants (every component honors these)
 
-1. **`external_id` is the sole identity of a transaction.** Natural key (ING `Receipt`) ▸ else content hash `sha256(accountRef|date|amount|rawDescription|occ)[:16]` — hashes the **verbatim** `rawDescription`, never the cleaned `description`, so description cleanup stays soft and can evolve without shifting ids. **`balance` is never in identity *or* transaction semantics** — it is provenance/reconciliation data only (see §2.2 field doc and §5). An `external_id` may appear on several journal lines (versions, §3.2); it is not a line key.
+1. **`external_id` is the sole identity of a transaction.** Natural key (`accountRef|date|receipt`) ▸ else content hash `sha256(accountRef|date|amount|rawDescription|occ)[:16]` — hashes the **verbatim** `rawDescription`, never the cleaned `description`, so description cleanup stays soft and can evolve without shifting ids. **`balance` is never in identity *or* transaction semantics** — it is provenance/reconciliation data only (see §2.2 field doc and §5). An `external_id` may appear on several journal lines (versions, §3.2); it is not a line key.
 2. **The journal is append-only, single-writer, immutable.** No update, no delete. A state change is a new line (a re-appended version, §3.2); corrections are new events with `corrects`.
 3. **`n` is the journal record sequence: a `long`, unique per journal line, strictly increasing, starting at 1.** Assigned when the line is appended, preserved forever (read back on replay). Never in identity. Every line — including a re-appended version of an existing transaction — takes the next `n`.
 4. **Amounts are `long` cents (fixed ×100 — every account is AUD/USD/INR, all 2-decimal).** `BigDecimal` appears **only at the CSV parse boundary** to convert a decimal string to cents (scale-checked, never rounded); never `double`/`float`, never in the core.
 5. **Projection to any sink is one-way and idempotent.** Re-delivery must be a no-op.
 6. **Accuracy over recall.** Ambiguity → review, never a guess.
+7. **There is no category in the journal.** A category is derived by each journal consumer from two inputs — the line, and `categories.yaml` — and is never stored on a `Candidate` or a `CanonicalEvent`, never evaluated by the sequencer, never part of identity. Even a human correction is a pin in the rules file, not a journal line (§5.6). Consequences, all intended: changing the rules recategorises all history at zero journal cost and leaves every byte untouched; "what did we call this in March?" is answered by the journal plus that commit of `categories.yaml`, which git already keeps; and downstream copies (a Firefly tag) are refreshed by re-projection, never by rewriting history. `trex-category` (§5.6) is the shared implementation so the readers agree — a consumer with different needs may derive its own.
 
 ---
 
@@ -31,11 +32,11 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
     pom.xml           # parent (packaging=pom): modules, <release>25</release>, dependencyManagement
     trex-core/        # pure domain + pure journal-state fold: no HTTP, no DB, no I/O framework
       pom.xml
-    trex-journal/     # shared journal read side: Json mapper config, framed JSONL reader, change signal
+    trex-journal/     # shared journal read path: Json mapper config, framed JSONL reader, change signal
       pom.xml
     trex-sequencer/   # the service: journal writer + HTTP API + wiring
       pom.xml
-    trex-ingress-ing/ # sample ingress adapter (CSV → trex)
+    trex-ingress/     # ingress client: shared CLI/HTTP/batching + one package per source type
       pom.xml
     trex-egress-archive/
       pom.xml
@@ -43,20 +44,28 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
       pom.xml
     trex-web/         # shared web-follower plumbing: journal watcher, SSE, static serving, security headers
       pom.xml
+    trex-category/    # shared consumer library: category rules (categories.yaml) + evaluator (§5.6)
+      pom.xml
     trex-resolver/    # manual resolver admin service (§5.4)
       pom.xml
     trex-grid/        # read-only journal grid (§5.5)
       pom.xml
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the nine `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the ten `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
   - `com.fasterxml.jackson.core:jackson-annotations` — in trex-core for `@JsonPropertyOrder`; no databind in core.
   - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
+  - `org.apache.pdfbox:pdfbox` (+ `fontbox`, `pdfbox-io`, `commons-logging`; ~3.6 MB, Apache-2.0) in `trex-ingress` only — text extraction for `cba-pdf` (§4). It sits in the identity path, so the extraction and normalisation rules are frozen in §4 and pinned by a golden file; an upgrade is only safe if that test still passes.
+  - `com.fasterxml.jackson.dataformat:jackson-dataformat-yaml` (+ its SnakeYAML) in `trex-journal` — all config is YAML (§6). Configure the config mapper with `FAIL_ON_UNKNOWN_PROPERTIES` **on** (an unknown key is a startup error, as before) and `STRICT_DUPLICATE_DETECTION` **on** (a duplicated key is a startup error, not last-wins). The journal stays JSONL — YAML never touches it.
   - `org.xerial:sqlite-jdbc` (egress-sqlite only).
   - `org.junit.jupiter:junit-jupiter` (tests).
   - `org.slf4j:slf4j-api` — logging facade, **every module including trex-core**. A binding (`org.slf4j:slf4j-simple`) is added at runtime scope by the six runnable modules only; libraries never bind. Pinned to 2.0.x, which also overrides the 1.7.x that `sqlite-jdbc` pulls in transitively.
     Logging must not change behaviour: no logging inside journal serialization (byte stability, §3.1), and the fold in trex-core stays deterministic — a log statement may observe, never decide. Journal lines are financial data: log `externalId`, `n`, counts and states, **never `rawDescription`, `description` or amounts**.
-  - **JDK-only for everything else:** `java.net.http.HttpClient` (adapters → trex), `com.sun.net.httpserver.HttpServer` (trex API — **confirmed choice; zero-dep, no Javalin**), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`. Config files are TOML read by a hand-written subset parser (§6) — no TOML library.
+  - **Dependency policy:** a well-maintained library is preferred over hand-written code when it *removes* source — a standard format parser, argument parsing, and the like. Two standing exceptions, where the code stays hand-written and auditable:
+    1. **The identity and journal path** — `Ids`, the JSONL framing in `JsonlJournal`, `FramedReader`. A library version bump there could shift the identity contract (§0.1).
+    2. **The HTTP layer** — `com.sun.net.httpserver.HttpServer` stays (**confirmed choice; zero-dep, no Javalin**), so routing, SSE and gzip stay hand-written (§3.6).
+    `info.picocli:picocli` parses the six `Main` CLIs (§4, §5). **`trex.ingress.Csv` stays hand-written**: it was compared against Apache Commons CSV and the library is more lenient in two places that matter — a bare `\r` between rows is taken as a record separator (silently splitting a row) and a stray quote inside an unquoted field is accepted as literal text. Since `rawDescription` is hashed into identity verbatim (§2.4), quietly reinterpreting a malformed file mints ids that differ from the same file once fixed, which is the duplicate the §4 whole-file validation exists to prevent. Rejecting the file and naming the line is the behaviour worth keeping.
+  - **JDK-only for everything else:** `java.net.http.HttpClient` (adapters → trex), `java.util.zip.{GZIPInputStream,GZIPOutputStream}` (gzip — see §3.6), `java.math.BigDecimal` (parse boundary only), `java.time`, `java.nio.channels.FileChannel`, `java.security.MessageDigest`, `java.util.regex` (transfer allowlist §3.4, category rules §5.6).
   - **gzip note:** neither `HttpServer` nor `HttpClient` handles content-coding automatically — both directions are manual (§3.6, §4).
 
 ---
@@ -77,7 +86,7 @@ public record Candidate(
     String receipt,           // nullable; ING natural key
     String counterpartyBsb,   // nullable; CDR (phase 2)
     String counterpartyAcct,  // nullable; CDR (phase 2)
-    String source,            // adapter channel id, e.g. "ing-csv" (copied onto the event)
+    String sourceType,        // kind of input it was read from, e.g. "ing-csv" (= --source-type, §4; copied onto the event)
     Provenance provenance     // BANK for statements; AUTHORED for portal decisions
 ) {}
 ```
@@ -86,7 +95,7 @@ public record Candidate(
 ```java
 @JsonPropertyOrder({ "n","externalId","accountRef","toAccountRef","currency","date","amount","balance",
     "description","rawDescription","typeHint","transferKey","legIds","corrects","state","confidence",
-    "flags","provenance","source","receipt","counterpartyBsb","counterpartyAcct",
+    "flags","provenance","sourceType","receipt","counterpartyBsb","counterpartyAcct",
     "foreignAmount","foreignCurrency","comment","ingestedAt" })
 public record CanonicalEvent(
     long n,                   // journal line sequence (§0.3)
@@ -107,13 +116,14 @@ public record CanonicalEvent(
     Confidence confidence,    // nullable; set on TRANSFER lines
     List<Flag> flags,         // never null; empty = []
     Provenance provenance,
-    String source,            // e.g. "ing-csv"
+    String sourceType,        // e.g. "ing-csv"
     String receipt,           // nullable
     String counterpartyBsb,   // nullable
     String counterpartyAcct,  // nullable
     Long foreignAmount,       // nullable cents; superset for cross-currency (phase 2), null in phase 1
     String foreignCurrency,   // nullable; superset (phase 2)
     String comment,           // nullable; free text from a POST /decisions decision, else null. Never identity
+                              // (no category field, by invariant §0.7 — it is derived, §5.6)
     Instant ingestedAt        // stamped from an injected java.time.Clock on first append; never restamped
 ) {}
 ```
@@ -163,7 +173,7 @@ String externalId(IdentityStrategy s);   // sha256 of a canonical string, first 
 String transferId(String receipt);       // "TRF-" + receipt   (T1, shared receipt)
 String transferId(String idA, String idB);// "TRF-" + sha256("tr|" + min(idA,idB) + "|" + max(idA,idB))[:16]  (T3 / manual)
 ```
-- Canonical string for `NaturalKey`: `"nk|" + accountRef + "|" + receipt`.
+- Canonical string for `NaturalKey`: `"nk|" + accountRef + "|" + date(ISO) + "|" + receipt`. **The date is in the key** because a bank's receipt number is a rolling counter, not a permanent id: ING's are six digits and not monotonic, so over a long history one can recur within an account, and without the date the later transaction would be silently dropped as a duplicate. The cost, accepted: a bank restating a transaction's *date* mints a new id — rarer than a bank restating its text, which is what the natural key exists to survive (DECISIONS S5).
 - Canonical string for `ContentHash`: `"ch|" + accountRef + "|" + date(ISO) + "|" + Long.toString(amount) + "|" + rawDescription + "|" + occ`. (`long` cents has exactly one representation — no `10.0`-vs-`10.00` hazard.)
 - Hashing: canonical string encoded **UTF-8**, SHA-256, **lowercase** hex, first 16 hex chars. `min`/`max` are `String.compareTo` order.
 - `rawDescription` is the CSV-unquoted field value, **untrimmed**.
@@ -182,7 +192,7 @@ Determinism requirement: within a batch, identical-`Sig` candidates get stable a
 Input row order is not assumed to be meaningful (§4): `occ` follows the order rows arrive in. The same file always yields the same ids; a re-exported file that reorders identical-`Sig` rows may swap their `occ` — accepted, and it surfaces as `POTENTIAL_DUP` because their balances differ (§3.3).
 
 ### 2.6 Journal state fold (pure)
-Pure, I/O-free types every journal reader shares (moved here so the sequencer, followers and resolver agree exactly):
+Pure, I/O-free types every journal consumer shares (moved here so the sequencer, followers and resolver agree exactly):
 - `Ledger` — folds journal lines in order: `firstLine[externalId]`, `latest[externalId]` (highest `n`), HELD index, `highWaterN`, head offset. Rejects non-increasing `n`.
 - `LedgerView` — immutable snapshot: `held()` (latest state HELD), `review()` (latest state REVIEW **or** `POTENTIAL_DUP` ∈ latest flags), both ordered by `n`.
 - `Projection.projectableUnits(latestLines)` — TRANSFER lines + EXTERNAL transactions not listed in any TRANSFER's `legIds`.
@@ -269,7 +279,7 @@ Validate-all-then-commit (atomic per batch):
        HeldLeg                       -> HELD
        NotTransfer                   -> EXTERNAL
 7. build lines to persist, in this order:
-       a. new legs (input order): stamp `currency` (registry), `source`, `ingestedAt` (Clock);
+       a. new legs (input order): stamp `currency` (registry), `sourceType`, `ingestedAt` (Clock);
           `description` = clean(rawDescription); typeHint = WITHDRAWAL if amount < 0 else DEPOSIT;
           flags=[]; confidence=null
        b. re-appended versions (dedup flags, matched HELD legs)
@@ -287,7 +297,7 @@ Validate-all-then-commit (atomic per batch):
 
 ### 3.4 Transfer matcher + state rules
 Deciding which state a new candidate gets (`MATCHED` / `HELD` / `REVIEW` / `EXTERNAL`) lives in trex-sequencer and is expected to evolve into a tunable rule set. **Phase 1 starts defensive:** when unsure → HELD or REVIEW, never an automatic guess; rules are loosened later based on what the review workflow shows.
-- **Transfer-shaped:** `rawDescription` matches any allowlist regex from `transfers.toml` (case-insensitive), e.g. `Internal Transfer`, `To my account`, Osko/PayID/`Fast Transfer`. A receipt alone does not make a leg transfer-shaped.
+- **Transfer-shaped:** `rawDescription` matches any allowlist regex from `transfers.yaml` (case-insensitive), e.g. `Internal Transfer`, `To my account`, Osko/PayID/`Fast Transfer`. A receipt alone does not make a leg transfer-shaped.
 - **Match pool:** legs whose current state is HELD, plus new legs earlier in the same batch. REVIEW, EXTERNAL and MATCHED legs are never auto-matched.
 - **Tiers (first match wins), as a sealed `MatchOutcome`:**
   - **T1** same `receipt` in two different accounts, opposite sign (transfer-shaped or not) → `ExactTransfer` → `TRF-<receipt>`, confidence `EXACT`. More than one T1 contra → `AmbiguousTransfer`.
@@ -298,7 +308,7 @@ Deciding which state a new candidate gets (`MATCHED` / `HELD` / `REVIEW` / `EXTE
 - **Collapse:** keep **both leg lines in the journal** for audit. A resolved transfer produces a **TRANSFER line**, the projectable unit (what the Firefly egress posts as one transfer):
   - `externalId = transferKey = TRF-…`, `typeHint = TRANSFER`, `state = MATCHED`, `legIds = [fromLeg, toLeg]`, `n` after its legs.
   - `accountRef` = from (negative-amount) leg's account; `toAccountRef` = to (positive-amount) leg's account; `amount = |amount|`.
-  - `date`, `currency`, `description`, `rawDescription`, `source` copied from the from leg; `balance = 0`.
+  - `date`, `currency`, `description`, `rawDescription`, `sourceType` copied from the from leg; `balance = 0`.
   - `receipt` = shared receipt for T1, else `null`; `confidence` = `EXACT` (T1 or manual) / `HIGH` (T3); `provenance` = `BANK` (automatic) / `AUTHORED` (manual).
   - `flags = []`; `corrects`, `counterpartyBsb`, `counterpartyAcct`, `foreignAmount`, `foreignCurrency` = `null`; `comment` from the decision (manual) else `null`.
 - **Journal shape:** legs in two batches → 4 lines (leg A `HELD`, leg B `MATCHED`, leg A re-appended `MATCHED`, TRANSFER). Legs in one batch → 3 lines (two `MATCHED` legs, TRANSFER). Followers/projectors select transfers by `typeHint == TRANSFER` and skip legs listed in some TRANSFER's `legIds`, to avoid double-counting.
@@ -322,6 +332,7 @@ Use **pattern-matching `switch` over sealed `MatchOutcome`/`IdentityStrategy`** 
   - `DISMISS_DUP`: `externalId`, optional `comment`.
 - Response: `{ batchHandle, batchStatus, results }` (same envelope as `/candidates`). Success → `Resolved(decisionRef, externalId, n)` (leg id for `MARK_EXTERNAL`/`DISMISS_DUP`, `TRF-…` id for `CONFIRM_TRANSFER`); failure → `Rejected(decisionRef, reason)`. `allOrNone` as in `/candidates`.
 - Rejected when: unknown `externalId`; for `MARK_EXTERNAL`/`CONFIRM_TRANSFER` current state not HELD/REVIEW; for `CONFIRM_TRANSFER` also same leg twice, same account, different currency, amounts not equal-and-opposite, or a leg already used by an earlier decision in the same request (`windowDays` not enforced — human override); for `DISMISS_DUP` the latest line lacks `POTENTIAL_DUP` (any state allowed).
+  **There is no category decision.** Categories are not journal data (§0.7): a correction is a pin in `categories.yaml` (§5.6), so the sequencer neither stores nor validates a category, and `POST /decisions` has no action for one.
 - Output:
   - `MARK_EXTERNAL` → leg re-appended with `state = EXTERNAL`, `comment`.
   - `CONFIRM_TRANSFER` → both legs re-appended `MATCHED` with `comment` + TRANSFER line (`confidence = EXACT`, `provenance = AUTHORED`, `comment`, `transferKey = transferId(idA,idB)`).
@@ -331,7 +342,7 @@ Use **pattern-matching `switch` over sealed `MatchOutcome`/`IdentityStrategy`** 
 
 **Binding:** the API has no authentication, so it listens on `bindHost:bindPort` with `bindHost` defaulting to `127.0.0.1`; any other host must be set explicitly, and the sequencer prints a warning at startup.
 
-**Decisions are final:** there is no undo. A mistaken decision cannot be reversed through the API; this is why the resolver double-confirms every action (§5.4).
+**Decisions are final:** there is no undo. A mistaken decision cannot be reversed through the API; this is why the resolver double-confirms every action (§5.4). (This is one reason categories are not decisions: a mis-categorisation must be correctable, and it is — by editing `categories.yaml`, which changes no journal line, §5.6.)
 
 **Single-writer:** guard all mutating endpoints with one write lock (or a single-threaded executor) so appends are serialized. Reads are lock-free over the published snapshot (§3.2).
 
@@ -355,28 +366,50 @@ void   writeJson(HttpExchange ex, int status, Object obj); // transparently gzip
 
 ---
 
-## 4. trex-ingress-ing — sample ingress adapter (ING CSV)
+## 4. trex-ingress — ingress client (source types: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`)
 
-Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract. **All bank-specific behavior lives in ingress adapters**; the sequencer has none. ING is the starter template; CBA/BW adapters follow the same model in a later phase.
+Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract. **All source-specific behavior (banks, feeds) lives in trex-ingress**; the sequencer has none. One module holds every source type: the CLI, HTTP client, gzip and day batching are shared (package `trex.ingress`), and each source type is one parser in its own sub-package (`trex.ingress.ing`, …). `ing-csv` was the starter; `bw-csv` (BankWest), `cba-csv` and `cba-pdf` (CommBank) followed; CDR and feed source types follow the same model in a later phase.
 ```
-Usage: trex-ingress-ing --account <accountRef> --url http://trex:PORT <file.csv>
+Usage: trex-ingress --source-type <type> --account <accountRef> --sequencer-url http://trex:PORT
+                    [--batch-rows N] [--no-gzip] <source>
 ```
-- **ING format:** header `Date,Description,Credit,Debit,Balance`; `dd/mm/yyyy`; `amount = coalesce(credit,0) + coalesce(debit,0)` (**debit already negative**); `receipt` via regex `Receipt (No )?(\d+)` on description; balance signed. `rawDescription` = verbatim column (CSV-unquoted, untrimmed).
+- **`--source-type`** (required, no default) selects the parser and is stamped into every candidate's `sourceType`. It is the only binding between an input and its parser: the registry does not record one (§6), because one account may arrive through several source types. An unknown type is a usage error. Known: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`.
+- **`<source>`** is the instance being read; for the CSV and PDF types, the statement file.
+- **`--sequencer-url`** matches the resolver's flag (§5.4).
+- **`ing-csv` format:** header `Date,Description,Credit,Debit,Balance`; `dd/mm/yyyy`; `amount = coalesce(credit,0) + coalesce(debit,0)` (**debit already negative**); `receipt` via regex `Receipt (No )?(\d+)` on description; balance signed. `rawDescription` = verbatim column (CSV-unquoted, untrimmed).
+- **`bw-csv` format (BankWest):** header `BSB Number,Account Number,Transaction Date,Narration,<cheque>,Debit,Credit,Balance,Transaction Type`, where the fifth column is labelled `Cheque` **or** `Cheque Number` — BankWest ships both, and the rest of the header is identical. `dd/mm/yyyy`. Exactly one of `Debit`/`Credit` must be set.
+  - **The debit sign varies by export, so it is inferred per file, never assumed.** One BankWest export writes debits positive, another writes them already negative. The rule: if every non-empty `Debit` is positive, `amount = credit − debit`; if every one is negative, `amount = credit + debit`; **a file mixing both signs is rejected**, because there is then no sound reading of it. Assuming one convention would silently invert every debit in a file of the other kind — 1,517 rows in the export this rule was written from — and the amount is hashed into identity (§2.4), so the damage is permanent ids rather than a visible error. Whole-file validation (below) is what caught it: the first assumption was rejected loudly by the negative-debit check rather than applied. `rawDescription` = `Narration` verbatim. **No receipt**: every row is content-hash identity, so `occ` and day-atomic batching carry the weight here (§2.5). `BSB Number` and `Cheque` are always empty; `Account Number` and `Transaction Type` are read but not used — the account comes from `--account` and `typeHint` from the amount's sign.
+- **`cba-csv` format (CommBank):** **no header row** — the first line is data, four columns: date, amount, description, balance. `dd/mm/yyyy`; the amount is **already signed and explicitly prefixed** (`-75.00`, `+1000.00`), so there are no credit/debit columns to combine; balance likewise (`+2202.43`). `rawDescription` = the description column verbatim. **No receipt**: content-hash identity, as for `bw-csv`. Because there is no header to check, the shape *is* the validation: exactly four fields, a parsable date and exact-cents amounts, so a file of another type fails on its first row rather than being half-read. A first row that fails to parse **and** contains `Date` is reported as "looks like a header; `cba-csv` expects none".
+- **`cba-pdf` format (CommBank Transaction Summary PDF):** the same statement CommBank renders as a PDF, and for some accounts the *only* export available. Text is extracted with PDFBox (`PDFTextStripper`, `sortByPosition`), then read line by line:
+  - A **transaction line** is `dd MMM yyyy` (English month names — the parser pins `Locale.ENGLISH`, never the platform default), then the description, then two `-?$n,nnn.nn` amounts: the amount and the running balance. Amounts carry `$` and thousands separators, and the minus precedes the `$`; both are stripped before the exact-cents conversion, which stays as strict as everywhere else (§0.4).
+  - A **continuation line** is any other line after a transaction line; it is part of that transaction's description.
+  - **Page furniture** is everything from the `Created dd/mm/yy` footer up to the next `Date Transaction details` header, plus the preamble before the first such header. This rule is not cosmetic: CommBank's footer is three lines, and a parser that skips only the first appends the other two to whichever description straddles the page break — silently corrupting exactly the rows at page boundaries and minting wrong ids for them.
+  - **`rawDescription` is normalised, not verbatim** — the one place a source type departs from §2.4, because a PDF has no canonical byte string to be verbatim about. The frozen rule: trim each line, join continuations with exactly one space, collapse internal whitespace runs to one space. **Frozen** in the same sense as §2.4: changing it re-mints every id for this source type.
+  - **No receipt**: content-hash identity, as for the other CommBank and BankWest types. No pending rows — the statement states that pending transactions are excluded.
+  - Account metadata (BSB, account number, account type) is printed in the header and is **read but not used**: the account comes from `--account`, as for every other source type.
+  - **Why this is safe enough to hash:** PDFBox and poppler's `pdftotext` were checked against the same account's CSV export for an overlapping period, and both reproduce all 63 CSV descriptions byte-for-byte. Two unrelated extractors agreeing is what makes the extraction stable enough to sit in the identity path; the golden-file test (§7 test 1) is what keeps it that way across library upgrades.
+  - **Consequence worth having:** because the text matches, the same transaction ingested from the CSV and from the PDF mints the *same* `external_id`, so the two sources dedup against each other and a PDF backfill over a CSV-covered period is idempotent.
+- **When a PDF earns a source type.** A bank's PDF is admitted only when **both** hold, each shown by measurement rather than assumed:
+  1. **It is the only export for that account**, or it covers history no other export does. A PDF that merely restates an available CSV adds risk for nothing.
+  2. **Its rows mint the same `external_id` as every other source already ingested for that account** — the same receipt, or text that extracts identically. Otherwise the same transaction is two transactions, and because dedup keys on the id, nothing flags it: only the §7 test 6 tripwire notices, afterwards.
+  Three were assessed: **`cba-pdf` admitted** (only source for one account; extracted text matched its CSV byte-for-byte, 63 of 63). **ING rejected** — every account exports CSV, and ING reorders, re-pads and relabels the same fields between its exports, while its card PDF carries no receipts at all (DECISIONS S5). **BankWest rejected** — no receipts, *no per-row balance* (so §7 test 6 could never reconcile the account), the PDF dates transactions where the CSV posts them, and the CSV already covers more (DECISIONS S7).
+- **Truncated descriptions (`cba-csv`):** CommBank truncates long descriptions with a trailing `...` in the export itself. That text is hashed verbatim like any other (§2.4). If CommBank ever truncates the same transaction at a different length, it mints a different id — the reconciliation tripwire (§7 test 6) is the backstop, as for any restatement.
+- **Pending rows (`bw-csv`).** BankWest exports authorisations that have not settled, marked by a `Narration` starting `AUTHORISATION ONLY` (their `Transaction Type` is also blank). They are **skipped, not ingested, and reported** with the bad rows: the same purchase settles later under a different narration, which is a different content hash, and the journal is append-only — an ingested pending row could never be removed, only masked by a decision. Skipping is safe for reconciliation because pending rows sit at the newest end, so the remaining rows keep a contiguous balance chain; if one ever appears with settled rows after it, the §7 test 6 tripwire is the backstop. A row is pending or it is not — this is never a reason to reject the file.
 - **Row order:** not assumed. Rows are sent in file order as-is — no sorting or reversal (§2.5).
 - **Amount parsing (cents, the only place `BigDecimal` lives):** each decimal column → cents via `new BigDecimal(str).movePointRight(2).longValueExact()`. Never `Double.parseDouble(x) * 100` (reintroduces float error), never rounded. Applies to `amount` and `balance`.
 - **Whole-file validation before sending:** the adapter parses and validates the entire file first. Any value with >2 decimals or otherwise not convertible to exact cents → **nothing is sent**; the adapter prints every bad row (file, line, column, value) and exits non-zero. (Dropping a single row could shift `occ` for later identical-`Sig` rows once the fixed row is re-ingested.) Such rows never reach the sequencer or review; fix the file (or parser) and re-run (idempotent).
-- Build one `Candidate` per row; `candidateRef = "row-" + lineNumber`; `provenance = BANK`; leave `currency` unset (sequencer stamps it).
+- Build one `Candidate` per row; `candidateRef = "row-" + lineNumber`; `provenance = BANK`; `sourceType` = the `--source-type` value; leave `currency` unset (sequencer stamps it).
 - **Batching (day-atomic).** Default: whole file = one `/candidates` call. For a very large file the client MAY split across calls, **but only on whole-day boundaries** — never mid-day (occ is `(account,day)`-scoped; a file is already one account, so the rule reduces to *don't split a calendar day*). Algorithm: group rows by date; pack whole day-groups into a call up to a soft size target; **if one day alone exceeds the target, send that day as its own call anyway — a day is the atom, size yields to correctness**. Each call is an ordinary independent batch; the server needs no chunk-awareness, and `allOrNone` applies per call.
 - **Cross-file caveat:** the client keeps a day whole only *within one file*. Pulling whole days per statement (operator discipline) prevents a day splitting across two files; the reconciliation tripwire (§7 test 6) is the backstop if it ever does.
 - Print the response: per-row status; non-zero exit if `batchStatus != COMMITTED`.
 - HTTP via `java.net.http.HttpClient`; Jackson for (de)serialization.
 - **gzip (mirror of §3.6; also manual — `HttpClient` does not auto-gzip):** gzip the request body and set `Content-Encoding: gzip` (candidate arrays compress ~8–12×, so this is worth it for large backfills); always send `Accept-Encoding: gzip`; and degzip the response **iff** it comes back with `Content-Encoding: gzip`. Keep it symmetric with the server helpers so a plain-mode run (no gzip) still works for quick tests.
 
-Acceptance: parsing an ING slice yields the same candidates every run (golden file); a re-run POST returns all `DroppedDuplicate` (idempotent); a gzipped POST and a plain POST of the same file produce identical journal results (gzip is wire-only).
+Acceptance: parsing a slice of each source type yields the same candidates every run (golden file per type); a header-less `cba-csv` slice parses from its first line, and an `ing-csv` file passed as `cba-csv` is rejected rather than half-read; a re-run POST returns all `DroppedDuplicate` (idempotent); a gzipped POST and a plain POST of the same file produce identical journal results (gzip is wire-only); a `bw-csv` slice with a pending row sends every other row and reports that one.
 
 ---
 
-## 5. Egress followers (tail the journal file directly)
+## 5. Journal consumers (egress followers, admin services, shared libraries)
 
 Followers **read the journal file directly** (single-writer append-only makes this safe), tail by byte offset with framing, and persist only their offset. They do **not** use the trex HTTP API. Both phase-1 followers are **journal mirrors**: one output record per journal line, keyed by `n`, with no transaction-state logic.
 
@@ -419,7 +452,7 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
     description TEXT, raw_description TEXT,
     type_hint TEXT, transfer_key TEXT, leg_ids TEXT,      -- JSON array or NULL
     corrects TEXT, state TEXT, confidence TEXT, flags TEXT, -- flags: JSON array
-    provenance TEXT, source TEXT, receipt TEXT,
+    provenance TEXT, source_type TEXT, receipt TEXT,
     counterparty_bsb TEXT, counterparty_acct TEXT,
     foreign_amount INTEGER, foreign_currency TEXT,
     comment TEXT, ingested_at TEXT
@@ -455,15 +488,16 @@ An admin web service for the resolution workflow. It is a journal follower (read
   - `POST /api/decisions` requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
   - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
   - Request body cap 64 KB.
-- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback journal read interval, default 10000).
+- **Category (read-only):** each row shows its derived category with the rule that produced it (§5.6). The resolver takes no category action — a correction is a pin, and the page shows the exact `categories.yaml` snippet to paste, rather than writing config from a UI.
+- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--categories <path>` (categories.yaml, §6), `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback journal read interval, default 10000).
 
 ### 5.5 trex-grid — read-only journal grid
 A plain, compact, live table over the journal. Read-only: no actions (decisions stay in the resolver). **Responsive (G11):** the table stays a table at every width (it scrolls sideways; rows never become cards). Below 720px the header, toolbar and footer wrap and the column picker becomes a bottom sheet; touch input gets larger hit targets and 16px form text. Same model as the resolver: a journal follower with nothing persisted, event-driven tailing, SSE, JDK `HttpServer`, one bundled vanilla JS page.
 - **Shared plumbing (`trex-web`, used by resolver and grid):** `JournalWatcher<V>` (fold from 0, WatchService-triggered reads + fallback poll, refold on shrink/read error, change listeners — §5.4), `EventStreams` (coalesced SSE with heartbeat and client cap), static page serving with the security headers, JSON/error helpers.
 - **Views (G1):** **Transactions** (default) — the latest line per `externalId`; **Journal** — every line, every version.
-- **Columns (G2):** `n`, date, account, to-account, amount, currency, description, type, state, flags, confidence, provenance, source, receipt, transferKey, comment, ingestedAt, externalId. A compact default set is shown; the rest can be toggled on (column choice kept in the browser's `localStorage`).
+- **Columns (G2):** `n`, date, account, to-account, amount, currency, description, type, state, flags, confidence, provenance, sourceType, receipt, transferKey, comment, `category`, ingestedAt, externalId. `category` is derived per row (§5.6) and shows on hover which rule produced it; a pinned row and a structural `TRANSFER` are badged as such. A compact default set is shown; the rest can be toggled on (column choice kept in the browser's `localStorage`).
 - **Sort (G3):** server-side on any column, asc/desc; click a header to sort, shift-click to add a secondary key. Ties always break by `n` ascending, so paging is stable. Text columns compare case-insensitively; nulls sort last. Default: `n` descending.
-- **Basic filter & search:** account (matches `accountRef` or `toAccountRef`), state, type, date from/to (inclusive), and `q` — case-insensitive substring over raw description, description, comment, externalId, receipt, transferKey.
+- **Basic filter & search:** account (matches `accountRef` or `toAccountRef`), state, type, category (including `UNCATEGORIZED`, the worklist that drives rule writing), date from/to (inclusive), and `q` — case-insensitive substring over raw description, description, comment, externalId, receipt, transferKey.
 - **Paging while data arrives (G4):** every page is computed against a pinned snapshot `asOfN`: the journal lines with `n ≤ asOfN` (Transactions = latest line per id among them). When SSE reports a newer `n`, the page shows a "N new · refresh" chip instead of moving rows. **Follow** mode (like `tail -f`): when on, and on page 1 sorted by `n` descending, the page refreshes automatically.
 - **State (G5):** all journal lines held in memory (append order = `n` order). Each distinct query (view, asOfN, filters, sort) is filtered+sorted once and cached (small LRU); paging slices the cached result.
 - **SSE (G6):** `GET /api/events` streams `event: head` — `{ n, offset, updatedAt, error, lines, transactions, accounts }` — never row data.
@@ -476,27 +510,73 @@ A plain, compact, live table over the journal. Read-only: no actions (decisions 
   - `GET /api/rows?view=transactions|journal&sort=col:asc|desc[,col:dir…]&page=1&size=50&asOfN=&account=&state=&type=&from=&to=&q=` → `{ asOfN, view, page, size, total, rows:[CanonicalEvent...], totals:[{currency, amount, count}] }`. `size` 1–500 (default 50); `asOfN` absent or above the head → current head. Invalid parameters → `400`.
 - **Config (flags):** `--journal <path>`, `--port <n>` (default 8091), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback read interval, default 10000).
 
-**Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` (Firefly categorizes) and `error_if_duplicate_hash`, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
+### 5.6 trex-category — master categorisation (shared consumer library)
+
+A pure library, not a service and not a copy per consumer: the grid, the resolver and (phase 1.5) the Firefly egress all call it, so they cannot disagree about what a transaction is. Master level only — fine-grained categorisation is Firefly's job, downstream (see the Firefly note below).
+
+**Resolution chain** (first hit wins), given the latest line for an `externalId` and the `LedgerView`:
+1. **Structural `TRANSFER`** — the line is a TRANSFER line, or a leg listed in some TRANSFER's `legIds` (§2.6 `Projection`). Rules never assign or override this: it is a fact of the fold, not an opinion.
+2. **A pin** — a rule whose `when` is an `externalId` leaf: the one-off human correction for a transaction no sensible rule would catch. Pins are ordinary rules, kept in a `pins` block at the top of the file so they are evaluated before the general ones and stay readable as a group.
+3. **The first matching rule** in `categories.yaml`, in file order.
+4. **`UNCATEGORIZED`** — nothing matched. Never a guess (§0.6). The uncategorised list is the worklist that drives rule writing, exactly as HELD/REVIEW drove transfer rules.
+
+**Seam.** The evaluator sits behind a `Categorizer` interface, and the YAML rule set is its only implementation in this phase. That is what a different engine would plug into later; §9 records the one anticipated extension.
+
+**Rules** (`categories.yaml`, §6) are **data, not expressions** — no embedded expression language, so a bad rule fails at startup with a pointed message instead of at row 12 000, and nothing evaluates arbitrary code from a config file. A rule is a category plus a `when` tree:
+- Composition: `all`, `any`, `not` (nest freely).
+- Leaves: `externalId` (a list of ids — the pin form; exact match, never a regex), `match` (regex, case-insensitive, `find` semantics as §3.4), `matchOn` (`raw` — the default, the verbatim field identity hashes — or `description`, the cleaned form, which may evolve), `direction` (`in`/`out`, from the amount's sign), `accounts` (list of refs), `amountMin`/`amountMax` (cents, inclusive, on `|amount|`).
+
+**Result.** `Categorized(category, origin, rule)` where `origin` ∈ {`STRUCTURAL`, `PIN`, `RULE`, `NONE`} and `rule` is the index and source line of the rule that fired, so every reader can answer *why* — a rule table nobody can interrogate becomes folklore.
+
+**Purity.** `Categorizer` is deterministic and I/O-free (like trex-core); only loading `categories.yaml` touches the filesystem. Patterns compile once at load. Load-time errors: an undeclared category in a rule, an uncompilable regex, an empty `when`, `amountMin > amountMax`. Load-time warning: a rule wholly shadowed by an earlier one.
+
+**Dry run** (the tuning loop, and the reason this is usable in practice): categorise a whole journal or a parsed CSV and print per-category counts plus the most frequent uncategorised descriptions, highest first. Rules get tuned against real data before anything reaches Firefly — the same idea as the ING dry run in §4.
+
+**Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` and `error_if_duplicate_hash`, and carries trex's master category (§5.6) as the **tag** `trex-category:<name>` — never in Firefly's own `category` field, which Firefly's rules own for the fine-grained level (that is the whole point of the split: master here, fine-grained there). Because the category is derived, the projection-state table also records the category last projected, so a `categories.yaml` change re-projects exactly the affected transactions, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
 
 ---
 
 ## 6. Config
 
-All config files are TOML, read by a hand-written subset parser in trex-sequencer (JDK-only): `[table]`, `[[array-of-tables]]`, `key = value` with strings, integers, booleans, arrays of strings, `#` comments. Anything else is a config error at startup.
+All config files are **YAML** (`.yaml`), bound to records by the Jackson YAML mapper in `trex-journal` (§1) — there is no hand-written config parser. Binding is strict in both directions: an **unknown key** is a startup error (as the hand-written parser enforced) and a **duplicate key** is a startup error rather than last-wins. Value checks (currency set, port range, required fields) are hand-written next to the records, with messages naming the file and the key.
 
-- `accounts.toml` — the registry (the spine): per account `ref`, `format` (`ing|cba|bw`), `currency` (`AUD|USD|INR`), `fireflyAccountId`. The sequencer uses it only to validate `accountRef` and stamp `currency` (and hold `fireflyAccountId`); `format` is for adapters.
-- `transfers.toml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
-- `sequencer.toml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `[journal] source`, `target`. (No fsync option — always fsync, §3.1.)
+Config is YAML; **the journal is JSONL and stays JSONL** (§3.1) — the two never meet. Three YAML properties that matter here and are checked at load: unquoted `no`/`yes`/`on`/`off` are booleans in YAML 1.1, so account refs, category names and other identifiers are validated as strings and quoted by convention in the shipped files; indentation carries structure, so a misindented block is a bind error, not a silent reparent; anchors and merge keys are allowed and are useful for sharing predicate fragments between category rules.
+
+Separate files, not one: they change on different schedules, and the registry is edited far more often than the rest.
+
+- `accounts.yaml` — the registry (the spine): per account `ref`, `currency` (`AUD|USD|INR`), `fireflyAccountId`. The sequencer uses it only to validate `accountRef` and stamp `currency` (and hold `fireflyAccountId`). It records no source type: that is bound per run by `--source-type` (§4).
+- `transfers.yaml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
+- `sequencer.yaml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `journal: {source, target}`. (No fsync option — always fsync, §3.1.)
+- `categories.yaml` — read by **journal consumers only** (§5.6); the sequencer never loads it (§0.7). Two keys:
+  - `categories` — the declared master categories. Starting set, tuned from dry runs: `SALARY`, `INTEREST`, `GROCERIES`, `BILLS`, `TAXES`, `SAVINGS`, `DISCRETIONARY`. Adding one is a config edit, never a code change. `TRANSFER` and `UNCATEGORIZED` are **reserved** (§5.6) and must not be declared or assigned by a rule.
+  - `rules` — ordered; first match wins. Each is `category` plus a `when` tree (§5.6). Pins (one-off corrections, `when: {externalId: [...]}`) go in a `pins` block evaluated before `rules`; both are the same mechanism, separated so hand-written rules stay readable.
+  ```yaml
+  categories: [SALARY, INTEREST, GROCERIES, BILLS, TAXES, SAVINGS, DISCRETIONARY]
+  pins:                       # one-off corrections; evaluated before rules
+    - category: TAXES
+      when: {externalId: ["9e546cc0260ead1e"]}
+  rules:
+    - category: SALARY
+      when:
+        all:
+          - direction: in
+          - match: "salary|payroll"
+    - category: GROCERIES
+      when:
+        match: "woolworths|coles|aldi|iga"
+  ```
 - Follower config — `journalPath`, sink path, `pollSeconds` = fallback wake interval (command-line flags: `--journal`, `--archive`/`--db`, `--poll-seconds`, `--once`).
 - Resolver config — command-line flags (§5.4).
 - Firefly API token: env var / systemd credential, **never** in config or repo.
+
+A leftover `*.toml` beside its `.yaml` replacement is a startup error naming both files: the old file is silently ignored otherwise, and a stale registry is the kind of thing that is only noticed after an ingest.
 
 ---
 
 ## 7. Testing (generate alongside code)
 
 Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`; tests that compare journal bytes use a fixed `Clock` and compare full bytes, `ingestedAt` included. Required, mapping to spec §16 assertions:
-1. **Determinism:** identical `Candidate`/`CanonicalEvent` output every run (exclude `n`, `ingestedAt` from comparison — they're processing artifacts). Stage 1: hand-built `Candidate` fixtures; stage 5: ING slice golden file. (CBA/BW when their adapters exist.)
+1. **Determinism:** identical `Candidate`/`CanonicalEvent` output every run (exclude `n`, `ingestedAt` from comparison — they're processing artifacts). Stage 1: hand-built `Candidate` fixtures; stage 5: ING slice golden file; stage 14: BankWest and CommBank slice golden files; stage 15: the CommBank PDF slice, which must also produce ids identical to the CSV rows it overlaps. (The feed types when they exist.)
 2. **Identity uniqueness:** distinct `external_id` == row count on natural-key data; unique within occurrence groups on content-hash data.
 3. **Sign correctness:** known debit/credit (stage 1 fixtures; stage 5 ING columns).
 4. **Batch idempotency:** POST batch A, then A again → second all `DroppedDuplicate`; nothing new appended.
@@ -511,6 +591,8 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
 13. **Day-atomic client:** a large ING file split by the client (whole-day calls) yields a byte-identical journal (fixed `Clock`) to a single-call ingest of the same file; a deliberately mid-day split is shown to mis-number occ (guard/negative test).
 14. **State re-fold:** after a HELD leg is matched and another is resolved by decision, restart-fold reproduces the latest state for every `external_id` and identical held/review sets — from journal lines alone.
 15. **rawDescription hashing:** changing the `description` *cleaning* logic leaves every `external_id` unchanged (identity hashes `rawDescription`, not the cleaned form).
+16. **Categorisation is derived:** with a journal fixed, changing `categories.yaml` changes what the readers report and leaves the journal byte-identical (sha256 before/after, same `n`). Structural `TRANSFER` wins over any rule; an override wins over the rules; no match yields `UNCATEGORIZED`; first-match-wins follows file order; the same input always yields the same result and the reported firing rule.
+17. **A category costs no journal line:** categorising, recategorising and pinning leave the journal byte-identical and `n` unchanged; a pin beats a general rule; structural `TRANSFER` beats a pin; `POST /decisions` has no category action.
 
 ---
 
@@ -521,11 +603,17 @@ Build bottom-up; each stage compiles and tests green before the next.
 2. **Journal** (JSONL writer/reader, framing, materialize/recover, fold) in trex-sequencer (+ tests 7, 9).
 3. **Ingress pipeline + matcher/state rules + decision logic** (+ tests 4, 5, 6, 11, 14).
 4. **HTTP API** (`/candidates` with `allOrNone`, `/head`, `/held`, `/review`, `/decisions` — all fully implemented; gzip §3.6) (+ tests 10, 12).
-5. **trex-ingress-ing** against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
+5. **trex-ingress** (`ing-csv`) against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
 6. **trex-egress-archive**, then **trex-egress-sqlite** (+ test 8).
 7. **Extract shared components:** pure fold (`Ledger`, `LedgerView`, `Projection`, `Reconciliation`) → trex-core; `Json` mapper + `FramedReader` → trex-journal; sequencer, ingress and followers switch to them (no behavior change; all existing tests stay green).
 8. **trex-resolver** (§5.4) (+ tail/refold, API contract, CSRF guard, end-to-end decision round trip through an in-process sequencer); then extract `trex-web` from it.
 9. **trex-grid** (§5.5) (+ views, filters, sort/tie-break, pinned paging, totals, SSE head events).
+10. **Config to YAML** (§6): Jackson YAML mapper in trex-journal, records + strict binding, delete the hand-written TOML parser, convert the shipped config files. No behaviour change — the existing config tests carry over to the renamed files.
+11. **trex-category** (§5.6): rule records, `Categorizer` + evaluator, loader with its load-time errors, dry run (+ test 16).
+12. **Consumer surfaces:** grid category column/filter, resolver category display and pin snippet (§5.4, §5.5) (+ test 17).
+13. **Source footprint** (§1 dependency policy): picocli for the six CLIs. (The CSV library swap was evaluated and rejected — see §1.)
+14. **More source types** (§4): `bw-csv` (BankWest: positive debits, pending-row skipping) and `cba-csv` (CommBank: header-less, pre-signed amounts), each with its own golden file (+ test 1 for both).
+15. **`cba-pdf`** (§4): PDFBox extraction, frozen normalisation, page-furniture rule, golden file, and the cross-source test that a PDF row and the CSV row for the same transaction mint the same id.
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 
@@ -533,6 +621,6 @@ Each component is small and single-purpose; keep trex-core free of any I/O so it
 
 ## 9. Explicitly out of scope here (later phases)
 
-Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR ingress adapter; CBA/BW ingress adapters; the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
+Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR and bank-sync feed source types in trex-ingress (the CDR path is what an account with no CSV export needs); a per-account `sourceTypes` allowlist in the registry, enforced by the sequencer (add with the second source type); the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; an `expr` leaf inside a category rule's `when` (§5.6) if the predicate tree ever proves too weak — CEL preferred over JEXL there, because it type-checks at load and cannot side-effect, which keeps the "bad rule fails at startup" property; hot reload of `categories.yaml` (the grid already watches files); a machine-written `overrides.yaml` if pins ever outgrow hand editing (still consumer-side, still no journal line); an **immutable** `extras` map on `Candidate`/`CanonicalEvent`, stamped once at ingest and never updated, for fields trex does not model (CDR counterparty details, bank reference codes) — sorted keys for byte-stability, never in identity, and never a home for mutable annotations (§0.7); a recomputed category table in the SQLite mirror (a derived value must not be frozen into a log mirror, §0.7) and category totals in the grid footer; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
 
-**Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.toml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.
+**Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.yaml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.

@@ -1,5 +1,6 @@
 package trex.sequencer.config;
 
+import trex.journal.Yaml;
 import trex.sequencer.ingest.Account;
 import trex.sequencer.ingest.AccountRegistry;
 import trex.sequencer.ingest.TransferRules;
@@ -7,120 +8,104 @@ import trex.sequencer.ingest.TransferRules;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
  * Sequencer configuration loaded from a config directory holding
- * {@code sequencer.toml}, {@code accounts.toml} and {@code transfers.toml}. SPEC §6.
+ * {@code sequencer.yaml}, {@code accounts.yaml} and {@code transfers.yaml}. SPEC §6.
  * Relative journal paths resolve against the config directory.
+ * <p>
+ * Shape is enforced by strict binding ({@link Yaml}: unknown key, duplicate key, wrong type);
+ * this class adds the value checks that binding cannot express, and names the file in each one.
  */
 public record Config(Path journalSource, Path journalTarget, String bindHost, int bindPort,
                      AccountRegistry registry, TransferRules rules) {
 
     private static final Logger log = LoggerFactory.getLogger(Config.class);
 
-    private static final Set<String> FORMATS = Set.of("ing", "cba", "bw");
     private static final Set<String> CURRENCIES = Set.of("AUD", "USD", "INR");
 
+    /** The three config files, in the order they are read. */
+    private static final List<String> FILES = List.of("sequencer.yaml", "accounts.yaml", "transfers.yaml");
+
+    record SequencerFile(String bindHost, Integer bindPort, JournalPaths journal) {}
+
+    record JournalPaths(String source, String target) {}
+
+    record AccountsFile(List<AccountEntry> accounts) {}
+
+    record AccountEntry(String ref, String currency, String fireflyAccountId) {}
+
+    record TransfersFile(Integer windowDays, List<String> allowlist) {}
+
     public static Config load(Path configDir) {
-        Map<String, Object> sequencer = read(configDir.resolve("sequencer.toml"));
-        Map<String, Object> accounts = read(configDir.resolve("accounts.toml"));
-        Map<String, Object> transfers = read(configDir.resolve("transfers.toml"));
+        rejectLeftoverToml(configDir);
 
-        allowOnly("sequencer.toml", sequencer, Set.of("bindHost", "bindPort", "journal"));
-        Map<String, Object> journal = table("sequencer.toml", sequencer, "journal");
-        allowOnly("sequencer.toml [journal]", journal, Set.of("source", "target"));
-        Path source = configDir.resolve(string("sequencer.toml [journal]", journal, "source"));
-        Path target = configDir.resolve(string("sequencer.toml [journal]", journal, "target"));
-        String host = sequencer.containsKey("bindHost") ? string("sequencer.toml", sequencer, "bindHost") : "127.0.0.1";
+        SequencerFile sequencer = Yaml.read(configDir.resolve("sequencer.yaml"), SequencerFile.class);
+        AccountsFile accounts = Yaml.read(configDir.resolve("accounts.yaml"), AccountsFile.class);
+        TransfersFile transfers = Yaml.read(configDir.resolve("transfers.yaml"), TransfersFile.class);
+
+        if (sequencer.journal() == null || sequencer.journal().source() == null || sequencer.journal().target() == null) {
+            throw new IllegalArgumentException("sequencer.yaml: 'journal' needs both 'source' and 'target'");
+        }
+        Path source = configDir.resolve(sequencer.journal().source());
+        Path target = configDir.resolve(sequencer.journal().target());
+
+        String host = sequencer.bindHost() == null ? "127.0.0.1" : sequencer.bindHost();
         if (host.isBlank()) {
-            throw new IllegalArgumentException("sequencer.toml: bindHost must not be blank");
+            throw new IllegalArgumentException("sequencer.yaml: bindHost must not be blank");
         }
-        long port = integer("sequencer.toml", sequencer, "bindPort");
+        if (sequencer.bindPort() == null) {
+            throw new IllegalArgumentException("sequencer.yaml: 'bindPort' is required");
+        }
+        int port = sequencer.bindPort();
         if (port < 0 || port > 65535) {
-            throw new IllegalArgumentException("sequencer.toml: bindPort out of range: " + port);
+            throw new IllegalArgumentException("sequencer.yaml: bindPort out of range: " + port);
         }
 
-        allowOnly("accounts.toml", accounts, Set.of("account"));
-        List<Account> list = new ArrayList<>();
-        for (Map<String, Object> a : tables("accounts.toml", accounts, "account")) {
-            allowOnly("accounts.toml [[account]]", a, Set.of("ref", "format", "currency", "fireflyAccountId"));
-            String format = string("accounts.toml [[account]]", a, "format");
-            String currency = string("accounts.toml [[account]]", a, "currency");
-            if (!FORMATS.contains(format)) {
-                throw new IllegalArgumentException("accounts.toml: unknown format '" + format + "'");
+        if (accounts.accounts() == null || accounts.accounts().isEmpty()) {
+            throw new IllegalArgumentException("accounts.yaml: 'accounts' must list at least one account");
+        }
+        for (AccountEntry a : accounts.accounts()) {
+            if (a.ref() == null || a.ref().isBlank()) {
+                throw new IllegalArgumentException("accounts.yaml: every account needs a 'ref'");
             }
-            if (!CURRENCIES.contains(currency)) {
-                throw new IllegalArgumentException("accounts.toml: unsupported currency '" + currency + "'");
+            if (!CURRENCIES.contains(a.currency())) {
+                throw new IllegalArgumentException("accounts.yaml: unsupported currency '" + a.currency() + "'");
             }
-            list.add(new Account(string("accounts.toml [[account]]", a, "ref"), format, currency,
-                string("accounts.toml [[account]]", a, "fireflyAccountId")));
+        }
+        List<Account> list = accounts.accounts().stream()
+            .map(a -> new Account(a.ref(), a.currency(), a.fireflyAccountId()))
+            .toList();
+
+        if (transfers.windowDays() == null) {
+            throw new IllegalArgumentException("transfers.yaml: 'windowDays' is required");
+        }
+        if (transfers.allowlist() == null) {
+            throw new IllegalArgumentException("transfers.yaml: 'allowlist' must be a list of regexes");
         }
 
-        allowOnly("transfers.toml", transfers, Set.of("windowDays", "allowlist"));
-        long windowDays = integer("transfers.toml", transfers, "windowDays");
-        Object allowlist = transfers.get("allowlist");
-        if (!(allowlist instanceof List<?> patterns)) {
-            throw new IllegalArgumentException("transfers.toml: 'allowlist' must be an array of strings");
-        }
         log.info("config loaded from {}: {} accounts, {} transfer patterns, windowDays {}, bind {}:{}",
-            configDir, list.size(), patterns.size(), windowDays, host, port);
-        return new Config(source, target, host, (int) port, new AccountRegistry(list),
-            new TransferRules(patterns.stream().map(String.class::cast).toList(), Math.toIntExact(windowDays)));
+            configDir, list.size(), transfers.allowlist().size(), transfers.windowDays(), host, port);
+        return new Config(source, target, host, port, new AccountRegistry(list),
+            new TransferRules(transfers.allowlist(), transfers.windowDays()));
     }
 
-    private static Map<String, Object> read(Path file) {
-        try {
-            return Toml.parse(Files.readString(file));
-        } catch (IOException e) {
-            throw new UncheckedIOException("cannot read " + file, e);
-        } catch (Toml.TomlException e) {
-            throw new IllegalArgumentException(file.getFileName() + ": " + e.getMessage(), e);
-        }
-    }
-
-    private static void allowOnly(String where, Map<String, Object> table, Set<String> keys) {
-        for (String k : table.keySet()) {
-            if (!keys.contains(k)) {
-                throw new IllegalArgumentException(where + ": unknown key '" + k + "'");
+    /**
+     * A leftover {@code .toml} beside its {@code .yaml} replacement is an error, not something to
+     * ignore: config moved to YAML (SPEC §6) and a stale registry is only noticed after an ingest.
+     */
+    private static void rejectLeftoverToml(Path configDir) {
+        for (String yaml : FILES) {
+            Path toml = configDir.resolve(yaml.replace(".yaml", ".toml"));
+            if (Files.exists(toml)) {
+                throw new IllegalArgumentException(
+                    toml.getFileName() + " is no longer read — config is YAML (SPEC §6). Convert it to "
+                        + yaml + " and delete " + toml.getFileName() + ".");
             }
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> table(String where, Map<String, Object> t, String key) {
-        if (t.get(key) instanceof Map<?, ?> m) {
-            return (Map<String, Object>) m;
-        }
-        throw new IllegalArgumentException(where + ": missing table [" + key + "]");
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> tables(String where, Map<String, Object> t, String key) {
-        if (t.get(key) instanceof List<?> l && l.stream().allMatch(Map.class::isInstance)) {
-            return (List<Map<String, Object>>) l;
-        }
-        throw new IllegalArgumentException(where + ": missing [[" + key + "]] entries");
-    }
-
-    private static String string(String where, Map<String, Object> t, String key) {
-        if (t.get(key) instanceof String s) {
-            return s;
-        }
-        throw new IllegalArgumentException(where + ": '" + key + "' must be a string");
-    }
-
-    private static long integer(String where, Map<String, Object> t, String key) {
-        if (t.get(key) instanceof Long l) {
-            return l;
-        }
-        throw new IllegalArgumentException(where + ": '" + key + "' must be an integer");
     }
 }

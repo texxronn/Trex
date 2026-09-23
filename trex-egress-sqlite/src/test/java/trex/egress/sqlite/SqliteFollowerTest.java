@@ -91,7 +91,7 @@ class SqliteFollowerTest {
             Thread follower = Thread.ofVirtual().start(() -> {
                 try {
                     f.follow(60_000, mirrored::addAndGet);
-                } catch (InterruptedException | java.sql.SQLException e) {
+                } catch (InterruptedException | java.sql.SQLException _) {
                     // stopped
                 }
             });

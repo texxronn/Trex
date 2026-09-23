@@ -5,8 +5,8 @@
 #
 #   sequencer.sh [start|stop|status]
 #
-# Config: ../config/{sequencer,accounts,transfers}.toml (the whole directory is
-# the argument). Port comes from sequencer.toml, not from trex-dev.env.
+# Config: ../config/{sequencer,accounts,transfers}.yaml (the whole directory is
+# the argument). Port comes from sequencer.yaml, not from trex-dev.env.
 #
 #   curl -s http://127.0.0.1:8080/head      | python3 -m json.tool
 #   curl -s http://127.0.0.1:8080/held      | python3 -m json.tool

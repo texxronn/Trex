@@ -36,7 +36,7 @@ public final class SqliteFollower implements AutoCloseable {
           description TEXT, raw_description TEXT,
           type_hint TEXT, transfer_key TEXT, leg_ids TEXT,
           corrects TEXT, state TEXT, confidence TEXT, flags TEXT,
-          provenance TEXT, source TEXT, receipt TEXT,
+          provenance TEXT, source_type TEXT, receipt TEXT,
           counterparty_bsb TEXT, counterparty_acct TEXT,
           foreign_amount INTEGER, foreign_currency TEXT,
           comment TEXT, ingested_at TEXT
@@ -48,7 +48,7 @@ public final class SqliteFollower implements AutoCloseable {
     private static final String INSERT = """
         INSERT INTO journal (n, external_id, account_ref, to_account_ref, currency, date, amount, balance,
           description, raw_description, type_hint, transfer_key, leg_ids, corrects, state, confidence, flags,
-          provenance, source, receipt, counterparty_bsb, counterparty_acct, foreign_amount, foreign_currency,
+          provenance, source_type, receipt, counterparty_bsb, counterparty_acct, foreign_amount, foreign_currency,
           comment, ingested_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(n) DO NOTHING
@@ -168,7 +168,7 @@ public final class SqliteFollower implements AutoCloseable {
         st.setString(i++, e.confidence() == null ? null : e.confidence().name());
         st.setString(i++, json(e.flags()));
         st.setString(i++, e.provenance() == null ? null : e.provenance().name());
-        st.setString(i++, e.source());
+        st.setString(i++, e.sourceType());
         st.setString(i++, e.receipt());
         st.setString(i++, e.counterpartyBsb());
         st.setString(i++, e.counterpartyAcct());

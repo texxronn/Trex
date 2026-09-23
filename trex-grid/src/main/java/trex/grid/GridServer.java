@@ -3,6 +3,8 @@ package trex.grid;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import trex.journal.Json;
+import trex.category.Categories;
+import trex.category.Categorizer;
 import trex.web.EventStreams;
 import trex.web.JournalWatcher;
 import trex.web.Web;
@@ -14,7 +16,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,17 +35,24 @@ public final class GridServer implements AutoCloseable {
         "/app.js", "app.js");
 
     private final JournalWatcher<GridData> watcher;
-    private final GridIndex index = new GridIndex();
+    private final GridIndex index;
+    private final List<String> categories;
     private final EventStreams events;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public GridServer(JournalWatcher<GridData> watcher, String bindAddress, int port) {
-        this(watcher, bindAddress, port, 15_000);
+    public GridServer(JournalWatcher<GridData> watcher, Categorizer categorizer, String bindAddress, int port) {
+        this(watcher, categorizer, bindAddress, port, 15_000);
     }
 
-    GridServer(JournalWatcher<GridData> watcher, String bindAddress, int port, long heartbeatMillis) {
+    GridServer(JournalWatcher<GridData> watcher, Categorizer categorizer, String bindAddress, int port,
+               long heartbeatMillis) {
         this.watcher = watcher;
+        this.index = new GridIndex(categorizer);
+        List<String> declared = new ArrayList<>(categorizer.declared());
+        declared.add(Categories.TRANSFER);
+        declared.add(Categories.UNCATEGORIZED);
+        this.categories = List.copyOf(declared);
         this.events = new EventStreams("head", this::headJson, heartbeatMillis);
         watcher.addListener(events::publish);
         try {
@@ -119,6 +130,8 @@ public final class GridServer implements AutoCloseable {
         body.put("lines", s.view().lines().size());
         body.put("transactions", s.view().transactions());
         body.put("accounts", s.view().accounts());
+        // The declared categories, so the page can offer them as filters. Derived, never stored (§0.7).
+        body.put("categories", categories);
         return body;
     }
 

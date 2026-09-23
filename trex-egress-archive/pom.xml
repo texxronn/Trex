@@ -28,6 +28,11 @@
       <scope>test</scope>
     </dependency>
     <!-- The binding belongs to the runnable module, never to a library. -->
+    <!-- CLI parsing, usage text and exit codes (SPEC §1 dependency policy). -->
+    <dependency>
+      <groupId>info.picocli</groupId>
+      <artifactId>picocli</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>

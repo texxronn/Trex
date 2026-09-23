@@ -71,7 +71,7 @@ class ArchiveFollowerTest {
         Thread follower = Thread.ofVirtual().start(() -> {
             try {
                 new ArchiveFollower(journal, archive).follow(60_000, archived::addAndGet);
-            } catch (InterruptedException | IOException e) {
+            } catch (InterruptedException | IOException _) {
                 // stopped
             }
         });

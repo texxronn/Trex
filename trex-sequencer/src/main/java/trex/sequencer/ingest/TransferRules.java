@@ -3,7 +3,7 @@ package trex.sequencer.ingest;
 import java.util.List;
 import java.util.regex.Pattern;
 
-/** Phase-1 rule set inputs (transfers.toml). SPEC §3.4, §6. */
+/** Phase-1 rule set inputs (transfers.yaml). SPEC §3.4, §6. */
 public final class TransferRules {
 
     private final List<Pattern> allowlist;

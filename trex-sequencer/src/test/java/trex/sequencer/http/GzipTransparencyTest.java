@@ -25,9 +25,9 @@ class GzipTransparencyTest {
         {"batch":[
           {"candidateRef":"row-2","accountRef":"ing-savings","date":"2026-06-28","amount":-50000,
            "rawDescription":"Fast Transfer to CBA","balance":1000,"receipt":null,"counterpartyBsb":null,
-           "counterpartyAcct":null,"source":"ing-csv","provenance":"BANK"},
+           "counterpartyAcct":null,"sourceType":"ing-csv","provenance":"BANK"},
           {"candidateRef":"row-3","accountRef":"ing-savings","date":"2026-06-28","amount":-450,
-           "rawDescription":"COFFEE","balance":550,"source":"ing-csv","provenance":"BANK"}
+           "rawDescription":"COFFEE","balance":550,"sourceType":"ing-csv","provenance":"BANK"}
         ]}
         """;
 

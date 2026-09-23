@@ -51,7 +51,7 @@ class GridServerTest {
         }
         watcher = new JournalWatcher<>(journalPath, Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC), LinesFold::new);
         watcher.poll();
-        server = new GridServer(watcher, "127.0.0.1", 0).start();
+        server = new GridServer(watcher, Lines.categorizer(), "127.0.0.1", 0).start();
     }
 
     @AfterEach
@@ -125,7 +125,7 @@ class GridServerTest {
                         heads.add(Json.mapper().readTree(l.substring(6)));
                     }
                 }
-            } catch (IOException ignored) {
+            } catch (IOException _) {
                 // closed at test end
             }
         });

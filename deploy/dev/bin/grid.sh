@@ -12,8 +12,12 @@
 
 svc_start() {
     load_env grid
-    run_fg grid --journal "$(in_run "$JOURNAL")" \
-        --bind "$TREX_BIND" --port "$TREX_GRID_PORT" --poll-ms "$POLL_MS"
+    local args=(--journal "$(in_run "$JOURNAL")"
+        --bind "$TREX_BIND" --port "$TREX_GRID_PORT" --poll-ms "$POLL_MS")
+    # Categories are derived here from the rules file; without it every row reads
+    # UNCATEGORIZED (SPEC.md §5.6). Edit it and restart to recategorise everything.
+    [ -f "$CATEGORIES" ] && args+=(--categories "$CATEGORIES")
+    run_fg grid "${args[@]}"
 }
 
 dispatch grid "$@"

@@ -7,11 +7,11 @@
 #   trex-docker.sh up [args...]        docker compose up -d
 #   trex-docker.sh down [args...]      docker compose down   (-v discards the journal)
 #   trex-docker.sh ps | logs [args...]
-#   trex-docker.sh ingest <account> <file.csv>
+#   trex-docker.sh ingest <sourceType> <account> <source>
 #   trex-docker.sh env                 print the resolved daemon endpoint
 #
 # Modules are the short image names: sequencer resolver grid egress-archive
-# egress-sqlite ingress-ing. With none given, all six are built.
+# egress-sqlite ingress. With none given, all six are built.
 #
 # The only reason this script exists: jib talks to the daemon through DOCKER_HOST
 # and does not read Docker's context file, so `docker context use` alone would not
@@ -29,7 +29,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 
-MODULES="sequencer resolver grid egress-archive egress-sqlite ingress-ing"
+MODULES="sequencer resolver grid egress-archive egress-sqlite ingress"
 
 die() { echo "trex-docker: $*" >&2; exit 1; }
 
@@ -100,13 +100,14 @@ case "${1:-}" in
         ;;
     ingest)
         shift
-        [ "$#" -eq 2 ] || die "usage: trex-docker.sh ingest <account> <file.csv>"
+        [ "$#" -eq 3 ] || die "usage: trex-docker.sh ingest <sourceType> <account> <source>"
         resolve_docker_host
         # The CSV is read by the daemon's host, so mount its directory and pass the
         # basename; TREX_CSV_DIR is what compose.yml binds to /data.
-        TREX_CSV_DIR="$(cd "$(dirname "$2")" && pwd)" \
+        TREX_CSV_DIR="$(cd "$(dirname "$3")" && pwd)" \
             compose run --rm ingress \
-                --account "$1" --url http://sequencer:8080 "/data/$(basename "$2")"
+                --source-type "$1" --account "$2" --sequencer-url http://sequencer:8080 \
+                "/data/$(basename "$3")"
         ;;
     env)
         resolve_docker_host

@@ -10,7 +10,7 @@ import java.util.Objects;
 /** Journal record — one JSONL line. SPEC §2.2. */
 @JsonPropertyOrder({ "n","externalId","accountRef","toAccountRef","currency","date","amount","balance",
     "description","rawDescription","typeHint","transferKey","legIds","corrects","state","confidence",
-    "flags","provenance","source","receipt","counterpartyBsb","counterpartyAcct",
+    "flags","provenance","sourceType","receipt","counterpartyBsb","counterpartyAcct",
     "foreignAmount","foreignCurrency","comment","ingestedAt" })
 public record CanonicalEvent(
     long n,                   // journal line sequence (§0.3)
@@ -31,7 +31,7 @@ public record CanonicalEvent(
     Confidence confidence,    // nullable; set on TRANSFER lines
     List<Flag> flags,         // never null; empty = []
     Provenance provenance,
-    String source,
+    String sourceType,
     String receipt,           // nullable
     String counterpartyBsb,   // nullable
     String counterpartyAcct,  // nullable
@@ -56,7 +56,7 @@ public record CanonicalEvent(
     public CanonicalEvent reappend(long newN, EventState newState, List<Flag> newFlags, String newComment) {
         return new CanonicalEvent(newN, externalId, accountRef, toAccountRef, currency, date, amount, balance,
             description, rawDescription, typeHint, transferKey, legIds, corrects, newState, confidence,
-            newFlags, provenance, source, receipt, counterpartyBsb, counterpartyAcct,
+            newFlags, provenance, sourceType, receipt, counterpartyBsb, counterpartyAcct,
             foreignAmount, foreignCurrency, newComment, ingestedAt);
     }
 }

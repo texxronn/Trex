@@ -59,12 +59,17 @@ class ResolverServerTest {
         journal = new JsonlJournal(path);
         Clock clock = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
         sequencer = new Sequencer(journal, Fold.fold(journal),
-            new AccountRegistry(List.of(new Account("ing-savings", "ing", "AUD", "1"), new Account("cba-everyday", "cba", "AUD", "2"))),
+            new AccountRegistry(List.of(new Account("ing-savings", "AUD", "1"), new Account("cba-everyday", "AUD", "2"))),
             new TransferRules(List.of("Fast Transfer", "Transfer from", "Osko"), 3), clock);
         sequencerApi = new HttpApi(sequencer, 0, HttpApi.DEFAULT_MAX_BODY_BYTES).start();
         watcher = new JournalWatcher<>(path, clock, LedgerFold::new);
         resolver = new ResolverServer(watcher,
-            new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), "127.0.0.1", 0).start();
+            new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), categorizer(), "127.0.0.1", 0).start();
+    }
+
+    /** Small rules file for these tests; see src/test/resources. */
+    private static trex.category.Categorizer categorizer() {
+        return trex.category.CategoryRules.load(java.nio.file.Path.of("src", "test", "resources", "resolver-categories.yaml"));
     }
 
     @AfterEach
@@ -202,7 +207,7 @@ class ResolverServerTest {
                             states.add(Json.mapper().readTree(l.substring(6)));
                         }
                     }
-                } catch (IOException ignored) {
+                } catch (IOException _) {
                     // stream closed at test end
                 }
             });
@@ -226,7 +231,7 @@ class ResolverServerTest {
     @Test
     void heartbeatKeepsStreamAliveWithoutChanges() throws Exception {
         try (ResolverServer fast = new ResolverServer(watcher,
-            new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), "127.0.0.1", 0, 100).start()) {
+            new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), categorizer(), "127.0.0.1", 0, 100).start()) {
             HttpResponse<java.io.InputStream> res = http.send(
                 HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + fast.port() + "/api/events")).GET().build(),
                 HttpResponse.BodyHandlers.ofInputStream());
@@ -247,7 +252,7 @@ class ResolverServerTest {
             deadPort = s.getLocalPort();
         }
         try (ResolverServer lonely = new ResolverServer(watcher,
-            new SequencerClient(URI.create("http://127.0.0.1:" + deadPort)), "127.0.0.1", 0).start()) {
+            new SequencerClient(URI.create("http://127.0.0.1:" + deadPort)), categorizer(), "127.0.0.1", 0).start()) {
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + lonely.port() + "/api/decisions"))
                 .header("Content-Type", "application/json").header("X-Trex-Admin", "1")
                 .POST(HttpRequest.BodyPublishers.ofString("{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"x\"}")).build(),

@@ -87,7 +87,7 @@ final class Binding {
         DecisionInput.Action action;
         try {
             action = DecisionInput.Action.valueOf(actionName == null ? "" : actionName);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return DecisionInput.unbindable(ref, "unknown action: " + actionName);
         }
         return new DecisionInput(ref, action, text(el, "externalId"), text(el, "legA"), text(el, "legB"),

@@ -20,7 +20,8 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
     record SortKey(String column, boolean descending) {}
 
     /** Everything that selects rows (part of the cache key). */
-    record Filters(String account, EventState state, TypeHint type, LocalDate from, LocalDate to, String q) {}
+    record Filters(String account, EventState state, TypeHint type, String category,
+                   LocalDate from, LocalDate to, String q) {}
 
     static final int DEFAULT_SIZE = 50;
     static final int MAX_SIZE = 500;
@@ -56,7 +57,7 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
         if (blankToNull(p.get("asOfN")) != null) {
             try {
                 asOfN = Long.parseLong(p.get("asOfN"));
-            } catch (NumberFormatException e) {
+            } catch (NumberFormatException _) {
                 throw new IllegalArgumentException("asOfN must be an integer");
             }
         }
@@ -67,6 +68,7 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
             blankToNull(p.get("account")),
             enumParam(EventState.class, p.get("state"), "state"),
             enumParam(TypeHint.class, p.get("type"), "type"),
+            blankToNull(p.get("category")),
             dateParam(p.get("from"), "from"),
             dateParam(p.get("to"), "to"),
             blankToNull(p.get("q")) == null ? null : p.get("q").strip().toLowerCase());
@@ -99,7 +101,7 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
         }
         try {
             return Integer.parseInt(v);
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException _) {
             throw new IllegalArgumentException(name + " must be an integer");
         }
     }
@@ -110,7 +112,7 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
         }
         try {
             return Enum.valueOf(type, v);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             throw new IllegalArgumentException("invalid " + name + ": " + v);
         }
     }
@@ -121,7 +123,7 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
         }
         try {
             return LocalDate.parse(v);
-        } catch (DateTimeParseException e) {
+        } catch (DateTimeParseException _) {
             throw new IllegalArgumentException(name + " must be YYYY-MM-DD");
         }
     }

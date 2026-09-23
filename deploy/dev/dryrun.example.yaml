@@ -1,0 +1,23 @@
+# Dry run manifest — feed a pile of statements through a real sequencer in a temp journal,
+# then categorise the result. Nothing durable is written; no server is involved.
+#
+#   mvn -pl trex-ingress test -Dtest=DryRunTest -Dtrex.dry.manifest=deploy/dev/my-statements.yaml
+#
+# This is the loop for taming categories: edit categories.yaml, run again, watch
+# UNCATEGORIZED shrink. It is also the only honest way to see what the transfer allowlist
+# will do before the first real ingest, since rules are never re-evaluated afterwards (§3.2).
+#
+# Copy this file, point it at your own statements, and keep it out of git if the paths are private.
+
+config: deploy/config      # accounts.yaml, transfers.yaml and categories.yaml live here
+batchRows: 300             # day-atomic call size, as the CLI's --batch-rows
+
+# Order matters only for readability: identity and dedup do not care which file comes first.
+files:
+  - {sourceType: ing-csv,  account: ing-salary,              file: ~/statements/Salary_Account.csv}
+  - {sourceType: ing-csv,  account: ing-loan-offset,         file: ~/statements/Loan_Offset.csv}
+  - {sourceType: ing-csv,  account: ing-mortgage-simplifier, file: ~/statements/Mortgage_Simplifier.csv}
+  - {sourceType: ing-csv,  account: ing-credit-card,         file: ~/statements/ING_Credit_Card.csv}
+  - {sourceType: bw-csv,   account: bw-credit-card,          file: ~/statements/Bankwest_full.csv}
+  - {sourceType: cba-pdf,  account: cba-smartaccess,         file: ~/statements/CBA_SmartAccess.pdf}
+  - {sourceType: cba-pdf,  account: cba-netsaver,            file: ~/statements/CBA_NetSaver.pdf}

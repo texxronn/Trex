@@ -3,7 +3,7 @@
 #   deploy/bin/trex-docker.sh build    # build the six images from Maven (jib)
 #   docker compose up -d
 #   docker compose run --rm ingress \
-#     --account ing-savings --url http://sequencer:8080 /data/statement.csv
+#     --source-type ing-csv --account ing-savings --sequencer-url http://sequencer:8080 /data/statement.csv
 #   docker compose down                # add -v to discard the journal
 #
 # Everything here works against a remote Docker daemon too (see the README): images
@@ -40,13 +40,17 @@ x-service: &service
       condition: service_healthy
 
 configs:
-  sequencer.toml:
+  sequencer.yaml:
     # Container variant: binds 0.0.0.0, journal under /var/lib/trex.
-    file: ./deploy/compose/sequencer.toml
-  accounts.toml:
-    file: ./deploy/config/accounts.toml
-  transfers.toml:
-    file: ./deploy/config/transfers.toml
+    file: ./deploy/compose/sequencer.yaml
+  accounts.yaml:
+    file: ./deploy/config/accounts.yaml
+  transfers.yaml:
+    file: ./deploy/config/transfers.yaml
+  # Read by the resolver and the grid, never by the sequencer: a category is derived,
+  # not journalled (SPEC.md §0.7).
+  categories.yaml:
+    file: ./deploy/config/categories.yaml
 
 volumes:
   journal:
@@ -80,12 +84,12 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
     configs:
-      - source: sequencer.toml
-        target: /etc/trex/sequencer.toml
-      - source: accounts.toml
-        target: /etc/trex/accounts.toml
-      - source: transfers.toml
-        target: /etc/trex/transfers.toml
+      - source: sequencer.yaml
+        target: /etc/trex/sequencer.yaml
+      - source: accounts.yaml
+        target: /etc/trex/accounts.yaml
+      - source: transfers.yaml
+        target: /etc/trex/transfers.yaml
     volumes:
       - journal:/var/lib/trex/journal
     ports:
@@ -143,10 +147,15 @@ services:
       - /var/lib/trex/journal/journal.jsonl
       - --sequencer-url
       - http://sequencer:8080
+      - --categories
+      - /etc/trex/categories.yaml
       - --bind
       - 0.0.0.0
       - --port
       - "8090"
+    configs:
+      - source: categories.yaml
+        target: /etc/trex/categories.yaml
     volumes:
       - journal:/var/lib/trex/journal:ro
     ports:
@@ -158,10 +167,15 @@ services:
     command:
       - --journal
       - /var/lib/trex/journal/journal.jsonl
+      - --categories
+      - /etc/trex/categories.yaml
       - --bind
       - 0.0.0.0
       - --port
       - "8091"
+    configs:
+      - source: categories.yaml
+        target: /etc/trex/categories.yaml
     volumes:
       - journal:/var/lib/trex/journal:ro
     ports:
@@ -169,13 +183,13 @@ services:
 
   # One-shot CSV import, not a daemon — hence the profile, so `up` ignores it:
   #   docker compose run --rm ingress \
-  #     --account ing-savings --url http://sequencer:8080 /data/statement.csv
-  # `run` replaces the command, so --url is passed every time rather than baked in.
+  #     --source-type ing-csv --account ing-savings --sequencer-url http://sequencer:8080 /data/statement.csv
+  # `run` replaces the command, so --sequencer-url is passed every time rather than baked in.
   # TREX_CSV_DIR is a path on the Docker *host*, so with a remote daemon it must be
   # a directory on that host.
   ingress:
     <<: *hardening
-    image: ${TREX_IMAGE_PREFIX:-trex}/ingress-ing:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    image: ${TREX_IMAGE_PREFIX:-trex}/ingress:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     profiles: ["tools"]
     volumes:
       - ${TREX_CSV_DIR:-./}:/data:ro

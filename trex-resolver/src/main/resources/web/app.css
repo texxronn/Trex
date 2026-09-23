@@ -359,3 +359,17 @@ input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
   .btn { transition: none; }
   .toast { animation: none; }
 }
+
+/* Derived category (SPEC §5.6): shown, never editable here — a correction is a pin. */
+.cat-line { margin-top: 3px; }
+.badge.cat { background: var(--row-selected); color: var(--muted); }
+.pin-snippet {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  user-select: all;
+}

@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 
 class GridIndexTest {
 
-    private final GridIndex index = new GridIndex();
+    private final GridIndex index = new GridIndex(Lines.categorizer());
     private final GridData data = Lines.sample();
 
     private GridIndex.Page q(String query) {
@@ -29,6 +29,40 @@ class GridIndexTest {
         assertEquals(9, p.asOfN());
         assertEquals(6, data.transactions());
         assertEquals(List.of("bw-usd", "cba", "ing"), data.accounts());
+    }
+
+    /**
+     * SPEC §5.6: the grid derives each row's category; the journal has none. Sample data:
+     * n2 Salary → SALARY, n8 "Coffee" → GROCERIES, legs of TRF-x (n5, n6) and the TRANSFER
+     * line itself (n7) are structural, n9 "coffee beans" → GROCERIES.
+     */
+    @Test
+    void everyRowCarriesADerivedCategory() {
+        GridIndex.Page p = q("");
+        assertEquals("SALARY", p.categories().get(2L).category());
+        assertEquals("RULE", p.categories().get(2L).origin());
+        assertEquals("GROCERIES", p.categories().get(8L).category());
+        assertEquals("TRANSFER", p.categories().get(7L).category());
+        assertEquals("STRUCTURAL", p.categories().get(7L).origin());
+        // A leg of a matched transfer is structural too, whatever its description says.
+        assertEquals("TRANSFER", p.categories().get(5L).category());
+        assertEquals("rule #1 (SALARY)", p.categories().get(2L).why());
+    }
+
+    @Test
+    void categoryFiltersRowsIncludingTheUncategorizedWorklist() {
+        assertEquals(List.of(9L, 8L), ns(q("category=GROCERIES")));
+        assertEquals(List.of(2L), ns(q("category=SALARY")));
+        assertEquals(List.of(7L, 6L, 5L), ns(q("category=TRANSFER")));
+        assertEquals(List.of(), ns(q("category=UNCATEGORIZED")));
+        assertEquals(List.of(), ns(q("category=NOT_A_CATEGORY")));
+    }
+
+    @Test
+    void rowsSortByDerivedCategory() {
+        // GROCERIES < SALARY < TRANSFER, ties by n ascending.
+        assertEquals(List.of(8L, 9L, 2L, 5L, 6L, 7L), ns(q("sort=category:asc")));
+        assertEquals(List.of(5L, 6L, 7L, 2L, 8L, 9L), ns(q("sort=category:desc")));
     }
 
     @Test

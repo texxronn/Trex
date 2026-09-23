@@ -34,7 +34,7 @@ class JsonlJournalTest {
             {"n":1,"externalId":"ext1","accountRef":"ing-savings","toAccountRef":null,"currency":"AUD",\
             "date":"2026-06-01","amount":-500,"balance":1001,"description":"desc ext1","rawDescription":"desc  ext1",\
             "typeHint":"WITHDRAWAL","transferKey":null,"legIds":null,"corrects":null,"state":"HELD","confidence":null,\
-            "flags":[],"provenance":"BANK","source":"test","receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,\
+            "flags":[],"provenance":"BANK","sourceType":"test","receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,\
             "foreignAmount":null,"foreignCurrency":null,"comment":null,"ingestedAt":"2026-06-02T03:04:05Z"}
             """;
         assertEquals(expected, Files.readString(p, StandardCharsets.UTF_8));

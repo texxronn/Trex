@@ -21,23 +21,25 @@ const COLUMNS = [
   { key: 'flags', label: 'Flags', on: false, cell: flagsCell },
   { key: 'confidence', label: 'Confidence', cls: 'muted', on: false, cell: (r) => r.confidence },
   { key: 'provenance', label: 'Provenance', cls: 'muted', on: false, cell: (r) => r.provenance },
-  { key: 'source', label: 'Source', cls: 'muted', on: false, cell: (r) => r.source },
+  { key: 'sourceType', label: 'Source type', cls: 'muted', on: false, cell: (r) => r.sourceType },
   { key: 'receipt', label: 'Receipt', cls: 'mono', on: false, cell: (r) => r.receipt },
   { key: 'transferKey', label: 'Transfer', cls: 'mono', on: false, cell: (r) => r.transferKey },
   { key: 'comment', label: 'Comment', cls: 'muted', on: true, cell: (r) => r.comment },
+  { key: 'category', label: 'Category', on: true, cell: categoryCell },
   { key: 'ingestedAt', label: 'Ingested', cls: 'muted', on: false, cell: (r) => r.ingestedAt && new Date(r.ingestedAt).toLocaleString() },
   { key: 'externalId', label: 'Id', cls: 'mono muted', on: false, cell: idCell },
 ];
 
-const FILTERS = ['q', 'account', 'state', 'type', 'from', 'to'];
+const FILTERS = ['q', 'account', 'state', 'type', 'category', 'from', 'to'];
 
 const model = {
   view: 'transactions',
   sort: [{ key: 'n', desc: true }],
   page: 1,
   size: 50,
-  filters: { q: '', account: '', state: '', type: '', from: '', to: '' },
+  filters: { q: '', account: '', state: '', type: '', category: '', from: '', to: '' },
   visible: new Set(COLUMNS.filter((c) => c.on).map((c) => c.key)),
+  categories: {},  // derived per row, keyed by n — never stored in the journal (SPEC §0.7)
   asOfN: null,     // snapshot the current pages are pinned to
   headN: 0,        // latest n reported by the server
   total: 0,
@@ -157,6 +159,18 @@ function renderHead() {
   }));
 }
 
+// A category is derived from categories.yaml, never read off the line. The title says which
+// rule produced it, so a surprising category can be traced to the rule that caused it.
+function categoryCell(r) {
+  const c = model.categories[r.n];
+  if (!c) return null;
+  const span = el('span', c.origin === 'NONE' ? 'muted' : null, c.category);
+  span.title = c.why;
+  if (c.origin === 'PIN') span.append(el('span', 'badge', 'pinned'));
+  if (c.origin === 'STRUCTURAL') span.className = 'muted';
+  return span;
+}
+
 function renderRows(rows) {
   const cols = visibleColumns();
   $('grid-body').replaceChildren(...rows.map((r) => {
@@ -196,6 +210,7 @@ function renderControls() {
   $('f-q').value = model.filters.q;
   $('f-state').value = model.filters.state;
   $('f-type').value = model.filters.type;
+  $('f-category').value = model.filters.category;
   $('f-from').value = model.filters.from;
   $('f-to').value = model.filters.to;
   $('page-size').value = String(model.size);
@@ -224,6 +239,14 @@ function renderAccounts(accounts) {
     select.options[0].value = '';
   }
   select.value = current;
+}
+
+function renderCategories(categories) {
+  const list = $('categories');
+  const have = [...list.options].map((o) => o.value);
+  if (categories.length !== have.length || categories.some((c, i) => c !== have[i])) {
+    list.replaceChildren(...categories.map((c) => el('option', null, c)));
+  }
 }
 
 function renderNewChip() {
@@ -261,6 +284,7 @@ async function load(repin) {
     }
     model.asOfN = data.asOfN;
     model.total = data.total;
+    model.categories = data.categories || {};
     renderRows(data.rows);
     renderFooter(data);
     renderNewChip();
@@ -277,6 +301,7 @@ function onHead(head) {
   model.headN = head.n;
   renderStatus(head, null);
   renderAccounts(head.accounts);
+  renderCategories(head.categories || []);
   if (model.asOfN === null) return;
   if (head.n < model.asOfN || following()) {
     load(true);            // journal replaced (refold) or follow mode
@@ -352,6 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('f-account').addEventListener('change', () => setFilter('account', $('f-account').value));
   $('f-state').addEventListener('change', () => setFilter('state', $('f-state').value));
   $('f-type').addEventListener('change', () => setFilter('type', $('f-type').value));
+  $('f-category').addEventListener('change', () => setFilter('category', $('f-category').value.trim()));
   $('f-from').addEventListener('change', () => setFilter('from', $('f-from').value));
   $('f-to').addEventListener('change', () => setFilter('to', $('f-to').value));
   $('f-clear').addEventListener('click', () => {

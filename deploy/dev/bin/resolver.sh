@@ -16,8 +16,12 @@ svc_start() {
     load_env resolver
     local url="${SEQUENCER_URL:-}"
     [ -n "$url" ] || url="http://$TREX_BIND:$TREX_SEQ_PORT"
-    run_fg resolver --journal "$(in_run "$JOURNAL")" --sequencer-url "$url" \
-        --bind "$TREX_BIND" --port "$TREX_RESOLVER_PORT" --poll-ms "$POLL_MS"
+    local args=(--journal "$(in_run "$JOURNAL")" --sequencer-url "$url"
+        --bind "$TREX_BIND" --port "$TREX_RESOLVER_PORT" --poll-ms "$POLL_MS")
+    # Read-only here: the resolver shows each row's category and the pin snippet,
+    # but a category is never a decision (SPEC.md §3.5, §5.6).
+    [ -f "$CATEGORIES" ] && args+=(--categories "$CATEGORIES")
+    run_fg resolver "${args[@]}"
 }
 
 dispatch resolver "$@"

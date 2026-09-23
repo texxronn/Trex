@@ -27,7 +27,7 @@ final class Columns {
         KEYS.put("flags", e -> e.flags().isEmpty() ? null : e.flags().toString());
         KEYS.put("confidence", e -> e.confidence() == null ? null : e.confidence().name());
         KEYS.put("provenance", e -> e.provenance() == null ? null : e.provenance().name());
-        KEYS.put("source", e -> lower(e.source()));
+        KEYS.put("sourceType", e -> lower(e.sourceType()));
         KEYS.put("receipt", e -> lower(e.receipt()));
         KEYS.put("transferKey", e -> lower(e.transferKey()));
         KEYS.put("comment", e -> lower(e.comment()));
@@ -35,14 +35,19 @@ final class Columns {
         KEYS.put("externalId", e -> lower(e.externalId()));
     }
 
+    /** Derived per row (SPEC §5.6), so it is not in KEYS: its value is supplied by the caller. */
+    static final String CATEGORY = "category";
+
     static boolean exists(String column) {
-        return KEYS.containsKey(column);
+        return KEYS.containsKey(column) || CATEGORY.equals(column);
     }
 
     /** Comparator for one sort key: direction applies to values, nulls stay last either way. */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    static Comparator<CanonicalEvent> comparator(GridQuery.SortKey key) {
-        Function<CanonicalEvent, Comparable> extract = (Function) KEYS.get(key.column());
+    static Comparator<CanonicalEvent> comparator(GridQuery.SortKey key, Function<CanonicalEvent, String> categoryOf) {
+        Function<CanonicalEvent, Comparable> extract = CATEGORY.equals(key.column())
+            ? (Function) categoryOf
+            : (Function) KEYS.get(key.column());
         Comparator<Comparable> values = key.descending() ? Comparator.<Comparable>reverseOrder() : Comparator.<Comparable>naturalOrder();
         return Comparator.comparing(extract, Comparator.nullsLast(values));
     }

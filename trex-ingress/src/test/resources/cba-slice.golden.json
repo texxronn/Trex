@@ -1,0 +1,6 @@
+[
+  {"candidateRef":"row-1","accountRef":"cba-smartaccess","date":"2026-09-14","amount":-7500,"rawDescription":"Transfer To Alex Carter CommBank App initial payment","balance":220243,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"cba-csv","provenance":"BANK"},
+  {"candidateRef":"row-2","accountRef":"cba-smartaccess","date":"2026-09-14","amount":100000,"rawDescription":"Transfer from xx0000 CommBank app house expense","balance":227743,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"cba-csv","provenance":"BANK"},
+  {"candidateRef":"row-3","accountRef":"cba-smartaccess","date":"2026-06-03","amount":-22745,"rawDescription":"Direct Debit 000000 HEALTH FUND 000000000000","balance":172065,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"cba-csv","provenance":"BANK"},
+  {"candidateRef":"row-4","accountRef":"cba-smartaccess","date":"2026-06-01","amount":-7,"rawDescription":"Debit Excess Interest","balance":194810,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"cba-csv","provenance":"BANK"}
+]

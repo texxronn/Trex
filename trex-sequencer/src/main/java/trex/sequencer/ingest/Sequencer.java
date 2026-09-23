@@ -167,8 +167,8 @@ public final class Sequencer {
         if (c.rawDescription() == null) {
             return "missing rawDescription";
         }
-        if (c.source() == null || c.source().isBlank()) {
-            return "missing source";
+        if (c.sourceType() == null || c.sourceType().isBlank()) {
+            return "missing sourceType";
         }
         if (c.provenance() == null) {
             return "missing provenance";
@@ -234,7 +234,7 @@ public final class Sequencer {
         return new CanonicalEvent(0, id, c.accountRef(), null, currency, c.date(), c.amount(), c.balance(),
             cleaner.apply(c.rawDescription()), c.rawDescription(),
             c.amount() < 0 ? TypeHint.WITHDRAWAL : TypeHint.DEPOSIT, null, null, null, EventState.EXTERNAL, null,
-            List.of(), c.provenance(), c.source(), c.hasReceipt() ? c.receipt() : null,
+            List.of(), c.provenance(), c.sourceType(), c.hasReceipt() ? c.receipt() : null,
             c.counterpartyBsb(), c.counterpartyAcct(), null, null, null, work.ingestedAt());
     }
 

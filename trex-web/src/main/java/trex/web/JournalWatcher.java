@@ -114,7 +114,7 @@ public final class JournalWatcher<V> implements AutoCloseable {
                     poll();
                     changes.await(fallbackPollMillis);
                 }
-            } catch (InterruptedException e) {
+            } catch (InterruptedException _) {
                 // shutting down
             }
         }, "journal-watch");

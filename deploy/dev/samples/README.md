@@ -6,8 +6,8 @@ amount per row, balance after the row. A UTF-8 BOM is tolerated.
 
 Ingest in this order — the second file is what makes the matcher fire:
 
-    bin/ingest.sh ing-savings samples/ing-savings.csv
-    bin/ingest.sh ing-orange  samples/ing-orange.csv
+    bin/ingest.sh ing-csv ing-savings samples/ing-savings.csv
+    bin/ingest.sh ing-csv ing-orange  samples/ing-orange.csv
 
 What each file exercises:
 
@@ -50,7 +50,7 @@ printed as
 For the other failure shape — a per-row reject rather than a file reject — send
 a good file under an unregistered account:
 
-    bin/ingest.sh nope-unknown samples/ing-savings.csv
+    bin/ingest.sh ing-csv nope-unknown samples/ing-savings.csv
 
 Every row comes back `Rejected unknown accountRef`, batch `REJECTED`, still
 nothing appended.

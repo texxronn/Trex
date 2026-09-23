@@ -1,0 +1,9 @@
+# Rules for the resolver tests.
+categories: [GROCERIES, TRANSPORT]
+rules:
+  - category: GROCERIES
+    when:
+      match: "woolworths|coles|coffee"
+  - category: TRANSPORT
+    when:
+      match: "uber|opal|myki"

@@ -13,7 +13,7 @@ public record Candidate(
     String receipt,           // nullable; ING natural key
     String counterpartyBsb,   // nullable; CDR (phase 2)
     String counterpartyAcct,  // nullable; CDR (phase 2)
-    String source,            // adapter channel id, e.g. "ing-csv" (copied onto the event)
+    String sourceType,        // kind of input it was read from, e.g. "ing-csv" (= --source-type; copied onto the event)
     Provenance provenance     // BANK for statements; AUTHORED for portal decisions
 ) {
     /** A blank receipt is treated as absent, so it never becomes a natural key. */

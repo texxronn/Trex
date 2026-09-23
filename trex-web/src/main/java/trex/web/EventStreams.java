@@ -79,7 +79,7 @@ public final class EventStreams implements AutoCloseable {
             }
         } catch (IOException e) {
             log.debug("SSE client on {} went away: {}", eventName, e.toString());
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
         } finally {
             clients.remove(client);

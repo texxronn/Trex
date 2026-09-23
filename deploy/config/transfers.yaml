@@ -1,0 +1,28 @@
+# Transfer matching rules — SPEC.md §3.4, §6.
+# A row is "transfer-shaped" when its raw description matches any allowlist regex
+# (case-insensitive, Java regex syntax; single-quoted strings avoid escaping).
+# Transfer-shaped rows without a matching contra leg are HELD for the resolver.
+
+# Maximum days between the two legs of an amount/date (T3) match. Required.
+windowDays: 3
+
+allowlist:
+  - 'Internal Transfer'
+  - 'To my account'
+  - 'From my account'
+  - 'Fast Transfer'
+  - 'Transfer (to|from)'
+  - 'Osko'
+  - 'PayID'
+  # Credit-card payments from another of your own accounts. Transfer-shaped so they land in
+  # HELD for review rather than reading as income: a card payment moves your own money, and
+  # +$122k of it looked like an inflow before this line existed. The contra leg only pairs
+  # once the paying account is ingested too.
+  - 'Bill Payment Received'
+  # The paying side of the same thing, as ING writes it: "BANKWEST CREDIT CARD 5229… - BPAY
+  # Bill Payment - Receipt 52936 To BANKWEST CREDIT CARD 5229…". Deliberately the biller name
+  # rather than 'BPAY Bill Payment', which would make every utility BPAY transfer-shaped and
+  # leave it HELD forever waiting for a contra leg that does not exist.
+  # These two legs pair on T3 (amount and date), never T1: ING gives its row a receipt and
+  # BankWest has none, so there is no shared receipt to match on.
+  - 'Bankwest Credit Card'

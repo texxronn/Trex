@@ -30,7 +30,7 @@ class JournalChangesTest {
             CompletableFuture<Boolean> woke = CompletableFuture.supplyAsync(() -> {
                 try {
                     return changes.await(10_000);
-                } catch (InterruptedException e) {
+                } catch (InterruptedException _) {
                     return false;
                 }
             });

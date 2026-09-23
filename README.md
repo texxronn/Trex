@@ -15,7 +15,7 @@ journal file.
 ## How it fits together
 
 ```
-  bank CSV ──► trex-ingress-ing ──HTTP──►  trex-sequencer  ──append+fsync──► journal.jsonl
+  bank CSV ──► trex-ingress ──HTTP──►  trex-sequencer  ──append+fsync──► journal.jsonl
                                              ▲       │                          │
                                              │       └── GET /held /review     │ tail (inotify)
                                   POST /decisions                               │
@@ -42,7 +42,7 @@ journal file.
 | `trex-core` | library | Pure domain: records, sealed types, identity hashing, occurrence index, state fold. No I/O. |
 | `trex-journal` | library | Journal read side: shared JSON mapper, framed JSONL reader, change signal. |
 | `trex-sequencer` | service | Journal writer, recovery, ingest pipeline, transfer matching, decisions, HTTP API. |
-| `trex-ingress-ing` | CLI | ING CSV → candidates → sequencer. |
+| `trex-ingress` | CLI | Statement/feed → candidates → sequencer; one parser per source type (`ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`). |
 | `trex-egress-archive` | service | Mirrors every journal line to an archive JSONL file. |
 | `trex-egress-sqlite` | service | Mirrors every journal line into SQLite (one row per line, keyed by `n`). |
 | `trex-web` | library | Shared plumbing for the web followers: journal watcher, SSE, static pages. |
@@ -70,7 +70,7 @@ build tree. On first start it creates a run directory (`run/` by default, overri
 
 ```sh
 deploy/bin/trex.sh start                        # all five, sequencer first
-deploy/bin/trex.sh ingest ing-savings statement.csv
+deploy/bin/trex.sh ingest ing-csv ing-savings statement.csv
 deploy/bin/trex.sh status
 deploy/bin/trex.sh logs sequencer               # tail -f
 deploy/bin/trex.sh stop                         # reverse order, SIGTERM
@@ -82,60 +82,137 @@ Resolve HELD/REVIEW transactions at <http://127.0.0.1:8090>, browse everything a
 Individual services take the same arguments by hand:
 
 ```sh
-mkdir -p /tmp/trex/journal && cp deploy/config/*.toml /tmp/trex/
-sed -i 's|/var/lib/trex/journal|/tmp/trex/journal|' /tmp/trex/sequencer.toml
+mkdir -p /tmp/trex/journal && cp deploy/config/*.yaml /tmp/trex/
+sed -i 's|/var/lib/trex/journal|/tmp/trex/journal|' /tmp/trex/sequencer.yaml
 
 # 1. sequencer (API on 127.0.0.1:8080)
 java -jar trex-sequencer/target/trex-sequencer-0.1.0-SNAPSHOT-all.jar /tmp/trex
 
 # 2. ingest a statement
-java -jar trex-ingress-ing/target/trex-ingress-ing-0.1.0-SNAPSHOT-all.jar \
-  --account ing-savings --url http://127.0.0.1:8080 statement.csv
+java -jar trex-ingress/target/trex-ingress-0.1.0-SNAPSHOT-all.jar \
+  --source-type ing-csv --account ing-savings --sequencer-url http://127.0.0.1:8080 statement.csv
 
 # 3. resolve HELD/REVIEW transactions at http://127.0.0.1:8090
 java -jar trex-resolver/target/trex-resolver-0.1.0-SNAPSHOT-all.jar \
   --journal /tmp/trex/journal/journal.jsonl --sequencer-url http://127.0.0.1:8080
 
 # 4. browse everything at http://127.0.0.1:8091
-java -jar trex-grid/target/trex-grid-0.1.0-SNAPSHOT-all.jar --journal /tmp/trex/journal/journal.jsonl
+java -jar trex-grid/target/trex-grid-0.1.0-SNAPSHOT-all.jar \
+  --journal /tmp/trex/journal/journal.jsonl --categories /tmp/trex/categories.yaml
 ```
 
 ## Configuration
 
-The sequencer takes a config directory containing three TOML files (a documented
-subset of TOML: tables, arrays of tables, strings, integers, booleans, string arrays,
-comments). Samples live in [`deploy/config`](deploy/config).
+The sequencer takes a config directory containing three YAML files, bound straight to
+records: an unknown key, a duplicated key or a wrong type fails at startup. Samples live
+in [`deploy/config`](deploy/config). `categories.yaml` sits beside them but belongs to the
+journal consumers, not the sequencer.
 
 | File | Contents |
 |---|---|
-| `sequencer.toml` | `bindHost` (default `127.0.0.1`), `bindPort`, `[journal] source` / `target` |
-| `accounts.toml` | `[[account]]` entries: `ref`, `format` (`ing`/`cba`/`bw`), `currency` (`AUD`/`USD`/`INR`), `fireflyAccountId` |
-| `transfers.toml` | `windowDays` (required), `allowlist` of case-insensitive regexes for transfer-shaped descriptions |
+| `sequencer.yaml` | `bindHost` (default `127.0.0.1`), `bindPort`, `journal:` `source` / `target` |
+| `accounts.yaml` | `accounts:` entries: `ref`, `currency` (`AUD`/`USD`/`INR`), `fireflyAccountId` |
+| `transfers.yaml` | `windowDays` (required), `allowlist` of case-insensitive regexes for transfer-shaped descriptions |
+| `categories.yaml` | master category rules, read by the resolver and grid only — never by the sequencer |
 
-Relative paths in `sequencer.toml` resolve against the config directory. Unknown keys
-are errors. Changing `transfers.toml` affects future ingests only; the journal is never
+Relative paths in `sequencer.yaml` resolve against the config directory. Unknown and
+duplicated keys are errors, and a leftover `.toml` is refused rather than ignored.
+Changing `transfers.yaml` affects future ingests only; the journal is never
 re-evaluated.
 
 The other programs take command-line flags:
 
 | Program | Flags (defaults) |
 |---|---|
-| `trex-ingress-ing` | `--account <ref> --url <sequencer> [--batch-rows N] [--no-gzip] <file.csv>` |
+| `trex-ingress` | `--source-type <type> --account <ref> --sequencer-url <url> [--batch-rows N] [--no-gzip] <source>` |
 | `trex-egress-archive` | `--journal <path> --archive <path> [--poll-seconds 30] [--once]` |
 | `trex-egress-sqlite` | `--journal <path> --db <path> [--poll-seconds 30] [--once]` |
-| `trex-resolver` | `--journal <path> --sequencer-url <url> [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]` |
-| `trex-grid` | `--journal <path> [--port 8091] [--bind 127.0.0.1] [--poll-ms 10000]` |
+| `trex-resolver` | `--journal <path> --sequencer-url <url> [--categories <path>] [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]` |
+| `trex-grid` | `--journal <path> [--categories <path>] [--port 8091] [--bind 127.0.0.1] [--poll-ms 10000]` |
 
 For the followers, `--poll-seconds` / `--poll-ms` are only the fallback: they wake as
 soon as the journal changes.
 
-### ING adapter
+### Ingress
 
-Expects the ING export header `Date,Description,Credit,Debit,Balance`, dates as
-`dd/mm/yyyy`, debits already negative. The whole file is validated first; if any value
-is not exact cents, **nothing is sent** and every bad row is listed. Exit codes: `0` all
-batches committed, `1` invalid file, `2` a batch was not fully committed (see per-row
-output), `3` transport failure, `64` usage.
+`--source-type` is required and picks the parser; it is stamped on every event as
+`sourceType`. The registry does not record one, so the same account can be fed by
+several source types. Known types: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`.
+
+The whole file is validated first; if any value is not exact cents, **nothing is sent** and
+every bad row is listed. Exit codes: `0` all batches committed, `1` invalid file, `2` a batch
+was not fully committed (see per-row output), `3` transport failure, `64` usage.
+
+| Source type | Header | Sign convention | Identity |
+|---|---|---|---|
+| `ing-csv` | `Date,Description,Credit,Debit,Balance` | debits already negative | receipt where present, else content hash |
+| `bw-csv` | `BSB Number,…,Narration,`**`Cheque`**` or `**`Cheque Number`**`,Debit,Credit,Balance,…` | debit sign **varies by export**, so it is inferred per file; mixed signs are rejected | no receipts, always content hash |
+| `cba-csv` | **no header**: date, amount, description, balance | amount **already signed** (`-75.00`, `+1000.00`) | no receipts, always content hash |
+| `cba-pdf` | CommBank "Transaction Summary" **PDF** | amount signed, with `$` and separators | no receipts, always content hash |
+
+All use `dd/mm/yyyy`. Three formats, three sign conventions — which is why a source type binds
+a parser rather than an account recording a format. `cba-csv` has no header to check, so the
+shape is the validation: four fields, a parsable date, exact cents, or the file is rejected.
+
+**Reading PDFs.** `cba-pdf` exists because CommBank exports no CSV for some accounts. Text is
+extracted with PDFBox, and because those rows carry no receipt, that text is hashed into the
+transaction id — so §4 freezes how it is read: skip everything from the `Created dd/mm/yy`
+footer to the next table header, join a row's continuation lines with one space, collapse
+whitespace. It was checked before being trusted: PDFBox and poppler's `pdftotext` both
+reproduce all 63 descriptions of the same account's CSV export byte-for-byte, so **a
+transaction ingested from the PDF and from the CSV is one transaction** — ingesting both
+returns `DroppedDuplicate` for the overlap instead of double-counting. Verified end to end:
+the CSV's 63 rows, then the PDF's 151, gave exactly 63 duplicates and 88 new.
+
+**BankWest pending rows.** BankWest exports authorisations that have not settled
+(`AUTHORISATION ONLY`). They are skipped and reported, never sent: the same purchase settles
+later under different text, which is a different id, and the journal is append-only — an
+ingested pending row could never be removed. Re-export once they settle and they ingest
+normally.
+
+### Dry runs
+
+Two harnesses answer "what would happen if I ingested this?", neither of which needs a running
+server and neither of which writes anything durable.
+
+```bash
+# one file: parse, validate, plan the day-atomic calls, and show the ids it would mint
+mvn -pl trex-ingress test -Dtest=IngFileSummaryTest \
+    -Dtrex.ing.sourceType=bw-csv -Dtrex.ing.account=bw-credit-card -Dtrex.ing.file=/path/export.csv
+
+# a whole pile of statements, any mix of source types, through a real sequencer in a temp
+# journal — same identity, dedup, transfer matching and HELD rules as production — then
+# categorised, with the uncategorised worklist printed
+mvn -pl trex-ingress test -Dtest=DryRunTest -Dtrex.dry.manifest=deploy/dev/my-statements.yaml
+```
+
+The manifest ([example](deploy/dev/dryrun.example.yaml)) lists a source type, an account and a
+path per file. **This is the loop for taming categories**: edit `categories.yaml`, run again,
+watch `UNCATEGORIZED` shrink. It is also the only honest way to see what the transfer allowlist
+will do *before* the first real ingest, because rules are never re-evaluated afterwards (§3.2) —
+a leg that resolves to `EXTERNAL` today cannot be re-matched tomorrow.
+
+### Categories
+
+Every transaction has a master category — `GROCERIES`, `SALARY` and so on — and **none of it
+is in the journal**. The grid and the resolver derive it from
+[`categories.yaml`](deploy/config/categories.yaml) each time they read, so editing a rule
+recategorises all of history without writing a single journal line. Fine-grained
+categorisation stays downstream in Firefly.
+
+The order is fixed: a transfer (or one of its legs) is `TRANSFER`, from the journal itself
+and never overridable by a rule; then a pin; then the first matching rule in file order;
+then `UNCATEGORIZED`, which is never a guess and doubles as the list of rules still to write.
+
+Rules are data, not expressions. A rule is a category plus a `when` tree of `all` / `any` /
+`not` over `match` (case-insensitive regex, `matchOn: raw` by default), `direction`,
+`accounts`, `amountMin` / `amountMax`, and `externalId` — the last being how a one-off
+correction, a *pin*, is written. A bad regex or an undeclared category fails at startup,
+naming the rule.
+
+Correcting a category means editing that file, not clicking a button: the resolver shows
+each row's category and the exact pin snippet to paste, and `POST /decisions` has no
+category action. Git keeps the history.
 
 ## Sequencer API
 
@@ -159,7 +236,7 @@ They assume this layout:
 | Path | Contents |
 |---|---|
 | `/opt/trex/lib/*.jar` | the `-all` jars, renamed without version (e.g. `trex-sequencer.jar`) |
-| `/etc/trex/` | `sequencer.toml`, `accounts.toml`, `transfers.toml`, `trex.env` (JVM options) |
+| `/etc/trex/` | `sequencer.yaml`, `accounts.yaml`, `transfers.yaml`, `trex.env` (JVM options) |
 | `/var/lib/trex/journal/` | the journal (written by the sequencer only) |
 | `/var/lib/trex/archive/` | archive mirror and its `.offset` file |
 | `/var/lib/trex/sqlite/` | SQLite mirror |
@@ -167,10 +244,10 @@ They assume this layout:
 ```sh
 sudo useradd --system --home-dir /var/lib/trex --shell /usr/sbin/nologin trex
 sudo install -d /opt/trex/lib /etc/trex
-for m in trex-sequencer trex-ingress-ing trex-egress-archive trex-egress-sqlite trex-resolver trex-grid; do
+for m in trex-sequencer trex-ingress trex-egress-archive trex-egress-sqlite trex-resolver trex-grid; do
   sudo install -m 0644 $m/target/$m-0.1.0-SNAPSHOT-all.jar /opt/trex/lib/$m.jar
 done
-sudo install -m 0644 deploy/config/*.toml deploy/config/trex.env /etc/trex/
+sudo install -m 0644 deploy/config/*.yaml deploy/config/trex.env /etc/trex/
 sudo install -m 0644 deploy/systemd/* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now trex.target
@@ -200,7 +277,7 @@ daemon (or a registry) itself.
 | `trex/grid` | trex-grid | `trex.grid.Main` | 8091 |
 | `trex/egress-archive` | trex-egress-archive | `trex.egress.archive.Main` | — |
 | `trex/egress-sqlite` | trex-egress-sqlite | `trex.egress.sqlite.Main` | — |
-| `trex/ingress-ing` | trex-ingress-ing | `trex.ingress.ing.Main` | — |
+| `trex/ingress` | trex-ingress | `trex.ingress.Main` | — |
 
 Properties of every image:
 
@@ -245,7 +322,7 @@ curl -sI -H "Authorization: Bearer $TOKEN" \
 ```sh
 deploy/bin/trex-docker.sh build
 deploy/bin/trex-docker.sh up
-deploy/bin/trex-docker.sh ingest ing-savings statement.csv
+deploy/bin/trex-docker.sh ingest ing-csv ing-savings statement.csv
 deploy/bin/trex-docker.sh down          # add -v to discard the journal
 ```
 
@@ -344,7 +421,7 @@ for every row. A row that matches an existing identity with a *different* balanc
 flagged `POTENTIAL_DUP` and shows up in the resolver.
 
 **Split large files by whole days only.** Occurrence numbering is per account per day;
-the ING adapter never splits a day across calls (`--batch-rows` is a soft target).
+the ingress client never splits a day across calls (`--batch-rows` is a soft target).
 
 **Backups.** `trex-egress-archive` keeps a byte-identical second copy of the journal
 (`cmp journal.jsonl archive.jsonl`). Point it at a different disk for real redundancy.
@@ -359,7 +436,7 @@ in the resolver; every action asks for confirmation because decisions cannot be 
 
 Every module logs through SLF4J; the six runnable modules bind `slf4j-simple` at runtime
 scope (libraries never bind). Logs go to **stderr**, so stdout stays clean for CLI output
-such as the ING adapter's per-row results.
+such as the ingress client's per-row results.
 
 ```
 2026-09-18T13:33:44.403Z INFO Sequencer - candidate batch 96c97e25-…: 5 rows, 5 journal lines, outcomes {Held=1, Resolved=4}

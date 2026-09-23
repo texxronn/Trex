@@ -16,6 +16,7 @@ const model = {
   lastKey: null,
   pending: false,
   live: false,         // true while the event stream is open
+  categories: {},      // n -> {category, origin, why, pin} — derived, never in the journal
 };
 
 // ---------------------------------------------------------------- formatting
@@ -69,6 +70,26 @@ function summary(line) {
 
 // ---------------------------------------------------------------- rendering
 
+// The category is derived from categories.yaml (SPEC §5.6); the journal holds none. Read-only
+// here: correcting one means pinning it in that file, so the button hands over the snippet.
+function categoryBadge(line) {
+  const c = model.categories[line.n];
+  if (!c) return null;
+  const span = el('span', c.origin === 'NONE' ? 'badge' : 'badge cat', c.category.toLowerCase());
+  span.title = c.why;
+  return span;
+}
+
+function pinButton(line) {
+  const c = model.categories[line.n];
+  if (!c || c.origin === 'STRUCTURAL') return null;    // a transfer is a fact, not a rule's opinion
+  const b = el('button', 'btn ghost', 'Pin…');
+  b.type = 'button';
+  b.title = 'Copy the categories.yaml snippet that pins this transaction';
+  b.addEventListener('click', () => showPin(line, c));
+  return b;
+}
+
 function badges(line) {
   const td = el('td', 'col-badge');
   if (line.state === 'HELD') td.append(el('span', 'badge held', 'held'));
@@ -112,6 +133,10 @@ function row(line) {
     b.addEventListener('click', () => confirmExternal(line));
     actions.append(b);
   }
+  const cat = categoryBadge(line);
+  if (cat) desc.append(wrap('div', 'cat-line', cat));
+  const pin = pinButton(line);
+  if (pin) actions.append(pin);
 
   tr.append(
     sel,
@@ -134,6 +159,7 @@ function renderList(name, lines) {
 }
 
 function render(state) {
+  model.categories = state.categories || {};
   model.byId = new Map();
   for (const line of [...state.held, ...state.review]) model.byId.set(line.externalId, line);
   for (const id of [...model.selected]) {
@@ -235,6 +261,8 @@ function openConfirm(title, effect, lines, payload, successText) {
   $('confirm-title').textContent = title;
   $('confirm-body').replaceChildren(el('p', 'confirm-effect', effect), ...lines.map(confirmLine));
   $('confirm-comment').value = '';
+  $('confirm-comment-field').hidden = false;
+  $('confirm-ok').textContent = 'Confirm';
   const dialog = $('confirm');
   dialog.returnValue = '';
   dialog.onclose = () => {
@@ -244,6 +272,34 @@ function openConfirm(title, effect, lines, payload, successText) {
   };
   dialog.showModal();
   $('confirm-comment').focus();
+}
+
+/**
+ * A category is not a decision (SPEC §3.5): nothing is posted here. The snippet goes into
+ * categories.yaml, where it lives in git with every other rule.
+ */
+function showPin(line, category) {
+  const body = el('div');
+  body.append(el('p', 'confirm-effect',
+    `Now: ${category.category} — ${category.why}. To override it, add this to the pins block of categories.yaml `
+    + 'and restart the readers. Nothing is written to the journal.'));
+  const snippet = el('pre', 'pin-snippet', category.pin);
+  body.append(snippet, confirmLine(line));
+
+  $('confirm-title').textContent = 'Pin a category';
+  $('confirm-body').replaceChildren(body);
+  // No comment: a pin is not a decision, so there is nothing to record against the journal.
+  $('confirm-comment-field').hidden = true;
+  $('confirm-ok').textContent = 'Copy snippet';
+  const dialog = $('confirm');
+  dialog.returnValue = '';
+  dialog.onclose = () => {
+    if (dialog.returnValue !== 'ok') return;
+    navigator.clipboard?.writeText(category.pin)
+      .then(() => toast('Pin snippet copied'))
+      .catch(() => toast('Copy failed — select the snippet and copy it', true));
+  };
+  dialog.showModal();
 }
 
 function confirmExternal(line) {

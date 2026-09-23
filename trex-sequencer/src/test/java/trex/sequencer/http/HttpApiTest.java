@@ -23,7 +23,7 @@ class HttpApiTest {
     }
 
     private static final String ROW = """
-        {"candidateRef":"%s","accountRef":"%s","date":"%s","amount":%s,"rawDescription":"%s","balance":%s,"source":"ing-csv","provenance":"BANK"}""";
+        {"candidateRef":"%s","accountRef":"%s","date":"%s","amount":%s,"rawDescription":"%s","balance":%s,"sourceType":"ing-csv","provenance":"BANK"}""";
 
     private static String row(String ref, String account, String date, String amount, String raw, String balance) {
         return ROW.formatted(ref, account, date, amount, raw, balance);

@@ -18,27 +18,26 @@ class ConfigTest {
     Path dir;
 
     private void write(String sequencer, String accounts, String transfers) throws IOException {
-        Files.writeString(dir.resolve("sequencer.toml"), sequencer);
-        Files.writeString(dir.resolve("accounts.toml"), accounts);
-        Files.writeString(dir.resolve("transfers.toml"), transfers);
+        Files.writeString(dir.resolve("sequencer.yaml"), sequencer);
+        Files.writeString(dir.resolve("accounts.yaml"), accounts);
+        Files.writeString(dir.resolve("transfers.yaml"), transfers);
     }
 
     private static final String SEQUENCER = """
-        bindPort = 8080
-        [journal]
-        source = "journal.jsonl"
-        target = "journal.jsonl"
+        bindPort: 8080
+        journal:
+          source: "journal.jsonl"
+          target: "journal.jsonl"
         """;
     private static final String ACCOUNTS = """
-        [[account]]
-        ref = "ing-savings"
-        format = "ing"
-        currency = "AUD"
-        fireflyAccountId = "12"
+        accounts:
+          - ref: "ing-savings"
+            currency: "AUD"
+            fireflyAccountId: "12"
         """;
     private static final String TRANSFERS = """
-        windowDays = 3
-        allowlist = ["Fast Transfer", "To my account"]
+        windowDays: 3
+        allowlist: ["Fast Transfer", "To my account"]
         """;
 
     @Test
@@ -56,11 +55,11 @@ class ConfigTest {
 
     @Test
     void bindHostCanBeSetAndOldApiPortIsRejected() throws IOException {
-        write("bindHost = \"0.0.0.0\"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
+        write("bindHost: \"0.0.0.0\"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
         assertEquals("0.0.0.0", Config.load(dir).bindHost());
         write(SEQUENCER.replace("bindPort", "apiPort"), ACCOUNTS, TRANSFERS);
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
-        write("bindHost = \" \"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
+        write("bindHost: \" \"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
 
@@ -79,13 +78,13 @@ class ConfigTest {
 
     @Test
     void windowDaysIsRequired() throws IOException {
-        write(SEQUENCER, ACCOUNTS, "allowlist = [\"x\"]\n");
+        write(SEQUENCER, ACCOUNTS, "allowlist: [\"x\"]\n");
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
 
     @Test
     void fsyncOptionIsNotAccepted() throws IOException {
-        write("fsync = \"never\"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
+        write("fsync: \"never\"\n" + SEQUENCER, ACCOUNTS, TRANSFERS);
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
 
@@ -95,18 +94,35 @@ class ConfigTest {
         assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
     }
 
+    /** A duplicated key is an error, not last-wins (SPEC §6, strict binding). */
+    @Test
+    void duplicateKeyIsRejected() throws IOException {
+        write(SEQUENCER + "bindPort: 9090\n", ACCOUNTS, TRANSFERS);
+        assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
+    }
+
+    /** Config moved to YAML: a leftover .toml must fail loudly rather than be ignored (SPEC §6). */
+    @Test
+    void leftoverTomlIsRejected() throws IOException {
+        write(SEQUENCER, ACCOUNTS, TRANSFERS);
+        Files.writeString(dir.resolve("accounts.toml"), "[[account]]\nref = \"stale\"\n");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
+        assertTrue(e.getMessage().contains("accounts.toml"), e.getMessage());
+        assertTrue(e.getMessage().contains("accounts.yaml"), e.getMessage());
+    }
+
     /**
-     * The container variant (deploy/compose/sequencer.toml) is mounted at run time, so a
+     * The container variant (deploy/compose/sequencer.yaml) is mounted at run time, so a
      * bad key there would surface as a failed container start rather than a failed build.
-     * compose delivers all three files into one directory (/etc/trex): the sequencer.toml
+     * compose delivers all three files into one directory (/etc/trex): the sequencer.yaml
      * from deploy/compose, accounts and transfers from deploy/config. Assemble that same
      * directory here and load it.
      */
     @Test
     void containerConfigLoads() throws IOException {
-        Files.copy(Path.of("..", "deploy", "compose", "sequencer.toml"), dir.resolve("sequencer.toml"));
-        Files.copy(Path.of("..", "deploy", "config", "accounts.toml"), dir.resolve("accounts.toml"));
-        Files.copy(Path.of("..", "deploy", "config", "transfers.toml"), dir.resolve("transfers.toml"));
+        Files.copy(Path.of("..", "deploy", "compose", "sequencer.yaml"), dir.resolve("sequencer.yaml"));
+        Files.copy(Path.of("..", "deploy", "config", "accounts.yaml"), dir.resolve("accounts.yaml"));
+        Files.copy(Path.of("..", "deploy", "config", "transfers.yaml"), dir.resolve("transfers.yaml"));
 
         Config c = Config.load(dir);
         // Binds all interfaces inside the network namespace; compose publishes to loopback.

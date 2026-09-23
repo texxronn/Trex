@@ -66,7 +66,7 @@ final class BatchWork {
         CanonicalEvent l = newLines.get(externalId);
         newLines.put(externalId, new CanonicalEvent(l.n(), l.externalId(), l.accountRef(), l.toAccountRef(),
             l.currency(), l.date(), l.amount(), l.balance(), l.description(), l.rawDescription(), l.typeHint(),
-            transferKey, l.legIds(), l.corrects(), state, l.confidence(), l.flags(), l.provenance(), l.source(),
+            transferKey, l.legIds(), l.corrects(), state, l.confidence(), l.flags(), l.provenance(), l.sourceType(),
             l.receipt(), l.counterpartyBsb(), l.counterpartyAcct(), l.foreignAmount(), l.foreignCurrency(),
             l.comment(), l.ingestedAt()));
         recomputeWorking(externalId);
@@ -156,7 +156,7 @@ final class BatchWork {
             CanonicalEvent line = new CanonicalEvent(++n, t.transferId(), from.accountRef(), to.accountRef(),
                 from.currency(), from.date(), Math.abs(from.amount()), 0, from.description(), from.rawDescription(),
                 TypeHint.TRANSFER, t.transferId(), List.of(from.externalId(), to.externalId()), null,
-                EventState.MATCHED, t.confidence(), List.of(), t.provenance(), from.source(), t.receipt(),
+                EventState.MATCHED, t.confidence(), List.of(), t.provenance(), from.sourceType(), t.receipt(),
                 null, null, null, null, t.comment(), ingestedAt);
             lines.add(line);
             transferN.add(line.n());

@@ -18,7 +18,7 @@ class GridQueryTest {
         assertEquals(1, q.page());
         assertEquals(50, q.size());
         assertNull(q.asOfN());
-        assertEquals(new GridQuery.Filters(null, null, null, null, null, null), q.filters());
+        assertEquals(new GridQuery.Filters(null, null, null, null, null, null, null), q.filters());
     }
 
     @Test

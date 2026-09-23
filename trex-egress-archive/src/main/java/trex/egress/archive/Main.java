@@ -2,49 +2,54 @@ package trex.egress.archive;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
+import java.util.concurrent.Callable;
 
 /** {@code trex-egress-archive --journal <path> --archive <path> [--poll-seconds N (fallback)] [--once]} */
-public final class Main {
+@Command(name = "trex-egress-archive", mixinStandardHelpOptions = true,
+    // 64 (EX_USAGE) is the documented contract; picocli would use 2.
+    exitCodeOnInvalidInput = 64,
+    description = "Mirror the journal into an append-only archive file.")
+public final class Main implements Callable<Integer> {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
-    private static final String USAGE =
-        "Usage: trex-egress-archive --journal <path> --archive <path> [--poll-seconds N (fallback)] [--once]";
+    @Option(names = "--journal", required = true, paramLabel = "<path>", description = "Journal to tail.")
+    private Path journal;
 
-    private Main() {}
+    @Option(names = "--archive", required = true, paramLabel = "<path>", description = "Archive file to append to.")
+    private Path archive;
 
-    public static void main(String[] args) throws Exception {
-        String journal = null;
-        String archive = null;
-        long pollSeconds = 30;
-        boolean once = false;
-        try {
-            for (int i = 0; i < args.length; i++) {
-                switch (args[i]) {
-                    case "--journal" -> journal = args[++i];
-                    case "--archive" -> archive = args[++i];
-                    case "--poll-seconds" -> pollSeconds = Long.parseLong(args[++i]);
-                    case "--once" -> once = true;
-                    default -> throw new IllegalArgumentException("unexpected argument: " + args[i]);
-                }
-            }
-            if (journal == null || archive == null || pollSeconds <= 0) {
-                throw new IllegalArgumentException("missing required arguments");
-            }
-        } catch (RuntimeException e) {
-            System.err.println(e.getMessage());
-            System.err.println(USAGE);
-            System.exit(64);
-            return;
+    @Option(names = "--poll-seconds", paramLabel = "N",
+        description = "Fallback wake interval; journal changes wake it sooner (default: ${DEFAULT-VALUE}).")
+    private long pollSeconds = 30;
+
+    @Option(names = "--once", description = "Drain what is there and exit.")
+    private boolean once;
+
+    public static void main(String[] args) {
+        int exit = new CommandLine(new Main()).execute(args);
+        if (exit != CommandLine.ExitCode.OK) {
+            System.exit(exit);
         }
-        ArchiveFollower follower = new ArchiveFollower(Path.of(journal), Path.of(archive));
+    }
+
+    @Override
+    public Integer call() throws Exception {
+        if (pollSeconds <= 0) {
+            throw new CommandLine.ParameterException(new CommandLine(this), "--poll-seconds must be positive");
+        }
+        ArchiveFollower follower = new ArchiveFollower(journal, archive);
         if (once) {
             report(follower.pass());
         } else {
             follower.follow(pollSeconds * 1000, Main::report);
         }
+        return CommandLine.ExitCode.OK;
     }
 
     private static void report(int archived) {

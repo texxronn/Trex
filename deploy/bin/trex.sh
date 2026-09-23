@@ -10,7 +10,7 @@
 #   trex.sh restart [service...]
 #   trex.sh status
 #   trex.sh logs <service>         tail -f one log
-#   trex.sh ingest <account> <file.csv>
+#   trex.sh ingest <sourceType> <account> <source>
 #
 # Services: sequencer egress-archive egress-sqlite resolver grid
 #
@@ -62,6 +62,11 @@ jar_for() {
     echo "${jars[0]}"
 }
 
+# The rules file is optional: without it every row reads UNCATEGORIZED (SPEC.md §5.6).
+categories_arg() {
+    [ -f "$CONF/categories.yaml" ] && echo " --categories $CONF/categories.yaml"
+}
+
 args_for() {
     case "$1" in
         sequencer)
@@ -74,10 +79,10 @@ args_for() {
             echo "--journal $JOURNAL --db $RUN/sqlite/trex.db --poll-seconds 60"
             ;;
         resolver)
-            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind $BIND --port $RESOLVER_PORT"
+            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind $BIND --port $RESOLVER_PORT$(categories_arg)"
             ;;
         grid)
-            echo "--journal $JOURNAL --bind $BIND --port $GRID_PORT"
+            echo "--journal $JOURNAL --bind $BIND --port $GRID_PORT$(categories_arg)"
             ;;
         *)
             die "unknown service: $1 (have: $SERVICES)"
@@ -105,12 +110,12 @@ bootstrap() {
     mkdir -p "$CONF" "$RUN/journal" "$RUN/archive" "$RUN/sqlite" "$LOGS" "$PIDS"
     # Config is copied once, then it is yours to edit — never overwritten.
     local f name
-    for f in "$REPO/deploy/config"/*.toml; do
+    for f in "$REPO/deploy/config"/*.yaml; do
         name="$(basename "$f")"
         [ -e "$CONF/$name" ] && continue
         sed -e "s|/var/lib/trex/journal|$RUN/journal|g" \
-            -e "s|^bindHost = .*|bindHost = \"$BIND\"|" \
-            -e "s|^bindPort = .*|bindPort = $SEQ_PORT|" \
+            -e "s|^bindHost: .*|bindHost: \"$BIND\"|" \
+            -e "s|^bindPort: .*|bindPort: $SEQ_PORT|" \
             "$f" > "$CONF/$name"
         echo "trex: wrote $CONF/$name"
     done
@@ -226,10 +231,10 @@ cmd_logs() {
 }
 
 cmd_ingest() {
-    [ "$#" -eq 2 ] || die "usage: trex.sh ingest <account> <file.csv>"
+    [ "$#" -eq 3 ] || die "usage: trex.sh ingest <sourceType> <account> <source>"
     # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
-    "$(java_bin)" $JAVA_OPTS -jar "$(jar_for ingress-ing)" \
-        --account "$1" --url "http://$BIND:$SEQ_PORT" "$2"
+    "$(java_bin)" $JAVA_OPTS -jar "$(jar_for ingress)" \
+        --source-type "$1" --account "$2" --sequencer-url "http://$BIND:$SEQ_PORT" "$3"
 }
 
 case "${1:-}" in

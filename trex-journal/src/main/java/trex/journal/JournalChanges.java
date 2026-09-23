@@ -76,7 +76,7 @@ public final class JournalChanges implements AutoCloseable {
                     return true;
                 }
             }
-        } catch (ClosedWatchServiceException e) {
+        } catch (ClosedWatchServiceException _) {
             return false;
         }
     }

@@ -1,14 +1,19 @@
 package trex.grid;
 
+import trex.category.Categorized;
+import trex.category.Categorizer;
+import trex.category.Transfers;
 import trex.core.CanonicalEvent;
 import trex.core.TypeHint;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -19,13 +24,31 @@ final class GridIndex {
 
     record Total(String currency, long amount, long count) {}
 
-    record Page(long asOfN, String view, int page, int size, int total, List<CanonicalEvent> rows, List<Total> totals) {}
+    /** What a row's category is, and why. Keyed by {@code n} in the response, never stored (SPEC §0.7). */
+    record RowCategory(String category, String origin, String why) {
+        static RowCategory of(Categorized c) {
+            return new RowCategory(c.category(), c.origin().name(), c.explain());
+        }
+    }
+
+    /**
+     * Categories travel beside the rows rather than inside them: a journal line has no category
+     * field (SPEC §0.7), and the response shape says so.
+     */
+    record Page(long asOfN, String view, int page, int size, int total, List<CanonicalEvent> rows,
+                List<Total> totals, Map<Long, RowCategory> categories) {}
 
     private record Key(long generation, GridQuery.View view, long asOfN, GridQuery.Filters filters, List<GridQuery.SortKey> sort) {}
 
-    private record Result(List<CanonicalEvent> rows, List<Total> totals) {}
+    private record Result(List<CanonicalEvent> rows, List<Total> totals, Map<Long, RowCategory> categories) {}
 
     private static final int CACHE_ENTRIES = 16;
+
+    private final Categorizer categorizer;
+
+    GridIndex(Categorizer categorizer) {
+        this.categorizer = categorizer;
+    }
 
     private final Map<Key, Result> cache = Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
         @Override
@@ -41,11 +64,14 @@ final class GridIndex {
         Result result = cache.computeIfAbsent(key, k -> compute(data, k));
         int from = Math.min((q.page() - 1) * q.size(), result.rows().size());
         int to = Math.min(from + q.size(), result.rows().size());
+        List<CanonicalEvent> rows = result.rows().subList(from, to);
+        Map<Long, RowCategory> categories = new LinkedHashMap<>();
+        rows.forEach(e -> categories.put(e.n(), result.categories().get(e.n())));
         return new Page(asOfN, q.view().name().toLowerCase(), q.page(), q.size(), result.rows().size(),
-            result.rows().subList(from, to), result.totals());
+            rows, result.totals(), categories);
     }
 
-    private static Result compute(GridData data, Key key) {
+    private Result compute(GridData data, Key key) {
         List<CanonicalEvent> pinned = prefix(data.lines(), key.asOfN());
         List<CanonicalEvent> base;
         if (key.view() == GridQuery.View.TRANSACTIONS) {
@@ -55,15 +81,26 @@ final class GridIndex {
         } else {
             base = new ArrayList<>(pinned);
         }
+        // Categories are derived here, once per cached result, over the same pinned snapshot the
+        // rows come from — so a category can never disagree with the row it is shown against.
+        Map<String, CanonicalEvent> latestInSnapshot = new LinkedHashMap<>();
+        pinned.forEach(l -> latestInSnapshot.put(l.externalId(), l));
+        Set<String> transfers = Transfers.ids(List.copyOf(latestInSnapshot.values()));
+        Map<Long, RowCategory> categories = new HashMap<>();
+        for (CanonicalEvent e : base) {
+            categories.put(e.n(), RowCategory.of(categorizer.categorize(e, transfers)));
+        }
+
         List<CanonicalEvent> rows = new ArrayList<>(base.size());
         for (CanonicalEvent e : base) {
-            if (matches(e, key.filters())) {
+            if (matches(e, key.filters()) && matchesCategory(categories.get(e.n()), key.filters())) {
                 rows.add(e);
             }
         }
         Comparator<CanonicalEvent> order = null;
         for (GridQuery.SortKey s : key.sort()) {
-            order = order == null ? Columns.comparator(s) : order.thenComparing(Columns.comparator(s));
+            Comparator<CanonicalEvent> next = Columns.comparator(s, e -> categories.get(e.n()).category());
+            order = order == null ? next : order.thenComparing(next);
         }
         Comparator<CanonicalEvent> byN = Comparator.comparingLong(CanonicalEvent::n);
         rows.sort(order == null ? byN : order.thenComparing(byN));
@@ -81,7 +118,7 @@ final class GridIndex {
             }
             totals = sums.entrySet().stream().map(en -> new Total(en.getKey(), en.getValue()[0], en.getValue()[1])).toList();
         }
-        return new Result(List.copyOf(rows), totals);
+        return new Result(List.copyOf(rows), totals, Map.copyOf(categories));
     }
 
     /** Lines with n <= asOfN; lines are in strictly increasing n order. */
@@ -97,6 +134,11 @@ final class GridIndex {
             }
         }
         return lines.subList(0, lo);
+    }
+
+    /** Filtering on a derived value: exact name, including TRANSFER and UNCATEGORIZED. */
+    private static boolean matchesCategory(RowCategory category, GridQuery.Filters f) {
+        return f.category() == null || f.category().equals(category.category());
     }
 
     private static boolean matches(CanonicalEvent e, GridQuery.Filters f) {

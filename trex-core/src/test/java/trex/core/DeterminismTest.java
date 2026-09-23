@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /** SPEC §7 test 1 (stage 1: hand-built fixtures). */
 class DeterminismTest {
@@ -29,7 +30,13 @@ class DeterminismTest {
     /** Golden values computed independently with sha256sum; they pin the frozen identity contract. */
     @Test
     void goldenIdentityValues() {
-        assertEquals("1420f57e211537d7", Ids.externalId(new NaturalKey("ing-savings", "123456789")));
+        assertEquals("dfe4817cc78056ff", Ids.externalId(
+            new NaturalKey("ing-savings", LocalDate.parse("2026-06-28"), "123456789")));
+        // The date is part of the key: the same receipt number on another day is another
+        // transaction, which is what stops a recycled counter silently dropping one (§2.4).
+        assertNotEquals(
+            Ids.externalId(new NaturalKey("ing-savings", LocalDate.parse("2026-06-28"), "123456789")),
+            Ids.externalId(new NaturalKey("ing-savings", LocalDate.parse("2027-06-28"), "123456789")));
         assertEquals("461ef55588483c32", Ids.externalId(
             new ContentHash("ing-savings", LocalDate.parse("2026-06-28"), -50000, "Fast Transfer to CBA", 0)));
         assertEquals("0e48e920f178c7c4", Ids.externalId(

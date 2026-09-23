@@ -1,0 +1,31 @@
+# Dev transfer rules (SPEC.md §3.4, §6). Case-insensitive Java regex against
+# rawDescription; single quotes so backslashes need no escaping.
+#
+# The dev samples are written against this list: the shared receipt on the two
+# 'Fast Transfer' rows drives the T1 pair (a receipt alone does not make a leg
+# transfer-shaped), 'Internal Transfer' drives the T3 pair, and 'Osko' is the
+# unmatched leg that stays HELD for the resolver. Narrow the list to watch legs
+# fall through to EXTERNAL instead.
+
+windowDays: 3
+
+allowlist:
+  - 'Internal Transfer'
+  - 'To my account'
+  - 'From my account'
+  - 'Fast Transfer'
+  - 'Transfer (to|from)'
+  - 'Osko'
+  - 'PayID'
+  # Credit-card payments from another of your own accounts. Transfer-shaped so they land in
+  # HELD for review rather than reading as income: a card payment moves your own money, and
+  # +$122k of it looked like an inflow before this line existed. The contra leg only pairs
+  # once the paying account is ingested too.
+  - 'Bill Payment Received'
+  # The paying side of the same thing, as ING writes it: "BANKWEST CREDIT CARD 5229… - BPAY
+  # Bill Payment - Receipt 52936 To BANKWEST CREDIT CARD 5229…". Deliberately the biller name
+  # rather than 'BPAY Bill Payment', which would make every utility BPAY transfer-shaped and
+  # leave it HELD forever waiting for a contra leg that does not exist.
+  # These two legs pair on T3 (amount and date), never T1: ING gives its row a receipt and
+  # BankWest has none, so there is no shared receipt to match on.
+  - 'Bankwest Credit Card'
