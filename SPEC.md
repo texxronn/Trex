@@ -42,16 +42,12 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
       pom.xml
     trex-egress-sqlite/
       pom.xml
-    trex-web/         # shared web-follower plumbing: journal watcher, SSE, static serving, security headers
+    trex-web/         # the one web service: journal browser + resolution workflow (§5.4)
       pom.xml
     trex-category/    # shared consumer library: category rules (categories.yaml) + evaluator (§5.6)
       pom.xml
-    trex-resolver/    # manual resolver admin service (§5.4)
-      pom.xml
-    trex-grid/        # read-only journal grid (§5.5)
-      pom.xml
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the ten `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the eight `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
   - `com.fasterxml.jackson.core:jackson-annotations` — in trex-core for `@JsonPropertyOrder`; no databind in core.
   - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
@@ -59,7 +55,7 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
   - `com.fasterxml.jackson.dataformat:jackson-dataformat-yaml` (+ its SnakeYAML) in `trex-journal` — all config is YAML (§6). Configure the config mapper with `FAIL_ON_UNKNOWN_PROPERTIES` **on** (an unknown key is a startup error, as before) and `STRICT_DUPLICATE_DETECTION` **on** (a duplicated key is a startup error, not last-wins). The journal stays JSONL — YAML never touches it.
   - `org.xerial:sqlite-jdbc` (egress-sqlite only).
   - `org.junit.jupiter:junit-jupiter` (tests).
-  - `org.slf4j:slf4j-api` — logging facade, **every module including trex-core**. A binding (`org.slf4j:slf4j-simple`) is added at runtime scope by the six runnable modules only; libraries never bind. Pinned to 2.0.x, which also overrides the 1.7.x that `sqlite-jdbc` pulls in transitively.
+  - `org.slf4j:slf4j-api` — logging facade, **every module including trex-core**. A binding (`org.slf4j:slf4j-simple`) is added at runtime scope by the five runnable modules only; libraries never bind. Pinned to 2.0.x, which also overrides the 1.7.x that `sqlite-jdbc` pulls in transitively.
     Logging must not change behaviour: no logging inside journal serialization (byte stability, §3.1), and the fold in trex-core stays deterministic — a log statement may observe, never decide. Journal lines are financial data: log `externalId`, `n`, counts and states, **never `rawDescription`, `description` or amounts**.
   - **Dependency policy:** a well-maintained library is preferred over hand-written code when it *removes* source — a standard format parser, argument parsing, and the like. Two standing exceptions, where the code stays hand-written and auditable:
     1. **The identity and journal path** — `Ids`, the JSONL framing in `JsonlJournal`, `FramedReader`. A library version bump there could shift the identity contract (§0.1).
@@ -465,35 +461,19 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
 - Current state of a transaction = the row with the highest `n` for its `external_id`; the follower itself holds no state logic.
 - Cursor lives in `follower_state`, not a sidecar file.
 
-### 5.4 trex-resolver — manual resolver (admin service)
-An admin web service for the resolution workflow. It is a journal follower (reads the journal file) and an API client (acts only through the sequencer's `POST /decisions`). It never writes the journal.
-- **State:** none persisted. On startup it folds the journal from offset 0 into a `Ledger` (§2.6), then tails it, publishing a `LedgerView` snapshot. Tailing is event-driven: `JournalChanges` (§5.1) triggers a read as soon as the journal file is created/modified/deleted (events are hints, never counts; `OVERFLOW` also triggers a read). A fallback read runs every `--poll-ms` (default 10 000) for missed events and filesystems without inotify (NFS, some FUSE/bind mounts). If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
-- **Loop:** user acts → resolver calls `POST /decisions` → sequencer appends lines → resolver tails them → page refreshes. The page reflects the journal, never an optimistic local change.
-- **Web tech:** JDK `HttpServer`; one bundled static page (`index.html`, `app.css`, `app.js`, vanilla JS, no framework, no CDN, no build step). Compact, modern style (light/dark via `prefers-color-scheme`). **Responsive (R9):** desktop layout unchanged; below 1024px fixed column widths are released; below 720px each row becomes a record card carrying the same values (checkbox, date, account, amount, description, comment, badges, `n`, actions) — nothing is dropped. Touch input (`pointer: coarse`) gets larger hit targets and 16px form text; `prefers-reduced-motion` disables motion.
-- **Refresh:** Server-Sent Events. `GET /api/events` streams `event: state` messages (same JSON as `/api/state`): one on connect, then one whenever the journal offset, `n` or error changes, plus a `: ping` comment every 15 s. The browser uses `EventSource`; while the stream is down it falls back to polling `GET /api/state` every 2 s and stops polling when the stream reconnects. At most 32 concurrent streams (`503` beyond).
-- **Page:** two lists — HELD and REVIEW (same sets as §2.6; REVIEW rows labelled *ambiguous match* or *potential duplicate*). Each row: date, account, amount (cents formatted exactly), raw description, `n`, comment, badges. No pairing suggestions, no resolved-history view.
-- **Actions** (only the existing decisions):
-  - `MARK_EXTERNAL` on a HELD/REVIEW row.
-  - `CONFIRM_TRANSFER`: select exactly two rows, then "Pair as transfer" — enabled only if amounts are equal and opposite (non-zero), accounts differ and currencies match. The sequencer remains authoritative.
-  - `DISMISS_DUP` on a row flagged `POTENTIAL_DUP`.
-  - (TODO: "confirm REVIEW" — meaning not yet defined.)
-- **Double confirmation:** an action button opens a confirmation dialog stating the exact effect, with an optional comment. Only its Confirm sends the request. The result is shown: `Resolved` (with `n`) or the sequencer's `Rejected` reason. A repeated submit is harmless — the sequencer rejects it.
-- **Resolver API:**
-  - `GET /`, `/app.css`, `/app.js` — static page.
-  - `GET /api/state` → `{ offset, n, updatedAt, error, held:[CanonicalEvent...], review:[CanonicalEvent...] }`.
-  - `GET /api/events` → `text/event-stream` of the same state (above).
-  - `POST /api/decisions` — body `{ action, externalId?, legA?, legB?, comment? }` (one decision). The resolver validates `action` ∈ {MARK_EXTERNAL, CONFIRM_TRANSFER, DISMISS_DUP}, builds the sequencer request itself (`decisionRef = "ui-" + UUID`) and returns the sequencer's response.
-- **Security (no authentication, for now):**
-  - Binds `127.0.0.1` by default; LAN exposure requires an explicit `--bind`.
-  - `POST /api/decisions` requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
-  - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
-  - Request body cap 64 KB.
-- **Category (read-only):** each row shows its derived category with the rule that produced it (§5.6). The resolver takes no category action — a correction is a pin, and the page shows the exact `categories.yaml` snippet to paste, rather than writing config from a UI.
-- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--categories <path>` (categories.yaml, §6), `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback journal read interval, default 10000).
+### 5.4 trex-web — the web service (browse, resolve, categorise)
 
-### 5.5 trex-grid — read-only journal grid
-A plain, compact, live table over the journal. Read-only: no actions (decisions stay in the resolver). **Responsive (G11):** the table stays a table at every width (it scrolls sideways; rows never become cards). Below 720px the header, toolbar and footer wrap and the column picker becomes a bottom sheet; touch input gets larger hit targets and 16px form text. Same model as the resolver: a journal follower with nothing persisted, event-driven tailing, SSE, JDK `HttpServer`, one bundled vanilla JS page.
-- **Shared plumbing (`trex-web`, used by resolver and grid):** `JournalWatcher<V>` (fold from 0, WatchService-triggered reads + fallback poll, refold on shrink/read error, change listeners — §5.4), `EventStreams` (coalesced SSE with heartbeat and client cap), static page serving with the security headers, JSON/error helpers.
+One service, one loopback port, one journal fold. It is a journal follower (reads the journal file) and an API client (acts only through the sequencer's `POST /decisions`); **it never writes the journal**. The only file it writes is `pins.yaml` (§6), and it is that file's single writer.
+
+Tabs: **Transactions** and **Journal** (the table, below), **Worklist** (uncategorised, §5.6) and **Resolve** (HELD/REVIEW). One origin, so a pin written while browsing needs no cross-service call; one CSRF posture instead of two; one set of files watched.
+
+- **Binding:** `127.0.0.1` by default and, in practice, always — with no authentication (§9), a service that can both take decisions and write config is as sensitive as its most sensitive part. Exposing the read-only table on another interface is a second listener, deferred to §9.
+- **Plumbing (internal, formerly the `trex-web` library):** `JournalWatcher<V>` (fold from 0, WatchService-triggered reads + fallback poll, refold on shrink/read error, change listeners), `EventStreams` (coalesced SSE with heartbeat and client cap), static page serving with the security headers, JSON/error helpers.
+- **State:** none persisted. On startup it folds the journal from offset 0, then tails it, publishing an immutable snapshot. Tailing is event-driven: `JournalChanges` (§5.1) triggers a read as soon as the journal file is created/modified/deleted (events are hints, never counts; `OVERFLOW` also triggers a read). A fallback read runs every `--poll-ms` (default 10 000) for missed events and filesystems without inotify (NFS, some FUSE/bind mounts). If the journal file shrinks below the tail offset (e.g. a materialize overwrote it), it discards its state and refolds from 0. A corrupt line stops tailing and is reported on the page.
+- **Loop:** user acts → the service calls `POST /decisions` → sequencer appends lines → the service tails them → page refreshes. The page reflects the journal, never an optimistic local change.
+
+**Browsing the journal (G-series, formerly §5.5)**
+
 - **Views (G1):** **Transactions** (default) — the latest line per `externalId`; **Journal** — every line, every version.
 - **Columns (G2):** `n`, date, account, to-account, amount, currency, description, type, state, flags, confidence, provenance, sourceType, receipt, transferKey, comment, `category`, ingestedAt, externalId. `category` is derived per row (§5.6) and shows on hover which rule produced it; a pinned row and a structural `TRANSFER` are badged as such. A compact default set is shown; the rest can be toggled on (column choice kept in the browser's `localStorage`).
 - **Sort (G3):** server-side on any column, asc/desc; click a header to sort, shift-click to add a secondary key. Ties always break by `n` ascending, so paging is stable. Text columns compare case-insensitively; nulls sort last. Default: `n` descending.
@@ -503,12 +483,44 @@ A plain, compact, live table over the journal. Read-only: no actions (decisions 
 - **SSE (G6):** `GET /api/events` streams `event: head` — `{ n, offset, updatedAt, error, lines, transactions, accounts }` — never row data.
 - **URL (G7):** view, sort, page, size, and filters are mirrored in the page's query string (bookmarkable).
 - **Money (G8):** amounts formatted exactly from cents. Footer totals per currency over the filtered set, computed server-side in `long`: Transactions view only, and TRANSFER lines are excluded (their legs already carry the amounts). The Journal view shows counts only (versions would double-count).
-- **Security (G9):** read-only, so no CSRF guard is needed; binds `127.0.0.1` by default (LAN exposure via `--bind` is lower-risk than the resolver's); CSP `default-src 'self'`; bank text via `textContent` only; non-GET → `405`.
 - **API:**
   - `GET /`, `/app.css`, `/app.js` — static page.
   - `GET /api/head` — same JSON as the SSE `head` event.
   - `GET /api/rows?view=transactions|journal&sort=col:asc|desc[,col:dir…]&page=1&size=50&asOfN=&account=&state=&type=&from=&to=&q=` → `{ asOfN, view, page, size, total, rows:[CanonicalEvent...], totals:[{currency, amount, count}] }`. `size` 1–500 (default 50); `asOfN` absent or above the head → current head. Invalid parameters → `400`.
-- **Config (flags):** `--journal <path>`, `--port <n>` (default 8091), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback read interval, default 10000).
+
+**Resolution workflow (R-series)**
+
+- **Web tech:** JDK `HttpServer`; one bundled static page (`index.html`, `app.css`, `app.js`, vanilla JS, no framework, no CDN, no build step). Compact, modern style (light/dark via `prefers-color-scheme`). **Responsive (R9):** desktop layout unchanged; below 1024px fixed column widths are released; below 720px each row becomes a record card carrying the same values (checkbox, date, account, amount, description, comment, badges, `n`, actions) — nothing is dropped. Touch input (`pointer: coarse`) gets larger hit targets and 16px form text; `prefers-reduced-motion` disables motion.
+- **Refresh:** Server-Sent Events. `GET /api/events` streams `event: state` messages (same JSON as `/api/state`): one on connect, then one whenever the journal offset, `n` or error changes, plus a `: ping` comment every 15 s. The browser uses `EventSource`; while the stream is down it falls back to polling `GET /api/state` every 2 s and stops polling when the stream reconnects. At most 32 concurrent streams (`503` beyond).
+- **Page:** two lists — HELD and REVIEW (same sets as §2.6; REVIEW rows labelled *ambiguous match* or *potential duplicate*). Each row: date, account, amount (cents formatted exactly), raw description, `n`, comment, badges. No pairing suggestions, no resolved-history view.
+- **Actions** (only the existing decisions):
+  - `MARK_EXTERNAL` on a HELD/REVIEW row.
+  - `CONFIRM_TRANSFER`: select exactly two rows, then "Pair as transfer" — enabled only if amounts are equal and opposite (non-zero), accounts differ and currencies match. The sequencer remains authoritative.
+  - `DISMISS_DUP` on a row flagged `POTENTIAL_DUP`.
+  - (TODO: "confirm REVIEW" — meaning not yet defined.)
+- **Double confirmation:** an action button opens a confirmation dialog stating the exact effect, with an optional comment. Only its Confirm sends the request. The result is shown: `Resolved` (with `n`) or the sequencer's `Rejected` reason. A repeated submit is harmless — the sequencer rejects it.
+- **API (resolution half; the browsing endpoints are listed above):**
+  - `GET /api/state` → `{ offset, n, updatedAt, error, held:[CanonicalEvent...], review:[CanonicalEvent...] }`.
+  - `GET /api/events` → `text/event-stream` of the same state (above).
+  - `POST /api/decisions` — body `{ action, externalId?, legA?, legB?, comment? }` (one decision). It validates `action` ∈ {MARK_EXTERNAL, CONFIRM_TRANSFER, DISMISS_DUP}, builds the sequencer request itself (`decisionRef = "ui-" + UUID`) and returns the sequencer's response.
+  - `POST /api/pins` — body `{ category, comment, externalIds: [...] }`. Validates the category against those declared in `categories.yaml`, appends one pin entry to `pins.yaml` and returns it as stored. Writing config is not a journal decision, so it stays reversible by deleting the line.
+- **Security (no authentication, for now):**
+  - Binds `127.0.0.1`. Browsing and deciding now share a process, so the whole service carries the stricter posture: there is no read-only exposure to be had by loosening the bind, and §9 keeps the second-listener option for when there is.
+  - Every mutating endpoint — `POST /api/decisions` and `POST /api/pins` — requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
+  - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
+  - Request body cap 64 KB.
+- **Categories:** every row shows its derived category and, on hover, the rule or pin that produced it together with that entry's `comment` (§5.6). Two actions, split by what the thing *is*:
+  - **Pin** (any row, categorised or not) → appended to `pins.yaml`. This service is that file's single writer: temp file then rename, so a reader never sees half a file. Pins are order-independent, so appending is always correct and deleting one is a safe rewrite.
+  - **Rule** → *generated, never written.* The Worklist composes the YAML and hands it over to paste into `categories.yaml`, because rule order is a judgement (§6) and the mapper cannot round-trip that file's comments.
+- **Config (flags):** `--journal <path>`, `--sequencer-url <url>`, `--config <dir>` (holds `categories.yaml` and `pins.yaml`, §6), `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (fallback journal read interval, default 10000).
+
+### 5.5 — merged into §5.4
+
+`trex-grid` and `trex-resolver` were one read-only service and one action-taking service so the
+table could be exposed differently from the decisions (DECISIONS G10). Both run on loopback in
+practice, so that boundary bought nothing and cost a cross-origin write path once the table
+needed to write a pin. They are now one service (§5.4). The number is kept rather than
+renumbering, so every §5.6 reference in the code and the docs stays valid.
 
 ### 5.6 trex-category — master categorisation (shared consumer library)
 
@@ -516,17 +528,19 @@ A pure library, not a service and not a copy per consumer: the grid, the resolve
 
 **Resolution chain** (first hit wins), given the latest line for an `externalId` and the `LedgerView`:
 1. **Structural `TRANSFER`** — the line is a TRANSFER line, or a leg listed in some TRANSFER's `legIds` (§2.6 `Projection`). Rules never assign or override this: it is a fact of the fold, not an opinion.
-2. **A pin** — a rule whose `when` is an `externalId` leaf: the one-off human correction for a transaction no sensible rule would catch. Pins are ordinary rules, kept in a `pins` block at the top of the file so they are evaluated before the general ones and stay readable as a group.
+2. **A pin** — a rule whose `when` is an `externalId` leaf: the one-off correction for a transaction no sensible rule would catch, and the override when a rule is right about 30 rows and wrong about one. Pins live in their own file, `pins.yaml` (§6), because they are machine-written and order-independent while rules are hand-written and ordered.
 3. **The first matching rule** in `categories.yaml`, in file order.
 4. **`UNCATEGORIZED`** — nothing matched. Never a guess (§0.6). The uncategorised list is the worklist that drives rule writing, exactly as HELD/REVIEW drove transfer rules.
 
 **Seam.** The evaluator sits behind a `Categorizer` interface, and the YAML rule set is its only implementation in this phase. That is what a different engine would plug into later; §9 records the one anticipated extension.
 
+**`comment` is a field on every rule and every pin**, not a YAML `#` comment. It survives a machine rewrite of `pins.yaml`, which a `#` comment would not, and it reaches the person looking at the transaction: the UI shows it beside the category it explains (§5.4). Rationale that only a maintainer reading the file can see is rationale the person asking "why is this GROCERIES?" never gets.
+
 **Rules** (`categories.yaml`, §6) are **data, not expressions** — no embedded expression language, so a bad rule fails at startup with a pointed message instead of at row 12 000, and nothing evaluates arbitrary code from a config file. A rule is a category plus a `when` tree:
 - Composition: `all`, `any`, `not` (nest freely).
 - Leaves: `externalId` (a list of ids — the pin form; exact match, never a regex), `match` (regex, case-insensitive, `find` semantics as §3.4), `matchOn` (`raw` — the default, the verbatim field identity hashes — or `description`, the cleaned form, which may evolve), `direction` (`in`/`out`, from the amount's sign), `accounts` (list of refs), `amountMin`/`amountMax` (cents, inclusive, on `|amount|`).
 
-**Result.** `Categorized(category, origin, rule)` where `origin` ∈ {`STRUCTURAL`, `PIN`, `RULE`, `NONE`} and `rule` is the index and source line of the rule that fired, so every reader can answer *why* — a rule table nobody can interrogate becomes folklore.
+**Result.** `Categorized(category, origin, rule)` where `origin` ∈ {`STRUCTURAL`, `PIN`, `RULE`, `NONE`} and `rule` carries which entry fired, from which file, with its `comment`, so every reader can answer *why* — a rule table nobody can interrogate becomes folklore.
 
 **Purity.** `Categorizer` is deterministic and I/O-free (like trex-core); only loading `categories.yaml` touches the filesystem. Patterns compile once at load. Load-time errors: an undeclared category in a rule, an uncompilable regex, an empty `when`, `amountMin > amountMax`. Load-time warning: a rule wholly shadowed by an earlier one.
 
@@ -549,14 +563,15 @@ Separate files, not one: they change on different schedules, and the registry is
 - `sequencer.yaml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `journal: {source, target}`. (No fsync option — always fsync, §3.1.)
 - `categories.yaml` — read by **journal consumers only** (§5.6); the sequencer never loads it (§0.7). Two keys:
   - `categories` — the declared master categories. Starting set, tuned from dry runs: `SALARY`, `INTEREST`, `GROCERIES`, `BILLS`, `TAXES`, `SAVINGS`, `DISCRETIONARY`. Adding one is a config edit, never a code change. `TRANSFER` and `UNCATEGORIZED` are **reserved** (§5.6) and must not be declared or assigned by a rule.
-  - `rules` — ordered; first match wins. Each is `category` plus a `when` tree (§5.6). Pins (one-off corrections, `when: {externalId: [...]}`) go in a `pins` block evaluated before `rules`; both are the same mechanism, separated so hand-written rules stay readable.
+  - `rules` — ordered; first match wins. Each is `category`, an optional `comment` (a field, not a `#` comment) and a `when` tree (§5.6).
+- `pins.yaml` — the same mechanism, different owner: `pins:` entries of `{category, comment, when: {externalId: […]}}`, evaluated before every rule (§5.6).
+- **Ownership is split by file, and it is not a style preference.** `categories.yaml` is hand-written: ordered, commented, reviewed in a diff. `pins.yaml` is written by §5.4, which is its single writer. Two facts force the split — the YAML mapper cannot round-trip `#` comments, so a machine rewriting `categories.yaml` would destroy the notes explaining why `\bfees?\b` is anchored or why `INSURANCE` precedes `BILLS`; and rule order is a judgement (a new specific rule usually has to *precede* a general one) while pin order is irrelevant, because pins match exact ids. So a machine may only append where appending is always correct. Both files are git-tracked: the diff is the review, and the pair of them at a commit is the as-of answer to "what did we call this in March?" (§0.7).
   ```yaml
-  categories: [SALARY, INTEREST, GROCERIES, BILLS, TAXES, SAVINGS, DISCRETIONARY]
-  pins:                       # one-off corrections; evaluated before rules
-    - category: TAXES
-      when: {externalId: ["9e546cc0260ead1e"]}
+  # categories.yaml — yours
+  categories: [SALARY, INTEREST_EARNED, GROCERIES, BILLS, TAXES, SAVINGS, DISCRETIONARY]
   rules:
     - category: SALARY
+      comment: "employer deposits; direction guards against a salary reversal"
       when:
         all:
           - direction: in
@@ -564,6 +579,12 @@ Separate files, not one: they change on different schedules, and the registry is
     - category: GROCERIES
       when:
         match: "woolworths|coles|aldi|iga"
+
+  # pins.yaml — written by §5.4, one entry per correction
+  pins:
+    - category: TAXES
+      comment: "2026-09-24 from the worklist: ATO instalment, not a bank fee"
+      when: {externalId: ["9e546cc0260ead1e"]}
   ```
 - Follower config — `journalPath`, sink path, `pollSeconds` = fallback wake interval (command-line flags: `--journal`, `--archive`/`--db`, `--poll-seconds`, `--once`).
 - Resolver config — command-line flags (§5.4).
@@ -611,9 +632,12 @@ Build bottom-up; each stage compiles and tests green before the next.
 10. **Config to YAML** (§6): Jackson YAML mapper in trex-journal, records + strict binding, delete the hand-written TOML parser, convert the shipped config files. No behaviour change — the existing config tests carry over to the renamed files.
 11. **trex-category** (§5.6): rule records, `Categorizer` + evaluator, loader with its load-time errors, dry run (+ test 16).
 12. **Consumer surfaces:** grid category column/filter, resolver category display and pin snippet (§5.4, §5.5) (+ test 17).
-13. **Source footprint** (§1 dependency policy): picocli for the six CLIs. (The CSV library swap was evaluated and rejected — see §1.)
+13. **Source footprint** (§1 dependency policy): picocli for the CLIs. (The CSV library swap was evaluated and rejected — see §1.)
 14. **More source types** (§4): `bw-csv` (BankWest: positive debits, pending-row skipping) and `cba-csv` (CommBank: header-less, pre-signed amounts), each with its own golden file (+ test 1 for both).
 15. **`cba-pdf`** (§4): PDFBox extraction, frozen normalisation, page-furniture rule, golden file, and the cross-source test that a PDF row and the CSV row for the same transaction mint the same id.
+16. **Merge the web services** (§5.4): `trex-grid` + `trex-resolver` + the `trex-web` library become one `trex-web` service — no new features, every existing test green against the merged service.
+17. **Pins in their own file** (§5.6, §6): `pins.yaml`, `comment` as a field on rules and pins, split loading validated against the declared categories.
+18. **Worklist and pin writing** (§5.4): the uncategorised worklist with its evidence columns, generated rule YAML to paste, and `POST /api/pins`.
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 
@@ -621,6 +645,6 @@ Each component is small and single-purpose; keep trex-core free of any I/O so it
 
 ## 9. Explicitly out of scope here (later phases)
 
-Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR and bank-sync feed source types in trex-ingress (the CDR path is what an account with no CSV export needs); a per-account `sourceTypes` allowlist in the registry, enforced by the sequencer (add with the second source type); the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; an `expr` leaf inside a category rule's `when` (§5.6) if the predicate tree ever proves too weak — CEL preferred over JEXL there, because it type-checks at load and cannot side-effect, which keeps the "bad rule fails at startup" property; hot reload of `categories.yaml` (the grid already watches files); a machine-written `overrides.yaml` if pins ever outgrow hand editing (still consumer-side, still no journal line); an **immutable** `extras` map on `Candidate`/`CanonicalEvent`, stamped once at ingest and never updated, for fields trex does not model (CDR counterparty details, bank reference codes) — sorted keys for byte-stability, never in identity, and never a home for mutable annotations (§0.7); a recomputed category table in the SQLite mirror (a derived value must not be frozen into a log mirror, §0.7) and category totals in the grid footer; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
+Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR and bank-sync feed source types in trex-ingress (the CDR path is what an account with no CSV export needs); a per-account `sourceTypes` allowlist in the registry, enforced by the sequencer (add with the second source type); the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; an `expr` leaf inside a category rule's `when` (§5.6) if the predicate tree ever proves too weak — CEL preferred over JEXL there, because it type-checks at load and cannot side-effect, which keeps the "bad rule fails at startup" property; hot reload of `categories.yaml` and `pins.yaml` (the service already watches the journal the same way); a **second listener** on §5.4 so the read-only table can be exposed on another interface while decisions and config writes stay on loopback — the boundary the grid/resolver split used to provide (DECISIONS G10, W1); rule-health reports (hit count per rule, rules that never fire, pins matching nothing, merchants pinned often enough to deserve a rule); a machine-written `overrides.yaml` if pins ever outgrow hand editing (still consumer-side, still no journal line); an **immutable** `extras` map on `Candidate`/`CanonicalEvent`, stamped once at ingest and never updated, for fields trex does not model (CDR counterparty details, bank reference codes) — sorted keys for byte-stability, never in identity, and never a home for mutable annotations (§0.7); a recomputed category table in the SQLite mirror (a derived value must not be frozen into a log mirror, §0.7) and category totals in the grid footer; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
 
 **Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.yaml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.

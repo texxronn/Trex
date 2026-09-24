@@ -367,7 +367,7 @@ User asked for a plain, compact, read-only grid on the resolver's model (SSE, pa
 
 - G1–G9 accepted as proposed: Transactions/Journal views; compact column set with toggles; server-side multi-column sort with `n` tie-break; paging pinned to `asOfN` with a "new rows" chip and Follow mode; in-memory lines with cached query results; SSE carries head info only; URL-mirrored state; exact cents with per-currency totals; read-only security.
 - Basic filter & search only (account, state, type, date range, text). Declined for now: detail drawer, reconciliation/accounts/health panels, projection preview, transfers view, export.
-- G10 (a): separate `trex-grid` process + shared `trex-web` module extracted from the resolver (watcher, SSE, static serving, security headers). Lets the read-only grid be exposed differently from the action-taking resolver.
+- G10 (a): separate `trex-grid` process + shared `trex-web` module extracted from the resolver (watcher, SSE, static serving, security headers). Lets the read-only grid be exposed differently from the action-taking resolver. *(Reversed by W1: both ran on loopback, so that exposure boundary was never taken, and the split forced a cross-origin write path once the table needed to write a pin.)*
 - G11 Narrow screens (amends §5.5). The grid stays a table at every width: side-scrolling a dense table is the right shape for a journal, and cards would lose the column-to-column comparison the grid exists for. Only the chrome adapts — below 720px the header wraps with the view switcher on its own full-width row, search takes a full row, the column picker becomes a bottom sheet instead of a popover that runs off-screen, and the footer wraps with the pager kept on the right. Touch gets ≥36px controls and 16px form text. CSS only.
 - Fill-in: totals only in the Transactions view and excluding TRANSFER lines (legs carry the amounts; journal versions would double-count).
 
@@ -875,4 +875,67 @@ mis-read.
 - **28 rows in the full export need `occ > 0`** (identical date, amount and narration), against
   zero in the small one. Content-hash identity and the day-atomic batching rule (§2.5, §4) are
   load-bearing for this account, as S2 anticipated but could not demonstrate.
+
+## The web service, and who owns the rules (W)
+
+Prompted by asking how categorisation works as an ongoing monthly routine rather than a one-off.
+The answer needed one structural change and a settled ownership rule.
+
+### W1 — `trex-grid` and `trex-resolver` merge into `trex-web` (amends SPEC §1, §5.4, §5.5, §9)
+
+- **The split's reason was never exercised.** G10 separated them so the read-only table could be
+  exposed differently from the action-taking service. Both have always run published to
+  `127.0.0.1`, so the boundary was theoretical — while the cost became concrete the moment the
+  table needed to write a pin: two origins, and the resolver's CSRF guard rejects cross-origin
+  posts by design. The choices were to widen that guard, to split the UI across two windows, or
+  to stop having two origins. The third is the one that removes a problem rather than managing it.
+- **What merging buys beyond that:** one journal fold instead of two of the same journal, one set
+  of config files watched instead of two, one CSRF posture, one process and image (five runnable
+  modules, not six), and a UI where you categorise while browsing instead of correlating two tabs.
+- **What it costs, recorded honestly:** the read-only view can no longer be exposed on its own.
+  With no authentication (§9) the merged service must stay on loopback. §9 keeps the way back — a
+  second listener in the same process, serving read-only endpoints on another interface — so the
+  boundary is recoverable without re-splitting.
+- **The library becomes the service.** After the merge `trex-web` (watcher, SSE, static serving,
+  security headers) has exactly one consumer, so keeping it as a separate module would be
+  ceremony. Three modules collapse into one and the reactor goes from ten to eight.
+- **§5.5 is kept as a pointer rather than renumbered.** `§5.6` is referenced 37 times across 24
+  files; renaming it to save a gap in the numbering would be churn for nothing.
+
+### W2 — Two rule sets, never merged (restates §3.4 and §5.6 as one principle)
+
+`transfers.yaml` is read by the sequencer **at ingest** and decides journal *state*: HELD,
+MATCHED, EXTERNAL, and whether a TRANSFER line exists. `categories.yaml` is read by consumers **at
+read time** and decides nothing durable. The patterns can look alike — `Internal Transfer` matters
+to both — and the files still stay apart, because one is permanent and the other is free. Merging
+them would drag category tuning into the write path, where §3.2 means it could never be re-run.
+
+### W3 — Ownership splits by file: you own rules, the service owns pins (amends §5.4, §5.6, §6)
+
+- **Pins leave `categories.yaml` for `pins.yaml`.** Two facts decide it, neither of them taste:
+  the YAML mapper cannot round-trip `#` comments, so a machine rewriting `categories.yaml` would
+  destroy the notes that explain why `\bfees?\b` is anchored and why `INSURANCE` precedes
+  `BILLS`; and rule order is a judgement — a new specific rule usually has to *precede* a general
+  one — while pin order is irrelevant because pins match exact ids. A machine may only append
+  where appending is always correct, which is true of pins and false of rules.
+- **So the UI writes pins and generates rules.** Clicking "pin this" is friction-free because it
+  is safe; a rule arrives as YAML to paste, which is also the discipline that stops the rule set
+  overfitting one merchant at a time.
+- **`comment` becomes a field on both**, not a `#` comment. It survives a machine rewrite, and it
+  reaches the person asking "why is this GROCERIES?" through the UI rather than only the
+  maintainer reading the file.
+- **Both files stay in git.** The diff is the review — every over-broad pattern found so far
+  (`coffee` contains "fee", `Gregory Hill` contains "rego") was caught by reading one — and the
+  pair at a commit is the as-of history that §0.7 relies on instead of storing categories.
+
+### W4 — No rules service (considered, rejected for now)
+
+A service that *executes* rules was rejected outright: categorisation is a pure function with no
+failure mode today, and calling out per row would add latency, caching and an outage story to a
+regex match. A service that only *serves* rule content is more defensible — one writer, one
+reload point, central validation — but it still needs a local cached copy to start when the
+service is down, which reinstates the file, and if its store is not the git-tracked file then the
+reviewable diff is lost, which is the argument that already defeated SQLite for this data. At one
+machine and one writer it earns nothing. `Categorizer` stays the seam (C4): a `ServiceCategorizer`
+can replace `RuleCategorizer` later without touching a consumer.
 
