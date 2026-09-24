@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import trex.category.Categorized;
 import trex.category.Categorizer;
 import trex.category.CategoryRules;
+import trex.category.Merchant;
 import trex.category.Transfers;
 import trex.core.Candidate;
 import trex.core.CandidateResult;
@@ -29,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,7 +74,8 @@ class DryRunTest {
         Path configDir = path(manifest.config() == null ? "../deploy/config" : manifest.config());
         int batchRows = manifest.batchRows() == null ? Integer.MAX_VALUE : manifest.batchRows();
         Config config = Config.load(configDir);
-        Categorizer categorizer = CategoryRules.load(configDir.resolve("categories.yaml"));
+        Categorizer categorizer = CategoryRules.load(
+            configDir.resolve("categories.yaml"), configDir.resolve("pins.yaml"));
 
         StringBuilder out = new StringBuilder();
         line(out, "=== dry run: %d file(s), config %s ===", manifest.files().size(), configDir.toAbsolutePath());
@@ -158,7 +159,7 @@ class DryRunTest {
             counts.computeIfAbsent(c.category(), _ -> new int[1])[0]++;
             totals.computeIfAbsent(c.category(), _ -> new long[1])[0] += e.amount();
             if (c.origin() == Categorized.Origin.NONE) {
-                String merchant = merchant(e.rawDescription());
+                String merchant = Merchant.stem(e.rawDescription());
                 worklist.merge(merchant, 1, Integer::sum);
                 worklistSpend.merge(merchant, e.amount(), Long::sum);
             }
@@ -179,14 +180,6 @@ class DryRunTest {
                 line(out, "%6s %14s  ... %d more distinct merchants", "", "", worklist.size() - WORKLIST);
             }
         }
-    }
-
-    /** Strip the per-transaction tail banks append, so the same shop groups as one merchant. */
-    private static final Pattern TAIL = Pattern.compile(" - Visa Purchase| - Receipt|\\s{2,}");
-
-    private static String merchant(String rawDescription) {
-        String head = TAIL.split(rawDescription, 2)[0];
-        return head.replaceAll("\\s+", " ").strip();
     }
 
     private static Manifest manifest() {

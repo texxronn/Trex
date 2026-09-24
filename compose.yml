@@ -47,10 +47,15 @@ configs:
     file: ./deploy/config/accounts.yaml
   transfers.yaml:
     file: ./deploy/config/transfers.yaml
-  # Read by the resolver and the grid, never by the sequencer: a category is derived,
-  # not journalled (SPEC.md §0.7).
+  # Read by the web service, never by the sequencer: a category is derived, not
+  # journalled (SPEC.md §0.7).
   categories.yaml:
     file: ./deploy/config/categories.yaml
+  # One-off overrides (SPEC.md §6). A docker config is mounted read-only, which is
+  # correct while pins are hand-written; trex-gateway (§5.7) writes this file, so it
+  # will need a bind mount rather than a config when that lands.
+  pins.yaml:
+    file: ./deploy/config/pins.yaml
 
 volumes:
   journal:
@@ -159,6 +164,8 @@ services:
     configs:
       - source: categories.yaml
         target: /etc/trex/categories.yaml
+      - source: pins.yaml
+        target: /etc/trex/pins.yaml
     volumes:
       - journal:/var/lib/trex/journal:ro
     ports:

@@ -20,8 +20,10 @@ svc_start() {
     [ -n "$url" ] || url="http://$TREX_BIND:$TREX_SEQ_PORT"
     local args=(--journal "$(in_run "$JOURNAL")" --sequencer-url "$url"
         --bind "$TREX_BIND" --port "$TREX_WEB_PORT" --poll-ms "$POLL_MS")
-    # Categories come from the config directory; without it every row reads
-    # UNCATEGORIZED (SPEC.md §5.6). Edit the rules and restart to recategorise.
+    # Categories come from the config directory — categories.yaml for the rules,
+    # pins.yaml for the one-off overrides (SPEC.md §5.6, §6). Without it every row
+    # reads UNCATEGORIZED. Edit either file and restart to recategorise; hot reload
+    # arrives with trex-gateway (§5.7).
     [ -d "$CONFIG" ] && args+=(--config "$CONFIG")
     run_fg web "${args[@]}"
 }

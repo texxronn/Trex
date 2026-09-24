@@ -38,7 +38,7 @@ public final class Main implements Callable<Integer> {
     private URI sequencerUrl;
 
     @Option(names = "--config", paramLabel = "<dir>",
-        description = "Directory holding categories.yaml (SPEC §5.6). Without it every row reads UNCATEGORIZED.")
+        description = "Directory holding categories.yaml and pins.yaml (SPEC §6). Without it every row reads UNCATEGORIZED.")
     private Path config;
 
     @Option(names = "--port", description = "(default: ${DEFAULT-VALUE})")
@@ -67,7 +67,7 @@ public final class Main implements Callable<Integer> {
         // still works and says, honestly, that nothing has been categorised yet.
         Categorizer categorizer = config == null
             ? new RuleCategorizer(List.of(), List.of(), List.of())
-            : CategoryRules.load(config.resolve("categories.yaml"));
+            : CategoryRules.load(config.resolve("categories.yaml"), config.resolve("pins.yaml"));
 
         JournalWatcher<JournalView> watcher =
             new JournalWatcher<>(journal, Clock.systemUTC(), CombinedFold::new).start(pollMs);

@@ -61,7 +61,8 @@ Web UI: <http://127.0.0.1:8090>  ·  worklist at <http://127.0.0.1:8090/resolve>
 | `config/sequencer.yaml` | trex-sequencer | YAML, `bindPort` + `journal:` |
 | `config/accounts.yaml` | trex-sequencer | YAML, the account registry |
 | `config/transfers.yaml` | trex-sequencer | YAML, allowlist + `windowDays` |
-| `config/categories.yaml` | trex-web | YAML, master category rules + pins |
+| `config/categories.yaml` | trex-web | YAML, master category rules — hand-written, ordered |
+| `config/pins.yaml` | trex-web | YAML, one-off overrides — order-independent, machine-writable |
 | `config/egress-archive.env` | trex-egress-archive | shell vars → CLI flags |
 | `config/egress-sqlite.env` | trex-egress-sqlite | shell vars → CLI flags |
 | `config/web.env` | trex-web | shell vars → CLI flags |

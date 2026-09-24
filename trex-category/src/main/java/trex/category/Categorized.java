@@ -29,13 +29,21 @@ public record Categorized(String category, Origin origin, Rule rule) {
         return new Categorized(Categories.UNCATEGORIZED, Origin.NONE, null);
     }
 
-    /** How the firing rule should read in a UI: "pin #2" / "rule #7 (GROCERIES)". */
+    /**
+     * How the firing rule should read in a UI: "rule #7 (GROCERIES)", with the entry's own
+     * {@code comment} appended when it has one — "rule #7 (GROCERIES) — the two big chains".
+     */
     public String explain() {
         return switch (origin) {
             case STRUCTURAL -> "transfer (from the journal, not a rule)";
             case NONE -> "no rule matched";
-            case PIN -> "pin #" + rule.index() + " (" + rule.category() + ")";
-            case RULE -> "rule #" + rule.index() + " (" + rule.category() + ")";
+            case PIN, RULE -> rule.where() + " (" + rule.category() + ")"
+                + (comment() == null ? "" : " — " + comment());
         };
+    }
+
+    /** The firing entry's comment, or null when nothing fired or it carries none. */
+    public String comment() {
+        return rule == null ? null : rule.comment();
     }
 }

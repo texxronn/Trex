@@ -1,0 +1,23 @@
+# Pins — one-off category corrections. SPEC.md §5.6, §6.
+#
+# A pin is an ordinary rule whose condition is an exact `externalId` list, evaluated BEFORE every
+# rule in categories.yaml. Two jobs:
+#   - the transaction no sensible rule would catch (a one-off you still want counted)
+#   - the override, when a rule is right about thirty rows and wrong about this one
+#
+# This file is written by trex-gateway (§5.7) as well as by hand. That is why `comment` is a
+# field here and not a `#` comment: a `#` line cannot survive a machine rewrite, and the comment
+# is shown in the UI beside the category it explains.
+#
+# Order does not matter — pins match exact ids, so at most one can fire for a transaction.
+# Listing the same id twice is a warning at load: the second can never fire.
+#
+# The category must be declared in categories.yaml; that file owns the vocabulary.
+#
+#   pins:
+#     - category: GROCERIES
+#       comment: "the Dec 14 Costco run was food, not the usual fuel"
+#       when:
+#         externalId: ["a1b2c3d4e5f6a7b8"]
+
+pins: []

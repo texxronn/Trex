@@ -14,10 +14,14 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
- * Loads {@code categories.yaml} (SPEC §6) into a {@link RuleCategorizer}. The sequencer never
- * calls this: categories belong to journal consumers (§0.7).
+ * Loads {@code categories.yaml} and {@code pins.yaml} (SPEC §6) into a {@link RuleCategorizer}.
+ * The sequencer never calls this: categories belong to journal consumers (§0.7).
  * <p>
- * Everything that can be wrong is wrong at load, with the rule named: an undeclared or reserved
+ * Two files, because they are two different things: rules are ordered and general, pins are
+ * unordered and exact. {@code categories.yaml} is read first — it owns the vocabulary, and a pin
+ * naming a category nobody declared is an error against the file that failed to declare it.
+ * <p>
+ * Everything that can be wrong is wrong at load, with the entry named: an undeclared or reserved
  * category, an uncompilable regex, an empty condition, or an inverted amount range. A rule wholly
  * shadowed by an earlier one is a warning, not an error — it is usually a mistake, but a harmless one.
  */
@@ -27,18 +31,36 @@ public final class CategoryRules {
 
     private CategoryRules() {}
 
-    /** The file as written; bound strictly, so an unknown or duplicated key fails here. */
+    /** {@code categories.yaml} as written; bound strictly, so an unknown or duplicated key fails here. */
     record File(List<String> categories, List<RuleEntry> pins, List<RuleEntry> rules) {}
 
-    record RuleEntry(String category, WhenEntry when) {}
+    /** {@code pins.yaml} as written. */
+    record PinsFile(List<RuleEntry> pins) {}
+
+    record RuleEntry(String category, String comment, WhenEntry when) {}
 
     record WhenEntry(List<WhenEntry> all, List<WhenEntry> any, WhenEntry not,
                      List<String> externalId, String match, String matchOn,
                      String direction, List<String> accounts, Long amountMin, Long amountMax) {}
 
-    public static Categorizer load(Path file) {
-        File parsed = Yaml.read(file, File.class);
-        String where = file.getFileName().toString();
+    /** Rules only, no pins — for a fixture or a consumer that has none. */
+    public static Categorizer load(Path categoriesFile) {
+        return load(categoriesFile, null);
+    }
+
+    /**
+     * @param pinsFile {@code pins.yaml}, or null. A missing file is not an error: pins are optional
+     *                 by nature and the file does not exist until the first one is written (§5.7).
+     */
+    public static Categorizer load(Path categoriesFile, Path pinsFile) {
+        File parsed = Yaml.read(categoriesFile, File.class);
+        String where = categoriesFile.getFileName().toString();
+
+        // The key still binds, so the migration gets a pointed message instead of Jackson's.
+        if (parsed.pins() != null && !parsed.pins().isEmpty()) {
+            throw new IllegalArgumentException(
+                where + ": pins now live in their own file, pins.yaml (§6) — move the 'pins' block there");
+        }
 
         if (parsed.categories() == null || parsed.categories().isEmpty()) {
             throw new IllegalArgumentException(where + ": 'categories' must declare at least one category");
@@ -56,13 +78,23 @@ public final class CategoryRules {
             }
         }
 
-        List<Rule> pins = compile(where, "pin", parsed.pins(), declared);
         List<Rule> rules = compile(where, "rule", parsed.rules(), declared);
-        warnOnShadowedPins(where, pins);
+        List<Rule> pins = loadPins(pinsFile, declared);
+        warnOnShadowedPins(pins);
 
-        log.info("categories loaded from {}: {} categories, {} pins, {} rules",
-            file, declared.size(), pins.size(), rules.size());
+        log.info("categories loaded: {} categories and {} rules from {}, {} pins from {}",
+            declared.size(), rules.size(), categoriesFile, pins.size(),
+            pinsFile == null ? "(none)" : pinsFile);
         return new RuleCategorizer(List.copyOf(declared), pins, rules);
+    }
+
+    /** Pins are validated against the vocabulary {@code categories.yaml} declares, never their own. */
+    private static List<Rule> loadPins(Path pinsFile, Set<String> declared) {
+        if (pinsFile == null || !java.nio.file.Files.exists(pinsFile)) {
+            return List.of();
+        }
+        PinsFile parsed = Yaml.read(pinsFile, PinsFile.class);
+        return compile(pinsFile.getFileName().toString(), "pin", parsed.pins(), declared);
     }
 
     private static List<Rule> compile(String where, String kind, List<RuleEntry> entries, Set<String> declared) {
@@ -83,12 +115,13 @@ public final class CategoryRules {
             }
             if (!declared.contains(e.category())) {
                 throw new IllegalArgumentException(
-                    at + ": category '" + e.category() + "' is not declared in 'categories'");
+                    at + ": category '" + e.category() + "' is not declared in categories.yaml");
             }
             if (e.when() == null) {
                 throw new IllegalArgumentException(at + ": missing 'when'");
             }
-            out.add(new Rule(index, "pin".equals(kind), e.category(), condition(at, e.when())));
+            String comment = e.comment() == null || e.comment().isBlank() ? null : e.comment().strip();
+            out.add(new Rule(index, "pin".equals(kind), e.category(), comment, condition(at, e.when())));
         }
         return List.copyOf(out);
     }
@@ -171,14 +204,14 @@ public final class CategoryRules {
     }
 
     /** A pin listed twice for the same id can never fire the second time; say so at load. */
-    private static void warnOnShadowedPins(String where, List<Rule> pins) {
+    private static void warnOnShadowedPins(List<Rule> pins) {
         Set<String> seen = new LinkedHashSet<>();
         for (Rule pin : pins) {
             if (pin.when() instanceof Condition.ExternalId(Set<String> ids)) {
                 for (String id : ids) {
                     if (!seen.add(id)) {
-                        log.warn("{} pin #{}: externalId {} is already pinned by an earlier pin and will never fire",
-                            where, pin.index(), id);
+                        log.warn("pins.yaml pin #{}: externalId {} is already pinned by an earlier pin and will never fire",
+                            pin.index(), id);
                     }
                 }
             }

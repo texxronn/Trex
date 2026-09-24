@@ -27,14 +27,14 @@ categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHD
              HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, SHOPPING, BILLS, TAXES, SAVINGS,
              DISCRETIONARY]
 
-# One-off corrections, evaluated before the rules below. Same mechanism, kept
-# separate so the hand-written rules stay readable.
-pins: []
+# One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
+# hand-written and ordered, that one is written by trex-gateway and order-independent.
 
 # Order is the decision: first match wins. The narrow rules come first, so a line naming
 # both a specific merchant and a generic word lands where it belongs.
 rules:
   - category: SALARY
+    comment: "pay coming in — salary, payroll or wages, either earner"
     when:
       all:
         - direction: in
@@ -42,6 +42,7 @@ rules:
 
   # Interest EARNED (direction in) as against INTEREST_PAID below.
   - category: INTEREST_EARNED
+    comment: "interest and dividends credited to an account"
     when:
       all:
         - direction: in
@@ -53,6 +54,7 @@ rules:
   #   "PURCHASE INTEREST" · "Interest Charge - Receipt No …" · "Interest charge – Revolving"
   #   (note the en dash) · "Debit Excess Interest"
   - category: INTEREST_PAID
+    comment: "interest you pay: card purchase interest, loan and excess-interest charges"
     when:
       all:
         - direction: out
@@ -63,6 +65,7 @@ rules:
   # The `not` clause matters too: ING writes cash withdrawals with an "ATM owner fee of $0.00"
   # suffix, so the word appears on rows that are withdrawals, not fees.
   - category: FEES
+    comment: "what the bank charges: account keeping, overdraw, late payment, dishonour"
     when:
       all:
         - direction: out
@@ -73,6 +76,7 @@ rules:
   # Visa and immigration charges. NEVER the bare word "visa": every ING card row says
   # "Visa Purchase", so that would swallow the entire credit-card statement.
   - category: VISA_FEES
+    comment: "visa and immigration charges, never the word on a card row"
     when:
       all:
         - direction: out
@@ -82,6 +86,7 @@ rules:
   # $0.00" — the row is a withdrawal that mentions a fee, not a fee. Honest at master level:
   # once it is cash, the statement cannot say what it bought.
   - category: CASH_WITHDRAW
+    comment: "cash out of an ATM — at master level the statement cannot say what it bought"
     when:
       all:
         - direction: out
@@ -89,6 +94,7 @@ rules:
 
   # Before BILLS, which also matches the word "insurance"; these providers never write it.
   - category: INSURANCE
+    comment: "insurance premiums, by provider name"
     when:
       all:
         - direction: out
@@ -96,6 +102,7 @@ rules:
 
   # Recurring services. Before SHOPPING, so AMAZON WEB SERVICES is hosting rather than retail.
   - category: SUBSCRIPTIONS
+    comment: "recurring services billed monthly or yearly"
     when:
       all:
         - direction: out
@@ -106,6 +113,7 @@ rules:
   # FUEL because they are a cost of the trip, not of the car; move them if you would rather
   # see one driving total.
   - category: TRANSPORT
+    comment: "trains, tolls and rideshare — the everyday way of getting about"
     when:
       all:
         - direction: out
@@ -116,6 +124,7 @@ rules:
   # GAS is fuel while COSTCO WHOLESALE stays the weekly shop.
   # \bshell\b, never bare "shell": SHELLHARBOUR is a suburb that appears in these statements.
   - category: FUEL
+    comment: "petrol, kept apart from TRANSPORT because trains are the primary transport"
     when:
       all:
         - direction: out
@@ -123,6 +132,7 @@ rules:
 
   # Keeping the car on the road: servicing, repairs, tyres, rego. Fuel stays separate.
   - category: VEHICLE
+    comment: "keeping the car on the road: rego, servicing, parts"
     when:
       all:
         - direction: out
@@ -131,6 +141,7 @@ rules:
         - match: "bluegum|autocare|auto care|mechanical|\\btyres?\\b|service centre|\\brego\\b|registration|smash repair"
 
   - category: GROCERIES
+    comment: "supermarkets, grocers and the bulk shops"
     when:
       match: "woolworths|coles|aldi|iga|foodland|costco wholesale|minto fruit|bakers flour|glenfield bakery|best meats"
 
@@ -138,6 +149,7 @@ rules:
   # NOT here — a restaurant meal is the thing you would cut, so it sits in DISCRETIONARY,
   # and Firefly can split café from restaurant downstream if the detail is ever wanted.
   - category: FOOD
+    comment: "eating out: cafes, bakeries, takeaway and restaurants"
     when:
       all:
         - direction: out
@@ -146,12 +158,14 @@ rules:
   # School fees, before CHILDCARE: the school and the after-school care share a name, and
   # they are different money — "COM*HolyFamilyCathol" against "Direct Debit … Holy Family OOSH".
   - category: SCHOOL_FEES
+    comment: "school fees and school-billed extras"
     when:
       all:
         - direction: out
         - match: "holyfamilycatho|school fees|tuition"
 
   - category: CHILDCARE
+    comment: "childcare and after-school care"
     when:
       all:
         - direction: out
@@ -159,6 +173,7 @@ rules:
 
   # Over the counter: pharmacy and the like.
   - category: HEALTH_SUPPLIES
+    comment: "chemists and health supplies"
     when:
       all:
         - direction: out
@@ -166,6 +181,7 @@ rules:
 
   # Seeing someone: GP, dental, optical, physio, specialists.
   - category: HEALTH
+    comment: "medical: doctors, dentists, specialists, health funds"
     when:
       all:
         - direction: out
@@ -173,6 +189,7 @@ rules:
 
   # Gyms, pools, leisure centres and the kids' sport clubs.
   - category: SPORT_AND_LEISURE
+    comment: "sport, activities and the kids' clubs"
     when:
       all:
         - direction: out
@@ -181,6 +198,7 @@ rules:
   # Hardware and the house, tracked apart from general retail. Only the chain seen in the
   # data so far; adding another is a config edit, not a code change.
   - category: HOME_IMPROVEMENT
+    comment: "hardware and the house — tracked apart from SHOPPING on purpose"
     when:
       all:
         - direction: out
@@ -188,22 +206,26 @@ rules:
 
   # Retail, including the op shops.
   - category: SHOPPING
+    comment: "general retail that no narrower rule claimed"
     when:
       all:
         - direction: out
         - match: "amazon au|amazon pay india|kmart|big ?w|target [0-9]|st vincent de paul|vinnies|salvos|myer|ikea|just ?group|ebay au|alipayaustr|hmhennesmau|kathmandupt"
 
   - category: BILLS
+    comment: "household bills: power, water, phone, internet, council"
     when:
       match: "electricity|water corp|sydney water|internet|mobile|rent|mortgage|subscription|agl sales|agl retail|telco payment|telstralimi"
 
   - category: TAXES
+    comment: "tax paid to the ATO or to Revenue NSW"
     when:
       match: "\\bATO\\b|australian taxation|tax office"
 
   # Money leaving for an external investment or savings provider. Moves between
   # your own accounts are structurally TRANSFER and never reach this rule.
   - category: SAVINGS
+    comment: "money moved deliberately into savings"
     when:
       all:
         - direction: out
@@ -212,6 +234,7 @@ rules:
   # Everyday discretionary spend: restaurants, pubs, clubs, cinemas. Last, so every specific
   # rule above wins first.
   - category: DISCRETIONARY
+    comment: "the wants rather than the needs"
     when:
       all:
         - direction: out

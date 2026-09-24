@@ -45,9 +45,20 @@ class CategorizerTest {
         """;
 
     private Categorizer load(String yaml) throws IOException {
-        Path file = dir.resolve("categories.yaml");
-        Files.writeString(file, yaml);
-        return CategoryRules.load(file);
+        return load(yaml, null);
+    }
+
+    /** Two files, as SPEC §6 ships them: the vocabulary and the rules here, the pins there. */
+    private Categorizer load(String categoriesYaml, String pinsYaml) throws IOException {
+        Path categories = dir.resolve("categories.yaml");
+        Files.writeString(categories, categoriesYaml);
+        Path pins = dir.resolve("pins.yaml");
+        if (pinsYaml != null) {
+            Files.writeString(pins, pinsYaml);
+        } else {
+            Files.deleteIfExists(pins);
+        }
+        return CategoryRules.load(categories, pins);
     }
 
     static CanonicalEvent line(String id, long amount, String rawDescription) {
@@ -106,22 +117,80 @@ class CategorizerTest {
     void pinBeatsAGeneralRuleAndIsExplained() throws IOException {
         Categorizer c = load("""
             categories: [SALARY, GROCERIES]
-            pins:
-              - category: SALARY
-                when: {externalId: ["abc123"]}
             rules:
               - category: GROCERIES
+                comment: "the two big chains"
                 when:
                   match: "woolworths"
+            """, """
+            pins:
+              - category: SALARY
+                comment: "reimbursed by work, not a grocery run"
+                when: {externalId: ["abc123"]}
             """);
         Categorized pinned = c.categorize(line("abc123", -8500, "WOOLWORTHS 1234"), Set.of());
         assertEquals("SALARY", pinned.category());
         assertEquals(Categorized.Origin.PIN, pinned.origin());
-        assertEquals("pin #1 (SALARY)", pinned.explain());
+        assertEquals("reimbursed by work, not a grocery run", pinned.comment());
+        assertEquals("pin #1 (SALARY) — reimbursed by work, not a grocery run", pinned.explain());
 
         Categorized byRule = c.categorize(line("other", -8500, "WOOLWORTHS 1234"), Set.of());
         assertEquals("GROCERIES", byRule.category());
-        assertEquals("rule #1 (GROCERIES)", byRule.explain());
+        assertEquals("rule #1 (GROCERIES) — the two big chains", byRule.explain());
+    }
+
+    /** SPEC §6: the pins block moved out, and the old shape gets a pointed message, not a stack trace. */
+    @Test
+    void pinsInsideCategoriesYamlAreRejectedWithTheMigration() throws IOException {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> load("""
+            categories: [SALARY]
+            pins:
+              - category: SALARY
+                when: {externalId: ["abc123"]}
+            rules: []
+            """));
+        assertTrue(e.getMessage().contains("pins.yaml"), e.getMessage());
+    }
+
+    /** categories.yaml owns the vocabulary; a pin naming something undeclared fails, naming its file. */
+    @Test
+    void aPinMustUseADeclaredCategory() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> load("""
+            categories: [GROCERIES]
+            rules: []
+            """, """
+            pins:
+              - category: HOLIDAYS
+                when: {externalId: ["abc123"]}
+            """));
+        assertTrue(e.getMessage().startsWith("pins.yaml pin #1"), e.getMessage());
+        assertTrue(e.getMessage().contains("not declared in categories.yaml"), e.getMessage());
+    }
+
+    /** Pins are optional by nature: the file does not exist until the first one is written (§5.7). */
+    @Test
+    void aMissingPinsFileIsNotAnError() throws IOException {
+        Categorizer c = load("""
+            categories: [GROCERIES]
+            rules:
+              - category: GROCERIES
+                when: {match: "woolworths"}
+            """);
+        assertEquals("GROCERIES", c.categorize(line("x", -100, "WOOLWORTHS"), Set.of()).category());
+    }
+
+    /** A comment is optional; without one the explanation is just the entry and its category. */
+    @Test
+    void anEntryWithoutACommentExplainsWithoutOne() throws IOException {
+        Categorizer c = load("""
+            categories: [GROCERIES]
+            rules:
+              - category: GROCERIES
+                when: {match: "woolworths"}
+            """);
+        Categorized r = c.categorize(line("x", -100, "WOOLWORTHS"), Set.of());
+        assertEquals("rule #1 (GROCERIES)", r.explain());
+        assertEquals(null, r.comment());
     }
 
     @Test
@@ -199,7 +268,9 @@ class CategorizerTest {
 
     @Test
     void theShippedRulesFileLoads() {
-        Categorizer c = CategoryRules.load(Path.of("..", "deploy", "config", "categories.yaml"));
+        Categorizer c = CategoryRules.load(
+            Path.of("..", "deploy", "config", "categories.yaml"),
+            Path.of("..", "deploy", "config", "pins.yaml"));
         assertEquals(List.of("SALARY", "INTEREST_EARNED", "INTEREST_PAID", "FEES", "VISA_FEES",
             "CASH_WITHDRAW", "INSURANCE", "SUBSCRIPTIONS", "TRANSPORT", "FUEL", "VEHICLE", "GROCERIES",
             "FOOD", "SCHOOL_FEES", "CHILDCARE", "HEALTH_SUPPLIES", "HEALTH", "SPORT_AND_LEISURE",

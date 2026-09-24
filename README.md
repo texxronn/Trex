@@ -98,15 +98,16 @@ java -jar trex-web/target/trex-web-0.1.0-SNAPSHOT-all.jar \
 
 The sequencer takes a config directory containing three YAML files, bound straight to
 records: an unknown key, a duplicated key or a wrong type fails at startup. Samples live
-in [`deploy/config`](deploy/config). `categories.yaml` sits beside them but belongs to the
-journal consumers, not the sequencer.
+in [`deploy/config`](deploy/config). `categories.yaml` and `pins.yaml` sit beside them but
+belong to the journal consumers, not the sequencer.
 
 | File | Contents |
 |---|---|
 | `sequencer.yaml` | `bindHost` (default `127.0.0.1`), `bindPort`, `journal:` `source` / `target` |
 | `accounts.yaml` | `accounts:` entries: `ref`, `currency` (`AUD`/`USD`/`INR`), `fireflyAccountId` |
 | `transfers.yaml` | `windowDays` (required), `allowlist` of case-insensitive regexes for transfer-shaped descriptions |
-| `categories.yaml` | master category rules, read by the resolver and grid only — never by the sequencer |
+| `categories.yaml` | master category rules — ordered, hand-written; read by journal consumers only, never by the sequencer |
+| `pins.yaml` | one-off category overrides, evaluated before every rule; order-independent and safe for a machine to write |
 
 Relative paths in `sequencer.yaml` resolve against the config directory. Unknown and
 duplicated keys are errors, and a leftover `.toml` is refused rather than ignored.
@@ -188,8 +189,9 @@ a leg that resolves to `EXTERNAL` today cannot be re-matched tomorrow.
 
 Every transaction has a master category — `GROCERIES`, `SALARY` and so on — and **none of it
 is in the journal**. The web service derives it from
-[`categories.yaml`](deploy/config/categories.yaml) each time they read, so editing a rule
-recategorises all of history without writing a single journal line. Fine-grained
+[`categories.yaml`](deploy/config/categories.yaml) and [`pins.yaml`](deploy/config/pins.yaml)
+each time it reads, so editing a rule recategorises all of history without writing a single
+journal line. Fine-grained
 categorisation stays downstream in Firefly.
 
 The order is fixed: a transfer (or one of its legs) is `TRANSFER`, from the journal itself
@@ -199,12 +201,19 @@ then `UNCATEGORIZED`, which is never a guess and doubles as the list of rules st
 Rules are data, not expressions. A rule is a category plus a `when` tree of `all` / `any` /
 `not` over `match` (case-insensitive regex, `matchOn: raw` by default), `direction`,
 `accounts`, `amountMin` / `amountMax`, and `externalId` — the last being how a one-off
-correction, a *pin*, is written. A bad regex or an undeclared category fails at startup,
-naming the rule.
+correction, a *pin*, is written. Every rule and pin also carries a `comment` — a field, not a
+`#` line, so it survives a machine rewrite and can be shown beside the category it explains.
+A bad regex or an undeclared category fails at startup, naming the entry.
 
-Correcting a category means editing that file, not clicking a button: the resolver shows
-each row's category and the exact pin snippet to paste, and `POST /decisions` has no
-category action. Git keeps the history.
+The two files are split by owner. `categories.yaml` is hand-written: ordered, commented,
+reviewed in a diff, and order *is* the decision because the first matching rule wins.
+`pins.yaml` holds exact-id overrides, where order cannot matter, which is what makes it safe
+for a machine to write.
+
+Correcting a category is a config edit, never a journal decision — `POST /decisions` has no
+category action, and git keeps the history. Today the UI shows each row's category, why it got
+it, and hands over the pin snippet to paste; the write path that removes the copy-paste is
+specified in §5.7 and not yet built.
 
 ## Sequencer API
 
