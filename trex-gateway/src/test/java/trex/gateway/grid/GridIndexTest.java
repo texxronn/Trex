@@ -129,4 +129,25 @@ class GridIndexTest {
         GridIndex.Page p2 = q("size=2&page=1");
         assertSame(p1.totals(), p2.totals());
     }
+
+    /**
+     * A projector asks "what moved since n?" and must be told about a transaction whose STATE
+     * changed, even though it saw the transaction before. In the transactions view the row is the
+     * latest line, so filtering on that line's n is what makes a HELD row becoming EXTERNAL show
+     * up — the change is the news, not the first sighting.
+     */
+    @Test
+    void sinceNSelectsByTheLatestLine() {
+        long head = data.lines().getLast().n();
+        assertEquals(0, index.query(data, query("sinceN=" + head)).total(),
+            "nothing is newer than the head");
+
+        int all = index.query(data, query(null)).total();
+        assertEquals(all, index.query(data, query("sinceN=0")).total(),
+            "everything is newer than 0");
+    }
+
+    private static GridQuery query(String raw) {
+        return GridQuery.parse(raw);
+    }
 }

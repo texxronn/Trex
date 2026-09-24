@@ -142,6 +142,12 @@ final class GridIndex {
     }
 
     private static boolean matches(CanonicalEvent e, GridQuery.Filters f) {
+        // In the transactions view this is the LATEST line's n, so a transaction whose state
+        // changed comes back even though it was seen before — which is what a projector needs:
+        // the change is the news, not the first sighting.
+        if (f.sinceN() != null && e.n() <= f.sinceN()) {
+            return false;
+        }
         if (f.account() != null && !f.account().equals(e.accountRef()) && !f.account().equals(e.toAccountRef())) {
             return false;
         }

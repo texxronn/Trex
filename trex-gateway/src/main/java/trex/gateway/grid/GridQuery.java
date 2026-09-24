@@ -19,9 +19,15 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
 
     record SortKey(String column, boolean descending) {}
 
-    /** Everything that selects rows (part of the cache key). */
+    /**
+     * Everything that selects rows (part of the cache key).
+     *
+     * @param sinceN only rows with {@code n > sinceN}. For a consumer that has already seen
+     *               everything up to a point and wants what moved — the Firefly egress pages the
+     *               whole journal otherwise, every poll, to find the handful of new units (§5.8).
+     */
     record Filters(String account, EventState state, TypeHint type, String category,
-                   LocalDate from, LocalDate to, String q) {}
+                   LocalDate from, LocalDate to, String q, Long sinceN) {}
 
     static final int DEFAULT_SIZE = 50;
     static final int MAX_SIZE = 500;
@@ -64,6 +70,17 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
         if (asOfN != null && asOfN < 0) {
             throw new IllegalArgumentException("asOfN must be >= 0");
         }
+        Long sinceN = null;
+        if (blankToNull(p.get("sinceN")) != null) {
+            try {
+                sinceN = Long.parseLong(p.get("sinceN"));
+            } catch (NumberFormatException _) {
+                throw new IllegalArgumentException("sinceN must be an integer");
+            }
+            if (sinceN < 0) {
+                throw new IllegalArgumentException("sinceN must be >= 0");
+            }
+        }
         Filters filters = new Filters(
             blankToNull(p.get("account")),
             enumParam(EventState.class, p.get("state"), "state"),
@@ -71,7 +88,8 @@ record GridQuery(View view, List<SortKey> sort, int page, int size, Long asOfN, 
             blankToNull(p.get("category")),
             dateParam(p.get("from"), "from"),
             dateParam(p.get("to"), "to"),
-            blankToNull(p.get("q")) == null ? null : p.get("q").strip().toLowerCase());
+            blankToNull(p.get("q")) == null ? null : p.get("q").strip().toLowerCase(),
+            sinceN);
         return new GridQuery(view, List.copyOf(sort), page, size, asOfN, filters);
     }
 

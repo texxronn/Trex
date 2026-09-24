@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>trex</groupId>
+    <artifactId>trex</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>trex-egress-firefly</artifactId>
+
+  <!-- Not a log mirror: it projects resolved units through trex-gateway (SPEC §5.8).
+
+       trex-category is here for ONE class, Merchant.stem — the counterparty account name has to
+       be the same string the worklist groups by, and duplicating that logic is what putting it in
+       a library was meant to prevent. The evaluator is NOT used and must not be: categories
+       arrive from the gateway already derived, and deriving them again here would be a second
+       opinion on the same question (§5.6). -->
+  <dependencies>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-journal</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-category</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>info.picocli</groupId>
+      <artifactId>picocli</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>all</shadedClassifierName>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>trex.egress.firefly.Main</mainClass>
+                </transformer>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>META-INF/MANIFEST.MF</exclude>
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/versions/*/module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <configuration>
+          <skip>false</skip>
+          <to><image>${trex.image.prefix}/egress-firefly:${trex.image.tag}</image></to>
+          <container><mainClass>trex.egress.firefly.Main</mainClass></container>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

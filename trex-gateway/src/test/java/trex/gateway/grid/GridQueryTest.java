@@ -18,7 +18,19 @@ class GridQueryTest {
         assertEquals(1, q.page());
         assertEquals(50, q.size());
         assertNull(q.asOfN());
-        assertEquals(new GridQuery.Filters(null, null, null, null, null, null, null), q.filters());
+        assertEquals(new GridQuery.Filters(null, null, null, null, null, null, null, null), q.filters());
+    }
+
+    /** What a projector asks for: everything that moved past a point it has already seen. */
+    @Test
+    void parsesSinceN() {
+        assertEquals(1883L, GridQuery.parse("sinceN=1883").filters().sinceN());
+        assertNull(GridQuery.parse("sinceN=").filters().sinceN());
+        assertNull(GridQuery.parse(null).filters().sinceN());
+        assertEquals("sinceN must be an integer",
+            assertThrows(IllegalArgumentException.class, () -> GridQuery.parse("sinceN=soon")).getMessage());
+        assertEquals("sinceN must be >= 0",
+            assertThrows(IllegalArgumentException.class, () -> GridQuery.parse("sinceN=-1")).getMessage());
     }
 
     @Test

@@ -18,6 +18,7 @@
     <module>trex-egress-sqlite</module>
     <module>trex-gateway</module>
     <module>trex-web</module>
+    <module>trex-egress-firefly</module>
     <module>trex-category</module>
   </modules>
 
