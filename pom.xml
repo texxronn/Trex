@@ -16,6 +16,7 @@
     <module>trex-ingress</module>
     <module>trex-egress-archive</module>
     <module>trex-egress-sqlite</module>
+    <module>trex-gateway</module>
     <module>trex-web</module>
     <module>trex-category</module>
   </modules>
@@ -75,6 +76,11 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-category</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-gateway</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

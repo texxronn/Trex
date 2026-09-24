@@ -294,7 +294,7 @@ async function load(repin) {
   writeUrl();
   renderHead();
   const params = queryParams(true);
-  const request = model.loading = fetch(`/api/rows?${params}`, { cache: 'no-store' });
+  const request = model.loading = fetch(`/api/snapshot?${params}`, { cache: 'no-store' });
   try {
     const res = await request;
     if (request !== model.loading) return;   // a newer request superseded this one

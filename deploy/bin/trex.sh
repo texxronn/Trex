@@ -12,12 +12,13 @@
 #   trex.sh logs <service>         tail -f one log
 #   trex.sh ingest <sourceType> <account> <source>
 #
-# Services: sequencer egress-archive egress-sqlite web
+# Services: sequencer egress-archive egress-sqlite gateway web
 #
 # Environment:
 #   TREX_RUN        run directory (default <repo>/run) — config, journal, logs, pids
 #   TREX_BIND       bind address for every HTTP service (default 127.0.0.1)
 #   TREX_SEQ_PORT   sequencer API port (default 8080)
+#   TREX_GATEWAY_PORT   consumer API port, loopback only (default 8085)
 #   TREX_WEB_PORT       (default 8090)
 #   JAVA_HOME       JDK to run with
 #   JAVA_OPTS       JVM options (default matches deploy/config/trex.env)
@@ -30,6 +31,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 RUN="${TREX_RUN:-$REPO/run}"
 BIND="${TREX_BIND:-127.0.0.1}"
 SEQ_PORT="${TREX_SEQ_PORT:-8080}"
+GATEWAY_PORT="${TREX_GATEWAY_PORT:-8085}"
 WEB_PORT="${TREX_WEB_PORT:-8090}"
 JAVA_OPTS="${JAVA_OPTS:--Xms64m -Xmx512m -XX:+UseSerialGC}"
 
@@ -38,7 +40,7 @@ JOURNAL="$RUN/journal/journal.jsonl"
 LOGS="$RUN/logs"
 PIDS="$RUN/pids"
 
-SERVICES="sequencer egress-archive egress-sqlite web"
+SERVICES="sequencer egress-archive egress-sqlite gateway web"
 STOP_TIMEOUT=30
 
 die() { echo "trex: $*" >&2; exit 1; }
@@ -76,8 +78,13 @@ args_for() {
         egress-sqlite)
             echo "--journal $JOURNAL --db $RUN/sqlite/trex.db --poll-seconds 60"
             ;;
+        gateway)
+            # Loopback regardless of BIND: it writes the rule files and forwards
+            # decisions, with no authentication (SPEC.md §5.7).
+            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind 127.0.0.1 --port $GATEWAY_PORT$(config_arg)"
+            ;;
         web)
-            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind $BIND --port $WEB_PORT$(config_arg)"
+            echo "--gateway-url http://127.0.0.1:$GATEWAY_PORT --bind $BIND --port $WEB_PORT"
             ;;
         *)
             die "unknown service: $1 (have: $SERVICES)"
@@ -196,6 +203,7 @@ cmd_start() {
     for svc in $list; do start_one "$svc"; done
     echo
     echo "  sequencer API  http://$BIND:$SEQ_PORT"
+    echo "  gateway        http://127.0.0.1:$GATEWAY_PORT  (consumer API; loopback only)"
     echo "  web            http://$BIND:$WEB_PORT  (browse; /resolve for the worklist)"
     echo "  journal        $JOURNAL"
     echo "  logs           $LOGS"

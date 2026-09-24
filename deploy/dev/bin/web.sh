@@ -1,31 +1,25 @@
 #!/usr/bin/env bash
 #
-# trex-web in the foreground — the journal browser at / and the HELD/REVIEW
-# worklist at /resolve (SPEC.md §5.4).
+# trex-web in the foreground — the pages (SPEC.md §5.4): the journal browser at /
+# and the HELD/REVIEW worklist at /resolve.
 #
 #   web.sh [start|stop|status]
 #
-# Config: ../config/web.env plus TREX_BIND / TREX_WEB_PORT / TREX_SEQ_PORT from
-# ../trex-dev.env. It tails the journal itself, but every decision goes to the
-# sequencer's POST /decisions, so that must be up to resolve anything.
+# Config: ../config/web.env plus TREX_BIND / TREX_WEB_PORT / TREX_GATEWAY_PORT from
+# ../trex-dev.env.
 #
-# Decisions are final — there is no undo, in dev either. Categories are derived
-# and cost nothing to change.
+# It holds no journal state and reads no config file: everything comes from
+# trex-gateway, so start gateway.sh first. This is the only service worth exposing
+# beyond loopback, and even then it can still resolve transactions — there is no
+# authentication (SPEC.md §9).
 
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 svc_start() {
     load_env web
-    local url="${SEQUENCER_URL:-}"
-    [ -n "$url" ] || url="http://$TREX_BIND:$TREX_SEQ_PORT"
-    local args=(--journal "$(in_run "$JOURNAL")" --sequencer-url "$url"
-        --bind "$TREX_BIND" --port "$TREX_WEB_PORT" --poll-ms "$POLL_MS")
-    # Categories come from the config directory — categories.yaml for the rules,
-    # pins.yaml for the one-off overrides (SPEC.md §5.6, §6). Without it every row
-    # reads UNCATEGORIZED. Edit either file and restart to recategorise; hot reload
-    # arrives with trex-gateway (§5.7).
-    [ -d "$CONFIG" ] && args+=(--config "$CONFIG")
-    run_fg web "${args[@]}"
+    local url="${GATEWAY_URL:-}"
+    [ -n "$url" ] || url="http://127.0.0.1:$TREX_GATEWAY_PORT"
+    run_fg web --gateway-url "$url" --bind "$TREX_BIND" --port "$TREX_WEB_PORT"
 }
 
 dispatch web "$@"

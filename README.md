@@ -43,8 +43,9 @@ journal file.
 | `trex-ingress` | CLI | Statement/feed → candidates → sequencer; one parser per source type (`ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`). |
 | `trex-egress-archive` | service | Mirrors every journal line to an archive JSONL file. |
 | `trex-egress-sqlite` | service | Mirrors every journal line into SQLite (one row per line, keyed by `n`). |
-| `trex-web` | library | Shared plumbing for the web followers: journal watcher, SSE, static pages. |
-| `trex-web` | service | The web UI: browse the journal at `/`, resolve HELD/REVIEW at `/resolve`. One journal fold, one port, loopback only. |
+| `trex-category` | library | Master category rules and the evaluator; merchant stems. Derived, never journalled. |
+| `trex-gateway` | service | The consumer API: the journal folded and categorised, the rule files it owns, and the decisions gateway to the sequencer. Loopback only. |
+| `trex-web` | service | The pages: browse at `/`, resolve HELD/REVIEW at `/resolve`. Static files, one proxy to the gateway, one SSE relay. |
 
 ## Build
 
@@ -121,7 +122,8 @@ The other programs take command-line flags:
 | `trex-ingress` | `--source-type <type> --account <ref> --sequencer-url <url> [--batch-rows N] [--no-gzip] <source>` |
 | `trex-egress-archive` | `--journal <path> --archive <path> [--poll-seconds 30] [--once]` |
 | `trex-egress-sqlite` | `--journal <path> --db <path> [--poll-seconds 30] [--once]` |
-| `trex-web` | `--journal <path> --sequencer-url <url> [--config <dir>] [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]` |
+| `trex-gateway` | `--journal <path> --sequencer-url <url> [--config <dir>] [--port 8085] [--bind 127.0.0.1] [--poll-ms 10000]` |
+| `trex-web` | `[--gateway-url <url>] [--port 8090] [--bind 127.0.0.1]` |
 
 For the followers, `--poll-seconds` / `--poll-ms` are only the fallback: they wake as
 soon as the journal changes.
@@ -347,7 +349,7 @@ Two details worth knowing:
   at startup and `dlopen()`s it — the other five keep `/tmp` `noexec`.
 
 Useful variables: `TREX_IMAGE_PREFIX`, `TREX_IMAGE_TAG`, `TREX_JAVA_OPTS`,
-`TREX_SEQ_PORT`, `TREX_WEB_PORT`, `TREX_POLL_SECONDS`.
+`TREX_SEQ_PORT`, `TREX_GATEWAY_PORT`, `TREX_WEB_PORT`, `TREX_POLL_SECONDS`.
 
 ### Remote Docker daemon
 

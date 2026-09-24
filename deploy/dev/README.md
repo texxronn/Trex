@@ -25,14 +25,14 @@ retry until the journal exists):
     deploy/dev/bin/sequencer.sh
     deploy/dev/bin/egress-archive.sh
     deploy/dev/bin/egress-sqlite.sh
-    deploy/dev/bin/resolver.sh
-    deploy/dev/bin/grid.sh
+    deploy/dev/bin/gateway.sh
+    deploy/dev/bin/web.sh
 
 Each script takes `start` (the default), `stop` or `status`. `start` runs the
 JVM in the foreground, so the panel is the log and **Ctrl-C is the stop**;
 `stop` exists for driving a panel from somewhere else and for scripting:
 
-    deploy/dev/bin/grid.sh stop
+    deploy/dev/bin/web.sh stop
     deploy/dev/bin/status.sh                 # all five, plus URLs and journal size
     deploy/dev/bin/stop-all.sh               # followers first, sequencer last
     deploy/dev/bin/reset.sh --force          # stop everything, wipe run/
@@ -73,11 +73,13 @@ one wins over the file for a single run:
 
     ONCE=1 deploy/dev/bin/egress-archive.sh     # drain what is there, print, exit
 
-Only the sequencer reads TOML (SPEC.md §6); the followers, resolver, grid and
-ingress are configured by command-line flags, so their `.env` files are plain
-shell sourced by the scripts, not a second config format.
+The sequencer reads `sequencer.yaml`, `accounts.yaml` and `transfers.yaml`;
+trex-gateway reads `categories.yaml` and `pins.yaml` and is their single writer
+(SPEC.md §6). Everything else — the followers, trex-web and ingress — is
+configured by command-line flags, so their `.env` files are plain shell sourced
+by the scripts, not a second config format.
 
-Journal paths in the TOML resolve against `config/`, which is why
+Journal paths in `sequencer.yaml` resolve against `config/`, which is why
 `sequencer.yaml` says `../run/journal/journal.jsonl`. Paths in the `.env` files
 resolve against `run/`. Absolute paths are used as-is in both.
 

@@ -1,25 +1,16 @@
-package trex.web;
-
-import com.sun.net.httpserver.HttpExchange;
+package trex.gateway;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.sun.net.httpserver.HttpExchange;
+import trex.journal.Json;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
-/**
- * HttpServer helpers for the page service: static files, headers, errors.
- * <p>
- * A near-twin of the gateway's helper of the same name, and deliberately not shared. SPEC §1 keeps
- * the HTTP layer hand-written per service — the sequencer has its own too — and the alternative
- * here would be a module existing only to hold eighty lines of boilerplate, or trex-web depending
- * on trex-gateway and dragging the whole journal fold in behind it. What each copy does diverges:
- * this one serves files and never produces JSON of its own, because trex-web has no answers, only
- * the gateway's.
- */
+/** Shared HttpServer helpers for the follower web services: static pages, JSON, errors, headers. */
 public final class Web {
 
     private static final Logger log = LoggerFactory.getLogger(Web.class);
@@ -48,9 +39,9 @@ public final class Web {
     }
 
     /** Serve a classpath resource under {@code /web/} with strict security headers. */
-    public static void serveStatic(HttpExchange ex, String resource) throws IOException {
+    public static void serveStatic(HttpExchange ex, Class<?> anchor, String resource) throws IOException {
         byte[] bytes;
-        try (InputStream in = Web.class.getResourceAsStream("/web/" + resource)) {
+        try (InputStream in = anchor.getResourceAsStream("/web/" + resource)) {
             if (in == null) {
                 throw new IOException("missing resource " + resource);
             }
@@ -73,33 +64,21 @@ public final class Web {
         }
     }
 
-    /** Relay a reply from the gateway: its status, its bytes, its content type. */
-    public static void relay(HttpExchange ex, Upstream.Reply reply) throws IOException {
-        ex.getResponseHeaders().set("Content-Type", reply.contentType());
+    public static void json(HttpExchange ex, int status, Object body) throws IOException {
+        byte[] bytes = Json.mapper().writeValueAsBytes(body);
+        ex.getResponseHeaders().set("Content-Type", "application/json");
         ex.getResponseHeaders().set("Cache-Control", "no-store");
         ex.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
-        // The page shows a stale badge rather than pretending the number in front of you is live.
-        if (reply.stale()) {
-            ex.getResponseHeaders().set("X-Trex-Stale", "1");
-        }
-        byte[] body = reply.body();
-        ex.sendResponseHeaders(reply.status(), body.length == 0 ? -1 : body.length);
+        ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = ex.getResponseBody()) {
-            os.write(body);
+            os.write(bytes);
         }
     }
 
     /** Best-effort error response; ignored if the response has already started. */
     public static void error(HttpExchange ex, int status, String message) {
         try {
-            byte[] bytes = ("{\"error\":\"" + (message == null ? "" : message.replace("\"", "'")) + "\"}")
-                .getBytes(StandardCharsets.UTF_8);
-            ex.getResponseHeaders().set("Content-Type", "application/json");
-            ex.getResponseHeaders().set("Cache-Control", "no-store");
-            ex.sendResponseHeaders(status, bytes.length);
-            try (OutputStream os = ex.getResponseBody()) {
-                os.write(bytes);
-            }
+            json(ex, status, Map.of("error", message == null ? "" : message));
         } catch (IOException | RuntimeException e) {
             log.debug("could not send {} response; the response had started or the client is gone", status, e);
         }

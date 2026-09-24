@@ -17,6 +17,7 @@ const model = {
   pending: false,
   live: false,         // true while the event stream is open
   categories: {},      // n -> {category, origin, why, pin} — derived, never in the journal
+  seenN: null,         // last head we acted on, so a heartbeat is not a refetch
 };
 
 // ---------------------------------------------------------------- formatting
@@ -358,7 +359,7 @@ function toast(message, bad) {
 async function send(payload, successText) {
   model.pending = true;
   try {
-    const res = await fetch('/api/resolve/decisions', { method: 'POST', headers: ADMIN_HEADER, body: JSON.stringify(payload) });
+    const res = await fetch('/api/decisions', { method: 'POST', headers: ADMIN_HEADER, body: JSON.stringify(payload) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       toast(`Request failed (${res.status}): ${body.error || 'unknown error'}`, true);
@@ -387,7 +388,7 @@ let timer = null;
 async function refresh() {
   clearTimeout(timer);
   try {
-    const res = await fetch('/api/resolve/state', { cache: 'no-store' });
+    const res = await fetch('/api/ledger', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     apply(await res.json());
   } catch (e) {
@@ -398,14 +399,20 @@ async function refresh() {
 }
 
 function connect() {
-  const source = new EventSource('/api/resolve/events');
+  const source = new EventSource('/api/events');
   source.addEventListener('open', () => {
     model.live = true;
     clearTimeout(timer);
   });
-  source.addEventListener('state', (e) => {
+  // One stream serves the whole API and carries only what moved — never rows, because a rule
+  // change can touch every one of them (SPEC §5.7). So the frame is a prompt to refetch.
+  source.addEventListener('head', (e) => {
     model.live = true;
-    apply(JSON.parse(e.data));
+    const head = JSON.parse(e.data);
+    if (head.n !== model.seenN) {
+      model.seenN = head.n;
+      refresh();
+    }
   });
   source.addEventListener('error', () => {
     // EventSource reconnects by itself; poll meanwhile so the page stays current.

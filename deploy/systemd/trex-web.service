@@ -1,17 +1,15 @@
 [Unit]
-Description=trex web (journal browser at / and HELD/REVIEW worklist at /resolve)
+Description=trex web (pages: journal browser at / and HELD/REVIEW worklist at /resolve)
 Documentation=file:///opt/trex/README.md
-After=trex-sequencer.service
-Wants=trex-sequencer.service
+After=trex-gateway.service
+Wants=trex-gateway.service
 PartOf=trex.target
 
 [Service]
 Type=simple
 # No authentication: keep --bind on loopback (use an SSH tunnel or an authenticating reverse proxy).
 ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-web.jar \
-  --journal /var/lib/trex/journal/journal.jsonl \
-  --sequencer-url http://127.0.0.1:8080 \
-  --config /etc/trex \
+  --gateway-url http://127.0.0.1:8085 \
   --bind 127.0.0.1 --port 8090
 User=trex
 Group=trex

@@ -7,7 +7,7 @@
 #   tmux.sh --kill       kill the session and its panels
 #
 # Layout (tiled):
-#   sequencer | egress-archive | egress-sqlite | web | shell
+#   sequencer | egress-archive | egress-sqlite | gateway | web | shell
 #
 # Ctrl-C in a panel stops just that service; its script can be re-run in place
 # with the up arrow. Killing the session TERMs everything.
@@ -48,7 +48,7 @@ fi
 # The sequencer owns the journal, so it gets the first panel and a head start;
 # the followers just retry until the file exists, but the log reads better.
 tmux new-session -d -s "$SESSION" -n trex -c "$TREX_DEV" "$BIN/sequencer.sh"
-for svc in egress-archive egress-sqlite web; do
+for svc in egress-archive egress-sqlite gateway web; do
     tmux split-window -t "$SESSION:trex" -c "$TREX_DEV" "$BIN/$svc.sh"
     tmux select-layout -t "$SESSION:trex" tiled > /dev/null
 done
