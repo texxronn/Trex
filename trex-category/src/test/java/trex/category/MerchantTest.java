@@ -64,6 +64,19 @@ class MerchantTest {
         assertEquals("WOOLWORTHS 1234", Merchant.stem("WOOLWORTHS 1234"));
     }
 
+    /**
+     * The stem cuts a per-transaction tail; it does not guess that two differently-suffixed
+     * names are one shop. A branch written with single spaces stays its own merchant, and that
+     * is deliberate — "COSTCO GAS" and "COSTCO WHOLESALE" are also two names with one prefix,
+     * and merging them would be wrong. On real statements this rarely bites, because a bank
+     * repeats a merchant's text verbatim or pads the branch into its own column.
+     */
+    @Test
+    void doesNotMergeDifferentlySuffixedNames() {
+        assertNotEquals(Merchant.stem("PICCOLO ME SYDNEY"), Merchant.stem("PICCOLO ME PARRAMATTA"));
+        assertEquals(Merchant.stem("PICCOLO ME"), Merchant.stem("PICCOLO ME - Visa Purchase"));
+    }
+
     @Test
     void handlesNullAndBlank() {
         assertEquals("", Merchant.stem(null));

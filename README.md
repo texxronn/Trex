@@ -45,7 +45,7 @@ journal file.
 | `trex-egress-sqlite` | service | Mirrors every journal line into SQLite (one row per line, keyed by `n`). |
 | `trex-category` | library | Master category rules and the evaluator; merchant stems. Derived, never journalled. |
 | `trex-gateway` | service | The consumer API: the journal folded and categorised, the rule files it owns, and the decisions gateway to the sequencer. Loopback only. |
-| `trex-web` | service | The pages: browse at `/`, resolve HELD/REVIEW at `/resolve`. Static files, one proxy to the gateway, one SSE relay. |
+| `trex-web` | service | The pages: browse at `/`, categorise at `/categorize`, resolve HELD/REVIEW at `/resolve`. Static files, one proxy to the gateway, one SSE relay. |
 
 ## Build
 
@@ -213,9 +213,15 @@ reviewed in a diff, and order *is* the decision because the first matching rule 
 for a machine to write.
 
 Correcting a category is a config edit, never a journal decision — `POST /decisions` has no
-category action, and git keeps the history. Today the UI shows each row's category, why it got
-it, and hands over the pin snippet to paste; the write path that removes the copy-paste is
-specified in §5.7 and not yet built.
+category action, and git keeps the history.
+
+The **Categorize** tab is where that happens. It lists what no rule matched, grouped by merchant
+and ranked by how often and how much, and composing a rule shows its blast radius before anything
+is written: how many rows it matches, how much they come to, how many were uncategorised, and
+which existing rule loses rows to it. A rule that would change nothing is refused. Where the rule
+goes is computed, not guessed — in front of the rule it takes rows from, or appended when it
+collides with nothing — so first-match-wins keeps working without anyone counting lines. Applying
+writes the file and the categories move immediately; editing the file by hand does the same.
 
 ## Sequencer API
 

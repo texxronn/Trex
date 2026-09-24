@@ -62,8 +62,8 @@ class RuleRoutesTest {
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(
                 line(1, "g1", -8500, "WOOLWORTHS 1234"),
-                line(2, "u1", -520, "PICCOLO ME SYDNEY"),
-                line(3, "u2", -640, "PICCOLO ME PARRAMATTA")));
+                line(2, "u1", -520, "PICCOLO ME"),
+                line(3, "u2", -640, "PICCOLO ME - Visa Purchase")));
         }
         rules = Rules.load(dir).watch();
         watcher = new JournalWatcher<>(journal, Clock.systemUTC(), CombinedFold::new);
@@ -213,6 +213,41 @@ class RuleRoutesTest {
         assertEquals("UNCATEGORIZED", categoryOf("g1"), "the rule is gone, so the row is uncategorised again");
         assertFalse(Files.readString(dir.resolve("categories.yaml")).contains("# The two big chains."),
             "and so is the comment that explained it");
+    }
+
+    // ---------------------------------------------------------------- the worklist
+
+    /**
+     * The list the Categorize tab works down: uncategorised rows grouped by merchant stem, with
+     * the evidence that decides rule-versus-pin. It must agree with what the table reports, or
+     * the two views of the same journal would disagree about what still needs a rule.
+     */
+    @Test
+    void theWorklistGroupsUncategorisedRowsByMerchant() throws Exception {
+        JsonNode w = json(get("/api/worklist"));
+        assertEquals(3, w.get("transactions").asInt());
+        assertEquals(2, w.get("uncategorized").asInt(), "the two PICCOLO rows");
+        assertEquals(1, w.get("merchants").asInt(), "which are one merchant, not two");
+
+        JsonNode top = w.get("entries").get(0);
+        // The stem, not the raw description: one of these rows carries ING's " - Visa Purchase"
+        // tail and the other does not, and they are still one merchant.
+        assertEquals("PICCOLO ME", top.get("stem").asText());
+        assertEquals(2, top.get("count").asInt());
+        assertEquals(-1160, top.get("total").asLong());
+        assertEquals(2, top.get("sampleIds").size(), "enough to pin from without another fetch");
+        assertTrue(w.get("categories").toString().contains("GROCERIES"));
+    }
+
+    /** Writing the rule the worklist suggested removes that merchant from it. */
+    @Test
+    void theWorklistShrinksWhenARuleIsWritten() throws Exception {
+        assertEquals(2, json(get("/api/worklist")).get("uncategorized").asInt());
+        assertEquals(200, send("POST", "/api/rules", """
+            {"category":"FOOD","when":{"match":"piccolo"},"rulesRevision":"%s"}""".formatted(revision())).statusCode());
+        JsonNode after = json(get("/api/worklist"));
+        assertEquals(0, after.get("uncategorized").asInt());
+        assertEquals(0, after.get("merchants").asInt());
     }
 
     // ---------------------------------------------------------------- guards and reload

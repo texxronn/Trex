@@ -87,7 +87,7 @@ public final class GatewayServer implements AutoCloseable {
     private static boolean isRulePath(String path) {
         return path.equals("/api/rules") || path.startsWith("/api/rules/")
             || path.equals("/api/pins") || path.startsWith("/api/pins/")
-            || path.equals("/api/proposal");
+            || path.equals("/api/proposal") || path.equals("/api/worklist");
     }
 
     private void handle(HttpExchange ex) {

@@ -62,6 +62,10 @@ public final class RuleRoutes {
                 Web.requireMethod(ex, "GET");
                 Web.json(ex, 200, proposal(ex));
             }
+            case "/api/worklist" -> {
+                Web.requireMethod(ex, "GET");
+                Web.json(ex, 200, worklist());
+            }
             default -> {
                 // /api/rules/{index} and /api/pins/{index}: PATCH replaces, DELETE removes.
                 Entry target = entryPath(path);
@@ -118,6 +122,37 @@ public final class RuleRoutes {
         out.put("category", rule.category());
         out.put("comment", rule.comment());
         return out;
+    }
+
+    /**
+     * What still needs a rule: uncategorised rows grouped by merchant stem, ranked by count then
+     * spend, each carrying the evidence that decides rule-versus-pin (§5.7).
+     * <p>
+     * It does not empty, and is not meant to. UNCATEGORIZED is a legitimate answer (§0.6) — the
+     * tail of a two-year card history is one-off merchants, and chasing it is waste.
+     */
+    private Map<String, Object> worklist() {
+        List<CanonicalEvent> all = lines.get();
+        List<trex.category.DryRun.WorklistEntry> entries =
+            trex.category.DryRun.worklist(rules.categorizer(), all);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("rulesRevision", rules.revision());
+        body.put("categories", rules.categorizer().declared());
+        body.put("transactions", all.size());
+        body.put("uncategorized", entries.stream().mapToInt(trex.category.DryRun.WorklistEntry::count).sum());
+        body.put("merchants", entries.size());
+        body.put("entries", entries.stream().map(e -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("stem", e.stem());
+            row.put("count", e.count());
+            row.put("total", e.total());
+            row.put("firstSeen", e.firstSeen().toString());
+            row.put("lastSeen", e.lastSeen().toString());
+            row.put("accounts", e.accounts());
+            row.put("sampleIds", e.sampleIds());
+            return row;
+        }).toList());
+        return body;
     }
 
     /**

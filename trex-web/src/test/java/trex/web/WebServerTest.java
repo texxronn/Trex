@@ -108,6 +108,7 @@ class WebServerTest {
         assertTrue(page.headers().firstValue("Content-Security-Policy").orElseThrow().contains("default-src 'self'"));
         assertEquals("nosniff", page.headers().firstValue("X-Content-Type-Options").orElseThrow());
         assertEquals(200, get("/resolve").statusCode());
+        assertEquals(200, get("/categorize").statusCode());
         assertEquals(404, get("/secret").statusCode());
     }
 
@@ -121,9 +122,26 @@ class WebServerTest {
     void eachPageLoadsItsOwnAssets() throws Exception {
         assertEquals(List.of("/app.css", "/app.js"), assetsOf(get("/").body()));
         assertEquals(List.of("/resolve/app.css", "/resolve/app.js"), assetsOf(get("/resolve").body()));
-        for (String asset : List.of("/app.css", "/app.js", "/resolve/app.css", "/resolve/app.js")) {
+        assertEquals(List.of("/categorize/app.css", "/categorize/app.js"), assetsOf(get("/categorize").body()));
+        for (String asset : List.of("/app.css", "/app.js", "/resolve/app.css", "/resolve/app.js",
+                "/categorize/app.css", "/categorize/app.js")) {
             assertEquals(200, get(asset).statusCode(), asset);
         }
+    }
+
+    /** Every page carries the tabs, or a page becomes a dead end you can only reach by URL. */
+    @Test
+    void everyPageLinksToTheOthers() throws Exception {
+        for (String page : List.of("/", "/resolve", "/categorize")) {
+            String html = get(page).body();
+            for (String tab : List.of("href=\"/\"", "href=\"/categorize\"", "href=\"/resolve\"")) {
+                assertTrue(html.contains(tab) || page.equals(tabTarget(tab)), page + " is missing " + tab);
+            }
+        }
+    }
+
+    private static String tabTarget(String href) {
+        return href.substring("href=\"".length(), href.length() - 1);
     }
 
     private static List<String> assetsOf(String html) {
@@ -134,7 +152,7 @@ class WebServerTest {
     @Test
     void pagesAdaptToNarrowScreensAndTouch() throws Exception {
         assertTrue(get("/").body().contains("name=\"viewport\" content=\"width=device-width"));
-        for (String css : List.of("/app.css", "/resolve/app.css")) {
+        for (String css : List.of("/app.css", "/resolve/app.css", "/categorize/app.css")) {
             String body = get(css).body();
             assertTrue(body.contains("@media (max-width: 720px)"), css + ": phone layout");
             assertTrue(body.contains("@media (max-width: 1024px)"), css + ": tablet layout");
