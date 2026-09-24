@@ -1,11 +1,12 @@
 # trex — Transaction Sequencer: Java 25 Code Plan
 
-A build spec for four components, pitched for Claude Code generation:
-1. **trex** — the transaction sequencer service (the journal core)
-2. **The ingress client** — one CLI, one parser per source type (starter: ING CSV) → candidates → trex
-3. **Two sample egress followers** — `toArchive` and `toSQLiteWAL`
-4. **The manual resolver** — an admin web service (journal follower + UI) for the HELD/REVIEW workflow
-5. **The grid** — a read-only, compact, live table of the journal (not a dashboard: dashboards belong to Firefly/Grafana)
+A build spec, pitched for Claude Code generation. The current topology is §1; this is what each part is for:
+1. **trex-sequencer** — the transaction sequencer service (the journal core, and its only writer)
+2. **trex-ingress** — one CLI, one parser per source type → candidates → the sequencer
+3. **Two sample egress followers** — `trex-egress-archive` and `trex-egress-sqlite`, log mirrors
+4. **trex-gateway** — the consumer API: the journal folded and categorised, the rule files, the decisions gateway (§5.7)
+5. **trex-web** — the pages over it: browse, categorise, and the HELD/REVIEW workflow (§5.4). Not a dashboard; dashboards belong to Firefly/Grafana
+6. **trex-category** — the shared library that derives a category from a line (§5.6)
 
 Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decisions. This document is the *how to build it*; that one is the *why*. Where they conflict, the invariants in §0 win. Pre-implementation review decisions are folded into this document; `DECISIONS.md` records the rationale (B-numbers and T refer to it).
 
@@ -136,7 +137,7 @@ public enum EventState { HELD, MATCHED, REVIEW, EXTERNAL }
 
 // Identity tier — sealed so the id function is exhaustive & centralized
 public sealed interface IdentityStrategy permits NaturalKey, ContentHash {}
-public record NaturalKey(String accountRef, String receipt) implements IdentityStrategy {}
+public record NaturalKey(String accountRef, LocalDate date, String receipt) implements IdentityStrategy {}
 public record ContentHash(String accountRef, LocalDate date, long amount,
                           String rawDescription, int occ) implements IdentityStrategy {}
 
@@ -483,18 +484,18 @@ Tabs: **Transactions** and **Journal** (the table, below), **Categorize** (§5.7
 - **Basic filter & search:** account (matches `accountRef` or `toAccountRef`), state, type, category (including `UNCATEGORIZED`, the worklist that drives rule writing), date from/to (inclusive), and `q` — case-insensitive substring over raw description, description, comment, externalId, receipt, transferKey.
 - **Paging while data arrives (G4):** every page is computed against a pinned snapshot `asOfN`: the journal lines with `n ≤ asOfN` (Transactions = latest line per id among them). When SSE reports a newer `n`, the page shows a "N new · refresh" chip instead of moving rows. **Follow** mode (like `tail -f`): when on, and on page 1 sorted by `n` descending, the page refreshes automatically.
 - **State (G5):** all journal lines held in memory (append order = `n` order). Each distinct query (view, asOfN, filters, sort) is filtered+sorted once and cached (small LRU); paging slices the cached result.
-- **SSE (G6):** `GET /api/events` streams `event: head` — `{ n, offset, updatedAt, error, lines, transactions, accounts }` — never row data.
+- **SSE (G6):** `GET /api/events` streams `event: head` — `{ n, offset, rulesRevision, updatedAt, error, lines, transactions, accounts }` — never row data.
 - **URL (G7):** view, sort, page, size, and filters are mirrored in the page's query string (bookmarkable).
 - **Money (G8):** amounts formatted exactly from cents. Footer totals per currency over the filtered set, computed server-side in `long`: Transactions view only, and TRANSFER lines are excluded (their legs already carry the amounts). The Journal view shows counts only (versions would double-count).
 - **API:** the page's own endpoints are the static files. Everything under `/api/` is **proxied verbatim to trex-gateway** (§5.7) — one rule, no path rewriting, no per-endpoint routing table to drift out of date. trex-web adds no query semantics of its own: a filter or sort it understood differently from the gateway would be a second answer to the same question.
   - `GET /`, `/app.css`, `/app.js` — static page.
   - `GET /api/head` — same JSON as the SSE `head` event.
-  - `GET /api/rows?view=transactions|journal&sort=col:asc|desc[,col:dir…]&page=1&size=50&asOfN=&account=&state=&type=&from=&to=&q=` → `{ asOfN, rulesRevision, view, page, size, total, rows:[CanonicalEvent...], categories:{n → {category, origin, why, comment}}, totals:[{currency, amount, count}] }`. `size` 1–500 (default 50); `asOfN` absent or above the head → current head. Invalid parameters → `400`.
+  - `GET /api/snapshot?view=transactions|journal&sort=col:asc|desc[,col:dir…]&page=1&size=50&asOfN=&account=&state=&type=&from=&to=&q=` → `{ asOfN, rulesRevision, view, page, size, total, rows:[CanonicalEvent...], categories:{n → {category, origin, why, comment}}, totals:[{currency, amount, count}] }`. `size` 1–500 (default 50); `asOfN` absent or above the head → current head. Invalid parameters → `400`.
 
 **Resolution workflow (R-series)**
 
 - **Web tech:** JDK `HttpServer`; one bundled static page (`index.html`, `app.css`, `app.js`, vanilla JS, no framework, no CDN, no build step). Compact, modern style (light/dark via `prefers-color-scheme`). **Responsive (R9):** desktop layout unchanged; below 1024px fixed column widths are released; below 720px each row becomes a record card carrying the same values (checkbox, date, account, amount, description, comment, badges, `n`, actions) — nothing is dropped. Touch input (`pointer: coarse`) gets larger hit targets and 16px form text; `prefers-reduced-motion` disables motion.
-- **Refresh:** Server-Sent Events. `GET /api/events` streams `event: state` messages (same JSON as `/api/state`): one on connect, then one whenever the journal offset, `n` or error changes, plus a `: ping` comment every 15 s. The browser uses `EventSource`; while the stream is down it falls back to polling `GET /api/state` every 2 s and stops polling when the stream reconnects. At most 32 concurrent streams (`503` beyond).
+- **Refresh:** Server-Sent Events, and there is exactly one stream for the whole service — `GET /api/events`, `event: head`, the payload above (§5.7). It says what moved and never carries rows, so this page treats a frame as a prompt to refetch `/api/ledger`. One frame on connect, then one whenever `n`, the offset, `rulesRevision` or the error changes, plus a `: ping` comment every 15 s. The browser uses `EventSource`; while the stream is down it falls back to polling every 2 s and stops when the stream reconnects. At most 32 concurrent browser clients (`503` beyond), fanned out from one upstream connection.
 - **Page:** two lists — HELD and REVIEW (same sets as §2.6; REVIEW rows labelled *ambiguous match* or *potential duplicate*). Each row: date, account, amount (cents formatted exactly), raw description, `n`, comment, badges. No pairing suggestions, no resolved-history view.
 - **Actions** (only the existing decisions):
   - `MARK_EXTERNAL` on a HELD/REVIEW row.
@@ -509,7 +510,8 @@ Tabs: **Transactions** and **Journal** (the table, below), **Categorize** (§5.7
   - `POST /api/pins`, `POST /api/rules`, `GET /api/proposal` — proxied to trex-gateway (§5.7), which owns the files. trex-web forwards the body unchanged and relays the response, including the `409` when the on-disk revision has moved.
 - **Security (no authentication, for now):**
   - Binds `127.0.0.1`. Browsing and deciding now share a process, so the whole service carries the stricter posture: there is no read-only exposure to be had by loosening the bind, and §9 keeps the second-listener option for when there is.
-  - Every mutating endpoint — `POST /api/decisions`, `POST /api/pins`, `POST /api/rules` — requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF). The guard is enforced here, at the browser-facing edge, and again by trex-gateway, which trusts no caller (§5.7).
+  - Every mutating endpoint — `POST /api/decisions`, `POST /api/pins`, `POST /api/rules` — requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
+  - **`Origin` is checked here and nowhere else in the chain, and is not forwarded.** It describes the browser's relationship to *this* service; the hop to trex-gateway is a different service on a different port, where a forwarded `Origin` can only ever mismatch. Forwarding it 403s every genuine browser write while proving nothing — and does so invisibly, because `curl` sends no `Origin` and therefore works. `X-Trex-Admin` *is* forwarded, because the gateway requires it of every caller.
   - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
   - Request body cap 64 KB.
 - **Categories:** every row shows its derived category and, on hover, the rule or pin that produced it together with that entry's `comment` (§5.6). Both a pin and a rule are **proposed here and written by trex-gateway** (§5.7) — no snippet is ever handed to the clipboard. The page's job is to show the proposal and its blast radius; the write, its validation and its ordering belong to the file's owner.
@@ -573,7 +575,7 @@ It exists because rules became *writable*. While rules were hand-edited, categor
 
 **API** (all read endpoints also accept the browsing parameters of §5.4, which are defined once, here):
 
-- `GET /api/snapshot?…` — the paged, sorted, filtered rows with their categories; the payload §5.4 lists under `/api/rows`.
+- `GET /api/snapshot?…` — the paged, sorted, filtered rows with their categories; the payload §5.4 lists under `/api/snapshot`.
 - `GET /api/head` — `{ n, offset, updatedAt, error, rulesRevision, lines, transactions, accounts }`.
 - `GET /api/ledger` — `{ offset, n, updatedAt, error, rulesRevision, held:[…], review:[…], categories:{…} }` (what the Resolve tab renders).
 - `GET /api/events` — SSE. Frames carry **`{ n, offset, rulesRevision, updatedAt, error }` and never row data**: a rule change can touch every row, and pushing ~1.2 MiB per edit to every client to say "something moved" is the wrong trade. Clients refetch what they are showing. One frame on connect, then on any change, plus a heartbeat; at most 32 streams (`503` beyond).
@@ -587,7 +589,7 @@ It exists because rules became *writable*. While rules were hand-edited, categor
   - `decisionRef` is passed through when supplied and minted as `ui-<UUID>` when not. A caller that supplies its own gets idempotent retries; the page, which has nothing to retry with, gets the old behaviour.
   - After a `Resolved`, trex-gateway reads the journal immediately rather than waiting for the watcher tick, so the SSE frame announcing the new `n` follows the decision instead of trailing it by up to `--poll-ms`.
 
-**Security:** binds `127.0.0.1` only, always. It has no authentication and writes files that decide how every consumer reads the journal; the read-only exposure question belongs to trex-web (§5.4) and §9. Mutating endpoints require `Content-Type: application/json` and `X-Trex-Admin: 1`, and reject a mismatched `Origin` — it does not assume its caller is trex-web. Request body cap 64 KB.
+**Security:** binds `127.0.0.1` only, always. It has no authentication and writes files that decide how every consumer reads the journal; the read-only exposure question belongs to trex-web (§5.4) and §9. Mutating endpoints require `Content-Type: application/json` and `X-Trex-Admin: 1` of every caller, including trex-web. An `Origin` that does not match this service's own `Host` is rejected, which guards the case of a browser reaching the gateway directly; a proxied call arrives with **no** `Origin` at all (§5.4) and is judged on the admin header and the loopback bind alone. The browser-facing CSRF decision belongs to the hop that faces the browser. Request body cap 64 KB.
 
 **Config (flags):** `--journal <path>`, `--config <dir>` (holds `categories.yaml` and `pins.yaml`, §6), `--sequencer-url <url>`, `--port <n>` (default 8085), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (default 10000).
 
@@ -607,7 +609,7 @@ Separate files, not one: they change on different schedules, and the registry is
 - `transfers.yaml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
 - `sequencer.yaml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `journal: {source, target}`. (No fsync option — always fsync, §3.1.)
 - `categories.yaml` — read by **journal consumers only** (§5.6); the sequencer never loads it (§0.7). Two keys:
-  - `categories` — the declared master categories. Starting set, tuned from dry runs: `SALARY`, `INTEREST`, `GROCERIES`, `BILLS`, `TAXES`, `SAVINGS`, `DISCRETIONARY`. Adding one is a config edit, never a code change. `TRANSFER` and `UNCATEGORIZED` are **reserved** (§5.6) and must not be declared or assigned by a rule.
+  - `categories` — the declared master categories. Starting set, tuned from dry runs: `SALARY`, `INTEREST_EARNED`, `INTEREST_PAID`, `GROCERIES`, `BILLS`, `TAXES`, `SAVINGS`, `DISCRETIONARY`. Adding one is a config edit, never a code change. `TRANSFER` and `UNCATEGORIZED` are **reserved** (§5.6) and must not be declared or assigned by a rule.
   - `rules` — ordered; first match wins. Each is `category`, an optional `comment` (a field, not a `#` comment) and a `when` tree (§5.6).
 - `pins.yaml` — the same mechanism, different owner: `pins:` entries of `{category, comment, when: {externalId: […]}}`, evaluated before every rule (§5.6).
 - **Both files have one writer: `trex-gateway` (§5.7)** — and you, in an editor. They remain two files because they are two different things: `categories.yaml` is ordered and general, `pins.yaml` is unordered and exact. But the split is no longer a fence against machine writes.
@@ -628,7 +630,7 @@ Separate files, not one: they change on different schedules, and the registry is
       when:
         match: "woolworths|coles|aldi|iga"
 
-  # pins.yaml — written by §5.4, one entry per correction
+  # pins.yaml — written by §5.7 (and by you), one entry per correction
   pins:
     - category: TAXES
       comment: "2026-09-24 from the worklist: ATO instalment, not a bank fee"
@@ -671,6 +673,11 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
 ---
 
 ## 8. Generation order (for Claude Code)
+
+> **Historical order, not the current topology.** Steps 1–16 record how this was built, including
+> stages that have since been merged or split away (`trex-grid` and `trex-resolver` became §5.4 at
+> step 16; §5.7 split out at step 19). For what exists now, read §1 and §5. This list is kept
+> because the order of discovery explains several decisions that would otherwise look arbitrary.
 
 Build bottom-up; each stage compiles and tests green before the next.
 1. **trex-core:** records, enums, sealed types, `Ids`, `assignOcc` (+ tests 1–3 on hand-built fixtures).

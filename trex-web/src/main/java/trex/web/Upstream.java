@@ -82,19 +82,24 @@ public final class Upstream {
     }
 
     /** POST a body through unchanged, including the response — the gateway decides, not this. */
-    public Reply post(String path, byte[] body, String contentType, String adminHeader, String origin) {
+    public Reply post(String path, byte[] body, String contentType, String adminHeader) {
         HttpRequest.Builder b = HttpRequest.newBuilder(base.resolve(path))
             .POST(HttpRequest.BodyPublishers.ofByteArray(body))
             .timeout(Duration.ofSeconds(30))
             .header("Content-Type", contentType == null ? "application/json" : contentType);
-        // The gateway runs its own CSRF guard and trusts no caller (§5.7), so the browser's
-        // credentials for that check are forwarded rather than re-minted here.
+        // X-Trex-Admin is forwarded because the gateway requires it of every caller (§5.7).
         if (adminHeader != null) {
             b.header("X-Trex-Admin", adminHeader);
         }
-        if (origin != null) {
-            b.header("Origin", origin);
-        }
+        // The browser's Origin is deliberately NOT forwarded. It describes the browser's
+        // relationship to trex-web, and this hop is trex-web to trex-gateway on another port:
+        // forwarded, it can only ever mismatch the gateway's Host and 403 every real browser
+        // write, while proving nothing about the original request. The CSRF decision belongs to
+        // the edge that faces the browser and has already been made by the time we get here.
+        //
+        // This was a live bug: curl sends no Origin and worked, a browser sends one and every
+        // Apply and every decision returned 403.
+
         try {
             HttpResponse<byte[]> r = http.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
             return new Reply(r.statusCode(), r.body(), contentType(r), false);

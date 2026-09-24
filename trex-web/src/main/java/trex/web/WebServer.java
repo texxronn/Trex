@@ -108,9 +108,10 @@ public final class WebServer implements AutoCloseable {
     }
 
     /**
-     * The CSRF guard is enforced here, at the browser-facing edge, and again by the gateway, which
-     * trusts no caller (§5.7). Checking twice is not redundant: this one knows it is talking to a
-     * browser and can reject a cross-site form post before it reaches anything that writes.
+     * The CSRF guard that faces the browser. It is enforced <em>here</em>, because only here is
+     * {@code Origin} meaningful: it describes the browser's relationship to this service. The
+     * gateway keeps its own guard for a caller that reaches it directly, but a proxied request
+     * arrives with no Origin at all — see {@link Upstream#post}.
      */
     private void proxy(HttpExchange ex, String path) throws Exception {
         String method = ex.getRequestMethod();
@@ -135,7 +136,7 @@ public final class WebServer implements AutoCloseable {
             throw new Web.HttpError(403, "cross-origin request refused");
         }
         Web.relay(ex, upstream.post(path, readBody(ex), contentType,
-            ex.getRequestHeaders().getFirst("X-Trex-Admin"), origin));
+            ex.getRequestHeaders().getFirst("X-Trex-Admin")));
     }
 
     private static byte[] readBody(HttpExchange ex) throws IOException, Web.HttpError {

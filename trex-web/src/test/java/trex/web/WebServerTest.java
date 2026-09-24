@@ -22,6 +22,7 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -39,8 +40,10 @@ class WebServerTest {
     private final Map<String, String> seenQuery = new ConcurrentHashMap<>();
     private final Map<String, String> seenBody = new ConcurrentHashMap<>();
     private final Map<String, String> seenHeaders = new ConcurrentHashMap<>();
+    private final Map<String, String> seenOrigin = new ConcurrentHashMap<>();
     private final AtomicInteger snapshotHits = new AtomicInteger();
     private final AtomicBoolean stubDown = new AtomicBoolean(false);
+    private final AtomicInteger gatewayRefusals = new AtomicInteger();
 
     @BeforeEach
     void start() throws IOException {
@@ -51,8 +54,31 @@ class WebServerTest {
                 ex.close();                       // connection accepted then dropped: an upstream failure
                 return;
             }
+            // The real gateway's guard (RuleRoutes.guard): admin header required on a write, and
+            // an Origin that does not match its Host is refused. Stubbing this faithfully is the
+            // point — a stub that accepts anything cannot catch a proxy sending the wrong headers.
+            if (!ex.getRequestMethod().equals("GET")) {
+                String origin = ex.getRequestHeaders().getFirst("Origin");
+                String host = ex.getRequestHeaders().getFirst("Host");
+                boolean admin = "1".equals(ex.getRequestHeaders().getFirst("X-Trex-Admin"));
+                if (!admin || (origin != null && !origin.equals("http://" + host))) {
+                    gatewayRefusals.incrementAndGet();
+                    byte[] refused = "{\"error\":\"refused by the gateway guard\"}".getBytes(StandardCharsets.UTF_8);
+                    ex.getResponseHeaders().set("Content-Type", "application/json");
+                    ex.sendResponseHeaders(403, refused.length);
+                    try (OutputStream os = ex.getResponseBody()) {
+                        os.write(refused);
+                    }
+                    ex.close();
+                    return;
+                }
+            }
             seenQuery.put(path, String.valueOf(ex.getRequestURI().getRawQuery()));
             seenHeaders.put(path, String.valueOf(ex.getRequestHeaders().getFirst("X-Trex-Admin")));
+            String upstreamOrigin = ex.getRequestHeaders().getFirst("Origin");
+            if (upstreamOrigin != null) {
+                seenOrigin.put(path, upstreamOrigin);
+            }
             seenBody.put(path, new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String body = switch (path) {
                 case "/api/snapshot" -> "{\"total\":" + snapshotHits.incrementAndGet() + "}";
@@ -174,6 +200,21 @@ class WebServerTest {
     void proxiesPathsItDoesNotKnowAbout() throws Exception {
         assertEquals(200, get("/api/something-added-later").statusCode());
         assertTrue(seenQuery.containsKey("/api/something-added-later"));
+    }
+
+    /**
+     * A browser always sends Origin; curl does not. Every earlier test here posted without one,
+     * so the proxy forwarded the browser's Origin to a gateway on a different port, where it
+     * could only mismatch — and every Apply and every decision came back 403 in a real browser
+     * while passing in tests and by curl. The Origin belongs to the hop that faces the browser.
+     */
+    @Test
+    void aBrowserShapedPostReachesTheGateway() throws Exception {
+        HttpResponse<String> r = post("/api/rules", "{\"category\":\"FOOD\"}", true, "http://127.0.0.1:" + web.port());
+        assertEquals(200, r.statusCode(), "a same-origin browser write must go through");
+        assertEquals(0, gatewayRefusals.get(), "and must not be refused upstream");
+        assertNull(seenOrigin.get("/api/rules"), "the browser's Origin is not the proxy's to forward");
+        assertEquals("1", seenHeaders.get("/api/rules"), "but the admin header is, since the gateway requires it");
     }
 
     @Test

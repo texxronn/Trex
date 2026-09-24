@@ -52,8 +52,8 @@ pre-implementation review.
 - `accountRef` = account of the negative-amount (from) leg.
 - `amount` = absolute value (positive cents); direction is given by
   `accountRef` → `toAccountRef`.
-- `date`, `currency`, `description`, `rawDescription`, `source` copied from the
-  from leg.
+- `date`, `currency`, `description`, `rawDescription`, `sourceType` copied from the
+  from leg. (Written `source` here originally; renamed by I2.)
 - `balance = 0` (not meaningful for a transfer).
 - `receipt` = shared receipt for T1, else `null`.
 - `confidence` = `EXACT` for T1 or manual pairing, `HIGH` for T3.
@@ -73,7 +73,8 @@ pre-implementation review.
 - Confirm transfer (manual pairing of two legs): same output as an automatic
   match — re-append both legs `MATCHED` + one TRANSFER line.
 - The manual resolver is a separate service: a journal follower that calls the
-  sequencer API. It is not one of the five phase-1 modules.
+  sequencer API. It was not one of the phase-1 modules as they then stood; the module list has
+  since changed twice (W1 merged two, V1 split one out) — see SPEC §1.
 - **Phase 1 (T-b):** `POST /decisions` is fully implemented in trex-sequencer
   (stage 4), not a stub. Resolution is available over the sequencer API.
 - `GET /held`, `GET /review` and `POST /decisions` form the resolution
@@ -186,6 +187,12 @@ pre-implementation review.
   `ingestedAt` included. `Candidate` is unchanged.
 
 ### B11 — Phase-1 matching rules (defensive; tune via REVIEW workflow)
+
+> **Filenames below predate Y1.** Everything written `.toml` here is now `.yaml`
+> (`transfers.toml` → `transfers.yaml`, `sequencer.toml` → `sequencer.yaml`,
+> `accounts.toml` → `accounts.yaml`). Only the format changed: the keys, the defaults and the
+> strictness are the same, and the decisions themselves stand. Left as written rather than
+> back-edited, because a decision log that quietly matches today's code is not a log.
 - Principle: start defensive. When unsure → HELD or REVIEW, never an automatic
   guess. Rules are loosened later based on what the review workflow shows.
 - **Transfer-shaped:** `rawDescription` matches any allowlist regex
@@ -226,6 +233,10 @@ pre-implementation review.
   - assert `Σ amount == closing − opening`, exact `long` equality.
 
 ### B17 — Config parsing
+
+> **Superseded by Y1.** The hand-written TOML parser described here was deleted when config
+> moved to YAML; the *reasoning* (strict binding, unknown keys are errors, no silent defaults)
+> carried over intact and is now SPEC §6.
 - Hand-written TOML subset parser in trex-sequencer (JDK-only): `[table]`,
   `[[array-of-tables]]`, `key = value` with strings, integers, booleans, arrays
   of strings, `#` comments. Anything else is a config error at startup.
@@ -271,7 +282,7 @@ pre-implementation review.
     description TEXT, raw_description TEXT,
     type_hint TEXT, transfer_key TEXT, leg_ids TEXT,      -- JSON array or NULL
     corrects TEXT, state TEXT, confidence TEXT, flags TEXT, -- flags: JSON array
-    provenance TEXT, source TEXT, receipt TEXT,
+    provenance TEXT, source_type TEXT, receipt TEXT,   -- `source` here originally; renamed by I2
     counterparty_bsb TEXT, counterparty_acct TEXT,
     foreign_amount INTEGER, foreign_currency TEXT,
     comment TEXT, ingested_at TEXT
