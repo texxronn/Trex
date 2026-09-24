@@ -44,7 +44,7 @@ in_run() {
     esac
 }
 
-# Read a per-component config file, e.g. load_env grid → config/grid.env
+# Read a per-component config file, e.g. load_env web → config/web.env
 load_env() {
     local f="$CONF/$1.env"
     [ -f "$f" ] || die "missing $f"

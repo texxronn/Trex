@@ -12,7 +12,7 @@ force=0
 [ "${1:-}" = "--force" ] && force=1
 
 running=""
-for svc in sequencer egress-archive egress-sqlite resolver grid; do
+for svc in sequencer egress-archive egress-sqlite web; do
     if pid_of "$svc" > /dev/null; then
         running="$running $svc"
     fi

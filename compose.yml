@@ -139,16 +139,19 @@ services:
       - journal:/var/lib/trex/journal:ro
       - sqlite:/var/lib/trex/sqlite
 
-  resolver:
+  # Browsing at / and the HELD/REVIEW worklist at /resolve, one process (SPEC.md §5.4).
+  # Loopback only: it can take decisions, so it carries the stricter posture of the two
+  # things it does.
+  web:
     <<: [*service, *hardening]
-    image: ${TREX_IMAGE_PREFIX:-trex}/resolver:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    image: ${TREX_IMAGE_PREFIX:-trex}/web:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     command:
       - --journal
       - /var/lib/trex/journal/journal.jsonl
       - --sequencer-url
       - http://sequencer:8080
-      - --categories
-      - /etc/trex/categories.yaml
+      - --config
+      - /etc/trex
       - --bind
       - 0.0.0.0
       - --port
@@ -159,27 +162,7 @@ services:
     volumes:
       - journal:/var/lib/trex/journal:ro
     ports:
-      - "127.0.0.1:${TREX_RESOLVER_PORT:-8090}:8090"
-
-  grid:
-    <<: [*service, *hardening]
-    image: ${TREX_IMAGE_PREFIX:-trex}/grid:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
-    command:
-      - --journal
-      - /var/lib/trex/journal/journal.jsonl
-      - --categories
-      - /etc/trex/categories.yaml
-      - --bind
-      - 0.0.0.0
-      - --port
-      - "8091"
-    configs:
-      - source: categories.yaml
-        target: /etc/trex/categories.yaml
-    volumes:
-      - journal:/var/lib/trex/journal:ro
-    ports:
-      - "127.0.0.1:${TREX_GRID_PORT:-8091}:8091"
+      - "127.0.0.1:${TREX_WEB_PORT:-8090}:8090"
 
   # One-shot CSV import, not a daemon — hence the profile, so `up` ignores it:
   #   docker compose run --rm ingress \

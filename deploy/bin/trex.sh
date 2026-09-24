@@ -12,14 +12,13 @@
 #   trex.sh logs <service>         tail -f one log
 #   trex.sh ingest <sourceType> <account> <source>
 #
-# Services: sequencer egress-archive egress-sqlite resolver grid
+# Services: sequencer egress-archive egress-sqlite web
 #
 # Environment:
 #   TREX_RUN        run directory (default <repo>/run) — config, journal, logs, pids
 #   TREX_BIND       bind address for every HTTP service (default 127.0.0.1)
 #   TREX_SEQ_PORT   sequencer API port (default 8080)
-#   TREX_RESOLVER_PORT  (default 8090)
-#   TREX_GRID_PORT      (default 8091)
+#   TREX_WEB_PORT       (default 8090)
 #   JAVA_HOME       JDK to run with
 #   JAVA_OPTS       JVM options (default matches deploy/config/trex.env)
 
@@ -31,8 +30,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 RUN="${TREX_RUN:-$REPO/run}"
 BIND="${TREX_BIND:-127.0.0.1}"
 SEQ_PORT="${TREX_SEQ_PORT:-8080}"
-RESOLVER_PORT="${TREX_RESOLVER_PORT:-8090}"
-GRID_PORT="${TREX_GRID_PORT:-8091}"
+WEB_PORT="${TREX_WEB_PORT:-8090}"
 JAVA_OPTS="${JAVA_OPTS:--Xms64m -Xmx512m -XX:+UseSerialGC}"
 
 CONF="$RUN/config"
@@ -40,7 +38,7 @@ JOURNAL="$RUN/journal/journal.jsonl"
 LOGS="$RUN/logs"
 PIDS="$RUN/pids"
 
-SERVICES="sequencer egress-archive egress-sqlite resolver grid"
+SERVICES="sequencer egress-archive egress-sqlite web"
 STOP_TIMEOUT=30
 
 die() { echo "trex: $*" >&2; exit 1; }
@@ -63,8 +61,8 @@ jar_for() {
 }
 
 # The rules file is optional: without it every row reads UNCATEGORIZED (SPEC.md §5.6).
-categories_arg() {
-    [ -f "$CONF/categories.yaml" ] && echo " --categories $CONF/categories.yaml"
+config_arg() {
+    [ -f "$CONF/categories.yaml" ] && echo " --config $CONF"
 }
 
 args_for() {
@@ -78,11 +76,8 @@ args_for() {
         egress-sqlite)
             echo "--journal $JOURNAL --db $RUN/sqlite/trex.db --poll-seconds 60"
             ;;
-        resolver)
-            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind $BIND --port $RESOLVER_PORT$(categories_arg)"
-            ;;
-        grid)
-            echo "--journal $JOURNAL --bind $BIND --port $GRID_PORT$(categories_arg)"
+        web)
+            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind $BIND --port $WEB_PORT$(config_arg)"
             ;;
         *)
             die "unknown service: $1 (have: $SERVICES)"
@@ -201,8 +196,7 @@ cmd_start() {
     for svc in $list; do start_one "$svc"; done
     echo
     echo "  sequencer API  http://$BIND:$SEQ_PORT"
-    echo "  resolver       http://$BIND:$RESOLVER_PORT"
-    echo "  grid           http://$BIND:$GRID_PORT"
+    echo "  web            http://$BIND:$WEB_PORT  (browse; /resolve for the worklist)"
     echo "  journal        $JOURNAL"
     echo "  logs           $LOGS"
 }

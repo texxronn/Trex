@@ -10,7 +10,7 @@
 #   trex-docker.sh ingest <sourceType> <account> <source>
 #   trex-docker.sh env                 print the resolved daemon endpoint
 #
-# Modules are the short image names: sequencer resolver grid egress-archive
+# Modules are the short image names: sequencer web egress-archive
 # egress-sqlite ingress. With none given, all six are built.
 #
 # The only reason this script exists: jib talks to the daemon through DOCKER_HOST
@@ -29,7 +29,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 
-MODULES="sequencer resolver grid egress-archive egress-sqlite ingress"
+MODULES="sequencer web egress-archive egress-sqlite ingress"
 
 die() { echo "trex-docker: $*" >&2; exit 1; }
 

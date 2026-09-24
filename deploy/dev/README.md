@@ -51,7 +51,7 @@ bad-row file. See `samples/README.md` for what each row proves.
     curl -s http://127.0.0.1:8080/review    | python3 -m json.tool
     curl -s http://127.0.0.1:8080/reconcile | python3 -m json.tool
 
-Resolver UI: <http://127.0.0.1:8090>  ·  Grid: <http://127.0.0.1:8091>
+Web UI: <http://127.0.0.1:8090>  ·  worklist at <http://127.0.0.1:8090/resolve>
 
 ## Config
 
@@ -61,11 +61,10 @@ Resolver UI: <http://127.0.0.1:8090>  ·  Grid: <http://127.0.0.1:8091>
 | `config/sequencer.yaml` | trex-sequencer | YAML, `bindPort` + `journal:` |
 | `config/accounts.yaml` | trex-sequencer | YAML, the account registry |
 | `config/transfers.yaml` | trex-sequencer | YAML, allowlist + `windowDays` |
-| `config/categories.yaml` | trex-grid, trex-resolver | YAML, master category rules + pins |
+| `config/categories.yaml` | trex-web | YAML, master category rules + pins |
 | `config/egress-archive.env` | trex-egress-archive | shell vars → CLI flags |
 | `config/egress-sqlite.env` | trex-egress-sqlite | shell vars → CLI flags |
-| `config/resolver.env` | trex-resolver | shell vars → CLI flags |
-| `config/grid.env` | trex-grid | shell vars → CLI flags |
+| `config/web.env` | trex-web | shell vars → CLI flags |
 | `config/ingress.env` | trex-ingress | shell vars → CLI flags |
 
 Every value in a `.env` file is written `VAR="${VAR:-default}"`, so exporting
@@ -86,7 +85,7 @@ seconds instead of minutes, heap 256m.
 
 ## Notes
 
-- Ports: sequencer 8080, resolver 8090, grid 8091. Change them in
+- Ports: sequencer 8080, web 8090. Change them in
   `trex-dev.env` — and the sequencer's also in `config/sequencer.yaml`, which is
   the file the sequencer actually reads.
 - No service authenticates. Everything binds loopback; keep it that way.

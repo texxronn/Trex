@@ -20,11 +20,9 @@ journal file.
                                              │       └── GET /held /review     │ tail (inotify)
                                   POST /decisions                               │
                                              │        ┌─────────────────────────┼──────────────────┐
-                                     trex-resolver ◄──┤                         │                  │
-                                     (web UI, SSE)    │                 trex-egress-archive  trex-egress-sqlite
-                                                      │                  (archive.jsonl)       (SQLite, WAL)
-                                        trex-grid ◄───┘
-                                  (read-only grid, SSE)
+                                        trex-web ◄────┤                         │                  │
+                                 (browse + resolve,   │                 trex-egress-archive  trex-egress-sqlite
+                                   one page, SSE)     │                  (archive.jsonl)       (SQLite, WAL)
 ```
 
 - **One writer.** Only the sequencer writes the journal. Every batch is one write
@@ -46,8 +44,7 @@ journal file.
 | `trex-egress-archive` | service | Mirrors every journal line to an archive JSONL file. |
 | `trex-egress-sqlite` | service | Mirrors every journal line into SQLite (one row per line, keyed by `n`). |
 | `trex-web` | library | Shared plumbing for the web followers: journal watcher, SSE, static pages. |
-| `trex-resolver` | service | Admin web UI for HELD/REVIEW transactions; acts via `POST /decisions`. |
-| `trex-grid` | service | Read-only, paged, sortable, filterable live grid of the journal. |
+| `trex-web` | service | The web UI: browse the journal at `/`, resolve HELD/REVIEW at `/resolve`. One journal fold, one port, loopback only. |
 
 ## Build
 
@@ -76,8 +73,8 @@ deploy/bin/trex.sh logs sequencer               # tail -f
 deploy/bin/trex.sh stop                         # reverse order, SIGTERM
 ```
 
-Resolve HELD/REVIEW transactions at <http://127.0.0.1:8090>, browse everything at
-<http://127.0.0.1:8091>.
+Browse everything at <http://127.0.0.1:8090>, resolve HELD/REVIEW transactions at
+<http://127.0.0.1:8090/resolve> — one service, one port.
 
 Individual services take the same arguments by hand:
 
@@ -92,13 +89,9 @@ java -jar trex-sequencer/target/trex-sequencer-0.1.0-SNAPSHOT-all.jar /tmp/trex
 java -jar trex-ingress/target/trex-ingress-0.1.0-SNAPSHOT-all.jar \
   --source-type ing-csv --account ing-savings --sequencer-url http://127.0.0.1:8080 statement.csv
 
-# 3. resolve HELD/REVIEW transactions at http://127.0.0.1:8090
-java -jar trex-resolver/target/trex-resolver-0.1.0-SNAPSHOT-all.jar \
-  --journal /tmp/trex/journal/journal.jsonl --sequencer-url http://127.0.0.1:8080
-
-# 4. browse everything at http://127.0.0.1:8091
-java -jar trex-grid/target/trex-grid-0.1.0-SNAPSHOT-all.jar \
-  --journal /tmp/trex/journal/journal.jsonl --categories /tmp/trex/categories.yaml
+# 3. browse at http://127.0.0.1:8090 and resolve at http://127.0.0.1:8090/resolve
+java -jar trex-web/target/trex-web-0.1.0-SNAPSHOT-all.jar \
+  --journal /tmp/trex/journal/journal.jsonl --sequencer-url http://127.0.0.1:8080 --config /tmp/trex
 ```
 
 ## Configuration
@@ -127,8 +120,7 @@ The other programs take command-line flags:
 | `trex-ingress` | `--source-type <type> --account <ref> --sequencer-url <url> [--batch-rows N] [--no-gzip] <source>` |
 | `trex-egress-archive` | `--journal <path> --archive <path> [--poll-seconds 30] [--once]` |
 | `trex-egress-sqlite` | `--journal <path> --db <path> [--poll-seconds 30] [--once]` |
-| `trex-resolver` | `--journal <path> --sequencer-url <url> [--categories <path>] [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]` |
-| `trex-grid` | `--journal <path> [--categories <path>] [--port 8091] [--bind 127.0.0.1] [--poll-ms 10000]` |
+| `trex-web` | `--journal <path> --sequencer-url <url> [--config <dir>] [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]` |
 
 For the followers, `--poll-seconds` / `--poll-ms` are only the fallback: they wake as
 soon as the journal changes.
@@ -195,7 +187,7 @@ a leg that resolves to `EXTERNAL` today cannot be re-matched tomorrow.
 ### Categories
 
 Every transaction has a master category — `GROCERIES`, `SALARY` and so on — and **none of it
-is in the journal**. The grid and the resolver derive it from
+is in the journal**. The web service derives it from
 [`categories.yaml`](deploy/config/categories.yaml) each time they read, so editing a rule
 recategorises all of history without writing a single journal line. Fine-grained
 categorisation stays downstream in Firefly.
@@ -244,7 +236,7 @@ They assume this layout:
 ```sh
 sudo useradd --system --home-dir /var/lib/trex --shell /usr/sbin/nologin trex
 sudo install -d /opt/trex/lib /etc/trex
-for m in trex-sequencer trex-ingress trex-egress-archive trex-egress-sqlite trex-resolver trex-grid; do
+for m in trex-sequencer trex-ingress trex-egress-archive trex-egress-sqlite trex-web; do
   sudo install -m 0644 $m/target/$m-0.1.0-SNAPSHOT-all.jar /opt/trex/lib/$m.jar
 done
 sudo install -m 0644 deploy/config/*.yaml deploy/config/trex.env /etc/trex/
@@ -273,8 +265,7 @@ daemon (or a registry) itself.
 | Image | Module | Entry point | Port |
 |---|---|---|---|
 | `trex/sequencer` | trex-sequencer | `trex.sequencer.Main` | 8080 |
-| `trex/resolver` | trex-resolver | `trex.resolver.Main` | 8090 |
-| `trex/grid` | trex-grid | `trex.grid.Main` | 8091 |
+| `trex/web` | trex-web | `trex.web.Main` | 8090 |
 | `trex/egress-archive` | trex-egress-archive | `trex.egress.archive.Main` | — |
 | `trex/egress-sqlite` | trex-egress-sqlite | `trex.egress.sqlite.Main` | — |
 | `trex/ingress` | trex-ingress | `trex.ingress.Main` | — |
@@ -293,12 +284,12 @@ Properties of every image:
 
 ```sh
 mvn package -Pdocker                      # all six, into the Docker daemon
-mvn package -Pdocker -am -pl trex-grid    # just one
+mvn package -Pdocker -am -pl trex-web     # just one
 mvn package -Pdocker-push                 # build and push instead
 ```
 
 `deploy/bin/trex-docker.sh build [module...]` wraps the same commands and takes the
-short image names (`grid`, `egress-sqlite`, …).
+short image names (`web`, `egress-sqlite`, …).
 
 > **Always build through the `package` phase.** A bare `mvn jib:dockerBuild` resolves
 > `trex-core` and `trex-journal` from `~/.m2` rather than the reactor; if what is
@@ -334,7 +325,7 @@ journal/archive/sqlite volumes are named volumes, and every published port binds
 
 Two details worth knowing:
 
-- Only the sequencer mounts the journal read-write. The followers, resolver and grid
+- Only the sequencer mounts the journal read-write. The followers and the web service
   get `:ro`, which makes the single-writer invariant a mount-level guarantee.
 - A one-shot `init` container chowns the fresh volumes to uid 1000 and exits; named
   volumes are created root-owned and the services are not root. It reuses the
@@ -347,7 +338,7 @@ Two details worth knowing:
   at startup and `dlopen()`s it — the other five keep `/tmp` `noexec`.
 
 Useful variables: `TREX_IMAGE_PREFIX`, `TREX_IMAGE_TAG`, `TREX_JAVA_OPTS`,
-`TREX_SEQ_PORT`, `TREX_RESOLVER_PORT`, `TREX_GRID_PORT`, `TREX_POLL_SECONDS`.
+`TREX_SEQ_PORT`, `TREX_WEB_PORT`, `TREX_POLL_SECONDS`.
 
 ### Remote Docker daemon
 
@@ -469,7 +460,7 @@ There is **no authentication** anywhere in phase 1.
 
 - Every service binds `127.0.0.1` by default; anything else must be configured
   explicitly, and the sequencer warns when it is.
-- The resolver only accepts JSON requests carrying `X-Trex-Admin: 1` with a matching
+- The web service only accepts JSON requests carrying `X-Trex-Admin: 1` with a matching
   `Origin` (blocks cross-site requests from other pages in your browser).
 - Web pages use a strict Content-Security-Policy and never render bank text as HTML.
 - For remote access use an SSH tunnel (`ssh -L 8090:127.0.0.1:8090 host`) or an
