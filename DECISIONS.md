@@ -912,6 +912,9 @@ them would drag category tuning into the write path, where §3.2 means it could 
 
 ### W3 — Ownership splits by file: you own rules, the service owns pins (amends §5.4, §5.6, §6)
 
+> **Partly reversed by V2.** The ownership split stands and `comment` stays a first-class
+> field; the prohibition on machine-writing `categories.yaml` does not.
+
 - **Pins leave `categories.yaml` for `pins.yaml`.** Two facts decide it, neither of them taste:
   the YAML mapper cannot round-trip `#` comments, so a machine rewriting `categories.yaml` would
   destroy the notes that explain why `\bfees?\b` is anchored and why `INSURANCE` precedes
@@ -930,6 +933,8 @@ them would drag category tuning into the write path, where §3.2 means it could 
 
 ### W4 — No rules service (considered, rejected for now)
 
+> **Revisited by V1.** The condition this decision named as missing — a writer — now exists.
+
 A service that *executes* rules was rejected outright: categorisation is a pure function with no
 failure mode today, and calling out per row would add latency, caching and an outage story to a
 regex match. A service that only *serves* rule content is more defensible — one writer, one
@@ -938,6 +943,7 @@ service is down, which reinstates the file, and if its store is not the git-trac
 reviewable diff is lost, which is the argument that already defeated SQLite for this data. At one
 machine and one writer it earns nothing. `Categorizer` stays the seam (C4): a `ServiceCategorizer`
 can replace `RuleCategorizer` later without touching a consumer.
+
 
 ### W5 — The web pages are light-only, and a category's colour comes from its name
 
@@ -956,3 +962,128 @@ pages, free for a new category, and wrong for nobody, since the name is on the c
 only groups. Two origins stay deliberately colourless — `STRUCTURAL` is the journal's own answer
 rather than a rule's, and `UNCATEGORIZED` is a legitimate outcome (§0.6) that should not look like
 an achievement.
+
+## V — the consumer API (trex-gateway)
+
+### V1 — `trex-gateway` becomes its own process (amends SPEC §1, §5.4, adds §5.7)
+
+Three days after merging `trex-grid` and `trex-resolver` into one service (W1), we split a service
+back out. That deserves an explanation rather than a shrug.
+
+W1 merged two processes that were **doing the same work twice** — two folds of one journal file,
+two watchers, two CSRF postures — and bought nothing for it, because both ran on loopback. The
+split now is the opposite shape: one process doing **two different jobs**, holding journal state
+*and* serving a browser. The test is not "how many processes" but "does the boundary carry a
+difference". W1's boundary carried none. This one carries the rule files.
+
+The trigger is that rules became writable. While they were hand-edited, categorisation was a pure
+function that every consumer could run for itself (§5.6), which is exactly why W4 rejected a rules
+service — *"at one machine and one writer it earns nothing."* A writable rule set supplies the
+writer W4 said was missing. With two consumers loading the same files on independent schedules,
+"what is the current rule set" has two answers and the one that wrote last cannot tell the other;
+the Firefly egress projecting under a rule set the UI never showed is the failure that produces.
+One owner, one reload point, one `rulesRevision` is not buyable in-process once a second consumer
+exists — and phase 1.5 brings one.
+
+What we pay: a network hop, a sixth runnable module, and a failure mode where categorisation had
+none. The last is the real cost and is answered directly — trex-web keeps the last good snapshot
+and labels it stale, so a trex-gateway restart degrades the page rather than emptying it.
+
+Rejected: keeping it as an in-process layer with an extraction seam (cheaper, and every listed
+behaviour works, but it defers the ownership guarantee that is the entire point, and trex is meant
+to be a design worth re-using — a seam that has never been a real boundary is not evidence that it
+works); and a split where trex-gateway materialises only the table while trex-web keeps folding for
+HELD/REVIEW, which restores precisely the double fold W1 removed.
+
+### V2 — the machine may rewrite `categories.yaml` (reverses W3 and SPEC §5.4)
+
+W3 said a machine may only append, and only to `pins.yaml`; SPEC §5.4 said a rule is *"generated,
+never written"* and handed to the clipboard. Both are withdrawn. The copy-paste step was never a
+safety feature — it was a workaround for two problems that turned out to be solvable:
+
+- **Comments.** The objection was real: `trex.journal.Yaml` is a Jackson mapper with no comment
+  round-trip, and 70 of `categories.yaml`'s 218 lines are `#` comments carrying the *why*. The
+  error was concluding that "the machine writes the file" means "the machine re-serialises the
+  file". An amendment **splices text** at a computed line span. Nothing else in the file is parsed,
+  so every comment survives byte-identical and the diff is the change rather than a reformat.
+- **Ordering.** The objection was that a specific rule must usually precede a general one, and that
+  this is judgement. It stopped being judgement the moment the service held every line and every
+  compiled rule: a candidate's match set is computable, and so is which existing rule owns each row
+  it would take. Collision-free → append; collides and should win → insert before that rule;
+  collides and should not win → redundant, refused with the reason.
+
+The user asked for **full edit rights**, not insert-only: the service may rewrite and delete
+entries. That raises the stakes on validate-before-swap and the revision stamp from prudent to
+load-bearing, since a bad write can now damage hand-written rules rather than merely add a bad one.
+
+### V3 — preview then apply, never silent
+
+Every write is composed, dry-run and shown as a diff with its blast radius — *"matches 23 rows,
+$1,240: 19 UNCATEGORIZED, 4 currently GROCERIES via rule #7"* — before an explicit Apply. Rejected:
+applying immediately with `git diff` as the review. The numbers that decide whether a rule is right
+are exactly the ones you cannot see from the pattern, and a rule that silently steals four rows
+from an earlier one is the specific mistake this whole mechanism exists to prevent.
+
+### V4 — first-match-wins survives; priority numbers rejected
+
+Explicit `priority:` integers would make appending always correct and placement a non-question.
+Rejected anyway: it changes §5.6 semantics, requires re-checking all 24 existing rules, and turns a
+wrong number into a silent recategorisation of history. File order stays the decision, which also
+keeps the property that reading the file top to bottom tells you what happens.
+
+### V5 — SSE carries a revision, never rows
+
+A rule change can move any row, so the honest event is "everything may have changed". Pushing the
+materialised set to say so costs ~1.2 MiB per edit per client at current scale (measured: 1 853
+rows). Frames carry `{n, offset, rulesRevision, …}` and clients refetch what they are showing —
+the same shape the journal head events already use, for the same reason.
+
+### V6 — decisions go through trex-gateway too, making it the one consumer API
+
+trex-web was to proxy reads to trex-gateway and decisions to the sequencer. Both now go to trex-gateway,
+which forwards decisions on. The hop is only worth it because something happens at it.
+
+**What happens at it.** The `CONFIRM_TRANSFER` preconditions — two distinct rows, amounts equal and
+opposite and non-zero, accounts different, currencies matching — currently live in the page's
+JavaScript (§5.4). That protects exactly one consumer: a browser running our script. Any other
+caller — a CLI, a fix-up script, the Firefly egress reconciling something — gets none of it and
+discovers its mistake as a sequencer `Rejected`, if it is lucky, or as a decision it did not mean,
+if it is not. trex-gateway holds the ledger, so it is the only place those checks can be enforced for
+everyone. Moving them there is the substance of this change; the routing is a consequence.
+
+**What does not change.** The sequencer stays authoritative (§3.5). trex-gateway forwards and never
+writes the journal; its check fails fast and can only refuse what the sequencer would also refuse.
+A gateway that could *approve* something the sequencer would decline would be a second authority,
+which is the one thing this must not become.
+
+**What it costs.** §5.7 loses the clean line "nothing it does is irreversible": the service that
+owns the rule files now mediates permanent decisions. The blast radius of a trex-gateway bug grows
+from a wrong category (free to fix) to a wrong decision (§3.5, permanent). Accepted because
+forwarding is a narrow operation with an authoritative checker behind it — but it is why the
+preconditions are specified as *refusals* and why the gateway gets test 22 of its own.
+
+Two things fell out for free. `decisionRef` becomes pass-through, so a scripted consumer gets
+idempotent retries where the page — which has nothing to retry with — keeps the minted `ui-<UUID>`.
+And because trex-gateway is both the forwarder and the follower, it re-reads the journal immediately
+after a `Resolved` instead of waiting up to `--poll-ms` for its own watcher, so the SSE frame
+follows the decision rather than trailing it.
+
+The shape this settles: **one address per role.** The sequencer writes the journal. trex-gateway is
+the consumer API — everything read, decided or categorised arrives there, with one posture and one
+set of checks. trex-web is a static server with a proxy and an SSE relay, and knows one upstream.
+
+
+### V7 — the name is `trex-gateway`, and it understates the fold on purpose
+
+Considered: `trex-api` (accurate about the role, generic, and the sequencer has an API too),
+`trex-view` (precise about the materialised fold, but reads read-only for a service that writes
+rule files and forwards permanent decisions), `trex-desk` (the metaphor fits, but every other
+module is a plain functional noun).
+
+`trex-gateway` names what callers experience — one door, checks on the way in, fan-out behind it —
+and that is the property worth putting in the name now that a native app, a script and the Firefly
+egress will all arrive the same way. Its known weakness is that "gateway" suggests a stateless
+pass-through, while the expensive, stateful part of this service is the whole journal folded in
+memory and recomputed on every rule change. Accepted with eyes open: the internal component that
+holds that fold keeps the name `MaterializedView`, so the thing the module name hides is spelled
+out the moment anyone opens the code.
