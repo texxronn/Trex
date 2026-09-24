@@ -105,7 +105,8 @@ belong to the journal consumers, not the sequencer.
 | File | Contents |
 |---|---|
 | `sequencer.yaml` | `bindHost` (default `127.0.0.1`), `bindPort`, `journal:` `source` / `target` |
-| `accounts.yaml` | `accounts:` entries: `ref`, `currency` (`AUD`/`USD`/`INR`), `fireflyAccountId` |
+| `accounts.yaml` | `accounts:` entries: `ref`, `currency` (`AUD`/`USD`/`INR`) |
+| `firefly.yaml` | per `ref`, the Firefly account `name` and `type` — read by the Firefly egress only, never by the sequencer |
 | `transfers.yaml` | `windowDays` (required), `allowlist` of case-insensitive regexes for transfer-shaped descriptions |
 | `categories.yaml` | master category rules — ordered, hand-written; read by journal consumers only, never by the sequencer |
 | `pins.yaml` | one-off category overrides, evaluated before every rule; order-independent and safe for a machine to write |

@@ -10,13 +10,9 @@
 accounts:
   - ref: "ing-savings"
     currency: "AUD"
-    fireflyAccountId: "1"
   - ref: "ing-orange"
     currency: "AUD"
-    fireflyAccountId: "2"
   - ref: "cba-everyday"
     currency: "AUD"
-    fireflyAccountId: "3"
   - ref: "bw-usd"
     currency: "USD"
-    fireflyAccountId: "4"

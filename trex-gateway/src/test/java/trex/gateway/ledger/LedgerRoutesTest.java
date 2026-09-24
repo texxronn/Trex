@@ -64,7 +64,7 @@ class LedgerRoutesTest {
         journal = new JsonlJournal(path);
         Clock clock = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
         sequencer = new Sequencer(journal, Fold.fold(journal),
-            new AccountRegistry(List.of(new Account("ing-savings", "AUD", "1"), new Account("cba-everyday", "AUD", "2"))),
+            new AccountRegistry(List.of(new Account("ing-savings", "AUD"), new Account("cba-everyday", "AUD"))),
             new TransferRules(List.of("Fast Transfer", "Transfer from", "Osko"), 3), clock);
         sequencerApi = new HttpApi(sequencer, 0, HttpApi.DEFAULT_MAX_BODY_BYTES).start();
         watcher = new JournalWatcher<>(path, clock, CombinedFold::new);

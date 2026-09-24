@@ -305,7 +305,8 @@ pre-implementation review.
 ### B23 — Bank-specific behavior (amends SPEC §9 "select bank-specific behavior")
 - Bank-specific behavior is encapsulated in ingress adapters. The sequencer
   has none: it uses the registry only to validate `accountRef` and stamp
-  `currency` (and hold `fireflyAccountId`). The registry `format` field is for
+  `currency`. (The `fireflyAccountId` it also held was moved to `firefly.yaml` when the
+  egress was designed: Firefly's vocabulary does not belong in the spine.) The `format` field is for
   adapters. *(Superseded in part by I3: `format` is removed; the source type is
   bound per run by `--source-type`.)*
 

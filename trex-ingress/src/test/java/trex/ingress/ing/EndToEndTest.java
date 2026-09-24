@@ -49,7 +49,7 @@ class EndToEndTest {
         Recovery.recover(journalPath, journalPath);
         JsonlJournal journal = new JsonlJournal(journalPath);
         Sequencer sequencer = new Sequencer(journal, Fold.fold(journal),
-            new AccountRegistry(List.of(new Account("ing-savings", "AUD", "1"))),
+            new AccountRegistry(List.of(new Account("ing-savings", "AUD"))),
             new TransferRules(List.of("Fast Transfer", "Internal Transfer"), 3),
             Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC));
         HttpApi api = new HttpApi(sequencer, 0, HttpApi.DEFAULT_MAX_BODY_BYTES).start();

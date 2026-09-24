@@ -1,0 +1,14 @@
+# Firefly III egress mapping — dev. SPEC.md §5.8. Read by trex-egress-firefly only.
+#
+# Keyed by name, not by Firefly's numeric id: a rebuild changes every id and no name, and the
+# id is resolved at startup. `type` must match what Firefly says — it decides the transaction
+# type, because Firefly rejects a `transfer` across the asset/liability line (verified on 6.7.3).
+#
+# The dev registry is four synthetic accounts; the names here are whatever the dev Firefly
+# instance calls them, which is why they are not the production names.
+
+accounts:
+  ing-savings:  { name: "ING Savings",   type: asset }
+  ing-orange:   { name: "ING Orange",    type: asset }
+  cba-everyday: { name: "CBA Everyday",  type: asset }
+  bw-usd:       { name: "BankWest USD",  type: asset }

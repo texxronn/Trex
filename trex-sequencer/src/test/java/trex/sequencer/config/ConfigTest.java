@@ -33,12 +33,29 @@ class ConfigTest {
         accounts:
           - ref: "ing-savings"
             currency: "AUD"
-            fireflyAccountId: "12"
         """;
     private static final String TRANSFERS = """
         windowDays: 3
         allowlist: ["Fast Transfer", "To my account"]
         """;
+
+    /**
+     * The Firefly mapping moved to firefly.yaml (SPEC §5.8), and strict binding turns the old
+     * shape into a startup error naming the key rather than a line silently ignored. Without
+     * this, a registry left as it was would load and the egress would quietly use a different
+     * file than the one being edited.
+     */
+    @Test
+    void anEgressFieldLeftInTheRegistryIsAStartupError() throws IOException {
+        write(SEQUENCER, """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                fireflyAccountId: "12"
+            """, TRANSFERS);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
+        assertTrue(e.getMessage().contains("fireflyAccountId"), e.getMessage());
+    }
 
     @Test
     void loadsConfigDirectory() throws IOException {

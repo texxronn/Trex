@@ -23,10 +23,10 @@ public final class Harness implements AutoCloseable {
     public static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
 
     public static final AccountRegistry REGISTRY = new AccountRegistry(List.of(
-        new Account("ing-savings", "AUD", "1"),
-        new Account("ing-orange", "AUD", "2"),
-        new Account("cba-everyday", "AUD", "3"),
-        new Account("bw-usd", "USD", "4")));
+        new Account("ing-savings", "AUD"),
+        new Account("ing-orange", "AUD"),
+        new Account("cba-everyday", "AUD"),
+        new Account("bw-usd", "USD")));
 
     public static final TransferRules RULES = new TransferRules(
         List.of("Internal Transfer", "To my account", "From my account", "Fast Transfer", "Transfer from", "Osko", "PayID"), 3);

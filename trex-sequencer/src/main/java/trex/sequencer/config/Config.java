@@ -37,7 +37,7 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
 
     record AccountsFile(List<AccountEntry> accounts) {}
 
-    record AccountEntry(String ref, String currency, String fireflyAccountId) {}
+    record AccountEntry(String ref, String currency) {}
 
     record TransfersFile(Integer windowDays, List<String> allowlist) {}
 
@@ -78,7 +78,7 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
             }
         }
         List<Account> list = accounts.accounts().stream()
-            .map(a -> new Account(a.ref(), a.currency(), a.fireflyAccountId()))
+            .map(a -> new Account(a.ref(), a.currency()))
             .toList();
 
         if (transfers.windowDays() == null) {
