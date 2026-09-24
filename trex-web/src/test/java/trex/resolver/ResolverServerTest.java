@@ -37,6 +37,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -127,6 +128,32 @@ class ResolverServerTest {
         assertEquals(200, get("/app.css").statusCode());
         assertEquals(404, get("/secret").statusCode());
         assertEquals(405, get("/api/resolve/decisions").statusCode());
+    }
+
+    /**
+     * Each page must load its OWN script and stylesheet. Before the merge both pages were
+     * separate services rooted at {@code /}, so both pointed at {@code /app.js}; sharing one
+     * port made that silently wrong — {@code /resolve} pulled the browsing page's script,
+     * which threw on the first element it could not find and left the page blank. A status
+     * code cannot catch this, so the asset references themselves are asserted.
+     */
+    @Test
+    void eachPageLoadsItsOwnAssets() throws Exception {
+        assertEquals(List.of("/app.css", "/app.js"), assetsOf(get("/").body()));
+        assertEquals(List.of("/resolve/app.css", "/resolve/app.js"), assetsOf(get("/resolve").body()));
+        for (String asset : List.of("/app.css", "/app.js", "/resolve/app.css", "/resolve/app.js")) {
+            assertEquals(200, get(asset).statusCode(), asset);
+        }
+    }
+
+    /** The script and stylesheet a page pulls in, in the order the document lists them. */
+    private static List<String> assetsOf(String html) {
+        return Pattern.compile("(?:src|href)=\"([^\"]+\\.(?:js|css))\"")
+            .matcher(html)
+            .results()
+            .map((m) -> m.group(1))
+            .sorted()
+            .toList();
     }
 
     @Test

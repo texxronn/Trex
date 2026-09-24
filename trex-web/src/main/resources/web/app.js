@@ -159,15 +159,37 @@ function renderHead() {
   }));
 }
 
+// ---------------------------------------------------------------- category colour
+// A category is derived (SPEC §0.7) and declared in categories.yaml, so nothing names a
+// colour for one. The hue is taken from the name itself: stable across reloads, identical
+// on both pages, and it needs no upkeep when a category is added. The palette skips the
+// muddy hues and every chip is a pale tint, so a column of them reads as a grouping rather
+// than as decoration competing with the amounts.
+const CAT_HUES = [214, 152, 28, 280, 340, 190, 96, 258, 8, 128, 44, 306];
+
+function catHue(name) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)) % 100003;
+  return CAT_HUES[h % CAT_HUES.length];
+}
+
+// STRUCTURAL is the journal's own answer and NONE is a legitimate one (SPEC §0.6);
+// neither earns a colour.
+function catChip(c, text) {
+  const cls = c.origin === 'STRUCTURAL' ? 'cat structural' : c.origin === 'NONE' ? 'cat none' : 'cat';
+  const span = el('span', cls, text);
+  if (cls === 'cat') span.style.setProperty('--cat-h', catHue(c.category));
+  return span;
+}
+
 // A category is derived from categories.yaml, never read off the line. The title says which
 // rule produced it, so a surprising category can be traced to the rule that caused it.
 function categoryCell(r) {
   const c = model.categories[r.n];
   if (!c) return null;
-  const span = el('span', c.origin === 'NONE' ? 'muted' : null, c.category);
+  const span = catChip(c, c.category);
   span.title = c.why;
-  if (c.origin === 'PIN') span.append(el('span', 'badge', 'pinned'));
-  if (c.origin === 'STRUCTURAL') span.className = 'muted';
+  if (c.origin === 'PIN') span.append(el('span', 'pin', '📌'));
   return span;
 }
 

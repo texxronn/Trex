@@ -1,11 +1,14 @@
+/* Light, always (DECISIONS W5) — the same palette the browsing page uses, because the
+   two pages are one service and a reader switching tabs should not switch worlds. */
 :root {
-  --bg: #f6f7f9;
+  --bg: #f4f6fb;
   --panel: #ffffff;
+  --head: #f7f8fd;
   --text: #16181d;
   --muted: #6b7280;
-  --border: #e5e7eb;
-  --row-hover: #f3f4f6;
-  --row-selected: #eef2ff;
+  --border: #e3e6ef;
+  --row-hover: #f1f4ff;
+  --row-selected: #e6ecff;
   --accent: #4f46e5;
   --accent-text: #ffffff;
   --neg: #b42318;
@@ -17,27 +20,7 @@
   --bad: #dc2626;
   --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
   --radius: 10px;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --text: #e6e8ec;
-    --muted: #9aa3b2;
-    --border: #262b35;
-    --row-hover: #1d212a;
-    --row-selected: #232a45;
-    --accent: #818cf8;
-    --accent-text: #0f1115;
-    --neg: #f97066;
-    --pos: #47cd89;
-    --held-bg: #3b2f12;   --held-fg: #fcd34d;
-    --review-bg: #262a55; --review-fg: #c7d2fe;
-    --dup-bg: #45191a;    --dup-fg: #fca5a5;
-    --shadow: none;
-  }
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -65,7 +48,7 @@ html, body {
 }
 
 .brand { display: flex; align-items: baseline; gap: 6px; }
-.mark { font-weight: 700; letter-spacing: -.02em; font-size: 15px; }
+.mark { font-weight: 700; letter-spacing: -.02em; font-size: 15px; color: var(--accent); }
 .divider { color: var(--border); }
 .product { color: var(--muted); }
 
@@ -102,6 +85,7 @@ html, body {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
+  background: linear-gradient(180deg, var(--panel), var(--head));
   border-bottom: 1px solid var(--border);
 }
 .panel-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
@@ -362,7 +346,6 @@ input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
 
 /* Derived category (SPEC §5.6): shown, never editable here — a correction is a pin. */
 .cat-line { margin-top: 3px; }
-.badge.cat { background: var(--row-selected); color: var(--muted); }
 .pin-snippet {
   margin: 10px 0;
   padding: 10px 12px;
@@ -385,3 +368,26 @@ input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
   border-radius: 8px;
 }
 .segmented .tablink:hover { background: var(--row-hover); }
+
+/* ---------------------------------------------------------------- category chips
+   A category is derived (SPEC §0.7), so nothing in config names a colour for one. The
+   hue is computed from the category name in app.js: stable across reloads and across
+   both pages, needs no upkeep when a category is added, and turns a column of words
+   into something scannable. Tints only — the chip must never outshout the amount. */
+.cat {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  white-space: nowrap;
+  background: hsl(var(--cat-h) 80% 95%);
+  color: hsl(var(--cat-h) 45% 32%);
+  border: 1px solid hsl(var(--cat-h) 60% 87%);
+}
+/* Structural TRANSFER comes from the journal, not a rule, and UNCATEGORIZED is a
+   legitimate answer (SPEC §0.6) — neither is a colour worth spending. */
+.cat.structural { background: var(--ext-bg, #eef2f7); color: var(--muted); border-color: var(--border); }
+.cat.none { background: transparent; color: var(--muted); border: 1px dashed var(--border); }
+.cat .pin { margin-left: 4px; opacity: .75; }

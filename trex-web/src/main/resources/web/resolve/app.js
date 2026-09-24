@@ -70,12 +70,35 @@ function summary(line) {
 
 // ---------------------------------------------------------------- rendering
 
+// ---------------------------------------------------------------- category colour
+// A category is derived (SPEC §0.7) and declared in categories.yaml, so nothing names a
+// colour for one. The hue is taken from the name itself: stable across reloads, identical
+// on both pages, and it needs no upkeep when a category is added. The palette skips the
+// muddy hues and every chip is a pale tint, so a column of them reads as a grouping rather
+// than as decoration competing with the amounts.
+const CAT_HUES = [214, 152, 28, 280, 340, 190, 96, 258, 8, 128, 44, 306];
+
+function catHue(name) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)) % 100003;
+  return CAT_HUES[h % CAT_HUES.length];
+}
+
+// STRUCTURAL is the journal's own answer and NONE is a legitimate one (SPEC §0.6);
+// neither earns a colour.
+function catChip(c, text) {
+  const cls = c.origin === 'STRUCTURAL' ? 'cat structural' : c.origin === 'NONE' ? 'cat none' : 'cat';
+  const span = el('span', cls, text);
+  if (cls === 'cat') span.style.setProperty('--cat-h', catHue(c.category));
+  return span;
+}
+
 // The category is derived from categories.yaml (SPEC §5.6); the journal holds none. Read-only
 // here: correcting one means pinning it in that file, so the button hands over the snippet.
 function categoryBadge(line) {
   const c = model.categories[line.n];
   if (!c) return null;
-  const span = el('span', c.origin === 'NONE' ? 'badge' : 'badge cat', c.category.toLowerCase());
+  const span = catChip(c, c.category.toLowerCase());
   span.title = c.why;
   return span;
 }

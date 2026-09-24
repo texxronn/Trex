@@ -939,3 +939,20 @@ reviewable diff is lost, which is the argument that already defeated SQLite for 
 machine and one writer it earns nothing. `Categorizer` stays the seam (C4): a `ServiceCategorizer`
 can replace `RuleCategorizer` later without touching a consumer.
 
+### W5 — The web pages are light-only, and a category's colour comes from its name
+
+Both pages shipped with a light palette and a `prefers-color-scheme: dark` override. Every device
+here runs dark, so what was actually seen was the dark palette — a near-black page for a table
+that is almost entirely figures. Dark is a good default for reading prose and a poor one for
+scanning a dense numeric grid, where the contrast that matters is between a row and its
+neighbour, not between text and background. The override is gone rather than inverted: keeping
+both doubles every palette change, and the tinted chips below are only legible over a light row.
+
+The chips are the one place colour carries information. A category is *derived* (§0.7) and
+declared in `categories.yaml`, so nothing in config names a colour for one, and a hard-coded map
+would need editing every time a category is added — exactly the upkeep the derived design avoids.
+The hue is therefore computed from the category name: stable across reloads, identical on both
+pages, free for a new category, and wrong for nobody, since the name is on the chip and the colour
+only groups. Two origins stay deliberately colourless — `STRUCTURAL` is the journal's own answer
+rather than a rule's, and `UNCATEGORIZED` is a legitimate outcome (§0.6) that should not look like
+an achievement.
