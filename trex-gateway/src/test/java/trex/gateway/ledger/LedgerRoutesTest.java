@@ -72,9 +72,11 @@ class LedgerRoutesTest {
             new SequencerClient(URI.create("http://127.0.0.1:" + sequencerApi.port())), categorizer(), "127.0.0.1", 0).start();
     }
 
-    /** Small rules file for these tests; see src/test/resources. */
-    private static trex.category.Categorizer categorizer() {
-        return trex.category.CategoryRules.load(java.nio.file.Path.of("src", "test", "resources", "gateway-categories.yaml"));
+    /** Small rules file for these tests; see src/test/resources. Not watched: these are read-only. */
+    private static trex.gateway.Rules categorizer() {
+        java.nio.file.Path file = java.nio.file.Path.of("src", "test", "resources", "gateway-categories.yaml");
+        trex.category.RuleStore store = new trex.category.RuleStore(file, null);
+        return new trex.gateway.Rules(store, store.load(), store.revision());
     }
 
     @AfterEach

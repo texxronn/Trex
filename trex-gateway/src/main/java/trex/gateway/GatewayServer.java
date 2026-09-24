@@ -3,6 +3,7 @@ package trex.gateway;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import trex.category.Categorizer;
+import trex.core.CanonicalEvent;
 import trex.gateway.grid.BrowseRoutes;
 import trex.gateway.ledger.LedgerRoutes;
 import trex.gateway.ledger.SequencerClient;
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -33,19 +35,24 @@ public final class GatewayServer implements AutoCloseable {
     private final JournalWatcher<JournalView> watcher;
     private final BrowseRoutes browse;
     private final LedgerRoutes ledger;
+    private final RuleRoutes ruleRoutes;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public GatewayServer(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Categorizer categorizer,
+    public GatewayServer(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Rules rules,
                      String bindAddress, int port) {
-        this(watcher, sequencer, categorizer, bindAddress, port, 15_000);
+        this(watcher, sequencer, rules, bindAddress, port, 15_000);
     }
 
-    public GatewayServer(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Categorizer categorizer,
+    public GatewayServer(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Rules rules,
                      String bindAddress, int port, long heartbeatMillis) {
         this.watcher = watcher;
-        this.browse = new BrowseRoutes(watcher, categorizer, heartbeatMillis);
-        this.ledger = new LedgerRoutes(watcher, sequencer, categorizer);
+        this.browse = new BrowseRoutes(watcher, rules, heartbeatMillis);
+        this.ledger = new LedgerRoutes(watcher, sequencer, rules);
+        // The writer sees the same lines the table does, so a proposal's numbers are the
+        // numbers on screen rather than a second reading of the journal.
+        this.ruleRoutes = new RuleRoutes(rules,
+            () -> List.copyOf(watcher.status().view().ledger().latestLines()));
         try {
             server = HttpServer.create(new InetSocketAddress(bindAddress, port), 0);
         } catch (IOException e) {
@@ -77,11 +84,19 @@ public final class GatewayServer implements AutoCloseable {
     private static final java.util.Set<String> LEDGER_PATHS =
         java.util.Set.of("/api/ledger", "/api/decisions");
 
+    private static boolean isRulePath(String path) {
+        return path.equals("/api/rules") || path.startsWith("/api/rules/")
+            || path.equals("/api/pins") || path.startsWith("/api/pins/")
+            || path.equals("/api/proposal");
+    }
+
     private void handle(HttpExchange ex) {
         String path = ex.getRequestURI().getPath();
         try {
             if (LEDGER_PATHS.contains(path)) {
                 ledger.handle(ex, path);
+            } else if (isRulePath(path)) {
+                ruleRoutes.handle(ex, path);
             } else {
                 browse.handle(ex, path);
             }

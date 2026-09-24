@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import trex.category.Categorized;
 import trex.category.Categorizer;
+import trex.gateway.Rules;
 import trex.category.Transfers;
 import trex.core.CanonicalEvent;
 import trex.core.state.LedgerView;
@@ -54,17 +55,17 @@ public final class LedgerRoutes {
     private static final Set<String> FIELDS = Set.of("action", "externalId", "legA", "legB", "comment");
     private final JournalWatcher<JournalView> watcher;
     private final SequencerClient sequencer;
-    private final Categorizer categorizer;
+    private final Rules rules;
 
     /**
      * No event stream of its own. The two halves used to keep one each because they were two
      * pages on two ports; one service with no pages needs exactly one, and it says what changed
      * ({@code n}, offset, error) rather than shipping rows, so both halves are served by it (§5.7).
      */
-    public LedgerRoutes(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Categorizer categorizer) {
+    public LedgerRoutes(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Rules rules) {
         this.watcher = watcher;
         this.sequencer = sequencer;
-        this.categorizer = categorizer;
+        this.rules = rules;
     }
 
     /** Errors are turned into responses by the server; this half only routes. */
@@ -90,6 +91,7 @@ public final class LedgerRoutes {
         body.put("n", s.n());
         body.put("updatedAt", s.updatedAt());
         body.put("error", s.error());
+        body.put("rulesRevision", rules.revision());
         body.put("held", view.held());
         body.put("review", view.review());
         // Read-only: the resolver shows what a row's category is and why, but takes no category
@@ -103,7 +105,7 @@ public final class LedgerRoutes {
         Set<String> transfers = Transfers.ids(view.latestLines());
         Map<String, Object> out = new LinkedHashMap<>();
         for (CanonicalEvent line : Stream.concat(view.held().stream(), view.review().stream()).toList()) {
-            Categorized c = categorizer.categorize(line, transfers);
+            Categorized c = rules.categorizer().categorize(line, transfers);
             out.put(String.valueOf(line.n()), Map.of(
                 "category", c.category(),
                 "origin", c.origin().name(),

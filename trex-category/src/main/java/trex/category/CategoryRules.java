@@ -32,14 +32,15 @@ public final class CategoryRules {
     private CategoryRules() {}
 
     /** {@code categories.yaml} as written; bound strictly, so an unknown or duplicated key fails here. */
-    record File(List<String> categories, List<RuleEntry> pins, List<RuleEntry> rules) {}
+    public record File(List<String> categories, List<RuleEntry> pins, List<RuleEntry> rules) {}
 
     /** {@code pins.yaml} as written. */
-    record PinsFile(List<RuleEntry> pins) {}
+    public record PinsFile(List<RuleEntry> pins) {}
 
-    record RuleEntry(String category, String comment, WhenEntry when) {}
+    /** One entry as written. Public because the writer (§5.7) composes these before rendering. */
+    public record RuleEntry(String category, String comment, WhenEntry when) {}
 
-    record WhenEntry(List<WhenEntry> all, List<WhenEntry> any, WhenEntry not,
+    public record WhenEntry(List<WhenEntry> all, List<WhenEntry> any, WhenEntry not,
                      List<String> externalId, String match, String matchOn,
                      String direction, List<String> accounts, Long amountMin, Long amountMax) {}
 
@@ -95,6 +96,11 @@ public final class CategoryRules {
         }
         PinsFile parsed = Yaml.read(pinsFile, PinsFile.class);
         return compile(pinsFile.getFileName().toString(), "pin", parsed.pins(), declared);
+    }
+
+    /** Compile one entry as if it were at {@code index}, for a dry run that writes nothing. */
+    public static Rule compileOne(String where, boolean pin, int index, RuleEntry entry, Set<String> declared) {
+        return compile(where, pin ? "pin" : "rule", List.of(entry), declared).getFirst().withIndex(index);
     }
 
     private static List<Rule> compile(String where, String kind, List<RuleEntry> entries, Set<String> declared) {

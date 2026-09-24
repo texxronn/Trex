@@ -1,8 +1,5 @@
 package trex.gateway;
 
-import trex.category.CategoryRules;
-import trex.category.Categorizer;
-import trex.category.RuleCategorizer;
 import trex.gateway.ledger.SequencerClient;
 
 import org.slf4j.Logger;
@@ -14,7 +11,6 @@ import picocli.CommandLine.Option;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
@@ -64,22 +60,21 @@ public final class Main implements Callable<Integer> {
         if (pollMs <= 0) {
             throw new CommandLine.ParameterException(new CommandLine(this), "--poll-ms must be positive");
         }
-        // Without a rules file every row is UNCATEGORIZED except structural transfers: the column
-        // still works and says, honestly, that nothing has been categorised yet.
-        Categorizer categorizer = config == null
-            ? new RuleCategorizer(List.of(), List.of(), List.of())
-            : CategoryRules.load(config.resolve("categories.yaml"), config.resolve("pins.yaml"));
+        // Watched, not just loaded: an amendment that needs a restart is not an amendment, and
+        // a file edited in an editor must behave exactly like one written through the API (§5.7).
+        Rules rules = Rules.load(config).watch();
 
         JournalWatcher<JournalView> watcher =
             new JournalWatcher<>(journal, Clock.systemUTC(), CombinedFold::new).start(pollMs);
         GatewayServer server =
-            new GatewayServer(watcher, new SequencerClient(sequencerUrl), categorizer, bind, port).start();
+            new GatewayServer(watcher, new SequencerClient(sequencerUrl), rules, bind, port).start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             server.close();
             watcher.close();
+            rules.close();
         }));
-        log.info("trex-gateway on http://{}:{} (journal {}, config {})", bind, server.port(), journal,
-            config == null ? "none" : config);
+        log.info("trex-gateway on http://{}:{} (journal {}, config {}, rules {})", bind, server.port(),
+            journal, config == null ? "none" : config, rules.revision());
         if (!bind.equals("127.0.0.1") && !bind.equals("localhost")) {
             // §5.7: this service writes the rule files and forwards decisions. It has no
             // authentication, so loopback is not a default here, it is the design.

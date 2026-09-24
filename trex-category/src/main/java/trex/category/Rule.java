@@ -21,6 +21,11 @@ public record Rule(int index, boolean pin, String category, String comment, Cond
         return when.test(line);
     }
 
+    /** The same rule at a different position, for a dry run that has not chosen one yet. */
+    public Rule withIndex(int index) {
+        return new Rule(index, pin, category, comment, when);
+    }
+
     /** "pin #2" / "rule #7", the entry's address in its own file. */
     public String where() {
         return (pin ? "pin #" : "rule #") + index;

@@ -19,6 +19,13 @@ final class Lines {
     private Lines() {}
 
     /** Small rules file written against {@link #sample()}; see src/test/resources. */
+    /** The same rule set, wrapped as the live holder the server now takes. */
+    static trex.gateway.Rules rules() {
+        java.nio.file.Path file = Path.of("src", "test", "resources", "grid-categories.yaml");
+        trex.category.RuleStore store = new trex.category.RuleStore(file, null);
+        return new trex.gateway.Rules(store, store.load(), store.revision());
+    }
+
     static Categorizer categorizer() {
         return CategoryRules.load(Path.of("src", "test", "resources", "grid-categories.yaml"));
     }

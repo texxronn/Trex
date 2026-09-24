@@ -54,7 +54,7 @@ class BrowseRoutesTest {
         }
         watcher = new JournalWatcher<>(journalPath, Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC), CombinedFold::new);
         watcher.poll();
-        server = new GatewayServer(watcher, null, Lines.categorizer(), "127.0.0.1", 0).start();
+        server = new GatewayServer(watcher, null, Lines.rules(), "127.0.0.1", 0).start();
     }
 
     @AfterEach
