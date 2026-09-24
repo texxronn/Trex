@@ -8,6 +8,7 @@ import java.sql.SQLException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -107,6 +108,45 @@ class ProjectionCacheTest {
             assertTrue(c.all().isEmpty());
             assertEquals(0, c.highWater());
             // ...and the next run repopulates it from Firefly, which is FireflyEgress.rebuildCache.
+        }
+    }
+
+    /**
+     * In memory, the "accelerator not a record" claim stops being aspirational: there is no file,
+     * so nothing can be stale, and the cache is necessarily built from Firefly every run.
+     */
+    @Test
+    void anInMemoryCacheWorksAndLeavesNoFile() throws Exception {
+        Path shouldNotExist = dir.resolve("never-written.db");
+        try (ProjectionCache c = new ProjectionCache(null)) {
+            assertTrue(c.inMemory());
+            c.record(row("a", 10, "100", "GROCERIES"));
+            assertEquals(1, c.all().size());
+        }
+        assertFalse(java.nio.file.Files.exists(shouldNotExist));
+    }
+
+    /**
+     * The high-water mark comes from the rows, not from a counter — after a rebuild there is no
+     * counter, and every row knows its own n because Firefly's notes carry it.
+     */
+    @Test
+    void theHighWaterMarkIsDerivedFromTheRows() throws SQLException {
+        try (ProjectionCache c = new ProjectionCache(null)) {
+            assertEquals(0, c.highWater(), "nothing projected means start from the beginning");
+            c.record(row("a", 10, "100", "GROCERIES"));
+            c.record(row("b", 1883, "101", "SHOPPING"));
+            c.record(row("c", 42, "102", "FOOD"));
+            assertEquals(1883, c.highWater());
+        }
+    }
+
+    /** A rebuilt cache knows where to resume without anything having been stored. */
+    @Test
+    void aRebuildRestoresTheResumePoint() throws SQLException {
+        try (ProjectionCache c = new ProjectionCache(null)) {
+            c.replaceAll(List.of(row("a", 900, "1", "FOOD"), row("b", 1751, "2", "BILLS")));
+            assertEquals(1751, c.highWater());
         }
     }
 }

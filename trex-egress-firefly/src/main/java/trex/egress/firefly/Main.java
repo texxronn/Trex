@@ -41,8 +41,9 @@ public final class Main implements Callable<Integer> {
     private Path accountsFile;
 
     @Option(names = "--cache", paramLabel = "<path>",
-        description = "Projection cache. Disposable: delete it and the next run rebuilds from Firefly.")
-    private Path cacheFile = Path.of("firefly-projection.db");
+        description = "Projection cache. Disposable: delete it and the next run rebuilds from Firefly. "
+            + "Omit it entirely to keep the cache in memory, which rebuilds every run and leaves no file.")
+    private Path cacheFile;
 
     @Option(names = "--dry-run", description = "Print what would be posted and write nothing.")
     private boolean dryRun;
@@ -93,8 +94,11 @@ public final class Main implements Callable<Integer> {
 
         try (ProjectionCache cache = new ProjectionCache(cacheFile)) {
             FireflyEgress egress = new FireflyEgress(new GatewayClient(gatewayUrl), firefly, cache, resolved, dryRun);
-            if (verify) {
-                log.info("rebuilt the cache from Firefly: {} transactions", egress.rebuildCache());
+            // An in-memory cache starts empty, so it must be rebuilt or the pass would re-post
+            // everything. That is the same code path --verify uses, which is why it is trustworthy.
+            if (verify || cache.inMemory()) {
+                log.info("rebuilt from Firefly: {} transactions{}", egress.rebuildCache(),
+                    cache.inMemory() ? " (cache is in memory)" : "");
             }
             FireflyEgress.Outcome outcome = egress.run(System.out);
             System.out.println((dryRun ? "dry run: " : "") + outcome.describe());

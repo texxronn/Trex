@@ -47,11 +47,24 @@ public final class ProjectionCache implements AutoCloseable {
     public record Row(String externalId, long n, String groupId, String category, String rulesRevision) {}
 
     private final Connection db;
+    private final boolean inMemory;
 
+    /**
+     * @param file where to keep it, or <b>null for memory only</b>. In-memory makes the
+     *             "accelerator, not a record" claim literal rather than aspirational: there is no
+     *             file to manage, to migrate, or to go stale, and the cache cannot disagree with
+     *             Firefly because it is built from Firefly on every run. The cost is the rebuild —
+     *             eighteen requests for this journal — which is the price of the claim being true.
+     */
     public ProjectionCache(Path file) throws SQLException {
-        this.db = DriverManager.getConnection("jdbc:sqlite:" + file);
+        this.inMemory = file == null;
+        this.db = DriverManager.getConnection(inMemory ? "jdbc:sqlite::memory:" : "jdbc:sqlite:" + file);
         try (Statement st = db.createStatement()) {
-            st.execute("PRAGMA journal_mode=WAL");
+            if (!inMemory) {
+                // WAL for the same reason it mattered for Firefly: the rollback journal fsyncs a
+                // file create and delete around every write, which is absurd for a cache.
+                st.execute("PRAGMA journal_mode=WAL");
+            }
             for (String ddl : SCHEMA.split(";")) {
                 if (!ddl.isBlank()) {
                     st.execute(ddl);
@@ -111,8 +124,26 @@ public final class ProjectionCache implements AutoCloseable {
         log.info("cache rebuilt from Firefly: {} transactions", rows.size());
     }
 
-    /** The highest journal n projected so far, so the next pass asks the gateway for the rest. */
+    public boolean inMemory() {
+        return inMemory;
+    }
+
+    /**
+     * The highest journal n projected so far, so the next pass asks the gateway only for what
+     * moved. Taken from the rows themselves rather than a stored counter: after a rebuild there is
+     * no counter, and the rows carry the same answer — every one of them knows its own n, read
+     * back from the notes Firefly holds.
+     */
     public long highWater() throws SQLException {
+        try (Statement st = db.createStatement();
+             ResultSet rs = st.executeQuery(
+                 "SELECT COALESCE(MAX(n), 0) FROM projected WHERE n > 0")) {
+            long fromRows = rs.next() ? rs.getLong(1) : 0;
+            return Math.max(fromRows, storedHighWater());
+        }
+    }
+
+    private long storedHighWater() throws SQLException {
         try (Statement st = db.createStatement();
              ResultSet rs = st.executeQuery("SELECT v FROM egress_state WHERE k = 'highWaterN'")) {
             return rs.next() ? Long.parseLong(rs.getString(1)) : 0;
