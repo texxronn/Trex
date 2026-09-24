@@ -250,6 +250,92 @@ class RuleRoutesTest {
         assertEquals(0, after.get("merchants").asInt());
     }
 
+    // ---------------------------------------------------------------- the rules API
+
+    /**
+     * A client must be able to read a rule, change one field and send it back. Without the
+     * {@code when} tree in the response that is impossible — PATCH needs the whole condition,
+     * so the only way to edit a rule would be to retype it and hope it matched.
+     */
+    @Test
+    void aRuleCanBeReadEditedAndSentBack() throws Exception {
+        JsonNode rule = json(get("/api/rules/1"));
+        assertEquals(1, rule.get("index").asInt());
+        assertEquals("GROCERIES", rule.get("category").asText());
+        assertEquals("supermarkets", rule.get("comment").asText());
+        assertEquals("woolworths|coles", rule.get("when").get("match").asText());
+
+        // Round trip: take what was read, widen the pattern, send it back.
+        String edited = """
+            {"category":"%s","comment":"%s","when":{"match":"%s|costco"},"rulesRevision":"%s"}"""
+            .formatted(rule.get("category").asText(), rule.get("comment").asText(),
+                rule.get("when").get("match").asText(), revision());
+        assertEquals(200, send("PATCH", "/api/rules/1", edited).statusCode());
+        assertEquals("woolworths|coles|costco",
+            json(get("/api/rules/1")).get("when").get("match").asText());
+    }
+
+    @Test
+    void anIndexThatDoesNotExistIs404() throws Exception {
+        assertEquals(404, get("/api/rules/99").statusCode());
+        assertEquals(404, get("/api/pins/1").statusCode());
+    }
+
+    /** The listing pairs each rule with what it is actually deciding (§9). */
+    @Test
+    void theListingCarriesHealthAlongsideTheRules() throws Exception {
+        JsonNode listing = json(get("/api/rules"));
+        JsonNode groceries = listing.get("rules").get(0);
+        assertEquals(1, groceries.get("hits").asInt(), "the one WOOLWORTHS row");
+        assertEquals(1, groceries.get("merchants").asInt());
+        assertEquals(-8500, groceries.get("total").asLong());
+        assertFalse(groceries.get("dead").asBoolean());
+        assertEquals(1, listing.get("categorized").asInt());
+        assertEquals(2, listing.get("uncategorized").asInt());
+    }
+
+    /** A rule added below a broader one decides nothing, and the listing says so. */
+    @Test
+    void theListingNamesARuleThatCanNeverFire() throws Exception {
+        assertEquals(200, send("POST", "/api/rules", """
+            {"category":"FOOD","comment":"never fires","when":{"match":"piccolo"},
+             "at":1,"rulesRevision":"%s"}""".formatted(revision())).statusCode());
+        // Below the first, explicitly. Left to itself the service would put this one in FRONT,
+        // because it collides and would otherwise never fire — which is the placement working.
+        // Shadowing is what you get when a position is chosen badly, so the test has to choose one.
+        assertEquals(200, send("POST", "/api/rules", """
+            {"category":"SALARY","comment":"shadowed by the rule above","when":{"match":"piccolo me"},
+             "at":9,"rulesRevision":"%s"}""".formatted(revision())).statusCode());
+
+        JsonNode rules = json(get("/api/rules")).get("rules");
+        JsonNode last = rules.get(rules.size() - 1);
+        assertEquals(0, last.get("hits").asInt());
+        assertTrue(last.get("fullyShadowed").asBoolean(), "it matches rows that an earlier rule wins");
+        assertEquals(1, last.get("shadowedBy").asInt());
+        assertFalse(last.get("dead").asBoolean(), "dead and shadowed need different fixes");
+    }
+
+    /**
+     * Pins show up in the listing with what they are doing, and two pins for one merchant are
+     * not yet a promotion — three is the threshold (RuleHealthTest covers crossing it). Here the
+     * point is that pinning is visible and counted at all.
+     */
+    @Test
+    void pinsAreListedWithTheirHits() throws Exception {
+        assertEquals(200, send("POST", "/api/pins", """
+            {"category":"FOOD","comment":"both cafe runs","externalIds":["u1","u2"],
+             "rulesRevision":"%s"}""".formatted(revision())).statusCode());
+
+        JsonNode listing = json(get("/api/rules"));
+        JsonNode pin = listing.get("pins").get(0);
+        assertEquals("FOOD", pin.get("category").asText());
+        assertEquals(2, pin.get("hits").asInt());
+        assertEquals(0, pin.get("missingIds").asInt());
+        assertFalse(pin.get("stale").asBoolean());
+        assertTrue(listing.get("promotions").isEmpty(), "two is a coincidence, three is a pattern");
+        assertEquals(2, pin.get("when").get("externalId").size(), "the ids come back for editing");
+    }
+
     // ---------------------------------------------------------------- guards and reload
 
     @Test

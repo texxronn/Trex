@@ -6,6 +6,7 @@ import trex.category.CategoryRules;
 import trex.category.Categorizer;
 import trex.category.Placement;
 import trex.category.Rule;
+import trex.category.RuleHealth;
 import trex.category.RuleStore;
 import trex.core.CanonicalEvent;
 import trex.gateway.Web.HttpError;
@@ -55,6 +56,10 @@ public final class RuleRoutes {
                 addRule(ex);
             }
             case "/api/pins" -> {
+                if (ex.getRequestMethod().equals("GET")) {
+                    Web.json(ex, 200, listing());
+                    return;
+                }
                 Web.requireMethod(ex, "POST");
                 addPin(ex);
             }
@@ -73,10 +78,11 @@ public final class RuleRoutes {
                     throw new HttpError(404, "not found");
                 }
                 switch (ex.getRequestMethod()) {
+                    case "GET" -> Web.json(ex, 200, one(target));
                     case "DELETE" -> delete(ex, target);
                     case "PATCH" -> patch(ex, target);
                     default -> {
-                        ex.getResponseHeaders().set("Allow", "DELETE, PATCH");
+                        ex.getResponseHeaders().set("Allow", "GET, DELETE, PATCH");
                         throw new HttpError(405, "method not allowed");
                     }
                 }
@@ -101,26 +107,92 @@ public final class RuleRoutes {
 
     // ---------------------------------------------------------------- reading
 
-    /** The rule set as the service sees it, so a client can show what it is about to change. */
+    /**
+     * The rule set with its {@code when} trees and what each entry is actually doing.
+     * <p>
+     * Both halves matter and neither is enough alone: the file says what the rules are, the
+     * journal says what they do, and a rule that fires for nothing looks exactly like a good one
+     * until you put the two together (§9).
+     */
     private Map<String, Object> listing() {
-        Categorizer c = rules.categorizer();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("rulesRevision", rules.revision());
-        body.put("categories", c.declared());
-        // Listing individual entries is a property of the YAML engine, not of the Categorizer
-        // seam (§5.6): a different engine would have nothing to list. So ask, do not require.
-        if (c instanceof trex.category.RuleCategorizer engine) {
-            body.put("rules", engine.rules().stream().map(RuleRoutes::describe).toList());
-            body.put("pins", engine.pins().stream().map(RuleRoutes::describe).toList());
+        body.put("categories", rules.categorizer().declared());
+        if (rules.store() == null) {
+            return body;
         }
+        RuleHealth.Report health = RuleHealth.of(rules.categorizer(), lines.get());
+        body.put("rules", merge(rules.store().rules(), health.rules(), RuleRoutes::describeRule));
+        body.put("pins", merge(rules.store().pins(), health.pins(), RuleRoutes::describePin));
+        body.put("promotions", health.promotions().stream().map(p -> Map.of(
+            "stem", p.stem(), "category", p.category(), "pinned", p.pinned(),
+            "externalIds", p.externalIds())).toList());
+        body.put("categorized", health.categorized());
+        body.put("uncategorized", health.uncategorized());
+        body.put("structural", health.structural());
         return body;
     }
 
-    private static Map<String, Object> describe(Rule rule) {
+    /** Pair each entry with its statistics; both lists are in file order and the same length. */
+    private static <S> List<Map<String, Object>> merge(List<CategoryRules.RuleEntry> entries, List<S> stats,
+                                                       java.util.function.BiFunction<CategoryRules.RuleEntry, S,
+                                                           Map<String, Object>> describe) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (int i = 0; i < entries.size(); i++) {
+            out.add(describe.apply(entries.get(i), i < stats.size() ? stats.get(i) : null));
+        }
+        return out;
+    }
+
+    private static Map<String, Object> describeRule(CategoryRules.RuleEntry entry, RuleHealth.RuleStat stat) {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("index", rule.index());
-        out.put("category", rule.category());
-        out.put("comment", rule.comment());
+        out.put("index", stat == null ? null : stat.index());
+        out.put("category", entry.category());
+        out.put("comment", entry.comment());
+        // The tree as the file has it, so a client can edit a rule instead of retyping it.
+        out.put("when", entry.when());
+        if (stat != null) {
+            out.put("hits", stat.hits());
+            out.put("merchants", stat.merchants());
+            out.put("total", stat.total());
+            out.put("shadowed", stat.shadowed());
+            out.put("shadowedBy", stat.shadowedBy());
+            out.put("dead", stat.dead());
+            out.put("fullyShadowed", stat.fullyShadowed());
+        }
+        return out;
+    }
+
+    private static Map<String, Object> describePin(CategoryRules.RuleEntry entry, RuleHealth.PinStat stat) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("index", stat == null ? null : stat.index());
+        out.put("category", entry.category());
+        out.put("comment", entry.comment());
+        out.put("when", entry.when());
+        if (stat != null) {
+            out.put("hits", stat.hits());
+            out.put("missingIds", stat.missingIds());
+            out.put("stale", stat.stale());
+        }
+        return out;
+    }
+
+    /** One entry, for a client editing it. Same shape as a row of the listing. */
+    private Map<String, Object> one(Entry target) throws HttpError {
+        if (rules.store() == null) {
+            throw new HttpError(404, "no rules are loaded");
+        }
+        List<CategoryRules.RuleEntry> entries = target.pin() ? rules.store().pins() : rules.store().rules();
+        if (target.index() < 1 || target.index() > entries.size()) {
+            throw new HttpError(404, (target.pin() ? "pin #" : "rule #") + target.index() + " does not exist");
+        }
+        RuleHealth.Report health = RuleHealth.of(rules.categorizer(), lines.get());
+        CategoryRules.RuleEntry entry = entries.get(target.index() - 1);
+        Map<String, Object> body = target.pin()
+            ? describePin(entry, health.pins().get(target.index() - 1))
+            : describeRule(entry, health.rules().get(target.index() - 1));
+        Map<String, Object> out = new LinkedHashMap<>(body);
+        out.put("rulesRevision", rules.revision());
         return out;
     }
 

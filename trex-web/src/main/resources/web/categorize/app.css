@@ -289,3 +289,52 @@ td.col-num.total { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
 }
+
+/* ---------------------------------------------------------------- the rules panel */
+
+#rules-panel { margin-top: 16px; }
+.col-pattern {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-comment { color: var(--muted); font-size: 11.5px; }
+
+/* Two different problems with two different fixes, so they do not share a colour: a dead rule
+   wants its pattern looked at, a shadowed one wants moving or deleting. */
+.flag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.flag.dead { background: var(--warn-bg); color: var(--warn-fg); }
+.flag.shadowed { background: #e0e7ff; color: #3730a3; }
+.flag.stale { background: #fee2e2; color: #991b1b; }
+tr.problem td { background: color-mix(in srgb, var(--warn-bg) 25%, transparent); }
+
+.promotion {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 12px;
+}
+.promotion b { font-weight: 600; }
+.promotion .btn { margin-left: 8px; }
+
+@media (max-width: 720px) {
+  #rules-panel .grid tr {
+    grid-template-areas:
+      "merchant total"
+      "meta     meta"
+      "action   action";
+  }
+  #rules-panel .col-pattern { grid-area: meta; max-width: none; white-space: normal; overflow-wrap: anywhere; }
+  #rules-panel td.col-num:first-child { display: none; }
+}

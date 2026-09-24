@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 
 /**
  * The two rule files and the only safe way to change them. SPEC §5.6, §5.7.
@@ -74,6 +75,28 @@ public final class RuleStore {
 
     public Categorizer load() {
         return CategoryRules.load(categoriesFile, pinsFile);
+    }
+
+    /**
+     * The entries as written, {@code when} trees included.
+     * <p>
+     * The compiled {@link Rule} deliberately does not keep its source: it holds a compiled
+     * {@link Condition}, which is what matching needs and is a different shape from what the file
+     * says. A client that wants to edit a rule needs the file's shape back — otherwise it can
+     * replace a rule only by retyping it — so this reads the file rather than reconstructing it.
+     */
+    public List<CategoryRules.RuleEntry> rules() {
+        return orEmpty(Files.exists(categoriesFile)
+            ? trex.journal.Yaml.read(categoriesFile, CategoryRules.File.class).rules() : null);
+    }
+
+    public List<CategoryRules.RuleEntry> pins() {
+        return orEmpty(pinsFile != null && Files.exists(pinsFile)
+            ? trex.journal.Yaml.read(pinsFile, CategoryRules.PinsFile.class).pins() : null);
+    }
+
+    private static List<CategoryRules.RuleEntry> orEmpty(List<CategoryRules.RuleEntry> entries) {
+        return entries == null ? List.of() : entries;
     }
 
     /**

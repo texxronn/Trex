@@ -16,6 +16,7 @@ const model = {
   categories: [],
   rulesRevision: null,
   hideSmall: false,
+  onlyProblems: false,
   live: false,
   seenN: null,
   target: null,                   // the worklist row a sheet was opened from
@@ -271,6 +272,122 @@ function toast(message, bad) {
   setTimeout(() => node.remove(), bad ? 9000 : 5000);
 }
 
+// ---------------------------------------------------------------- the rules panel
+
+/** A one-line summary of a `when` tree, enough to recognise a rule without opening it. */
+function describeWhen(when, depth) {
+  if (!when || depth > 3) return '…';
+  if (when.match) return `/${when.match}/`;
+  if (when.externalId) return `${when.externalId.length} id${when.externalId.length === 1 ? '' : 's'}`;
+  if (when.all) return when.all.map((w) => describeWhen(w, depth + 1)).join(' and ');
+  if (when.any) return when.any.map((w) => describeWhen(w, depth + 1)).join(' or ');
+  if (when.not) return `not ${describeWhen(when.not, depth + 1)}`;
+  if (when.direction) return when.direction === 'in' ? 'money in' : 'money out';
+  if (when.accounts) return when.accounts.join(', ');
+  if (when.amountMin != null || when.amountMax != null) return 'amount range';
+  return '…';
+}
+
+function ruleRow(rule, isPin) {
+  const tr = el('tr');
+  if (rule.dead || rule.fullyShadowed || rule.stale) tr.className = 'problem';
+
+  tr.append(el('td', 'col-num', (isPin ? 'pin ' : '') + rule.index));
+
+  const category = el('td');
+  category.append(el('span', null, rule.category));
+  // Named apart because the fixes differ: a dead rule wants its pattern looked at, a shadowed
+  // one wants moving or removing, a stale pin points at transactions that are no longer there.
+  if (rule.dead) category.append(el('span', 'flag dead', 'never fires'));
+  if (rule.fullyShadowed) category.append(el('span', 'flag shadowed', `shadowed by #${rule.shadowedBy}`));
+  if (rule.stale) category.append(el('span', 'flag stale', 'matches nothing'));
+  if (rule.comment) {
+    category.append(el('div', 'col-comment', rule.comment));
+  }
+  tr.append(category);
+
+  const pattern = el('td', 'col-pattern', describeWhen(rule.when, 0));
+  pattern.title = JSON.stringify(rule.when);
+  tr.append(pattern);
+
+  tr.append(el('td', 'col-num', String(rule.hits)));
+  const total = el('td', 'col-num');
+  if (!isPin) total.append(el('span', rule.total < 0 ? 'neg' : 'pos', formatCents(rule.total || 0)));
+  tr.append(total);
+
+  const actions = el('td', 'col-act');
+  const remove = el('button', 'btn', 'Delete');
+  remove.type = 'button';
+  remove.title = 'Remove this entry. Categories are derived, so this is reversible in git.';
+  remove.addEventListener('click', () => removeEntry(isPin, rule.index, rule.category));
+  actions.append(remove);
+  tr.append(actions);
+  return tr;
+}
+
+function renderRules(data) {
+  const rules = (data.rules || []).map((r) => ({ ...r, isPin: false }));
+  const pins = (data.pins || []).map((p) => ({ ...p, isPin: true }));
+  const all = [...rules, ...pins];
+  const shown = model.onlyProblems
+    ? all.filter((r) => r.dead || r.fullyShadowed || r.stale)
+    : all;
+
+  const body = $('rules-body');
+  body.replaceChildren(...shown.map((r) => ruleRow(r, r.isPin)));
+  $('rules-count').textContent = String(shown.length);
+  $('rules-empty').hidden = shown.length > 0;
+
+  const problems = all.filter((r) => r.dead || r.fullyShadowed || r.stale).length;
+  $('rules-summary').textContent =
+    `${data.categorized} categorised, ${data.uncategorized} not, ${data.structural} transfers`
+    + (problems ? ` · ${problems} need attention` : '');
+
+  renderPromotions(data.promotions || []);
+}
+
+/** A merchant pinned three times is the file asking for one line instead of three. */
+function renderPromotions(promotions) {
+  const panel = $('rules-panel');
+  panel.querySelectorAll('.promotion').forEach((n) => n.remove());
+  const head = panel.querySelector('.panel-head');
+  for (const p of promotions) {
+    const note = el('p', 'promotion');
+    note.append(document.createTextNode('Pinned '));
+    note.append(el('b', null, String(p.pinned)));
+    note.append(document.createTextNode(' times as '));
+    note.append(el('b', null, p.category));
+    note.append(document.createTextNode(`: ${p.stem}. A rule would cover it once.`));
+    const write = el('button', 'btn', 'Write the rule');
+    write.type = 'button';
+    write.addEventListener('click', () => {
+      $('f-category').value = p.category;
+      openCompose({ stem: p.stem, count: p.pinned, sampleIds: p.externalIds });
+    });
+    note.append(write);
+    head.after(note);
+  }
+}
+
+async function removeEntry(isPin, index, category) {
+  const what = `${isPin ? 'pin' : 'rule'} #${index} (${category})`;
+  try {
+    const res = await fetch(`/api/${isPin ? 'pins' : 'rules'}/${index}?rulesRevision=${model.rulesRevision}`, {
+      method: 'DELETE',
+      headers: { 'X-Trex-Admin': '1' },
+    });
+    const out = await res.json();
+    if (!res.ok) {
+      toast(out.error || `HTTP ${res.status}`, true);
+    } else {
+      toast(`Removed ${what}`);
+    }
+  } catch (e) {
+    toast(e.message, true);
+  }
+  await load();
+}
+
 // ---------------------------------------------------------------- loading
 
 async function load() {
@@ -285,6 +402,11 @@ async function load() {
     renderWorklist();
     renderSummary(data);
     renderStatus(res.headers.get('X-Trex-Stale') === '1' ? 'stale' : 'ok');
+
+    // The rules and their health come from their own endpoint: the worklist is about what has
+    // no rule, this is about what the rules that exist are doing.
+    const rulesRes = await fetch('/api/rules', { cache: 'no-store' });
+    if (rulesRes.ok) renderRules(await rulesRes.json());
   } catch (e) {
     renderStatus('bad', e.message);
   }
@@ -323,6 +445,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('hide-small').addEventListener('change', () => {
     model.hideSmall = $('hide-small').checked;
     renderWorklist();
+  });
+  $('only-problems').addEventListener('change', () => {
+    model.onlyProblems = $('only-problems').checked;
+    load();
   });
   $('f-match').addEventListener('input', schedulePreview);
   $('f-comment').addEventListener('input', schedulePreview);
