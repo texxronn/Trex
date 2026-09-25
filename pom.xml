@@ -15,8 +15,7 @@
     <module>trex-sequencer</module>
     <module>trex-ingest</module>
     <module>trex-egress</module>
-    <module>trex-gateway</module>
-    <module>trex-web</module>
+    <module>trex-ws</module>
   </modules>
 
   <properties>
@@ -73,7 +72,7 @@
       </dependency>
       <dependency>
         <groupId>trex</groupId>
-        <artifactId>trex-gateway</artifactId>
+        <artifactId>trex-ws</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

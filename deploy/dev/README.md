@@ -57,7 +57,7 @@ Web UI: <http://127.0.0.1:8090>  ·  worklist at <http://127.0.0.1:8090/resolve>
 
 Both egresses are **one-shot**, like `ingest.sh` and unlike everything above:
 they make one pass and exit, so they take a verb rather than `start`/`stop`.
-Both read the gateway, so it has to be running.
+Both read the ws, so it has to be running.
 
     deploy/dev/bin/egress-hledger.sh          # regenerate run/hledger/trex.journal
     deploy/dev/bin/egress-hledger.sh check    # regenerate, then let hledger validate it
@@ -85,7 +85,7 @@ Neither is a tmux panel: a panel is a log you watch, and these are commands you 
 | file | component | shape |
 |---|---|---|
 | `trex-dev.env` | all | bind address, ports, log level, `JAVA_OPTS` |
-| `config/egress-hledger.env` | egress-hledger | output path, gateway URL, assertions on/off |
+| `config/egress-hledger.env` | egress-hledger | output path, ws URL, assertions on/off |
 | `config/hledger.yaml` | egress-hledger | account tree, income categories, suspense and equity names |
 | `config/egress-firefly.env` | egress-firefly | Firefly URL, cache, retry policy (**no token**) |
 | `config/sequencer.yaml` | trex-sequencer | YAML, `bindPort` + `journal:` |
@@ -104,7 +104,7 @@ one wins over the file for a single run:
     ONCE=1 deploy/dev/bin/egress-archive.sh     # drain what is there, print, exit
 
 The sequencer reads `sequencer.yaml`, `accounts.yaml` and `transfers.yaml`;
-trex-gateway reads `categories.yaml` and `pins.yaml` and is their single writer
+trex-ws reads `categories.yaml` and `pins.yaml` and is their single writer
 (SPEC.md §6). Everything else — the followers, trex-web and ingress — is
 configured by command-line flags, so their `.env` files are plain shell sourced
 by the scripts, not a second config format.

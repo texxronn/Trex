@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # trex-egress-hledger — one-shot ledger regeneration (SPEC.md §5.9). Not a
-# service: it reads the gateway, rewrites the file whole and exits. There is no
+# service: it reads the ws, rewrites the file whole and exits. There is no
 # cache and no cursor, because the file is replaced every time.
 #
 #   egress-hledger.sh              regenerate
@@ -9,7 +9,7 @@
 #
 # `check` is the point of this egress: hledger verifies every account against the
 # bank's own running balance and fails at the transaction where it first stops
-# being true. Needs the gateway running.
+# being true. Needs the ws running.
 #
 # Config: ../config/egress-hledger.env and ../config/hledger.yaml.
 
@@ -23,7 +23,7 @@ esac
 
 load_env egress-hledger
 url="${GATEWAY_URL:-}"
-[ -n "$url" ] || url="http://127.0.0.1:$TREX_GATEWAY_PORT"
+[ -n "$url" ] || url="http://127.0.0.1:$TREX_ADMIN_PORT"
 
 out="$(in_run "$OUT")"
 mkdir -p "$(dirname "$out")"

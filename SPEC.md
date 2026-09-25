@@ -971,6 +971,13 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
     count equals the count contributed by `statement` accounts alone, including at an attestation,
     where one would pass by construction. The plug lands in the configured `cashPlug` account, and
     `$500` withdrawn with `$40` itemised reports `$440` + `$40`, not `$540`.
+33. **The read listener carries no mutating route** (§5.7): every mutating path returns **404** on
+    a `READ` listener — 404 rather than 403, because "forbidden" advertises that the route exists —
+    while the same paths are reachable on `ADMIN`, and the read listener still serves the pages and
+    `/api/head`. Constructing an `ADMIN` listener on any address but `127.0.0.1` throws. This is
+    the whole of what replaced the process boundary when the page server and the consumer API
+    merged, so both halves are mutation-tested: the route filter and the bind check each fail the
+    suite when removed.
 
 ---
 

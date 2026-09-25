@@ -31,7 +31,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 RUN="${TREX_RUN:-$REPO/run}"
 BIND="${TREX_BIND:-127.0.0.1}"
 SEQ_PORT="${TREX_SEQ_PORT:-8080}"
-GATEWAY_PORT="${TREX_GATEWAY_PORT:-8085}"
+ADMIN_PORT="${TREX_ADMIN_PORT:-8085}"
 WEB_PORT="${TREX_WEB_PORT:-8090}"
 JAVA_OPTS="${JAVA_OPTS:--Xms64m -Xmx512m -XX:+UseSerialGC}"
 
@@ -40,7 +40,7 @@ JOURNAL="$RUN/journal/journal.jsonl"
 LOGS="$RUN/logs"
 PIDS="$RUN/pids"
 
-SERVICES="sequencer egress-archive egress-sqlite gateway web"
+SERVICES="sequencer egress-archive egress-sqlite ws"
 STOP_TIMEOUT=30
 
 die() { echo "trex: $*" >&2; exit 1; }
@@ -83,13 +83,10 @@ args_for() {
         egress-sqlite)
             echo "--journal $JOURNAL --db $RUN/sqlite/trex.db --poll-seconds 60"
             ;;
-        gateway)
-            # Loopback regardless of BIND: it writes the rule files and forwards
-            # decisions, with no authentication (SPEC.md §5.7).
-            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind 127.0.0.1 --port $GATEWAY_PORT$(config_arg)"
-            ;;
-        web)
-            echo "--gateway-url http://127.0.0.1:$GATEWAY_PORT --bind $BIND --port $WEB_PORT"
+        ws)
+            # --bind moves the READ listener only. The admin listener is pinned to
+            # 127.0.0.1 in the service itself and refuses anything else (SPEC.md §5.7).
+            echo "--journal $JOURNAL --sequencer-url http://$BIND:$SEQ_PORT --bind $BIND --port $WEB_PORT --admin-port $ADMIN_PORT$(config_arg)"
             ;;
         *)
             die "unknown service: $1 (have: $SERVICES)"
@@ -208,7 +205,7 @@ cmd_start() {
     for svc in $list; do start_one "$svc"; done
     echo
     echo "  sequencer API  http://$BIND:$SEQ_PORT"
-    echo "  gateway        http://127.0.0.1:$GATEWAY_PORT  (consumer API; loopback only)"
+    echo "  gateway        http://127.0.0.1:$ADMIN_PORT  (consumer API; loopback only)"
     echo "  web            http://$BIND:$WEB_PORT  (browse; /resolve for the worklist)"
     echo "  journal        $JOURNAL"
     echo "  logs           $LOGS"

@@ -11,7 +11,7 @@
 # Start with `accounts`: posting into the wrong account is not recoverable except
 # one transaction at a time, so the mapping is worth reading before the first run.
 #
-# Needs the gateway running and FIREFLY_TOKEN in the environment:
+# Needs the ws running and FIREFLY_TOKEN in the environment:
 #   set -a; . ~/.config/trex/firefly.env; set +a
 #
 # Config: ../config/egress-firefly.env and ../config/firefly.yaml.
@@ -30,7 +30,7 @@ A token belongs in the environment, never in config or in the repo (SPEC §6):
   set -a; . ~/.config/trex/firefly.env; set +a"
 
 url="${GATEWAY_URL:-}"
-[ -n "$url" ] || url="http://127.0.0.1:$TREX_GATEWAY_PORT"
+[ -n "$url" ] || url="http://127.0.0.1:$TREX_ADMIN_PORT"
 
 args=(--gateway-url "$url" --firefly-url "$FIREFLY_URL" --accounts "$ACCOUNTS"
       --retries "$RETRIES" --retry-base-ms "$RETRY_BASE_MS" --retry-max-ms "$RETRY_MAX_MS")

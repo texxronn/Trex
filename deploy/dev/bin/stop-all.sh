@@ -6,6 +6,6 @@
 
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-for svc in web gateway egress-sqlite egress-archive sequencer; do
+for svc in ws egress-sqlite egress-archive sequencer; do
     stop_svc "$svc"
 done
