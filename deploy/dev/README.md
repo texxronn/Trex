@@ -100,3 +100,12 @@ seconds instead of minutes, heap 256m.
   a panel never dies on a race you cannot scroll back to.
 - `reset.sh` deletes the journal. There is no undo for a decision either — both
   are the real semantics, not a dev shortcut.
+- **`TREX_DEV_RUN` does not move the journal**, and the sequencer refuses to
+  start if you assume otherwise. It relocates the pid files, the archive and the
+  sqlite mirror, but the sequencer reads `journal.target` from
+  `config/sequencer.yaml`, which resolves relative to the **config** directory —
+  so a scratch `TREX_DEV_RUN` gives you a scratch everything except the one file
+  that matters, and appends to the real dev journal instead. `sequencer.sh` now
+  compares the two and stops with both paths printed. To get a genuinely
+  isolated instance, copy `deploy/dev/config` as well and point `journal.source`
+  and `journal.target` at the new run directory.

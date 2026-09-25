@@ -56,6 +56,51 @@ dirs() {
     mkdir -p "$RUN/journal" "$RUN/archive" "$RUN/sqlite" "$PIDS"
 }
 
+# The journal path the SEQUENCER will actually use, resolved the way it resolves
+# it: from journal.target in config/sequencer.yaml, relative to the config dir.
+sequencer_journal() {
+    local yaml="$CONF/sequencer.yaml" target
+    [ -f "$yaml" ] || { echo ""; return 0; }
+    target="$(sed -n 's/^[[:space:]]*target:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$yaml" | head -1)"
+    # No die() here: this runs inside $( ), where die would only kill the
+    # subshell and the caller would carry on with an empty answer.
+    [ -n "$target" ] || { echo ""; return 0; }
+    case "$target" in
+        /*) echo "$target" ;;
+        *)  (cd "$CONF" && cd "$(dirname "$target")" 2>/dev/null && echo "$PWD/$(basename "$target")") \
+                || echo "$CONF/$target" ;;
+    esac
+}
+
+# TREX_DEV_RUN moves the pid files, the archive and the sqlite mirror. It does
+# NOT move the journal: the sequencer reads its path from sequencer.yaml, which
+# is relative to the CONFIG directory, not to the run directory. So pointing
+# TREX_DEV_RUN at a scratch dir and expecting an isolated instance gives you a
+# scratch dir for everything except the one file that matters — and the real dev
+# journal gets appended to, silently, by what you thought was a throwaway run.
+#
+# This has happened. Refuse to start rather than let it happen again: either the
+# two agree, or sequencer.yaml has to be pointed at the same run directory.
+check_run_dir() {
+    local want="$RUN/journal/journal.jsonl" have
+    have="$(sequencer_journal)"
+    [ -n "$have" ] || die "cannot read journal.target from $CONF/sequencer.yaml"
+    [ "$want" = "$have" ] && return 0
+    die "TREX_DEV_RUN and sequencer.yaml disagree about the journal.
+
+  TREX_DEV_RUN      $RUN
+  would write to    $want
+  sequencer.yaml    $have
+
+TREX_DEV_RUN does not move the journal — the sequencer resolves journal.target
+relative to the config directory. Starting now would append to the journal above,
+which is probably not the one you meant.
+
+Fix either side:
+  - point journal.source/target in $CONF/sequencer.yaml at $RUN/journal/journal.jsonl
+  - or unset TREX_DEV_RUN to use the default dev instance"
+}
+
 # A pid file counts only if the process is alive AND still the service we
 # started — pids are reused, and TERMing a stranger is worse than a stale file.
 pid_of() {
@@ -73,6 +118,9 @@ pid_of() {
 run_fg() {
     local svc="$1"; shift
     local pid
+    # An `&&` here would return non-zero for every other service and set -e would
+    # kill the script before it ever started one.
+    if [ "$svc" = "sequencer" ]; then check_run_dir; fi
     dirs
     if pid="$(pid_of "$svc")"; then
         die "$svc already running (pid $pid) — stop it first"
