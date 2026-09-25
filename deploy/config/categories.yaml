@@ -241,11 +241,12 @@ rules:
         - match: "restaurant|bar |pub |cinema|bottle|rsl|diggers|catholic cl"
 
   - category: "FOOD"
-    comment: "takeaway, cafes and restaurants"
+    comment: "takeaway, cafes, bakeries and restaurants"
     when:
       all:
       - direction: "out"
-      - match: "domino|sushi people|food depot|scirocco|chatkazz|raj bhavan|pizzapan|breadtop"
+      - match: "domino|pizza|sushi people|food depot|scirocco|chatkazz|raj bhavan|breadtop|cheesecake\
+          \ shop"
 
   - category: "GROCERIES"
     comment: "Asian and Indian grocers, greengrocers and bakeries around Ingleburn/Strathfield\
@@ -285,21 +286,23 @@ rules:
       - match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
 
   - category: "SPORT_AND_LEISURE"
-    comment: "travel and outings: flights, accommodation, ticketing, zoos and theme parks.\
-      \ There is no TRAVEL category, and adding one would recategorise history"
+    comment: "travel, outings and junior sport: flights, accommodation, ticketing, zoos,\
+      \ theme parks and clubs. There is no TRAVEL category, and adding one would recategorise\
+      \ history"
     when:
       all:
       - direction: "out"
       - match: "booking\\.?com|ticketek|ticketmaste|taronga|carnivalfun|feld entertainment|jetstar|moonshadow|boatshed|holiday\
-          \ park|motel|breeze ap"
+          \ park|motel|breeze ap|rovers fc|soccajoey"
 
   - category: "SHOPPING"
-    comment: "general retail: electronics, clothing, department and online stores"
+    comment: "general retail: electronics, clothing, stationery, department and online\
+      \ stores"
     when:
       all:
       - direction: "out"
       - match: "jb hi.?fi|hn online|harvey norman|bevilles|strandbags|shein|lowes|portmans|hennes|best\
-          \ and less|goodguys|amazon reta|amazon mar|anaconda|surfside"
+          \ and less|goodguys|amazon reta|amazon mar|anaconda|surfside|reject shop|smiggle"
 
   - category: "BILLS"
     comment: "energy and telco billed to a card, including via PayPal"
