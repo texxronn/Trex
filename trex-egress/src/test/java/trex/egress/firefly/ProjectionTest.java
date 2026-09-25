@@ -184,4 +184,20 @@ class ProjectionTest {
             Projection.of(spend("x", "ing-salary", -100, "X"), "SHOPPING", "r", unresolved));
         assertTrue(e.getMessage().contains("ING Salary"), e.getMessage());
     }
+
+    /**
+     * SPEC §5.8. An ATTESTATION is trex's own bookkeeping, not a transaction — no money moved.
+     * Its state is EXTERNAL like any settled row, so without an explicit exclusion it would post
+     * to Firefly as a $0 withdrawal, once per attestation, forever.
+     */
+    @Test
+    void anAttestationIsNeverProjected() {
+        CanonicalEvent attestation = line(1, "a1", "cash-ron", null, 0,
+            "Cash attestation", TypeHint.ATTESTATION, EventState.EXTERNAL);
+        assertFalse(Projection.projectable(attestation),
+            "an attestation would post as a $0 transaction");
+
+        // ...while an ordinary cash purchase on the same account still projects.
+        assertTrue(Projection.projectable(spend("p1", "cash-ron", -4000, "Market stall")));
+    }
 }

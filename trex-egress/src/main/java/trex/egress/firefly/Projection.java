@@ -53,6 +53,13 @@ public final class Projection {
      * HELD and REVIEW rows are withheld until they are resolved.
      */
     public static boolean projectable(CanonicalEvent line) {
+        // An ATTESTATION is trex's own bookkeeping, not a transaction: no money moved, and its
+        // state is EXTERNAL like any settled row, so without this it would post as a $0
+        // withdrawal. What it records — the difference between what was stated and what was
+        // itemised — is a REPORTING fact, and the hledger egress renders it as one (§5.9).
+        if (line.typeHint() == TypeHint.ATTESTATION) {
+            return false;
+        }
         return line.typeHint() == TypeHint.TRANSFER || line.state() == EventState.EXTERNAL;
     }
 

@@ -103,14 +103,30 @@ public final class GatewayClient {
      */
     public Map<String, Opening> openingBalances() throws IOException, InterruptedException {
         Map<String, List<CanonicalEvent>> byAccount = new java.util.LinkedHashMap<>();
+        Map<String, CanonicalEvent> declaredAnchor = new java.util.LinkedHashMap<>();
         for (CanonicalEvent line : allRows()) {
             if (line.typeHint() == trex.core.TypeHint.TRANSFER) {
                 continue;                     // a TRANSFER line carries no balance of its own
             }
+            if (line.typeHint() == trex.core.TypeHint.ATTESTATION) {
+                // The ONLY line on a declared account that carries a balance, and it is the most
+                // authoritative figure available for it. Backward anchoring is already what this
+                // method does, so the latest attestation is naturally the anchor — but the
+                // forward/gap comparison below is meaningless on a chain with deliberate gaps,
+                // and is suppressed for those accounts by the caller.
+                declaredAnchor.merge(line.accountRef(), line, (a, b) -> b.n() > a.n() ? b : a);
+            }
             byAccount.computeIfAbsent(line.accountRef(), _ -> new ArrayList<>()).add(line);
         }
         Map<String, Opening> out = new java.util.LinkedHashMap<>();
+        // A declared account opens on what was last attested: there is no chain to walk, so the
+        // gap is reported as 0 rather than computed from a forward pass that cannot mean anything.
+        declaredAnchor.forEach((ref, last) ->
+            out.put(ref, new Opening(last.balance(), last.date(), 0)));
         byAccount.forEach((ref, rows) -> {
+            if (out.containsKey(ref)) {
+                return;
+            }
             java.util.Comparator<CanonicalEvent> order =
                 java.util.Comparator.comparing(CanonicalEvent::date).thenComparingLong(CanonicalEvent::n);
             CanonicalEvent first = rows.stream().min(order).orElseThrow();
