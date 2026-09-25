@@ -89,7 +89,12 @@ class ConfigTest {
         assertEquals(Path.of("/var/lib/trex/journal/journal.jsonl"), c.journalSource());
         assertEquals(c.journalSource(), c.journalTarget());
         assertEquals("AUD", c.registry().find("ing-savings").orElseThrow().currency());
-        assertTrue(c.rules().isTransferShaped("Transfer to CBA"));
+        // The allowlist must separate an internal movement from a payment to a person. Both
+        // shapes are written by CommBank and only the first has a contra leg; the broad form
+        // 'Transfer (to|from)' matched both and held 14 real expenses forever.
+        assertTrue(c.rules().isTransferShaped("Transfer from xx2435 CommBank app house expenses"));
+        assertFalse(c.rules().isTransferShaped("Transfer To Vazhel A John CommBank App Piano Lessons"));
+        assertFalse(c.rules().isTransferShaped("Transfer To Tax Store Australia Pty Ltd CommBank App"));
         // Tracks the shipped transfers.yaml, so a change to the window is a deliberate
         // edit here too — the value decides whether a leg pairs or becomes a final
         // manual decision, and it must not drift unnoticed.

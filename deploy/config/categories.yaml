@@ -239,3 +239,87 @@ rules:
       all:
         - direction: out
         - match: "restaurant|bar |pub |cinema|bottle|rsl|diggers|catholic cl"
+
+  - category: "FOOD"
+    comment: "takeaway, cafes and restaurants"
+    when:
+      all:
+      - direction: "out"
+      - match: "domino|sushi people|food depot|scirocco|chatkazz|raj bhavan|pizzapan|breadtop"
+
+  - category: "GROCERIES"
+    comment: "Asian and Indian grocers, greengrocers and bakeries around Ingleburn/Strathfield\
+      \ — the weekly shop that is not a Coles or Woolworths"
+    when:
+      all:
+      - direction: "out"
+      - match: "udaya|nilgiris|longwei|hyper foods|supermart|super ?market|veggie & gr|ozmart|sai\
+          \ ram|spices|qianxi|sunrise gourmet|breadtop|bakers delight"
+
+  - category: "SUBSCRIPTIONS"
+    comment: "recurring memberships billed to a card: Prime, eBay Plus, Udemy, SEMrush"
+    when:
+      all:
+      - direction: "out"
+      - match: "udemy|amznprime|ebay plus|semrush|google zepp|prime ?au"
+
+  - category: "VEHICLE"
+    comment: "rego, fines and parts — Service NSW, the State Debt Recovery Office, Supercheap"
+    when:
+      all:
+      - direction: "out"
+      - match: "sdro|infrngmnt|super cheap auto|snsw|service nsw"
+
+  - category: "TAXES"
+    comment: "accountants and tax agents"
+    when:
+      all:
+      - direction: "out"
+      - match: "tax store|smart tax advisors"
+
+  - category: "SCHOOL_FEES"
+    comment: "schools, university and student accommodation, plus book club and assessments"
+    when:
+      all:
+      - direction: "out"
+      - match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
+
+  - category: "SPORT_AND_LEISURE"
+    comment: "travel and outings: flights, accommodation, ticketing, zoos and theme parks.\
+      \ There is no TRAVEL category, and adding one would recategorise history"
+    when:
+      all:
+      - direction: "out"
+      - match: "booking\\.?com|ticketek|ticketmaste|taronga|carnivalfun|feld entertainment|jetstar|moonshadow|boatshed|holiday\
+          \ park|motel|breeze ap"
+
+  - category: "SHOPPING"
+    comment: "general retail: electronics, clothing, department and online stores"
+    when:
+      all:
+      - direction: "out"
+      - match: "jb hi.?fi|hn online|harvey norman|bevilles|strandbags|shein|lowes|portmans|hennes|best\
+          \ and less|goodguys|amazon reta|amazon mar|anaconda|surfside"
+
+  - category: "BILLS"
+    comment: "energy and telco billed to a card, including via PayPal"
+    when:
+      all:
+      - direction: "out"
+      - match: "aglenergy|origin energy|telstra"
+
+  - category: "HEALTH"
+    comment: "NSW Health and local health district billing"
+    when:
+      all:
+      - direction: "out"
+      - match: "nswh |swslhd"
+
+
+
+
+
+
+
+
+

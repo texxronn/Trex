@@ -14,7 +14,20 @@ allowlist:
   - 'To my account'
   - 'From my account'
   - 'Fast Transfer'
-  - 'Transfer (to|from)'
+  # Internal CommBank transfers only — the account form, never a person's name.
+  #
+  # The broad form 'Transfer (to|from)' was wrong, and wrong in the expensive direction.
+  # CommBank writes both of these, and only the first is an internal movement:
+  #     "Transfer from xx2435 CommBank app house expenses"      <- own account
+  #     "Transfer To Vazhel A John CommBank App Piano Lessons"  <- a payment to a person
+  # Both matched, so the second was HELD waiting for a contra leg that can never exist.
+  # Measured over 21 matching rows: 7 genuinely internal, 14 payments to people worth
+  # $5,784 stuck forever — piano lessons, the tax agent, family.
+  #
+  # Those 14 are now ordinary expenses and can be categorised. Narrowing only affects
+  # FUTURE ingests: matching happens once, at first ingest (§3.3 step 5), so rows already
+  # HELD stay HELD and need decisions. Hence doing this before the history backfill.
+  - 'Transfer (to|from) xx\d'
   - 'Osko'
   - 'PayID'
   # Credit-card payments from another of your own accounts. Transfer-shaped so they land in
