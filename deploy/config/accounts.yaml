@@ -16,16 +16,20 @@
 accounts:
   - ref: "ing-savings"
     currency: "AUD"
+    balanceSource: statement
   # Orange Everyday.
   - ref: "ing-orange"
     currency: "AUD"
+    balanceSource: statement
   - ref: "ing-salary"
     currency: "AUD"
+    balanceSource: statement
 
   # Credit card. A liability: purchases are debits, card payments are credits, and the
   # balance column is the amount owing — provenance only, never transaction semantics (§0.1).
   - ref: "ing-credit-card"
     currency: "AUD"
+    balanceSource: statement
 
   # Loans. The offset is an asset; the two loan accounts are liabilities. A repayment is a
   # TRANSFER (offset → loan), not an expense: it moves money between accounts you own, so
@@ -35,22 +39,28 @@ accounts:
   # why all three must be registered, and why the loan side need not be transfer-shaped.
   - ref: "ing-loan-offset"
     currency: "AUD"
+    balanceSource: statement
   - ref: "ing-mortgage-simplifier"
     currency: "AUD"
+    balanceSource: statement
   - ref: "ing-variable-rate"
     currency: "AUD"
+    balanceSource: statement
 
   # BankWest credit card (bw-csv). Debits are positive in that export and no row carries a
   # receipt, so every transaction takes content-hash identity (§2.4) — which is why a day must
   # never be split across calls for this account (§4 day-atomic batching).
   - ref: "bw-credit-card"
     currency: "AUD"
+    balanceSource: statement
 
   # CommBank SmartAccess (cba-csv). Header-less export, amounts already signed, no receipts.
   - ref: "cba-smartaccess"
     currency: "AUD"
+    balanceSource: statement
 
   # NetBank Saver. CommBank exports no CSV for this one, which is why cba-pdf exists: its
   # Transaction Summary PDF is the only source the bank offers (§4).
   - ref: "cba-netsaver"
     currency: "AUD"
+    balanceSource: statement

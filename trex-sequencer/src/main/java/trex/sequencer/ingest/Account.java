@@ -1,5 +1,7 @@
 package trex.sequencer.ingest;
 
+import trex.core.BalanceSource;
+
 /**
  * Registry entry (accounts.yaml). SPEC §6.
  * <p>
@@ -8,4 +10,4 @@ package trex.sequencer.ingest;
  * second egress would otherwise add a column here too. The {@code ref} is part of identity for
  * receipt-keyed rows (§2.4), so it is permanent; everything downstream is a label.
  */
-public record Account(String ref, String currency) {}
+public record Account(String ref, String currency, BalanceSource balanceSource) {}

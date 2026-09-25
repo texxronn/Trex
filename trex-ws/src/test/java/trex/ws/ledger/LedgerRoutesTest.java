@@ -1,5 +1,7 @@
 package trex.ws.ledger;
 
+import trex.core.BalanceSource;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,7 +66,7 @@ class LedgerRoutesTest {
         journal = new JsonlJournal(path);
         Clock clock = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
         sequencer = new Sequencer(journal, Fold.fold(journal),
-            new AccountRegistry(List.of(new Account("ing-savings", "AUD"), new Account("cba-everyday", "AUD"))),
+            new AccountRegistry(List.of(new Account("ing-savings", "AUD", BalanceSource.STATEMENT), new Account("cba-everyday", "AUD", BalanceSource.STATEMENT))),
             new TransferRules(List.of("Fast Transfer", "Transfer from", "Osko"), 3), clock);
         sequencerApi = new HttpApi(sequencer, 0, HttpApi.DEFAULT_MAX_BODY_BYTES).start();
         watcher = new JournalWatcher<>(path, clock, CombinedFold::new);

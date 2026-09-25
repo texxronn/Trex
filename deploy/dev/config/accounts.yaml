@@ -10,9 +10,13 @@
 accounts:
   - ref: "ing-savings"
     currency: "AUD"
+    balanceSource: statement
   - ref: "ing-orange"
     currency: "AUD"
+    balanceSource: statement
   - ref: "cba-everyday"
     currency: "AUD"
+    balanceSource: statement
   - ref: "bw-usd"
     currency: "USD"
+    balanceSource: statement

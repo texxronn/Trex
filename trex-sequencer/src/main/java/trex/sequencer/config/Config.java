@@ -1,6 +1,7 @@
 package trex.sequencer.config;
 
 import trex.journal.Yaml;
+import trex.core.BalanceSource;
 import trex.sequencer.ingest.Account;
 import trex.sequencer.ingest.AccountRegistry;
 import trex.sequencer.ingest.TransferRules;
@@ -24,6 +25,25 @@ import java.util.Set;
 public record Config(Path journalSource, Path journalTarget, String bindHost, int bindPort,
                      AccountRegistry registry, TransferRules rules) {
 
+    /**
+     * Required, never defaulted. SPEC §6: a missing value would have to mean one of the two, and
+     * guessing decides whether a gap in this account's balance chain is reported as a fault or as
+     * normal — which is exactly the kind of ambiguity §0.6 says must not be resolved silently.
+     */
+    private static BalanceSource balanceSource(AccountEntry a) {
+        String v = a.balanceSource();
+        if (v == null || v.isBlank()) {
+            throw new IllegalArgumentException("accounts.yaml: " + a.ref()
+                + " needs a 'balanceSource' (statement | declared) — see SPEC §6");
+        }
+        return switch (v) {
+            case "statement" -> BalanceSource.STATEMENT;
+            case "declared" -> BalanceSource.DECLARED;
+            default -> throw new IllegalArgumentException("accounts.yaml: " + a.ref()
+                + " balanceSource must be 'statement' or 'declared', not '" + v + "'");
+        };
+    }
+
     private static final Logger log = LoggerFactory.getLogger(Config.class);
 
     private static final Set<String> CURRENCIES = Set.of("AUD", "USD", "INR");
@@ -37,7 +57,7 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
 
     record AccountsFile(List<AccountEntry> accounts) {}
 
-    record AccountEntry(String ref, String currency) {}
+    record AccountEntry(String ref, String currency, String balanceSource) {}
 
     record TransfersFile(Integer windowDays, List<String> allowlist) {}
 
@@ -76,9 +96,10 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
             if (!CURRENCIES.contains(a.currency())) {
                 throw new IllegalArgumentException("accounts.yaml: unsupported currency '" + a.currency() + "'");
             }
+            balanceSource(a);           // validated here so the message names the account
         }
         List<Account> list = accounts.accounts().stream()
-            .map(a -> new Account(a.ref(), a.currency()))
+            .map(a -> new Account(a.ref(), a.currency(), balanceSource(a)))
             .toList();
 
         if (transfers.windowDays() == null) {

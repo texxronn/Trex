@@ -1,5 +1,7 @@
 package trex.sequencer.ingest;
 
+import trex.core.BalanceSource;
+
 import trex.core.Candidate;
 import trex.core.CandidateResult;
 import trex.core.CanonicalEvent;
@@ -23,10 +25,10 @@ public final class Harness implements AutoCloseable {
     public static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
 
     public static final AccountRegistry REGISTRY = new AccountRegistry(List.of(
-        new Account("ing-savings", "AUD"),
-        new Account("ing-orange", "AUD"),
-        new Account("cba-everyday", "AUD"),
-        new Account("bw-usd", "USD")));
+        new Account("ing-savings", "AUD", BalanceSource.STATEMENT),
+        new Account("ing-orange", "AUD", BalanceSource.STATEMENT),
+        new Account("cba-everyday", "AUD", BalanceSource.STATEMENT),
+        new Account("bw-usd", "USD", BalanceSource.STATEMENT)));
 
     public static final TransferRules RULES = new TransferRules(
         List.of("Internal Transfer", "To my account", "From my account", "Fast Transfer", "Transfer from", "Osko", "PayID"), 3);

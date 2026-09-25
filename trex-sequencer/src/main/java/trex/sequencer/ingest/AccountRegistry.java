@@ -20,6 +20,14 @@ public final class AccountRegistry {
         this.accounts = Map.copyOf(byRef);
     }
 
+    /** Refs whose balances arrive from a person rather than a statement (§6). */
+    public java.util.Set<String> refsWith(trex.core.BalanceSource source) {
+        return accounts.values().stream()
+            .filter(a -> a.balanceSource() == source)
+            .map(Account::ref)
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     public Optional<Account> find(String ref) {
         return ref == null ? Optional.empty() : Optional.ofNullable(accounts.get(ref));
     }

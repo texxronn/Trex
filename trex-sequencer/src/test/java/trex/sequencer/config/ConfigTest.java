@@ -1,5 +1,7 @@
 package trex.sequencer.config;
 
+import trex.core.BalanceSource;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,6 +35,7 @@ class ConfigTest {
         accounts:
           - ref: "ing-savings"
             currency: "AUD"
+            balanceSource: statement
         """;
     private static final String TRANSFERS = """
         windowDays: 3
@@ -51,6 +54,7 @@ class ConfigTest {
             accounts:
               - ref: "ing-savings"
                 currency: "AUD"
+                balanceSource: statement
                 fireflyAccountId: "12"
             """, TRANSFERS);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
@@ -161,5 +165,51 @@ class ConfigTest {
         // edit here too — the value decides whether a leg pairs or becomes a final
         // manual decision, and it must not drift unnoticed.
         assertEquals(4, c.rules().windowDays());
+    }
+
+    /**
+     * SPEC §7 test 28. Required rather than defaulted: a missing value would have to mean one of
+     * the two, and the guess decides whether a gap in that account's balance chain is reported as
+     * a fault or as normal. §0.6 says an ambiguity goes to review, not to a default.
+     */
+    @Test
+    void balanceSourceIsRequiredAndNamesTheAccount() throws IOException {
+        Path dir = Files.createTempDirectory("trex-bs");
+        Files.writeString(dir.resolve("sequencer.yaml"), """
+            bindPort: 8080
+            journal:
+              source: "j.jsonl"
+              target: "j.jsonl"
+            """);
+        Files.writeString(dir.resolve("transfers.yaml"), "windowDays: 4\nallowlist: ['Internal Transfer']\n");
+
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+            """);
+        IllegalArgumentException missing =
+            assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
+        assertTrue(missing.getMessage().contains("ing-savings"), missing.getMessage());
+        assertTrue(missing.getMessage().contains("balanceSource"), missing.getMessage());
+
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: "sometimes"
+            """);
+        IllegalArgumentException bad =
+            assertThrows(IllegalArgumentException.class, () -> Config.load(dir));
+        assertTrue(bad.getMessage().contains("sometimes"), bad.getMessage());
+
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: "declared"
+            """);
+        assertEquals(BalanceSource.DECLARED,
+            Config.load(dir).registry().find("cash-ron").orElseThrow().balanceSource());
     }
 }
