@@ -235,7 +235,7 @@ cmd_logs() {
 cmd_ingest() {
     [ "$#" -eq 3 ] || die "usage: trex.sh ingest <sourceType> <account> <source>"
     # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
-    "$(java_bin)" $JAVA_OPTS -jar "$(jar_for ingress)" \
+    "$(java_bin)" $JAVA_OPTS -jar "$(jar_for ingest)" \
         --source-type "$1" --account "$2" --sequencer-url "http://$BIND:$SEQ_PORT" "$3"
 }
 

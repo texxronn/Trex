@@ -1,7 +1,7 @@
 # Dry run manifest — feed a pile of statements through a real sequencer in a temp journal,
 # then categorise the result. Nothing durable is written; no server is involved.
 #
-#   mvn -pl trex-ingress test -Dtest=DryRunTest -Dtrex.dry.manifest=deploy/dev/my-statements.yaml
+#   mvn -pl trex-ingest test -Dtest=DryRunTest -Dtrex.dry.manifest=deploy/dev/my-statements.yaml
 #
 # This is the loop for taming categories: edit categories.yaml, run again, watch
 # UNCATEGORIZED shrink. It is also the only honest way to see what the transfer allowlist

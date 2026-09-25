@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# trex-ingress — one-shot ingest (SPEC.md §4). Not a service: it validates the
+# trex-ingest — one-shot ingest (SPEC.md §4). Not a service: it validates the
 # whole source and sends nothing if any row is bad.
 #
 #   ingest.sh <sourceType> <accountRef> <source>
@@ -17,7 +17,7 @@ account="$2"
 file="$3"
 [ -f "$file" ] || die "no such file: $file"
 
-load_env ingress
+load_env ingest
 url="${SEQUENCER_URL:-}"
 [ -n "$url" ] || url="http://$TREX_BIND:$TREX_SEQ_PORT"
 
@@ -27,4 +27,4 @@ args=(--source-type "$source_type" --account "$account" --sequencer-url "$url" -
 # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
 exec "$(java_bin)" $JAVA_OPTS \
     "-Dorg.slf4j.simpleLogger.defaultLogLevel=$TREX_LOG_LEVEL" \
-    -jar "$(jar_for ingress)" "${args[@]}" "$file"
+    -jar "$(jar_for ingest)" "${args[@]}" "$file"

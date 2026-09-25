@@ -1,5 +1,5 @@
 # Account registry — SPEC.md §6. One entry per bank account.
-#   ref              registry key used by trex-ingress (--account) and on every journal line
+#   ref              registry key used by trex-ingest (--account) and on every journal line
 #   currency         AUD | USD | INR (stamped onto events; no conversion)
 # An unknown accountRef is always rejected; accounts are never auto-created.
 #

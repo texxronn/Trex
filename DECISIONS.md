@@ -504,12 +504,12 @@ SPEC was amended first.
 
 Ingress will have many source types: ING today, CBA, WestPac and bank-sync feeds
 later. Egress will have few, each specialized. SPEC §1 named the ingress module
-after one bank (`trex-ingress-ing`), which would mean one module per source type.
+after one bank (`trex-ingest-ing`), which would mean one module per source type.
 Amends SPEC §1, §2.1, §2.2, §3.3, §4, §5.3, §5.5 (G2), §6, §8, §9.
 
-- **I1 One ingress module, `trex-ingress`.** The CLI, HTTP client, gzip and
-  day batching are shared (`trex.ingress`); each source type is one parser in a
-  sub-package (`trex.ingress.ing`). Per-type modules would duplicate that code
+- **I1 One ingress module, `trex-ingest`.** The CLI, HTTP client, gzip and
+  day batching are shared (`trex.ingest`); each source type is one parser in a
+  sub-package (`trex.ingest.ing`). Per-type modules would duplicate that code
   or need a common module; either way modules proliferate. The reactor stays at
   nine modules. Egress keeps one module per follower: few, and each has its own
   dependencies (sqlite-jdbc) and semantics.
@@ -560,7 +560,7 @@ Amends SPEC §1 (dependencies, module list), §6 (all config), and every config 
   layer, where SPEC already fixes `com.sun.net.httpserver` and a framework would cost more
   than it removes. Recorded as intended, each as its own change: picocli for the six `Main`
   CLIs (~130 lines, and it already uses exit code 64 for usage), and a CSV library for
-  `trex.ingress.Csv` (~100 lines) — that one gated on a golden-file comparison against a
+  `trex.ingest.Csv` (~100 lines) — that one gated on a golden-file comparison against a
   real export, because `rawDescription` is hashed into identity verbatim and libraries
   differ on trimming, BOMs and blank lines.
 - **Y6 picocli adopted; the CSV swap tried and rejected.** picocli did *not* shrink the
@@ -569,7 +569,7 @@ Amends SPEC §1 (dependencies, module list), §6 (all config), and every config 
   typed conversion of paths/URIs/numbers, required-option checks, and help generated from
   the same declaration the parser uses. Note picocli exits **2** on a usage error, not 64
   as assumed when this was planned, so every command pins `exitCodeOnInvalidInput = 64`.
-  `trex.ingress.Csv` was then compared against Apache Commons CSV on nine inputs. Seven
+  `trex.ingest.Csv` was then compared against Apache Commons CSV on nine inputs. Seven
   matched exactly (including embedded newlines, blank lines, untrimmed spaces and a missing
   trailing newline); two did not: a bare `\r` between rows becomes a record separator
   (silently splitting a row) and a stray quote inside an unquoted field is accepted as
@@ -708,7 +708,7 @@ the bank's documentation.
 - **Naming `bw-csv` / `bw-credit-card`** follows the existing `bw-` prefix and the `ing-csv` /
   `ing-credit-card` pair. Both are permanent: the source type is stamped on every event and
   the ref is part of identity for content-hashed rows.
-- **Cents conversion moved to `trex.ingress.Cents`**, shared by both parsers. It is the
+- **Cents conversion moved to `trex.ingest.Cents`**, shared by both parsers. It is the
   §0.4 rule (`BigDecimal` at the parse boundary, scale-checked, never rounded) and having two
   copies of it would be two places to get rounding wrong.
 

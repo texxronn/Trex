@@ -13,7 +13,7 @@
     <module>trex-core</module>
     <module>trex-journal</module>
     <module>trex-sequencer</module>
-    <module>trex-ingress</module>
+    <module>trex-ingest</module>
     <module>trex-egress-archive</module>
     <module>trex-egress-sqlite</module>
     <module>trex-gateway</module>

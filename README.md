@@ -15,7 +15,7 @@ journal file.
 ## How it fits together
 
 ```
-  bank CSV ──► trex-ingress ──HTTP──►  trex-sequencer  ──append+fsync──► journal.jsonl
+  bank CSV ──► trex-ingest ──HTTP──►  trex-sequencer  ──append+fsync──► journal.jsonl
                                              ▲       │                          │
                                              │       └── GET /held /review     │ tail (inotify)
                                   POST /decisions                               │
@@ -40,7 +40,7 @@ journal file.
 | `trex-core` | library | Pure domain: records, sealed types, identity hashing, occurrence index, state fold. No I/O. |
 | `trex-journal` | library | Journal read side: shared JSON mapper, framed JSONL reader, change signal. |
 | `trex-sequencer` | service | Journal writer, recovery, ingest pipeline, transfer matching, decisions, HTTP API. |
-| `trex-ingress` | CLI | Statement/feed → candidates → sequencer; one parser per source type (`ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`). |
+| `trex-ingest` | CLI | Statement/feed → candidates → sequencer; one parser per source type (`ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`). |
 | `trex-egress-archive` | service | Mirrors every journal line to an archive JSONL file. |
 | `trex-egress-sqlite` | service | Mirrors every journal line into SQLite (one row per line, keyed by `n`). |
 | `trex-category` | library | Master category rules and the evaluator; merchant stems. Derived, never journalled. |
@@ -87,7 +87,7 @@ sed -i 's|/var/lib/trex/journal|/tmp/trex/journal|' /tmp/trex/sequencer.yaml
 java -jar trex-sequencer/target/trex-sequencer-0.1.0-SNAPSHOT-all.jar /tmp/trex
 
 # 2. ingest a statement
-java -jar trex-ingress/target/trex-ingress-0.1.0-SNAPSHOT-all.jar \
+java -jar trex-ingest/target/trex-ingest-0.1.0-SNAPSHOT-all.jar \
   --source-type ing-csv --account ing-savings --sequencer-url http://127.0.0.1:8080 statement.csv
 
 # 3. browse at http://127.0.0.1:8090 and resolve at http://127.0.0.1:8090/resolve
@@ -120,7 +120,7 @@ The other programs take command-line flags:
 
 | Program | Flags (defaults) |
 |---|---|
-| `trex-ingress` | `--source-type <type> --account <ref> --sequencer-url <url> [--batch-rows N] [--no-gzip] <source>` |
+| `trex-ingest` | `--source-type <type> --account <ref> --sequencer-url <url> [--batch-rows N] [--no-gzip] <source>` |
 | `trex-egress-archive` | `--journal <path> --archive <path> [--poll-seconds 30] [--once]` |
 | `trex-egress-sqlite` | `--journal <path> --db <path> [--poll-seconds 30] [--once]` |
 | `trex-gateway` | `--journal <path> --sequencer-url <url> [--config <dir>] [--port 8085] [--bind 127.0.0.1] [--poll-ms 10000]` |
@@ -173,13 +173,13 @@ server and neither of which writes anything durable.
 
 ```bash
 # one file: parse, validate, plan the day-atomic calls, and show the ids it would mint
-mvn -pl trex-ingress test -Dtest=IngFileSummaryTest \
+mvn -pl trex-ingest test -Dtest=IngFileSummaryTest \
     -Dtrex.ing.sourceType=bw-csv -Dtrex.ing.account=bw-credit-card -Dtrex.ing.file=/path/export.csv
 
 # a whole pile of statements, any mix of source types, through a real sequencer in a temp
 # journal — same identity, dedup, transfer matching and HELD rules as production — then
 # categorised, with the uncategorised worklist printed
-mvn -pl trex-ingress test -Dtest=DryRunTest -Dtrex.dry.manifest=deploy/dev/my-statements.yaml
+mvn -pl trex-ingest test -Dtest=DryRunTest -Dtrex.dry.manifest=deploy/dev/my-statements.yaml
 ```
 
 The manifest ([example](deploy/dev/dryrun.example.yaml)) lists a source type, an account and a
@@ -254,7 +254,7 @@ They assume this layout:
 ```sh
 sudo useradd --system --home-dir /var/lib/trex --shell /usr/sbin/nologin trex
 sudo install -d /opt/trex/lib /etc/trex
-for m in trex-sequencer trex-ingress trex-egress-archive trex-egress-sqlite trex-web; do
+for m in trex-sequencer trex-ingest trex-egress-archive trex-egress-sqlite trex-web; do
   sudo install -m 0644 $m/target/$m-0.1.0-SNAPSHOT-all.jar /opt/trex/lib/$m.jar
 done
 sudo install -m 0644 deploy/config/*.yaml deploy/config/trex.env /etc/trex/
@@ -286,7 +286,7 @@ daemon (or a registry) itself.
 | `trex/web` | trex-web | `trex.web.Main` | 8090 |
 | `trex/egress-archive` | trex-egress-archive | `trex.egress.archive.Main` | — |
 | `trex/egress-sqlite` | trex-egress-sqlite | `trex.egress.sqlite.Main` | — |
-| `trex/ingress` | trex-ingress | `trex.ingress.Main` | — |
+| `trex/ingest` | trex-ingest | `trex.ingest.Main` | — |
 
 Properties of every image:
 
@@ -335,7 +335,7 @@ deploy/bin/trex-docker.sh ingest ing-csv ing-savings statement.csv
 deploy/bin/trex-docker.sh down          # add -v to discard the journal
 ```
 
-`compose.yml` starts the sequencer plus the four followers; `ingress` sits behind the
+`compose.yml` starts the sequencer plus the four followers; `ingest` sits behind the
 `tools` profile because it is a one-shot import, not a daemon. The sequencer's config
 is delivered through compose `configs` (file **content**, not a bind mount), the
 journal/archive/sqlite volumes are named volumes, and every published port binds to
@@ -430,7 +430,7 @@ for every row. A row that matches an existing identity with a *different* balanc
 flagged `POTENTIAL_DUP` and shows up in the resolver.
 
 **Split large files by whole days only.** Occurrence numbering is per account per day;
-the ingress client never splits a day across calls (`--batch-rows` is a soft target).
+the ingest client never splits a day across calls (`--batch-rows` is a soft target).
 
 **Backups.** `trex-egress-archive` keeps a byte-identical second copy of the journal
 (`cmp journal.jsonl archive.jsonl`). Point it at a different disk for real redundancy.
@@ -445,7 +445,7 @@ in the resolver; every action asks for confirmation because decisions cannot be 
 
 Every module logs through SLF4J; the six runnable modules bind `slf4j-simple` at runtime
 scope (libraries never bind). Logs go to **stderr**, so stdout stays clean for CLI output
-such as the ingress client's per-row results.
+such as the ingest client's per-row results.
 
 ```
 2026-09-18T13:33:44.403Z INFO Sequencer - candidate batch 96c97e25-…: 5 rows, 5 journal lines, outcomes {Held=1, Resolved=4}

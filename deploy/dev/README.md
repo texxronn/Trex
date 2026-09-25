@@ -96,7 +96,7 @@ Neither is a tmux panel: a panel is a log you watch, and these are commands you 
 | `config/egress-archive.env` | trex-egress-archive | shell vars → CLI flags |
 | `config/egress-sqlite.env` | trex-egress-sqlite | shell vars → CLI flags |
 | `config/web.env` | trex-web | shell vars → CLI flags |
-| `config/ingress.env` | trex-ingress | shell vars → CLI flags |
+| `config/ingress.env` | trex-ingest | shell vars → CLI flags |
 
 Every value in a `.env` file is written `VAR="${VAR:-default}"`, so exporting
 one wins over the file for a single run:
