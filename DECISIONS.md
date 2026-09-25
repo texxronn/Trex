@@ -1274,3 +1274,52 @@ backfill will give the real figure. This was built for the capability rather tha
 with eyes open: the cheaper alternative was splitting the withdrawal in Firefly's UI, which costs no
 code but never enters the journal and does not survive a rebuild (§5.8). Wanting cash in the source
 of truth is what decided it.
+
+
+### V11 — eleven modules become six, and the gateway/web split is reversed
+
+Eleven Maven modules for ~10,600 lines of main code. Measured before deciding: the machinery that
+exists *because* the journal is a hand-framed file — `FramedReader`, `Occurrence`, `Ids`,
+`trex-journal` entire — is about 560 lines, roughly 5%. The module count was never paying for
+itself; the complexity lives in `trex-ws` (2,056), `trex-sequencer` (1,673), the Firefly egress
+(1,657) and categorisation (1,453), none of which shrink by being in separate jars.
+
+**The four egresses become one jar with a picocli subcommand per target.** They already shared a
+follower loop and copied it. `trex-egress hledger` and `trex-egress firefly` also give one
+`--help` that lists every target, which four jars never could.
+
+**`trex-category` splits rather than merges, and the split is better than the module was.** The
+obvious move — fold it into `trex-core` — does not compile: two of its fourteen classes do file
+I/O and need `trex-journal` for the YAML mapper, and `trex-journal` already depends on
+`trex-core`. A cycle. So it splits by what each class actually does: the twelve pure classes join
+the fold in `trex-core`, which stays pure; **loading** goes to `trex-journal`, which already owns
+config binding (§6); **writing** goes to `trex-ws` alone. That last one is the prize — "trex-ws is
+the single owner of the rule files" (§5.7, V1) stops being a convention anyone could break and
+becomes something the compiler enforces, because nothing else can reach `RuleStore`.
+
+**Reversing V1–V7.** Those entries split the consumer API out of the web server, and the reasoning
+held: one address per role, the sequencer writes, the gateway serves and checks, the web layer is
+a shell. What did not hold is that the shell needed to be a *process*. 325 of its 644 Java lines —
+`Upstream` (last-good cache, `X-Trex-Stale`) and `EventRelay` (SSE re-broadcast) — existed solely
+to bridge a gap created by the split. Half a module of code to undo its own boundary.
+
+It also produced the worst bug of the project. The gateway rejected any request whose `Origin` did
+not match its `Host`; the proxy forwarded no `Origin`, so **every browser write 403'd while every
+`curl` test passed**. A seam that is invisible to the tool you test with is a bad seam. One origin
+in fact, rather than one manufactured by proxying, makes the ordinary CSRF check simple and
+complete.
+
+**What the merge costs, and what replaces it.** The process boundary was doing real security work:
+the rule writer bound loopback and only the page server was ever exposed. That is now a **listener**
+boundary inside one process — an admin listener pinned to `127.0.0.1` carrying every mutating route,
+and a read listener that may bind elsewhere. Split at construction, so a mutating handler is never
+*registered* on the read listener rather than merely guarded there, with a test asserting `404`.
+§9 had this queued as future work; merging promotes it to a precondition, and it must land before
+anything binds off-loopback. Reversing a decision is only honest if the property it protected is
+named and re-provided.
+
+**On the name.** V7 chose "gateway" for *one door, checks on the way in, fan-out behind it*, and
+absorbing the UI makes that more true, not less. `trex-ws` was chosen anyway, for "web service".
+Recorded risk: `ws` reads as **WebSocket** to most people, and this service's push mechanism is
+**SSE** — so the one wrong inference a reader can make is the one the name invites. The pom
+description says "web service" for that reason.

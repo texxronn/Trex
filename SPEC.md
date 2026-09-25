@@ -2,11 +2,11 @@
 
 A build spec, pitched for Claude Code generation. The current topology is §1; this is what each part is for:
 1. **trex-sequencer** — the transaction sequencer service (the journal core, and its only writer)
-2. **trex-ingress** — one CLI, one parser per source type → candidates → the sequencer
-3. **Two sample egress followers** — `trex-egress-archive` and `trex-egress-sqlite`, log mirrors
-4. **trex-gateway** — the consumer API: the journal folded and categorised, the rule files, the decisions gateway (§5.7)
-5. **trex-web** — the pages over it: browse, categorise, and the HELD/REVIEW workflow (§5.4). Not a dashboard; dashboards belong to Firefly/Grafana
-6. **trex-category** — the shared library that derives a category from a line (§5.6)
+2. **trex-ingest** — one CLI, one parser per source type → candidates → the sequencer
+3. **Two sample egress followers** — `trex-egress archive` and `trex-egress sqlite`, log mirrors
+4. **trex-ws** — the consumer API: the journal folded and categorised, the rule files, the decisions gateway (§5.7)
+5. **trex-ws** — the pages over it: browse, categorise, and the HELD/REVIEW workflow (§5.4). Not a dashboard; dashboards belong to Firefly/Grafana
+6. **trex-core** — the shared library that derives a category from a line (§5.6)
 
 Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decisions. This document is the *how to build it*; that one is the *why*. Where they conflict, the invariants in §0 win. Pre-implementation review decisions are folded into this document; `DECISIONS.md` records the rationale (B-numbers and T refer to it).
 
@@ -22,7 +22,7 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
 4. **Amounts are `long` cents (fixed ×100 — every account is AUD/USD/INR, all 2-decimal).** `BigDecimal` appears **only at the CSV parse boundary** to convert a decimal string to cents (scale-checked, never rounded); never `double`/`float`, never in the core.
 5. **Projection to any sink is one-way and idempotent.** Re-delivery must be a no-op.
 6. **Accuracy over recall.** Ambiguity → review, never a guess.
-7. **There is no category in the journal.** A category is derived by each journal consumer from two inputs — the line, and `categories.yaml` — and is never stored on a `Candidate` or a `CanonicalEvent`, never evaluated by the sequencer, never part of identity. Even a human correction is a pin in the rules file, not a journal line (§5.6). Consequences, all intended: changing the rules recategorises all history at zero journal cost and leaves every byte untouched; "what did we call this in March?" is answered by the journal plus that commit of `categories.yaml`, which git already keeps; and downstream copies (a Firefly tag) are refreshed by re-projection, never by rewriting history. `trex-category` (§5.6) is the shared implementation so the readers agree — a consumer with different needs may derive its own.
+7. **There is no category in the journal.** A category is derived by each journal consumer from two inputs — the line, and `categories.yaml` — and is never stored on a `Candidate` or a `CanonicalEvent`, never evaluated by the sequencer, never part of identity. Even a human correction is a pin in the rules file, not a journal line (§5.6). Consequences, all intended: changing the rules recategorises all history at zero journal cost and leaves every byte untouched; "what did we call this in March?" is answered by the journal plus that commit of `categories.yaml`, which git already keeps; and downstream copies (a Firefly tag) are refreshed by re-projection, never by rewriting history. `trex-core` (§5.6) is the shared implementation so the readers agree — a consumer with different needs may derive its own.
 
 ---
 
@@ -33,38 +33,37 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
   ```
   trex/
     pom.xml           # parent (packaging=pom): modules, <release>25</release>, dependencyManagement
-    trex-core/        # pure domain + pure journal-state fold: no HTTP, no DB, no I/O framework
+    trex-core/        # pure domain + journal-state fold + the category evaluator (§5.6):
+      pom.xml         #   no HTTP, no DB, no file I/O
+    trex-journal/     # shared read path: Json/Yaml mappers, framed JSONL reader, change signal,
+      pom.xml         #   and rule-file LOADING (§5.6) — the one place config is bound
+    trex-sequencer/   # the writer: journal append + HTTP API + wiring
       pom.xml
-    trex-journal/     # shared journal read path: Json mapper config, framed JSONL reader, change signal
+    trex-ingest/      # ingest client: shared CLI/HTTP/batching + one package per source type (§4)
       pom.xml
-    trex-sequencer/   # the service: journal writer + HTTP API + wiring
+    trex-ws/          # the web service: consumer API (§5.7), rule WRITING, pages and SSE (§5.4)
       pom.xml
-    trex-ingress/     # ingress client: shared CLI/HTTP/batching + one package per source type
-      pom.xml
-    trex-egress-archive/
-      pom.xml
-    trex-egress-sqlite/
-      pom.xml
-    trex-egress-firefly/  # projects resolved units into Firefly III (§5.8)
-      pom.xml
-    trex-egress-hledger/  # regenerates a plain-text hledger journal (§5.9)
-      pom.xml
-    trex-gateway/     # the consumer API: journal fold + categories + rule writer + decisions gateway (§5.7)
-      pom.xml
-    trex-web/         # the web UI: pages, one proxy to trex-gateway, one SSE relay (§5.4)
-      pom.xml
-    trex-category/    # shared consumer library: category rules (categories.yaml) + evaluator (§5.6)
-      pom.xml
+    trex-egress/      # one jar, one subcommand per target:
+      pom.xml         #   archive (§5.2) · sqlite (§5.3) · firefly (§5.8) · hledger (§5.9)
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the eleven `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the six `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
+
+  **Why `trex-core` is gone and not merely renamed.** Its evaluator is pure and belongs beside
+  the fold, but two of its fourteen classes did file I/O — loading `categories.yaml` and rewriting
+  it. Merging the lot into `trex-core` would have made core depend on `trex-journal` for the YAML
+  mapper, and `trex-journal` already depends on `trex-core`: a cycle. So it splits by what each
+  part actually does. The evaluator goes to `trex-core`, which stays pure. **Loading** goes to
+  `trex-journal`, which already owns config binding (§6) and which every reader depends on.
+  **Writing** goes to `trex-ws` alone — which turns "trex-ws is the single owner of the rule files"
+  (§5.7) from a convention anyone could break into something the compiler enforces.
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
   - `com.fasterxml.jackson.core:jackson-annotations` — in trex-core for `@JsonPropertyOrder`; no databind in core.
   - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
-  - `org.apache.pdfbox:pdfbox` (+ `fontbox`, `pdfbox-io`, `commons-logging`; ~3.6 MB, Apache-2.0) in `trex-ingress` only — text extraction for `cba-pdf` (§4). It sits in the identity path, so the extraction and normalisation rules are frozen in §4 and pinned by a golden file; an upgrade is only safe if that test still passes.
+  - `org.apache.pdfbox:pdfbox` (+ `fontbox`, `pdfbox-io`, `commons-logging`; ~3.6 MB, Apache-2.0) in `trex-ingest` only — text extraction for `cba-pdf` (§4). It sits in the identity path, so the extraction and normalisation rules are frozen in §4 and pinned by a golden file; an upgrade is only safe if that test still passes.
   - `com.fasterxml.jackson.dataformat:jackson-dataformat-yaml` (+ its SnakeYAML) in `trex-journal` — all config is YAML (§6). Configure the config mapper with `FAIL_ON_UNKNOWN_PROPERTIES` **on** (an unknown key is a startup error, as before) and `STRICT_DUPLICATE_DETECTION` **on** (a duplicated key is a startup error, not last-wins). The journal stays JSONL — YAML never touches it.
   - `org.xerial:sqlite-jdbc` (egress-sqlite only).
   - `org.junit.jupiter:junit-jupiter` (tests).
-  - `org.slf4j:slf4j-api` — logging facade, **every module including trex-core**. A binding (`org.slf4j:slf4j-simple`) is added at runtime scope by the six runnable modules only; libraries never bind. Pinned to 2.0.x, which also overrides the 1.7.x that `sqlite-jdbc` pulls in transitively.
+  - `org.slf4j:slf4j-api` — logging facade, **every module including trex-core**. A binding (`org.slf4j:slf4j-simple`) is added at runtime scope by the four runnable modules only; libraries never bind. Pinned to 2.0.x, which also overrides the 1.7.x that `sqlite-jdbc` pulls in transitively.
     Logging must not change behaviour: no logging inside journal serialization (byte stability, §3.1), and the fold in trex-core stays deterministic — a log statement may observe, never decide. Journal lines are financial data: log `externalId`, `n`, counts and states, **never `rawDescription`, `description` or amounts**.
   - **Dependency policy:** a well-maintained library is preferred over hand-written code when it *removes* source — a standard format parser, argument parsing, and the like. Two standing exceptions, where the code stays hand-written and auditable:
     1. **The identity and journal path** — `Ids`, the JSONL framing in `JsonlJournal`, `FramedReader`. A library version bump there could shift the identity contract (§0.1).
@@ -395,23 +394,23 @@ void   writeJson(HttpExchange ex, int status, Object obj); // transparently gzip
 
 ---
 
-## 4. trex-ingress — ingress client (source types: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`)
+## 4. trex-ingest — ingest client (source types: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`)
 
 > **`manual` is a source type but not an ingress one.** A hand-entered line (§5.7 `POST /api/cash`)
-> carries `sourceType: "manual"` and `provenance: AUTHORED`, and never travels this path: trex-ingress
+> carries `sourceType: "manual"` and `provenance: AUTHORED`, and never travels this path: trex-ingest
 > parses files, and there is no file. **Every parser below still hard-rejects a row with no balance**,
 > unchanged — a *source* may never drop a balance the bank published, whatever an *account* declares
 > about where its balances come from (§6). That is why `cba-pdf` was admitted and the BankWest PDF
 > refused, and nothing here reopens it.
 
-Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract. **All source-specific behavior (banks, feeds) lives in trex-ingress**; the sequencer has none. One module holds every source type: the CLI, HTTP client, gzip and day batching are shared (package `trex.ingress`), and each source type is one parser in its own sub-package (`trex.ingress.ing`, …). `ing-csv` was the starter; `bw-csv` (BankWest), `cba-csv` and `cba-pdf` (CommBank) followed; CDR and feed source types follow the same model in a later phase.
+Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract. **All source-specific behavior (banks, feeds) lives in trex-ingest**; the sequencer has none. One module holds every source type: the CLI, HTTP client, gzip and day batching are shared (package `trex.ingress`), and each source type is one parser in its own sub-package (`trex.ingress.ing`, …). `ing-csv` was the starter; `bw-csv` (BankWest), `cba-csv` and `cba-pdf` (CommBank) followed; CDR and feed source types follow the same model in a later phase.
 ```
-Usage: trex-ingress --source-type <type> --account <accountRef> --sequencer-url http://trex:PORT
+Usage: trex-ingest --source-type <type> --account <accountRef> --sequencer-url http://trex:PORT
                     [--batch-rows N] [--no-gzip] <source>
 ```
 - **`--source-type`** (required, no default) selects the parser and is stamped into every candidate's `sourceType`. It is the only binding between an input and its parser: the registry does not record one (§6), because one account may arrive through several source types. An unknown type is a usage error. Known: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`.
 - **`<source>`** is the instance being read; for the CSV and PDF types, the statement file.
-- **`--sequencer-url`** matches trex-gateway's flag (§5.7); trex-ingress and trex-gateway are the only things that address the sequencer directly.
+- **`--sequencer-url`** matches trex-ws's flag (§5.7); trex-ingest and trex-ws are the only things that address the sequencer directly.
 - **`ing-csv` format:** header `Date,Description,Credit,Debit,Balance`; `dd/mm/yyyy`; `amount = coalesce(credit,0) + coalesce(debit,0)` (**debit already negative**); `receipt` via regex `Receipt (No )?(\d+)` on description; balance signed. `rawDescription` = verbatim column (CSV-unquoted, untrimmed).
 - **`bw-csv` format (BankWest):** header `BSB Number,Account Number,Transaction Date,Narration,<cheque>,Debit,Credit,Balance,Transaction Type`, where the fifth column is labelled `Cheque` **or** `Cheque Number` — BankWest ships both, and the rest of the header is identical. `dd/mm/yyyy`. Exactly one of `Debit`/`Credit` must be set.
   - **The debit sign varies by export, so it is inferred per file, never assumed.** One BankWest export writes debits positive, another writes them already negative. The rule: if every non-empty `Debit` is positive, `amount = credit − debit`; if every one is negative, `amount = credit + debit`; **a file mixing both signs is rejected**, because there is then no sound reading of it. Assuming one convention would silently invert every debit in a file of the other kind — 1,517 rows in the export this rule was written from — and the amount is hashed into identity (§2.4), so the damage is permanent ids rather than a visible error. Whole-file validation (below) is what caught it: the first assumption was rejected loudly by the negative-debit check rather than applied. `rawDescription` = `Narration` verbatim. **No receipt**: every row is content-hash identity, so `occ` and day-atomic batching carry the weight here (§2.5). `BSB Number` and `Cheque` are always empty; `Account Number` and `Transaction Type` are read but not used — the account comes from `--account` and `typeHint` from the amount's sign.
@@ -471,12 +470,12 @@ Rule: **a missing journal is not an error.** A follower may be started before th
 
 Rule: **advance the offset only after the consume side-effect is durable.** At-least-once + idempotent consumers (never attempt exactly-once via clever offset games). A follower wakes as soon as the journal changes (`trex-journal` `JournalChanges`: a `WatchService` on the journal's directory — inotify on Linux; an `OVERFLOW` also wakes it; events are hints, never counts); `pollSeconds` is only the fallback for missed events and filesystems without inotify. Batching of follower work is never done by delaying the sequencer's fsync.
 
-### 5.2 trex-egress-archive (log-mirror follower)
+### 5.2 `trex-egress archive` (log-mirror follower)
 - Consume = append the line's event to an archive JSONL at `archivePath` (cold copy / second location).
 - Idempotent by `n`: skip if that `n` is already archived (`n` is strictly increasing, so the highest archived `n`, loaded at start, suffices).
 - Cursor: a plain offset file (`archivePath + ".offset"`). This is a pure mirror — no resolution logic, bare offset is correct.
 
-### 5.3 trex-egress-sqlite (log-mirror follower → SQLite WAL)
+### 5.3 `trex-egress sqlite` (log-mirror follower → SQLite WAL)
 - The database mirrors the **journal**, not transaction state: one row per journal line, primary key `n`, every `CanonicalEvent` field stored.
 - SQLite with `PRAGMA journal_mode=WAL;`. Schema:
   ```sql
@@ -501,17 +500,17 @@ Rule: **advance the offset only after the consume side-effect is durable.** At-l
 - Current state of a transaction = the row with the highest `n` for its `external_id`; the follower itself holds no state logic.
 - Cursor lives in `follower_state`, not a sidecar file.
 
-### 5.4 trex-web — the web UI (browse, resolve, categorise)
+### 5.4 The web UI — browse, resolve, categorise (served by trex-ws)
 
-The pages and nothing else. It holds no journal state, does no folding, owns no config and knows only one address: it serves the static pages and proxies **everything** to `trex-gateway` (§5.7). **It never writes the journal and never writes a config file.**
+The pages, served by the same process that holds the fold (§5.7). **It never writes the journal** — only the sequencer does — but it does write the rule files, which is why the listener that serves these pages and the listener that accepts writes are not the same one (see **Security** below).
 
 Tabs: **Transactions** and **Journal** (the table, below), **Categorize** (§5.7) and **Resolve** (HELD/REVIEW). One origin for the browser, so no page makes a cross-service call and there is one CSRF posture rather than three.
 
-- **Why a proxy and not a browser talking to the services:** more than one backend from one page means CORS on every mutating endpoint — the cross-origin write path §5.5 records as the reason the grid and resolver were merged in the first place — and a permissive CORS header on a service that writes config files ages badly. The browser sees one origin; trex-web forwards to one upstream. That the upstream is *also* one service is what makes trex-web a genuinely thin shell: a static server plus a proxy plus an SSE relay, with no routing decisions of its own.
+- **One origin, and now genuinely so.** More than one backend behind one page means CORS on every mutating endpoint, and a permissive CORS header on a service that writes config files ages badly — the cross-origin write path §5.5 records as the reason the grid and resolver were merged. The pages and the API are now the same origin in fact, not by proxying, so the ordinary `Origin`-matches-`Host` check applies directly and there is no hop whose CSRF posture has to be reasoned about separately. **This replaces a proxy that existed only to create that property, and with it a class of bug that could not be caught by `curl`:** the proxy forwarded no `Origin`, so a check that rejected browser writes passed every command-line test.
 - **Binding:** `127.0.0.1` by default. It can take decisions, so it carries the same posture as the sequencer's decision API; §9 keeps the second-listener option for a read-only exposure.
-- **State:** none, persisted or otherwise, with one exception — the **last good snapshot and SSE frame from `trex-gateway`**, kept in memory so a `trex-gateway` restart shows a stale-but-labelled page rather than an empty one. A stale answer carries `X-Trex-Stale: 1` and the page shows it as stale, never as current. A **write is never served from cache**: one that did not reach the gateway did not happen, and returns `502`.
-- **Loop:** user acts → trex-web forwards to trex-gateway → trex-gateway either amends a rule file or forwards a decision to the sequencer → the journal or the rule files change → trex-gateway re-materialises and pushes SSE → trex-web relays it → page refreshes. The page reflects the view, never an optimistic local change.
-- **Plumbing:** static page serving with the security headers, JSON/error helpers, an SSE relay (one upstream stream from trex-gateway, fanned out to browser clients with the same coalescing, heartbeat and client cap as before).
+- **State:** the fold, and nothing else (§5.7). The last-good snapshot cache is **gone**: it existed so that a restart of the other process degraded to stale-and-labelled rather than blank, and with one process a restart takes the pages down too. Losing it removes `X-Trex-Stale` and the rule that a write is never served from cache — neither has anything left to describe.
+- **Loop:** user acts → the service either amends a rule file or forwards a decision to the sequencer → the journal or the rule files change → the fold re-materialises and pushes SSE → the page refetches. The page reflects the view, never an optimistic local change.
+- **Plumbing:** static page serving with the security headers, JSON/error helpers, and SSE served **directly from the fold** — no relay, no upstream connection to fan out, the same coalescing, heartbeat and client cap as before.
 
 **Browsing the journal (G-series, formerly §5.5)**
 
@@ -524,7 +523,7 @@ Tabs: **Transactions** and **Journal** (the table, below), **Categorize** (§5.7
 - **SSE (G6):** `GET /api/events` streams `event: head` — `{ n, offset, rulesRevision, updatedAt, error, lines, transactions, accounts }` — never row data.
 - **URL (G7):** view, sort, page, size, and filters are mirrored in the page's query string (bookmarkable).
 - **Money (G8):** amounts formatted exactly from cents. Footer totals per currency over the filtered set, computed server-side in `long`: Transactions view only, and TRANSFER lines are excluded (their legs already carry the amounts). The Journal view shows counts only (versions would double-count).
-- **API:** the page's own endpoints are the static files. Everything under `/api/` is **proxied verbatim to trex-gateway** (§5.7) — one rule, no path rewriting, no per-endpoint routing table to drift out of date. trex-web adds no query semantics of its own: a filter or sort it understood differently from the gateway would be a second answer to the same question.
+- **API:** the page's own endpoints are the static files; everything under `/api/` is §5.7's, served by this same process. There is no path rewriting and no routing table to drift, because there is no longer a second service whose query semantics could disagree.
   - `GET /`, `/app.css`, `/app.js` — static page.
   - `GET /api/head` — same JSON as the SSE `head` event.
   - `GET /api/snapshot?view=transactions|journal&sort=col:asc|desc[,col:dir…]&page=1&size=50&asOfN=&account=&state=&type=&from=&to=&q=` → `{ asOfN, rulesRevision, view, page, size, total, rows:[CanonicalEvent...], categories:{n → {category, origin, why, comment}}, totals:[{currency, amount, count}] }`. `size` 1–500 (default 50); `asOfN` absent or above the head → current head. Invalid parameters → `400`.
@@ -541,17 +540,17 @@ Tabs: **Transactions** and **Journal** (the table, below), **Categorize** (§5.7
   - (TODO: "confirm REVIEW" — meaning not yet defined.)
 - **Double confirmation:** an action button opens a confirmation dialog stating the exact effect, with an optional comment. Only its Confirm sends the request. The result is shown: `Resolved` (with `n`) or the sequencer's `Rejected` reason. A repeated submit is harmless — the sequencer rejects it.
 - **API (resolution half; the browsing endpoints are listed above):**
-  - `GET /api/state` → `{ offset, n, updatedAt, error, rulesRevision, held:[CanonicalEvent...], review:[CanonicalEvent...] }` — proxied to trex-gateway's `/api/ledger`.
-  - `GET /api/events` → `text/event-stream`, relayed from trex-gateway's stream (§5.7): one upstream connection, fanned out to browser clients.
-  - `POST /api/decisions` — proxied to trex-gateway's `/api/decisions` (§5.7), which checks the action against the ledger and forwards to the sequencer. The precondition that used to be enforced only by the page's JavaScript is enforced there, for every consumer.
-  - `POST /api/pins`, `POST /api/rules`, `GET /api/proposal` — proxied to trex-gateway (§5.7), which owns the files. trex-web forwards the body unchanged and relays the response, including the `409` when the on-disk revision has moved.
+  - `GET /api/state` → `{ offset, n, updatedAt, error, rulesRevision, held:[CanonicalEvent...], review:[CanonicalEvent...] }` — the same answer as `/api/ledger` (§5.7).
+  - `GET /api/events` → `text/event-stream`, served from the fold (§5.7) and fanned out to browser clients.
+  - `POST /api/decisions` — §5.7 checks the action against the ledger, then forwards to the sequencer. The precondition that used to be enforced only by the page's JavaScript is enforced there, for every consumer.
+  - `POST /api/pins`, `POST /api/rules`, `GET /api/proposal` — §5.7, which owns the files, including the `409` when the on-disk revision has moved.
 - **Security (no authentication, for now):**
   - Binds `127.0.0.1`. Browsing and deciding now share a process, so the whole service carries the stricter posture: there is no read-only exposure to be had by loosening the bind, and §9 keeps the second-listener option for when there is.
   - Every mutating endpoint — `POST /api/decisions`, `POST /api/pins`, `POST /api/rules` — requires `Content-Type: application/json` **and** header `X-Trex-Admin: 1`, and rejects a request whose `Origin` does not match its `Host` (`403`) — blocks cross-site form posts and simple cross-origin requests (CSRF).
-  - **`Origin` is checked here and nowhere else in the chain, and is not forwarded.** It describes the browser's relationship to *this* service; the hop to trex-gateway is a different service on a different port, where a forwarded `Origin` can only ever mismatch. Forwarding it 403s every genuine browser write while proving nothing — and does so invisibly, because `curl` sends no `Origin` and therefore works. `X-Trex-Admin` *is* forwarded, because the gateway requires it of every caller.
+  - **`Origin` is checked here and nowhere else in the chain, and is not forwarded.** It describes the browser's relationship to *this* service; the hop to trex-ws is a different service on a different port, where a forwarded `Origin` can only ever mismatch. Forwarding it 403s every genuine browser write while proving nothing — and does so invisibly, because `curl` sends no `Origin` and therefore works. `X-Trex-Admin` *is* forwarded, because the gateway requires it of every caller.
   - Page served with `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`; API responses `Cache-Control: no-store`. The page inserts bank text with `textContent` only (never as HTML).
   - Request body cap 64 KB.
-- **Categories:** every row shows its derived category and, on hover, the rule or pin that produced it together with that entry's `comment` (§5.6). Both a pin and a rule are **proposed here and written by trex-gateway** (§5.7) — no snippet is ever handed to the clipboard. The page's job is to show the proposal and its blast radius; the write, its validation and its ordering belong to the file's owner.
+- **Categories:** every row shows its derived category and, on hover, the rule or pin that produced it together with that entry's `comment` (§5.6). Both a pin and a rule are **proposed here and written by trex-ws** (§5.7) — no snippet is ever handed to the clipboard. The page's job is to show the proposal and its blast radius; the write, its validation and its ordering belong to the file's owner.
 - **Config (flags):** `--gateway-url <url>` (default `http://127.0.0.1:8085`), `--port <n>` (default 8090), `--bind <addr>` (default 127.0.0.1). No `--journal`, no `--config` and **no `--sequencer-url`**: it reads no file and knows no other service.
 
 ### 5.5 — merged into §5.4
@@ -562,9 +561,9 @@ practice, so that boundary bought nothing and cost a cross-origin write path onc
 needed to write a pin. They are now one service (§5.4). The number is kept rather than
 renumbering, so every §5.6 reference in the code and the docs stays valid.
 
-### 5.6 trex-category — master categorisation (shared consumer library)
+### 5.6 Master categorisation — evaluator in trex-core, loading in trex-journal, writing in trex-ws
 
-A pure library, not a service and not a copy per consumer: `trex-gateway` (§5.7) and (phase 1.5) the Firefly egress both call it, so they cannot disagree about what a transaction is. The library stays the one implementation; §5.7 is the one *owner* of the rule files it loads — a distinction that only started to matter when those files became writable. Master level only — fine-grained categorisation is Firefly's job, downstream (see the Firefly note below).
+A pure library, not a service and not a copy per consumer: `trex-ws` (§5.7) and (phase 1.5) the Firefly egress both call it, so they cannot disagree about what a transaction is. The library stays the one implementation; §5.7 is the one *owner* of the rule files it loads — a distinction that only started to matter when those files became writable. Master level only — fine-grained categorisation is Firefly's job, downstream (see the Firefly note below).
 
 **Resolution chain** (first hit wins), given the latest line for an `externalId` and the `LedgerView`:
 1. **Structural `TRANSFER`** — the line is a TRANSFER line, or a leg listed in some TRANSFER's `legIds` (§2.6 `Projection`). Rules never assign or override this: it is a fact of the fold, not an opinion.
@@ -586,7 +585,7 @@ A pure library, not a service and not a copy per consumer: `trex-gateway` (§5.7
 
 **Dry run** (the tuning loop, and the reason this is usable in practice): categorise a whole journal or a parsed CSV and print per-category counts plus the most frequent uncategorised descriptions, highest first. Rules get tuned against real data before anything reaches Firefly — the same idea as the ING dry run in §4.
 
-**Amending the rules is a supported operation, not a hand edit.** `trex-gateway` (§5.7) is the single writer of both `categories.yaml` and `pins.yaml`, and the rules that make an automated write safe live here because they are properties of the rule set, not of the UI:
+**Amending the rules is a supported operation, not a hand edit.** `trex-ws` (§5.7) is the single writer of both `categories.yaml` and `pins.yaml`, and the rules that make an automated write safe live here because they are properties of the rule set, not of the UI:
 
 - **Splice, never serialise.** An amendment edits the file as *text* at a computed line span. The file is not parsed and re-emitted, so `#` comments, blank lines and ordering survive untouched and the git diff is the change itself rather than a reformat. This is what makes machine writes compatible with a file a human also edits.
 - **Validate before swap.** The amended text is written to a temp file, loaded through `CategoryRules.load`, and only then renamed over the original. A rule set that would fail at load never replaces one that works — the sequencer's validate-all-then-commit (§3.3), applied to config.
@@ -594,13 +593,13 @@ A pure library, not a service and not a copy per consumer: `trex-gateway` (§5.7
 - **Revision stamp.** `rulesRevision` is a hash of both files' bytes. Every snapshot and every SSE frame carries it, and a write names the revision it was composed against; if the file has moved since, the write is refused (`409`) rather than clobbering a concurrent hand edit.
 - **Placement is computed, not guessed.** Because the view holds every line and every compiled rule, a proposed rule's match set is known exactly, along with which existing rule currently owns each row. No collision → append. Collision the new rule should win → insert before the rule it takes from. Collision it should not win → it is redundant and is refused with the reason. First-match-wins (§5.6 chain, step 3) is unchanged; what was judgement becomes arithmetic once the data is in hand.
 
-**Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` and `error_if_duplicate_hash`, and carries trex's master category (§5.6) as the **tag** `trex-category:<name>` — never in Firefly's own `category` field, which Firefly's rules own for the fine-grained level (that is the whole point of the split: master here, fine-grained there). Because the category is derived, the projection-state table also records the category last projected, so a `categories.yaml` change re-projects exactly the affected transactions, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
+**Note on the Firefly egress (phase 1.5, not built here):** it is NOT a plain log-mirror — it projects *resolved units* (TRANSFER lines, and transactions whose latest state is EXTERNAL), needs a projection-state table (`external_id → firefly_group_id`), posts via the Firefly API with `apply_rules: true` and `error_if_duplicate_hash`, and carries trex's master category (§5.6) as the **tag** `trex-core:<name>` — never in Firefly's own `category` field, which Firefly's rules own for the fine-grained level (that is the whole point of the split: master here, fine-grained there). Because the category is derived, the projection-state table also records the category last projected, so a `categories.yaml` change re-projects exactly the affected transactions, and reconverges (nuke Firefly = clear projection table, re-project). Spec it separately when built.
 
-### 5.7 trex-gateway — the consumer API (materialized view, rule writer, decisions gateway)
+### 5.7 trex-ws — the consumer API (materialized view, rule writer, decisions gateway)
 
 The journal turned into something a reader can use: one fold, categories applied, served as a snapshot and a stream — and the one API a consumer needs. It is a journal follower (reads the journal file), the single writer of `categories.yaml` and `pins.yaml`, and the **decisions gateway** to the sequencer.
 
-**It never writes the journal.** Only the sequencer does, and it remains authoritative over every decision (§3.5): trex-gateway forwards, it does not decide, and a decision the sequencer rejects is rejected. What trex-gateway adds at that seam is the precondition check that has nowhere else to live — it holds the ledger, so it alone can verify a decision against current state *for every consumer*, not just for the one that happens to be a browser running our JavaScript.
+**It never writes the journal.** Only the sequencer does, and it remains authoritative over every decision (§3.5): trex-ws forwards, it does not decide, and a decision the sequencer rejects is rejected. What trex-ws adds at that seam is the precondition check that has nowhere else to live — it holds the ledger, so it alone can verify a decision against current state *for every consumer*, not just for the one that happens to be a browser running our JavaScript.
 
 It exists because rules became *writable*. While rules were hand-edited, categorisation was a pure function every consumer could run for itself (§5.6), and a service would have added a failure mode to something that had none (DECISIONS W4). A writable rule set changes the question: with two consumers loading the same files on their own schedules, "what is the current rule set" has two answers, and the one that wrote last cannot tell the other. One owner, one reload point, one `rulesRevision` — that is what the service buys, and it is not buyable in-process once the second consumer exists.
 
@@ -633,15 +632,37 @@ It exists because rules became *writable*. While rules were hand-edited, categor
 
   Checked before forwarding, `422` naming the precondition and nothing reaching the sequencer: the account exists and its `balanceSource` is `declared` — **a hand-entered line into a `statement` account is refused**, because it would corrupt a chain the bank is the authority for; a purchase has a non-zero amount and a non-blank description; an attestation has neither. The sequencer stays the authority and this is a fast failure, never a second opinion.
   - `decisionRef` is passed through when supplied and minted as `ui-<UUID>` when not. A caller that supplies its own gets idempotent retries; the page, which has nothing to retry with, gets the old behaviour.
-  - After a `Resolved`, trex-gateway reads the journal immediately rather than waiting for the watcher tick, so the SSE frame announcing the new `n` follows the decision instead of trailing it by up to `--poll-ms`.
+  - After a `Resolved`, trex-ws reads the journal immediately rather than waiting for the watcher tick, so the SSE frame announcing the new `n` follows the decision instead of trailing it by up to `--poll-ms`.
 
-**Security:** binds `127.0.0.1` only, always. It has no authentication and writes files that decide how every consumer reads the journal; the read-only exposure question belongs to trex-web (§5.4) and §9. Mutating endpoints require `Content-Type: application/json` and `X-Trex-Admin: 1` of every caller, including trex-web. An `Origin` that does not match this service's own `Host` is rejected, which guards the case of a browser reaching the gateway directly; a proxied call arrives with **no** `Origin` at all (§5.4) and is judged on the admin header and the loopback bind alone. The browser-facing CSRF decision belongs to the hop that faces the browser. Request body cap 64 KB.
+**Security — two listeners, and the split is now load-bearing.** This service has no authentication
+and writes the files that decide how every consumer reads the journal. While it was a separate
+process from the pages, the process boundary carried that risk: the writer bound loopback and only
+the page server was ever exposed. Merging them removes that boundary, so it is replaced by an
+explicit one **in the same process**:
+
+- **the admin listener** — every mutating endpoint (`/api/decisions`, `/api/pins`, `/api/rules`)
+  and everything that reads or writes config. **Binds `127.0.0.1` only, always**, and this is not
+  configurable.
+- **the read listener** — the pages, `/api/snapshot`, `/api/head`, `/api/ledger`, `/api/events`.
+  May bind another interface (§9), which is what makes the UI reachable from a phone without
+  putting the rule writer on the network.
+
+Binding the read listener off-loopback must not be able to expose a mutating route, so the routing
+table is split by listener at construction and a mutating handler is never registered on the read
+listener — not guarded at request time, *absent*. A test asserts every mutating path returns `404`
+on the read listener.
+
+Mutating endpoints still require `Content-Type: application/json` and `X-Trex-Admin: 1`, and still
+reject an `Origin` that does not match `Host`. That check is now simple and complete: the pages and
+the API share an origin in fact, so there is no proxied call arriving with no `Origin` and no
+second hop whose CSRF posture had to be reasoned about separately — which is exactly the seam that
+produced a regression invisible to `curl` (§5.4). Request body cap 64 KB.
 
 **Config (flags):** `--journal <path>`, `--config <dir>` (holds `categories.yaml` and `pins.yaml`, §6), `--sequencer-url <url>`, `--port <n>` (default 8085), `--bind <addr>` (default 127.0.0.1), `--poll-ms <n>` (default 10000).
 
-**Consumers:** trex-web (§5.4) today; the Firefly egress (§5.6 note) next, which is the second consumer this service is for — it can project against a named `rulesRevision` instead of loading the files itself and hoping they match what the UI showed. Because reading, deciding and categorising all arrive here, a consumer needs exactly one address and one posture: a script, a CLI or a future app talks to trex-gateway and gets the same precondition checks, the same categories and the same revision the page sees. That is the property that would be lost by letting any consumer reach the sequencer directly — not authority, which the sequencer keeps, but *consistency of the checks on the way in*.
+**Consumers:** the pages it serves itself (§5.4); the Firefly egress (§5.6 note) next, which is the second consumer this service is for — it can project against a named `rulesRevision` instead of loading the files itself and hoping they match what the UI showed. Because reading, deciding and categorising all arrive here, a consumer needs exactly one address and one posture: a script, a CLI or a future app talks to this one service and gets the same precondition checks, the same categories and the same revision the page sees. That is the property that would be lost by letting any consumer reach the sequencer directly — not authority, which the sequencer keeps, but *consistency of the checks on the way in*.
 
-### 5.8 trex-egress-firefly — projecting resolved units into Firefly III
+### 5.8 `trex-egress firefly` — projecting resolved units into Firefly III
 
 **Not a log mirror.** §5.2 and §5.3 copy journal *lines*; this projects *resolved units*, which is a
 different unit and a different failure mode:
@@ -657,17 +678,17 @@ Emitting a TRANSFER line *and* its two legs double-counts every internal movemen
 wrong total rather than an error. It is the most expensive mistake available in an egress, so the
 leg exclusion is asserted against a real-shaped fixture and not left to reasoning.
 
-**A trex-gateway client, not a journal follower.** Categories and `rulesRevision` come from the one
+**A trex-ws client, not a journal follower.** Categories and `rulesRevision` come from the one
 owner (§5.7), so the egress can never project under a rule set the UI never showed.
 
 **Firefly's data shape is Firefly's concern.** Where its model differs from trex's, the egress
 adapts; trex does not bend. Two consequences, both load-bearing:
 
 - **Firefly's vocabulary lives only in this module.** `Projection` is the one place that knows what
-  an expense account is. trex-core, the journal, trex-category and the gateway never learn the word.
+  an expense account is. trex-core, the journal, trex-core and the gateway never learn the word.
 - **The projection is one-way.** Nothing Firefly computes — its `category` field, its rules, its
   auto-created accounts — ever flows back into trex (§0.7). Reading back our own `external_id`, our
-  own `trex-category:` tag and our own notes is recovering our own state, not importing an opinion,
+  own `trex-core:` tag and our own notes is recovering our own state, not importing an opinion,
   and the line stays drawn exactly there.
 
 **The transaction type is decided by the two accounts' Firefly types, not by trex's
@@ -679,7 +700,7 @@ expense account per merchant and its own rules have something to match on.
 
 **The projection cache is an accelerator, not a record.** Everything it holds is recoverable from
 Firefly itself — the group id from `external_id`, the category last projected from the
-`trex-category:` tag, the journal `n` from `notes`. Deleting it costs requests, never a fact, and
+`trex-core:` tag, the journal `n` from `notes`. Deleting it costs requests, never a fact, and
 the durability rigour (transactional cursor, backup, migration) goes away with it.
 
 **Re-tagging is read-modify-write, per split.** `PUT` takes the complete transactions array, so a
@@ -726,7 +747,7 @@ bars it from config.
 
 ---
 
-### 5.9 trex-egress-hledger — regenerating a plain-text ledger
+### 5.9 `trex-egress hledger` — regenerating a plain-text ledger
 
 The same projection aimed at a file instead of a service, and the difference in target removes
 almost all of §5.8's machinery: **the file is regenerated whole on every run**, so there is no
@@ -850,7 +871,7 @@ Separate files, not one: they change on different schedules, and the registry is
   - `categories` — the declared master categories. Starting set, tuned from dry runs: `SALARY`, `INTEREST_EARNED`, `INTEREST_PAID`, `GROCERIES`, `BILLS`, `TAXES`, `SAVINGS`, `DISCRETIONARY`. Adding one is a config edit, never a code change. `TRANSFER` and `UNCATEGORIZED` are **reserved** (§5.6) and must not be declared or assigned by a rule.
   - `rules` — ordered; first match wins. Each is `category`, an optional `comment` (a field, not a `#` comment) and a `when` tree (§5.6).
 - `pins.yaml` — the same mechanism, different owner: `pins:` entries of `{category, comment, when: {externalId: […]}}`, evaluated before every rule (§5.6).
-- **Both files have one writer: `trex-gateway` (§5.7)** — and you, in an editor. They remain two files because they are two different things: `categories.yaml` is ordered and general, `pins.yaml` is unordered and exact. But the split is no longer a fence against machine writes.
+- **Both files have one writer: `trex-ws` (§5.7)** — and you, in an editor. They remain two files because they are two different things: `categories.yaml` is ordered and general, `pins.yaml` is unordered and exact. But the split is no longer a fence against machine writes.
   - The two facts that once forced that fence still hold and are simply handled: the YAML mapper cannot round-trip `#` comments, so an amendment **splices text** rather than re-serialising, leaving the notes explaining why `\bfees?\b` is anchored or why `INSURANCE` precedes `BILLS` byte-identical; and rule order is a decision, so the insertion point is **computed from the candidate's match set against the loaded rules** (§5.6) rather than assumed. Appending blindly was never safe; appending is simply no longer the only thing on offer.
   - `comment` is a field on every rule and every pin (§5.6), so rationale written by the service survives in data rather than in a `#` line no writer can reproduce.
   - Both files are git-tracked: the diff is the review — every over-broad pattern found so far (`coffee` contains "fee", `Gregory Hill` contains "rego") was caught by reading one — and the pair of them at a commit is the as-of answer to "what did we call this in March?" (§0.7). An automated write makes the diff *more* important, not less, which is why nothing is written without the preview that shows it first.
@@ -906,7 +927,7 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
 18. **An amendment preserves the file:** splicing a rule into a `categories.yaml` carrying `#` comments, blank lines and a deliberate order leaves every other byte identical (diff is exactly the inserted span) and the comments intact. A rewrite and a delete are held to the same standard on the lines they do not touch.
 19. **Validate before swap:** an amendment that would not load — undeclared category, uncompilable regex, empty `when` — leaves the file on disk unchanged and the running rule set in place, and returns the load error naming the entry. A write composed against a stale `rulesRevision` returns `409` and changes nothing.
 20. **Placement is computed:** a rule colliding with nothing is appended; one that must beat rule *k* lands before *k* and the fold proves it now wins those rows; one wholly shadowed by an earlier rule is refused as redundant with that rule named. Against the shipped rule set, a `COSTCO GAS` rule and an `amazon` rule each land where the collision analysis says.
-21. **The view is the single owner:** with trex-gateway running, a rule written through the API and the same rule hand-edited into the file produce identical materialisations and the same `rulesRevision`; a failed reload keeps serving the previous rule set; an SSE frame carries no row data.
+21. **The view is the single owner:** with trex-ws running, a rule written through the API and the same rule hand-edited into the file produce identical materialisations and the same `rulesRevision`; a failed reload keeps serving the previous rule set; an SSE frame carries no row data.
 22. **The decisions gateway checks before it forwards:** `CONFIRM_TRANSFER` on two rows with mismatched currencies, equal-signed amounts, the same account, or a row that is not HELD/REVIEW returns `422` and the journal is byte-identical — the sequencer is never called. A valid decision is relayed and its `Rejected` response is passed through unchanged, proving the check is a fast failure and not a second authority. A supplied `decisionRef` reaches the sequencer verbatim, so a retried call is idempotent.
 23. **The projection excludes legs:** on a real-shaped journal, no row whose id appears in some
     TRANSFER's `legIds` is projected, and the unit count is the TRANSFER count plus the EXTERNAL
@@ -965,28 +986,29 @@ Build bottom-up; each stage compiles and tests green before the next.
 2. **Journal** (JSONL writer/reader, framing, materialize/recover, fold) in trex-sequencer (+ tests 7, 9).
 3. **Ingress pipeline + matcher/state rules + decision logic** (+ tests 4, 5, 6, 11, 14).
 4. **HTTP API** (`/candidates` with `allOrNone`, `/head`, `/held`, `/review`, `/decisions` — all fully implemented; gzip §3.6) (+ tests 10, 12).
-5. **trex-ingress** (`ing-csv`) against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
-6. **trex-egress-archive**, then **trex-egress-sqlite** (+ test 8).
+5. **trex-ingest** (`ing-csv`) against a real ING slice (whole-file validation, day-atomic batching, gzip) (+ ING parts of tests 1, 3; test 13).
+6. **`trex-egress archive`**, then **`trex-egress sqlite`** (+ test 8).
 7. **Extract shared components:** pure fold (`Ledger`, `LedgerView`, `Projection`, `Reconciliation`) → trex-core; `Json` mapper + `FramedReader` → trex-journal; sequencer, ingress and followers switch to them (no behavior change; all existing tests stay green).
-8. **trex-resolver** (§5.4) (+ tail/refold, API contract, CSRF guard, end-to-end decision round trip through an in-process sequencer); then extract `trex-web` from it.
+8. **trex-resolver** (§5.4) (+ tail/refold, API contract, CSRF guard, end-to-end decision round trip through an in-process sequencer); then extract `trex-ws` from it.
 9. **trex-grid** (§5.5) (+ views, filters, sort/tie-break, pinned paging, totals, SSE head events).
 10. **Config to YAML** (§6): Jackson YAML mapper in trex-journal, records + strict binding, delete the hand-written TOML parser, convert the shipped config files. No behaviour change — the existing config tests carry over to the renamed files.
-11. **trex-category** (§5.6): rule records, `Categorizer` + evaluator, loader with its load-time errors, dry run (+ test 16).
+11. **trex-core** (§5.6): rule records, `Categorizer` + evaluator, loader with its load-time errors, dry run (+ test 16).
 12. **Consumer surfaces:** grid category column/filter, resolver category display and pin snippet (§5.4, §5.5) (+ test 17).
 13. **Source footprint** (§1 dependency policy): picocli for the CLIs. (The CSV library swap was evaluated and rejected — see §1.)
 14. **More source types** (§4): `bw-csv` (BankWest: positive debits, pending-row skipping) and `cba-csv` (CommBank: header-less, pre-signed amounts), each with its own golden file (+ test 1 for both).
 15. **`cba-pdf`** (§4): PDFBox extraction, frozen normalisation, page-furniture rule, golden file, and the cross-source test that a PDF row and the CSV row for the same transaction mint the same id.
-16. **Merge the web services** (§5.4): `trex-grid` + `trex-resolver` + the `trex-web` library become one `trex-web` service — no new features, every existing test green against the merged service.
+16. **Merge the web services** (§5.4): `trex-grid` + `trex-resolver` + the `trex-ws` library become one `trex-ws` service — no new features, every existing test green against the merged service.
 17. **Pins in their own file** (§5.6, §6): `pins.yaml`, `comment` as a field on rules and pins, split loading validated against the declared categories. Prerequisite for everything below, and Firefly-independent.
-18. **`Merchant.stem`** (§5.6): lift the merchant-stem logic out of `DryRunTest` into `trex-category`, with tests for the real truncated and padded shapes (`COM*HolyFamilyCatho`, `SQ *CAMPBELLTOWN INDOO`, `AMAZON AU RETAIL   SYDNEY`). The worklist cannot group without it.
-19. **trex-gateway** (§5.7): new module. Move the fold, the browsing query engine (`GridIndex`/`GridQuery`), the ledger view and the `Categorizer` out of trex-web into it; expose `snapshot`/`head`/`ledger`/`events`. No new features — the same answers, computed one hop away (+ every existing grid and resolver test, re-pointed).
+18. **`Merchant.stem`** (§5.6): lift the merchant-stem logic out of `DryRunTest` into `trex-core`, with tests for the real truncated and padded shapes (`COM*HolyFamilyCatho`, `SQ *CAMPBELLTOWN INDOO`, `AMAZON AU RETAIL   SYDNEY`). The worklist cannot group without it.
+19. **trex-ws** (§5.7): new module. Move the fold, the browsing query engine (`GridIndex`/`GridQuery`), the ledger view and the `Categorizer` out of trex-ws into it; expose `snapshot`/`head`/`ledger`/`events`. No new features — the same answers, computed one hop away (+ every existing grid and resolver test, re-pointed).
 20. **The decisions gateway** (§5.7): `POST /api/decisions` with its ledger preconditions — the checks lifted out of the page's JavaScript, where they only ever protected one consumer — plus `decisionRef` pass-through and the immediate re-read after a `Resolved` (+ test 22).
-21. **trex-web becomes a client** (§5.4): delete its fold, its config loading and its sequencer client; proxy every data and action endpoint to trex-gateway and relay the SSE. Last-good-snapshot cache so a trex-gateway restart degrades to stale-and-labelled, not blank.
+21. **The web layer became a client of the consumer API** (§5.4) — *superseded by step 27, which merges the two back into one process.* At the time: delete the web layer's fold, config loading and sequencer client; proxy every data and action endpoint; relay the SSE; keep a last-good-snapshot cache so a restart of the other process degrades to stale-and-labelled rather than blank.
 22. **The rule writer** (§5.6, §5.7): splice, validate-before-swap, `rulesRevision`, computed placement, hot reload, and the `proposal` dry-run endpoint. Write path before UI, so the contract is pinned by tests rather than by a button.
 23. **The Categorize tab** (§5.4): worklist with its evidence columns, coverage and collision preview, and one-click apply for both rules and pins. No clipboard anywhere in the loop.
 24. **The Firefly egress** (§5.8): `sinceN` on the gateway, the pure projection, the account map, the ephemeral cache, and the read-modify-write re-tag. Verified against a live 6.7.3 — the transaction-type matrix is not derivable from the docs (+ tests 23, 24).
 25. **The hledger egress** (§5.9): the pure renderer, the balance-column chronology, forward-anchored openings, and `hledger.yaml`. Deliberately after §5.8, because it is the cheap sidekick that checks the expensive one: a file rewrite that any bank statement can be held up against (+ tests 25, 26).
 26. **Cash accounts** (§0.1, §2.3, §5.7, §5.9): `balanceSource` in the registry, the `ATTESTATION` line kind, the `/reconcile` third state, `GET /api/accounts`, `POST /api/cash`, the hledger plug, and the entry form. Deliberately last: it is the first data in the journal that no bank can corroborate, so everything that *can* be corroborated is built and proven first (+ tests 28–32).
+27. **Collapse eleven modules into six** (§1): `trex-ingress` → `trex-ingest`; the four egress modules → one `trex-egress` with a picocli subcommand per target; `trex-category` splits by what each class does (evaluator → `trex-core`, loading → `trex-journal`, writing → `trex-ws`); `trex-gateway` + `trex-web` → `trex-ws`, which requires the two-listener split in §5.7 **before** anything may bind off-loopback. No behaviour changes and no new features — every existing test green against the new layout, which is the only thing that makes a refactor this wide safe to do at all.
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 
@@ -994,6 +1016,6 @@ Each component is small and single-purpose; keep trex-core free of any I/O so it
 
 ## 9. Explicitly out of scope here (later phases)
 
-Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR and bank-sync feed source types in trex-ingress (the CDR path is what an account with no CSV export needs); a per-account `sourceTypes` allowlist in the registry, enforced by the sequencer (add with the second source type); the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; an `expr` leaf inside a category rule's `when` (§5.6) if the predicate tree ever proves too weak — CEL preferred over JEXL there, because it type-checks at load and cannot side-effect, which keeps the "bad rule fails at startup" property; a **second listener** on §5.4 so the read-only table can be exposed on another interface while decisions and config writes stay on loopback — the boundary the grid/resolver split used to provide (DECISIONS G10, W1) — note that trex-gateway (§5.7) is now a genuinely read-only-to-the-journal service, so this is a smaller step than it was; rule-health reports (hit count per rule, rules that never fire, pins matching nothing, merchants pinned often enough to deserve a rule); a machine-written `overrides.yaml` if pins ever outgrow hand editing (still consumer-side, still no journal line); an **immutable** `extras` map on `Candidate`/`CanonicalEvent`, stamped once at ingest and never updated, for fields trex does not model (CDR counterparty details, bank reference codes) — sorted keys for byte-stability, never in identity, and never a home for mutable annotations (§0.7); a recomputed category table in the SQLite mirror (a derived value must not be frozen into a log mirror, §0.7) and category totals in the grid footer; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
+Multi-currency **logic** (populating `foreignAmount`, cross-currency transfer matching, base-currency views) — the `foreignAmount`/`foreignCurrency` fields exist as nullable superset but stay null/unused in phase 1; CDR and bank-sync feed source types in trex-ingest (the CDR path is what an account with no CSV export needs); a per-account `sourceTypes` allowlist in the registry, enforced by the sequencer (add with the second source type); the Firefly egress follower; resolver TODOs (authentication, "confirm REVIEW" action, pairing suggestions, resolved history); "keep-both" and "MAN-" decisions; storing the conflicting balance of a `POTENTIAL_DUP` (revisit); tier T2 and text corroboration; an `expr` leaf inside a category rule's `when` (§5.6) if the predicate tree ever proves too weak — CEL preferred over JEXL there, because it type-checks at load and cannot side-effect, which keeps the "bad rule fails at startup" property; (**no longer deferred:** the second listener moved into §5.7 as a requirement when the page server and the consumer API merged — the process boundary that used to keep the rule writer off the network had to be replaced by a listener boundary inside one process); rule-health reports (hit count per rule, rules that never fire, pins matching nothing, merchants pinned often enough to deserve a rule); a machine-written `overrides.yaml` if pins ever outgrow hand editing (still consumer-side, still no journal line); an **immutable** `extras` map on `Candidate`/`CanonicalEvent`, stamped once at ingest and never updated, for fields trex does not model (CDR counterparty details, bank reference codes) — sorted keys for byte-stability, never in identity, and never a home for mutable annotations (§0.7); a recomputed category table in the SQLite mirror (a derived value must not be frozen into a log mirror, §0.7) and category totals in the grid footer; group commit; concurrency beyond single-writer; DuckDB/Postgres projections. All are additive at the edges and do not change trex-core's contracts.
 
 **Startup prerequisite (phase 1):** the sequencer loads the account registry (`accounts.yaml`) at boot and uses it to (a) validate `accountRef` on every candidate, (b) stamp `currency` and hold the Firefly account id. It has no bank-specific behavior. An unknown `accountRef` is a hard `Rejected`, never an auto-created account.
