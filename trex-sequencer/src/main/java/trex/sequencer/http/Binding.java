@@ -54,15 +54,21 @@ final class Binding {
             return CandidateInput.unbindable(null, "batch element is not an object");
         }
         String ref = el.path("candidateRef").isTextual() ? el.get("candidateRef").asText() : null;
-        for (String field : List.of("amount", "balance")) {
-            JsonNode v = el.get(field);
-            if (v == null || !v.isIntegralNumber() || !v.canConvertToLong()) {
-                return CandidateInput.unbindable(ref, field + " must be present as integer cents");
-            }
+        // Shape only. Whether `balance` is REQUIRED depends on the account (§3.3 step 2), and
+        // this class has no registry — so presence is checked in Sequencer.validate, which does.
+        // An absent balance binds as 0, exactly as on a TRANSFER line.
+        JsonNode amount = el.get("amount");
+        if (amount == null || !amount.isIntegralNumber() || !amount.canConvertToLong()) {
+            return CandidateInput.unbindable(ref, "amount must be present as integer cents");
         }
+        JsonNode balance = el.get("balance");
+        if (balance != null && (!balance.isIntegralNumber() || !balance.canConvertToLong())) {
+            return CandidateInput.unbindable(ref, "balance must be integer cents");
+        }
+        boolean balanceGiven = balance != null;
         try {
             Candidate c = Json.mapper().treeToValue(el, Candidate.class);
-            return new CandidateInput(ref, c, null);
+            return CandidateInput.bound(c, balanceGiven);
         } catch (IOException | IllegalArgumentException e) {
             return CandidateInput.unbindable(ref, "invalid candidate: " + firstLine(e.getMessage()));
         }

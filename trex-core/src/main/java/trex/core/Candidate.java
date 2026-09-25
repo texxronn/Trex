@@ -20,4 +20,5 @@ public record Candidate(
     public boolean hasReceipt() {
         return receipt != null && !receipt.isBlank();
     }
+
 }

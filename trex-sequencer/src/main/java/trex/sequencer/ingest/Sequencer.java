@@ -3,6 +3,7 @@ package trex.sequencer.ingest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.core.BatchStatus;
+import trex.core.BalanceSource;
 import trex.core.Candidate;
 import trex.core.CandidateResult;
 import trex.core.CandidateResult.DroppedDuplicate;
@@ -85,7 +86,8 @@ public final class Sequencer {
     public ReconcileReport reconcile() {
         LedgerView snapshot = view();
         ReconcileReport report = ReconcileReport.of(snapshot.highWaterN(), snapshot.headOffset(),
-            Reconciliation.reconcile(List.copyOf(snapshot.firstLine().values())));
+            Reconciliation.reconcile(List.copyOf(snapshot.firstLine().values()),
+                registry.refsWith(BalanceSource.DECLARED)));
         // Counts and the verdict only: no amounts in logs (SPEC §1).
         log.info("reconcile at n={}: {} accounts, ok={}", report.n(), report.accounts().size(), report.ok());
         return report;
@@ -120,7 +122,7 @@ public final class Sequencer {
         for (int i = 0; i < inputs.size(); i++) {
             CandidateInput in = inputs.get(i);
             String ref = in.ref() != null ? in.ref() : "idx-" + i;
-            String reason = in.error() != null ? in.error() : validate(in.candidate());
+            String reason = in.error() != null ? in.error() : validate(in.candidate(), in.balanceObserved());
             if (reason != null) {
                 pending.add(new Pending.Done(new Rejected(ref, reason)));
                 anyRejected = true;
@@ -157,9 +159,22 @@ public final class Sequencer {
         return new BatchResponse(handle, anyRejected ? BatchStatus.PARTIAL : BatchStatus.COMMITTED, results);
     }
 
-    private String validate(Candidate c) {
+    private String validate(Candidate c, boolean balanceObserved) {
         if (c.accountRef() == null || registry.find(c.accountRef()).isEmpty()) {
             return "unknown accountRef: " + c.accountRef();
+        }
+        // SPEC §3.3 step 2: whether a balance is required is a property of the ACCOUNT. A
+        // statement account has one on every row by definition, so a row without one is a bad
+        // row; a declared account only has one when a person supplies it (§2.3 ATTESTATION).
+        BalanceSource source = registry.find(c.accountRef()).orElseThrow().balanceSource();
+        if (source == BalanceSource.STATEMENT && !balanceObserved) {
+            return "balance is required on " + c.accountRef() + " (balanceSource: statement)";
+        }
+        if (source == BalanceSource.STATEMENT && c.amount() == 0) {
+            return "amount must be non-zero on " + c.accountRef() + " (balanceSource: statement)";
+        }
+        if (source == BalanceSource.DECLARED && c.amount() == 0 && !balanceObserved) {
+            return "a line with no amount must state a balance (an attestation, §2.3)";
         }
         if (c.date() == null) {
             return "missing date";
@@ -229,11 +244,27 @@ public final class Sequencer {
             transferId, confidence, Provenance.BANK, receipt, null));
     }
 
+    /**
+     * What kind of line this is. SPEC §2.3.
+     * <p>
+     * An {@code ATTESTATION} is derived rather than asked for, because it is exactly describable:
+     * no movement, a stated balance, on an account whose balances come from a person. Letting the
+     * caller assert the type instead would make it possible to claim one on a statement account,
+     * which is the one thing this must not allow.
+     */
+    private TypeHint typeHintFor(Candidate c) {
+        BalanceSource source = registry.find(c.accountRef()).orElseThrow().balanceSource();
+        if (source == BalanceSource.DECLARED && c.amount() == 0) {
+            return TypeHint.ATTESTATION;
+        }
+        return c.amount() < 0 ? TypeHint.WITHDRAWAL : TypeHint.DEPOSIT;
+    }
+
     private CanonicalEvent newLeg(Candidate c, String id, BatchWork work) {
         String currency = registry.find(c.accountRef()).orElseThrow().currency();
         return new CanonicalEvent(0, id, c.accountRef(), null, currency, c.date(), c.amount(), c.balance(),
             cleaner.apply(c.rawDescription()), c.rawDescription(),
-            c.amount() < 0 ? TypeHint.WITHDRAWAL : TypeHint.DEPOSIT, null, null, null, EventState.EXTERNAL, null,
+            typeHintFor(c), null, null, null, EventState.EXTERNAL, null,
             List.of(), c.provenance(), c.sourceType(), c.hasReceipt() ? c.receipt() : null,
             c.counterpartyBsb(), c.counterpartyAcct(), null, null, null, work.ingestedAt());
     }
