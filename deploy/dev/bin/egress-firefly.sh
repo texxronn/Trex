@@ -45,4 +45,4 @@ esac
 # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
 exec "$(java_bin)" $JAVA_OPTS \
     "-Dorg.slf4j.simpleLogger.defaultLogLevel=$TREX_LOG_LEVEL" \
-    -jar "$(jar_for egress-firefly)" "${args[@]}"
+    -jar "$(jar_for egress)" firefly "${args[@]}"

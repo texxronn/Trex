@@ -130,7 +130,17 @@ run_fg() {
     # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
     exec "$(java_bin)" $JAVA_OPTS \
         "-Dorg.slf4j.simpleLogger.defaultLogLevel=$TREX_LOG_LEVEL" \
-        -jar "$(jar_for "$svc")" "$@"
+        -jar "$(jar_for "$(jar_module "$svc")")" $(subcommand "$svc") "$@"
+}
+
+# The four egress targets ship in ONE jar as subcommands (SPEC §5.2/5.3/5.8/5.9),
+# so `egress-sqlite` means: the trex-egress jar, with `sqlite` as its first argument.
+# Every other service still maps one-to-one onto its own jar.
+jar_module() {
+    case "$1" in egress-*) echo "egress" ;; *) echo "$1" ;; esac
+}
+subcommand() {
+    case "$1" in egress-*) echo "${1#egress-}" ;; *) echo "" ;; esac
 }
 
 stop_svc() {

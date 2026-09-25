@@ -55,6 +55,11 @@ java_bin() {
     fi
 }
 
+# The four egress targets ship in one jar as subcommands, so `egress-sqlite`
+# resolves to the trex-egress jar with `sqlite` as its first argument.
+jar_module() { case "$1" in egress-*) echo "egress" ;; *) echo "$1" ;; esac; }
+subcommand()  { case "$1" in egress-*) echo "${1#egress-}" ;; *) echo "" ;; esac; }
+
 jar_for() {
     local module="trex-$1"
     local jars=("$REPO/$module/target/$module-"*-all.jar)
@@ -141,9 +146,9 @@ start_one() {
         echo "trex: $svc already running (pid $pid)"
         return 0
     fi
-    jar="$(jar_for "$svc")"
+    jar="$(jar_for "$(jar_module "$svc")")"
     # shellcheck disable=SC2046,SC2086  # args and JAVA_OPTS are deliberately word-split
-    nohup "$(java_bin)" $JAVA_OPTS -jar "$jar" $(args_for "$svc") \
+    nohup "$(java_bin)" $JAVA_OPTS -jar "$jar" $(subcommand "$svc") $(args_for "$svc") \
         >> "$LOGS/$svc.log" 2>&1 &
     echo $! > "$PIDS/$svc.pid"
     sleep 0.3

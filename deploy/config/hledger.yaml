@@ -1,4 +1,4 @@
-# hledger egress mapping — SPEC.md §5.9. Read by trex-egress-hledger and nothing else.
+# hledger egress mapping — SPEC.md §5.9. Read by `trex-egress hledger` and nothing else.
 #
 # In plain-text accounting the account tree IS the reporting model: `hledger balance liabilities`
 # works because the name says so, and nothing else records that a card is debt. So this file is

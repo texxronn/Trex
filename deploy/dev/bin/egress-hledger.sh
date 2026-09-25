@@ -34,7 +34,7 @@ args=(--gateway-url "$url" --out "$out" --accounts "$ACCOUNTS")
 # shellcheck disable=SC2086  # JAVA_OPTS is deliberately word-split
 "$(java_bin)" $JAVA_OPTS \
     "-Dorg.slf4j.simpleLogger.defaultLogLevel=$TREX_LOG_LEVEL" \
-    -jar "$(jar_for egress-hledger)" "${args[@]}"
+    -jar "$(jar_for egress)" hledger "${args[@]}"
 
 [ "$cmd" = check ] || exit 0
 

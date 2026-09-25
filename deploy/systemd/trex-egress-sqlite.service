@@ -7,7 +7,7 @@ PartOf=trex.target
 [Service]
 Type=simple
 # Wakes on journal change events; --poll-seconds is only the fallback.
-ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-egress-sqlite.jar \
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-egress.jar sqlite \
   --journal /var/lib/trex/journal/journal.jsonl \
   --db /var/lib/trex/sqlite/trex.db \
   --poll-seconds 60

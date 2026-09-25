@@ -14,12 +14,9 @@
     <module>trex-journal</module>
     <module>trex-sequencer</module>
     <module>trex-ingest</module>
-    <module>trex-egress-archive</module>
-    <module>trex-egress-sqlite</module>
+    <module>trex-egress</module>
     <module>trex-gateway</module>
     <module>trex-web</module>
-    <module>trex-egress-firefly</module>
-    <module>trex-egress-hledger</module>
     <module>trex-category</module>
   </modules>
 
