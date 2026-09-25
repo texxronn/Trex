@@ -40,11 +40,27 @@ public final class FireflyEgress {
         this.dryRun = dryRun;
     }
 
-    public record Outcome(int posted, int retagged, int duplicates, int unchanged, int failed, int preserved) {
+    public record Outcome(int posted, int retagged, int duplicates, int unchanged, int preserved) {
 
         public String describe() {
-            return "posted %d, re-tagged %d, already there %d, unchanged %d, your edits preserved %d, failed %d"
-                .formatted(posted, retagged, duplicates, unchanged, preserved, failed);
+            return "posted %d, re-tagged %d, already there %d, unchanged %d, your edits preserved %d"
+                .formatted(posted, retagged, duplicates, unchanged, preserved);
+        }
+    }
+
+    /**
+     * Firefly refused something, and no amount of retrying will change that. SPEC §5.8.
+     * <p>
+     * The pass stops here rather than counting it and carrying on. A refusal means either the
+     * projection is wrong or the instance is not what we reconciled against at startup, and both
+     * are true of every row still to come — so continuing turns one legible error into hundreds of
+     * lines of noise around it, and leaves a half-projected Firefly whose state nobody stated.
+     * Stopping is cheap: the cache records each write as it lands, so a rerun resumes rather than
+     * repeats.
+     */
+    public static final class Refused extends RuntimeException {
+        public Refused(String message) {
+            super(message);
         }
     }
 
@@ -89,7 +105,14 @@ public final class FireflyEgress {
             units = gateway.since(0).units();
         }
 
-        int posted = 0, retagged = 0, duplicates = 0, unchanged = 0, failed = 0, preserved = 0;
+        // Every account a unit touches has to be mapped BEFORE anything is written. Startup
+        // already reconciled the map against the instance, but the journal moves underneath it:
+        // ingest a statement for a new account and the next pass meets a ref firefly.yaml has
+        // never heard of. Discovering that at row 900 aborts with 899 transactions already in
+        // Firefly and no statement of where it stopped; discovering it here costs nothing.
+        preflight(units);
+
+        int posted = 0, retagged = 0, duplicates = 0, unchanged = 0, preserved = 0;
         // The first projection is ~1751 sequential posts and takes tens of minutes against a
         // containerised Firefly. Silence for that long is indistinguishable from a hang, so the
         // pass reports where it is and what it thinks is left.
@@ -101,7 +124,7 @@ public final class FireflyEgress {
                 switch (post(unit, revision, out)) {
                     case CREATED -> posted++;
                     case DUPLICATE -> duplicates++;
-                    case FAILED -> failed++;
+                    default -> { }
                 }
             } else if (row.category().equals(unit.category())) {
                 unchanged++;
@@ -109,7 +132,6 @@ public final class FireflyEgress {
                 switch (retag(unit, row, revision, out)) {
                     case CREATED -> retagged++;
                     case PRESERVED -> preserved++;
-                    case FAILED -> failed++;
                     default -> { }
                 }
             }
@@ -122,7 +144,25 @@ public final class FireflyEgress {
             cache.highWater(snapshot.asOfN());
             cache.rulesRevision(revision);
         }
-        return new Outcome(posted, retagged, duplicates, unchanged, failed, preserved);
+        return new Outcome(posted, retagged, duplicates, unchanged, preserved);
+    }
+
+    /**
+     * Refuse the whole pass if any unit names an account {@code firefly.yaml} does not map, naming
+     * every one of them rather than the first — fixing config one error per run is its own kind of
+     * slow.
+     */
+    private void preflight(List<GatewayClient.Unit> units) {
+        List<String> refs = new ArrayList<>();
+        units.forEach(u -> {
+            refs.add(u.line().accountRef());
+            refs.add(u.line().toAccountRef());
+        });
+        List<String> missing = accounts.missing(refs);
+        if (!missing.isEmpty()) {
+            throw new Refused("firefly.yaml maps no Firefly account for: " + String.join(", ", missing)
+                + ". Add them (name and type) and rerun; nothing has been written.");
+        }
     }
 
     /** A line every 50, with a rate and an estimate, so a long pass is legible while it runs. */
@@ -167,7 +207,7 @@ public final class FireflyEgress {
         }
     }
 
-    private enum Step { CREATED, DUPLICATE, PRESERVED, FAILED }
+    private enum Step { CREATED, DUPLICATE, PRESERVED }
 
     private Step post(GatewayClient.Unit unit, String revision, PrintStream out)
             throws IOException, InterruptedException, SQLException {
@@ -187,10 +227,9 @@ public final class FireflyEgress {
                 cache.record(row(unit, d.groupId(), revision));
                 return Step.DUPLICATE;
             }
-            case FireflyClient.Result.Failed f -> {
-                log.error("post {} -> {}: {}", unit.line().externalId(), f.status(), f.message());
-                return Step.FAILED;
-            }
+            case FireflyClient.Result.Failed f -> throw new Refused(
+                "Firefly refused " + unit.line().externalId() + " (" + unit.line().accountRef()
+                    + " " + unit.line().date() + "): " + f.status() + " " + f.message());
         }
     }
 
@@ -240,8 +279,8 @@ public final class FireflyEgress {
 
         FireflyClient.Result result = firefly.put(row.groupId(), body);
         if (result instanceof FireflyClient.Result.Failed f) {
-            log.error("re-tag {} -> {}: {}", row.externalId(), f.status(), f.message());
-            return Step.FAILED;
+            throw new Refused("Firefly refused the re-tag of " + row.externalId()
+                + " (group " + row.groupId() + "): " + f.status() + " " + f.message());
         }
         cache.record(row(unit, row.groupId(), revision));
         return anyPreserved ? Step.PRESERVED : Step.CREATED;

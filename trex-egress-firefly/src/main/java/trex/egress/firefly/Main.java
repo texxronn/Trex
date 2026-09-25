@@ -67,6 +67,22 @@ public final class Main implements Callable<Integer> {
             + "post into it silently.")
     private boolean createMissing;
 
+    @Option(names = "--retries", paramLabel = "<n>",
+        description = "Attempts per request, including the first, for TRANSIENT failures only — a "
+            + "dropped connection, a 5xx or a 429 (default: ${DEFAULT-VALUE}). A 4xx is never "
+            + "retried: Firefly is saying the request is wrong. Once the attempts are spent the "
+            + "pass stops.")
+    private int retries = 3;
+
+    @Option(names = "--retry-base-ms", paramLabel = "<ms>",
+        description = "First backoff; each further wait doubles it, jittered, capped by "
+            + "--retry-max-ms (default: ${DEFAULT-VALUE}).")
+    private long retryBaseMs = 500;
+
+    @Option(names = "--retry-max-ms", paramLabel = "<ms>",
+        description = "Ceiling on a single backoff (default: ${DEFAULT-VALUE}).")
+    private long retryMaxMs = 15000;
+
     @Option(names = "--seed-categories",
         description = "Create the declared categories in Firefly, each carrying its rule comment "
             + "as notes. Idempotent; existing categories are left alone.")
@@ -93,7 +109,8 @@ public final class Main implements Callable<Integer> {
         }
 
         AccountMap map = AccountMap.load(accountsFile);
-        FireflyClient firefly = new FireflyClient(fireflyUrl, token);
+        FireflyClient firefly = new FireflyClient(fireflyUrl, token,
+            new FireflyClient.Retry(retries, retryBaseMs, retryMaxMs));
         log.info("Firefly III {} at {}", firefly.version(), fireflyUrl);
 
         Map<String, FireflyClient.AccountInfo> live = firefly.accounts();
@@ -125,7 +142,14 @@ public final class Main implements Callable<Integer> {
             }
             FireflyEgress.Outcome outcome = egress.run(System.out);
             System.out.println((dryRun ? "dry run: " : "") + outcome.describe());
-            return outcome.failed() == 0 ? CommandLine.ExitCode.OK : 70;
+            return CommandLine.ExitCode.OK;
+        } catch (FireflyEgress.Refused | FireflyClient.Unreachable e) {
+            // Loud and terminal, on stderr and as a non-zero exit, so a scheduled run cannot
+            // report success. Whatever landed before this is in Firefly and is recorded; a rerun
+            // resumes from there rather than repeating it.
+            log.error("projection stopped: {}", e.getMessage());
+            System.err.println("STOPPED: " + e.getMessage());
+            return 70;
         }
     }
 

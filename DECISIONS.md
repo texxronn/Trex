@@ -1148,3 +1148,44 @@ lines to decide whether `n` ran with the clock or against it. ING breaks that ou
 deposits and withdrawals arrive as two separate files interleaved into one `n` sequence, so the
 account has no single direction to detect. The per-day chain has no such assumption, which is why
 it is the one that survived.
+
+
+### V9 — the Firefly egress fails fast, and the duplicate path turned out to be safe
+
+Three holes were open in the egress. Two are now closed by code and one by measurement.
+
+**Retry only what is transient, then stop.** The pass used to log a failure, increment a counter
+and carry on, so a 1751-transaction run reported `failed 7` and left you grepping the log for
+which seven. Worse, a network-level `IOException` was not converted to a result at all — it
+unwound through the whole pass, which was recoverable but looked like a crash. Now a dropped
+connection, a 5xx or a 429 is retried with exponential backoff and jitter, honouring `Retry-After`;
+a 4xx never is, because Firefly is saying the request is wrong and repeating it changes nothing
+but the clock. When the attempts are spent, or when Firefly refuses outright, the pass **stops**
+and names the transaction, its account, its date and Firefly's own message.
+
+Counting and continuing was the wrong default for this system. The refusal means either the
+projection is wrong or the instance is not what startup reconciled against, and both are true of
+every row still to come — so continuing multiplies one legible error into noise and leaves a
+half-projected Firefly whose state nobody has stated. Stopping is cheap here in a way it would not
+be elsewhere: the cache records each write as it lands, so a rerun resumes rather than repeats.
+
+**Check the accounts before the first write, not at the row that breaks.** `firefly.yaml` is
+reconciled against the instance at startup, but the journal moves underneath it — ingesting a
+statement for a new account hands the next pass a ref the file has never heard of. That used to
+throw from inside the loop, so it could abort at transaction 900 with 899 already in Firefly. The
+check now runs over the whole unit list before anything is posted, and names every unmapped ref at
+once, because fixing config one error per run is its own kind of slow. This is the hole the
+three-year history ingest was most likely to open.
+
+**The duplicate-hash hole did not exist.** The worry was that Firefly's duplicate detection might
+hash coarsely — date, amount, description — so that two genuinely different trex rows could
+collide, and parsing the group id out of `422 {"message":"Duplicate of transaction #N."}` would
+bind our `external_id` to somebody else's transaction, silently, with every later re-tag writing
+the wrong category.
+
+Measured against 6.7.3 instead of reasoned about: two transactions identical in every field except
+`external_id` are **both accepted**, so `external_id` participates in the hash. A collision would
+therefore require two distinct trex rows to share an `external_id`, which is what identity rules
+out, and a transaction created by hand in the UI carries none of ours. The rejection can only ever
+name the group holding that same row. No code changed; the fact is recorded in §5.8, because the
+next person to read that parser will have exactly the same worry.

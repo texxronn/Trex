@@ -42,10 +42,53 @@ public final class FireflyClient {
 
     private final URI base;
     private final String token;
+    private final Retry retry;
 
     public FireflyClient(URI base, String token) {
+        this(base, token, Retry.NONE);
+    }
+
+    public FireflyClient(URI base, String token, Retry retry) {
         this.base = base;
         this.token = token;
+        this.retry = retry;
+    }
+
+    /**
+     * How hard to try again before giving up on a request. SPEC §5.8.
+     * <p>
+     * Only <b>transient</b> failures are retried: a dropped connection, a 5xx, or a 429. A 4xx is
+     * Firefly telling us the request is wrong, and repeating it changes nothing but the clock.
+     * Once the attempts are spent the failure is terminal and the pass stops — the retry exists so
+     * a container restart or a rate limit does not end a long run, not so that a broken row can be
+     * hidden behind a count.
+     *
+     * @param attempts total tries including the first; 1 disables retrying
+     * @param baseMs   first backoff; each further wait doubles it, with jitter so a burst of
+     *                 requests does not resynchronise and hit the instance together
+     * @param maxMs    ceiling on a single wait
+     */
+    public record Retry(int attempts, long baseMs, long maxMs) {
+
+        public static final Retry NONE = new Retry(1, 0, 0);
+
+        public Retry {
+            if (attempts < 1) {
+                throw new IllegalArgumentException("--retries must be at least 1");
+            }
+        }
+
+        long waitFor(int attempt) {
+            long grow = Math.min(baseMs << Math.min(attempt - 1, 20), maxMs);
+            return grow / 2 + (long) (Math.random() * (grow / 2.0 + 1));
+        }
+    }
+
+    /** A request that failed on every attempt. Terminal: the pass stops here (§5.8). */
+    public static final class Unreachable extends IOException {
+        public Unreachable(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     /** What happened to one posting. */
@@ -288,8 +331,45 @@ public final class FireflyClient {
         } else {
             b.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofByteArray(body));
         }
-        HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
-        log.debug("{} {} -> {}", method, path, r.statusCode());
-        return r;
+        HttpRequest request = b.build();
+        IOException last = null;
+        for (int attempt = 1; attempt <= retry.attempts(); attempt++) {
+            HttpResponse<String> r = null;
+            try {
+                r = http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (!transient_(r.statusCode())) {
+                    log.debug("{} {} -> {}", method, path, r.statusCode());
+                    return r;
+                }
+                last = new IOException(method + " " + path + " -> " + r.statusCode());
+            } catch (IOException e) {
+                last = e;
+            }
+            if (attempt == retry.attempts()) {
+                break;
+            }
+            // Retry-After is the server telling us how long it wants; prefer it over our guess.
+            long backoff = retry.waitFor(attempt);
+            long wait = r == null ? backoff
+                : r.headers().firstValue("Retry-After").map(FireflyClient::seconds).orElse(backoff);
+            log.warn("{} {} failed ({}), attempt {}/{}; retrying in {}ms",
+                method, path, last.getMessage(), attempt, retry.attempts(), wait);
+            Thread.sleep(wait);
+        }
+        throw new Unreachable(method + " " + path + " failed on all "
+            + retry.attempts() + " attempt(s): " + last.getMessage(), last);
+    }
+
+    /** Worth trying again: the instance is restarting, overloaded, or the connection dropped. */
+    private static boolean transient_(int status) {
+        return status == 429 || status / 100 == 5;
+    }
+
+    private static long seconds(String header) {
+        try {
+            return Math.max(0, Long.parseLong(header.strip()) * 1000);
+        } catch (NumberFormatException e) {
+            return 1000;                 // a date-form Retry-After; a second is close enough
+        }
     }
 }

@@ -650,9 +650,37 @@ trex already has a pin, which fixes it for every consumer at once.
 everything *trex* knows. It cannot restore what only Firefly knows — manual categories, splits,
 budgets, bills. Those are Firefly's data and Firefly's backup protects them.
 
+**Retry the transient, stop on everything else.** A dropped connection, a 5xx or a 429 is retried
+with exponential backoff and jitter (`--retries`, `--retry-base-ms`, `--retry-max-ms`), honouring
+`Retry-After` when the instance sends one — a container restart or a rate limit must not end a run
+that takes tens of minutes. A **4xx is never retried**: Firefly is saying the request is wrong, and
+repeating it changes nothing but the clock.
+
+**A refusal stops the pass, loudly, where it happened.** Counting failures and carrying on turns the
+one legible error into a number in a summary, surrounded by hundreds of lines of progress output —
+and leaves a half-projected Firefly whose state nobody has stated. The refusal names the
+transaction, its account and its date, goes to stderr, and exits non-zero so a scheduled run cannot
+report success. Stopping is cheap because the cache records each write as it lands: a rerun resumes
+rather than repeats.
+
+**Every account is checked before the first write.** Startup reconciles `firefly.yaml` against the
+instance, but the journal moves underneath it — ingesting a statement for a new account gives the
+next pass a ref the file has never heard of. Found at transaction 900 that aborts with 899 already
+posted; found in a preflight over the whole unit list it costs nothing, and it names every unmapped
+ref at once rather than one per run.
+
+**`external_id` is part of Firefly's duplicate hash** (measured on 6.7.3: two transactions identical
+in every other field, differing only in `external_id`, are both accepted). So a duplicate rejection
+can only ever name the group holding *that same trex row* — two distinct rows cannot collide,
+because `external_id` is trex's identity, and a transaction created by hand in the UI carries none
+of ours. That is what makes parsing the group id straight out of
+`422 {"message":"Duplicate of transaction #N."}` safe rather than a guess, and it is why the
+rejection is a recovery path (the one a lost cache takes) instead of an error.
+
 **Config:** `--gateway-url`, `--firefly-url`, `--accounts <firefly.yaml>` (§6), `--once`,
-`--dry-run`, `--verify`. Token from `FIREFLY_TOKEN` in the environment only — a flag lands in `ps`
-and in shell history, and §6 already bars it from config.
+`--dry-run`, `--verify`, `--retries`, `--retry-base-ms`, `--retry-max-ms`. Token from
+`FIREFLY_TOKEN` in the environment only — a flag lands in `ps` and in shell history, and §6 already
+bars it from config.
 
 ---
 
@@ -814,7 +842,13 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
     ingested oldest-first, the same code reaches the same answer with no configuration. A day whose
     lines fall into disconnected runs carries **no** assertion; a day with a unique tail but an
     ambiguous middle still carries one.
-26. **The generated ledger validates itself** (§5.9): `hledger check accounts ordereddates
+26. **Transient is retried, refusal is terminal** (§5.8): two 503s then a 200 is one transaction
+    posted in three attempts; a 503 on every attempt raises after exactly `--retries` tries; a 422
+    is posted **once** and stops the pass with the transaction, its account and Firefly's own
+    message in the error. An unmapped account stops the pass with **nothing written** — asserted
+    with the unmapped row second, so a preflight is distinguishable from a crash on the first post
+    — and names every unmapped ref, not just the first.
+27. **The generated ledger validates itself** (§5.9): `hledger check accounts ordereddates
     assertions` passes over a file generated from a real journal. This is the one test where the
     checker is not ours, and it is checking trex's own numbers against the banks'.
 
