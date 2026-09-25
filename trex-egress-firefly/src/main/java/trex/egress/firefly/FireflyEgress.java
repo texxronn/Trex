@@ -224,6 +224,11 @@ public final class FireflyEgress {
             boolean untouched = tagCategory != null && tagCategory.equals(current);
             if (untouched) {
                 split.put("category_name", unit.category());
+                // A GET returns category_id beside category_name, and Firefly resolves the id
+                // first — so echoing the split back with a stale id silently ignores the new name.
+                // The tag would update while the category stayed put, which is the one outcome
+                // that looks like success and is not. Clearing the id makes the name authoritative.
+                split.remove("category_id");
             } else {
                 anyPreserved = true;
             }
