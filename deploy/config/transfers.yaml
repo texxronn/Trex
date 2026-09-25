@@ -4,7 +4,25 @@
 # Transfer-shaped rows without a matching contra leg are HELD for the resolver.
 
 # Maximum days between the two legs of an amount/date (T3) match. Required.
-windowDays: 3
+#
+# Raised from 3 to 4 before the history backfill. The number matters more than it
+# looks: a leg that misses its partner is HELD, and the only repair is a manual
+# CONFIRM_TRANSFER, which is a FINAL decision (SPEC §3.5). Re-ingesting does not
+# retry — a re-delivered candidate with the same balance is dropped as a duplicate
+# (§3.3 step 5), so each row attempts matching exactly once, at first ingest.
+#
+# Widening is the cheap direction. The matcher never guesses: more than one
+# candidate in the window yields AmbiguousTransfer and a REVIEW item showing both
+# sides (§3.4), so a wider window buys review items, not wrong matches — and a
+# review where you pick between two candidates beats an orphan leg you have to
+# hunt for.
+#
+# Evidence for the value: every transfer matched so far pairs at a gap of 0 days,
+# but that is 30 internal transfers between accounts at the same bank. The case
+# this has to cover is a BPAY card payment, where the paying bank and the card
+# date the same movement differently — and there is exactly one of those matched
+# today, so 0 is a sample, not a rule.
+windowDays: 4
 
 allowlist:
   - 'Internal Transfer'

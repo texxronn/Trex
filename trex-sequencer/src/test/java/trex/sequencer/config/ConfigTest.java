@@ -90,7 +90,10 @@ class ConfigTest {
         assertEquals(c.journalSource(), c.journalTarget());
         assertEquals("AUD", c.registry().find("ing-savings").orElseThrow().currency());
         assertTrue(c.rules().isTransferShaped("Transfer to CBA"));
-        assertEquals(3, c.rules().windowDays());
+        // Tracks the shipped transfers.yaml, so a change to the window is a deliberate
+        // edit here too — the value decides whether a leg pairs or becomes a final
+        // manual decision, and it must not drift unnoticed.
+        assertEquals(4, c.rules().windowDays());
     }
 
     @Test
@@ -149,6 +152,9 @@ class ConfigTest {
         assertEquals(Path.of("/var/lib/trex/journal/journal.jsonl"), c.journalSource());
         assertEquals(c.journalSource(), c.journalTarget());
         assertEquals("AUD", c.registry().find("ing-savings").orElseThrow().currency());
-        assertEquals(3, c.rules().windowDays());
+        // Tracks the shipped transfers.yaml, so a change to the window is a deliberate
+        // edit here too — the value decides whether a leg pairs or becomes a final
+        // manual decision, and it must not drift unnoticed.
+        assertEquals(4, c.rules().windowDays());
     }
 }

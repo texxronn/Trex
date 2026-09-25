@@ -1,0 +1,29 @@
+# hledger egress mapping — dev (SPEC.md §5.9). Read by trex-egress-hledger only.
+#
+# In plain-text accounting the account tree IS the reporting model, so this file is
+# the whole configuration and carries no type field: `hledger balance liabilities`
+# works because the name says so.
+#
+# The dev registry is four synthetic accounts (config/accounts.yaml). bw-usd is
+# here to prove a non-AUD account renders its own commodity rather than silently
+# joining the dollars.
+
+accounts:
+  ing-savings:  "assets:ing:savings"
+  ing-orange:   "assets:ing:orange-everyday"
+  cba-everyday: "assets:cba:everyday"
+  bw-usd:       "assets:bankwest:usd"
+
+# Which master categories mean money earned. Everything else becomes
+# expenses:<category>:<merchant>, so a refund stays a negative expense instead of
+# being counted as income. Must name categories declared in categories.yaml.
+income: [SALARY, INTEREST_EARNED]
+
+# Where a movement goes while it is still HELD or REVIEW. Nothing is withheld from
+# this egress — balance assertions need every movement the bank counted — so
+# `hledger balance assets:unresolved` is a live list of what needs deciding, and it
+# returns to zero when the last one is resolved.
+unresolved: "assets:unresolved"
+
+# Where the balance an account held before trex first saw it comes from.
+equity: "equity:opening-balances"

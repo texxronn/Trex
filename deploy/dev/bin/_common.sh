@@ -53,7 +53,7 @@ load_env() {
 }
 
 dirs() {
-    mkdir -p "$RUN/journal" "$RUN/archive" "$RUN/sqlite" "$PIDS"
+    mkdir -p "$RUN/journal" "$RUN/archive" "$RUN/sqlite" "$RUN/hledger" "$PIDS"
 }
 
 # The journal path the SEQUENCER will actually use, resolved the way it resolves

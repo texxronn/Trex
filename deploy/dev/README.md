@@ -53,11 +53,41 @@ bad-row file. See `samples/README.md` for what each row proves.
 
 Web UI: <http://127.0.0.1:8090>  ·  worklist at <http://127.0.0.1:8090/resolve>
 
+## Project it out
+
+Both egresses are **one-shot**, like `ingest.sh` and unlike everything above:
+they make one pass and exit, so they take a verb rather than `start`/`stop`.
+Both read the gateway, so it has to be running.
+
+    deploy/dev/bin/egress-hledger.sh          # regenerate run/hledger/trex.journal
+    deploy/dev/bin/egress-hledger.sh check    # regenerate, then let hledger validate it
+
+`check` is the reason this one exists. hledger verifies every account against the
+bank's own running balance and fails at the transaction where it first stops being
+true — a check nothing else here performs, for the cost of one file rewrite. It is
+the cheapest way to find out that a statement is missing, and it says where.
+
+    deploy/dev/bin/egress-firefly.sh accounts   # what Firefly has, beside firefly.yaml
+    deploy/dev/bin/egress-firefly.sh dry-run    # print the postings, write nothing
+    deploy/dev/bin/egress-firefly.sh            # project
+    deploy/dev/bin/egress-firefly.sh verify     # rebuild the cache from Firefly first
+
+Start with `accounts`. Posting into the wrong account is not recoverable except one
+transaction at a time, so read the mapping before the first run. The token comes
+from the environment and never from config (SPEC §6):
+
+    set -a; . ~/.config/trex/firefly.env; set +a
+
+Neither is a tmux panel: a panel is a log you watch, and these are commands you run.
+
 ## Config
 
 | file | component | shape |
 |---|---|---|
 | `trex-dev.env` | all | bind address, ports, log level, `JAVA_OPTS` |
+| `config/egress-hledger.env` | egress-hledger | output path, gateway URL, assertions on/off |
+| `config/hledger.yaml` | egress-hledger | account tree, income categories, suspense and equity names |
+| `config/egress-firefly.env` | egress-firefly | Firefly URL, cache, retry policy (**no token**) |
 | `config/sequencer.yaml` | trex-sequencer | YAML, `bindPort` + `journal:` |
 | `config/accounts.yaml` | trex-sequencer | YAML, the account registry |
 | `config/transfers.yaml` | trex-sequencer | YAML, allowlist + `windowDays` |
