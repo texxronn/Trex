@@ -43,6 +43,10 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
       pom.xml
     trex-egress-sqlite/
       pom.xml
+    trex-egress-firefly/  # projects resolved units into Firefly III (§5.8)
+      pom.xml
+    trex-egress-hledger/  # regenerates a plain-text hledger journal (§5.9)
+      pom.xml
     trex-gateway/     # the consumer API: journal fold + categories + rule writer + decisions gateway (§5.7)
       pom.xml
     trex-web/         # the web UI: pages, one proxy to trex-gateway, one SSE relay (§5.4)
@@ -50,7 +54,7 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
     trex-category/    # shared consumer library: category rules (categories.yaml) + evaluator (§5.6)
       pom.xml
   ```
-  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the nine `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
+  Parent pom pins JDK 25 (`<maven.compiler.release>25</maven.compiler.release>`), lists the eleven `<modules>`, and centralizes versions in `<dependencyManagement>`. Each service/adapter module is packaged as a runnable jar via `maven-shade-plugin` (or `maven-assembly-plugin`) with its `Main-Class`. Everything that reads the journal uses `trex-journal` (one framing/corruption rule set) and the fold in `trex-core` (one definition of current state, HELD and REVIEW).
 - **Dependencies (minimal on purpose; coordinates are `groupId:artifactId`):**
   - `com.fasterxml.jackson.core:jackson-annotations` — in trex-core for `@JsonPropertyOrder`; no databind in core.
   - `com.fasterxml.jackson.core:jackson-databind` + `jackson-datatype-jsr310` (JSONL, records, java.time) in `trex-journal`, whose shared mapper the sequencer, ingress, followers and resolver use. Configure: `SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS` off; `WRITE_DATES_AS_TIMESTAMPS` off; **deterministic field order via an explicit `@JsonPropertyOrder` on `CanonicalEvent`** (matters for byte-stable journal lines, §3.1).
@@ -595,6 +599,125 @@ It exists because rules became *writable*. While rules were hand-edited, categor
 
 **Consumers:** trex-web (§5.4) today; the Firefly egress (§5.6 note) next, which is the second consumer this service is for — it can project against a named `rulesRevision` instead of loading the files itself and hoping they match what the UI showed. Because reading, deciding and categorising all arrive here, a consumer needs exactly one address and one posture: a script, a CLI or a future app talks to trex-gateway and gets the same precondition checks, the same categories and the same revision the page sees. That is the property that would be lost by letting any consumer reach the sequencer directly — not authority, which the sequencer keeps, but *consistency of the checks on the way in*.
 
+### 5.8 trex-egress-firefly — projecting resolved units into Firefly III
+
+**Not a log mirror.** §5.2 and §5.3 copy journal *lines*; this projects *resolved units*, which is a
+different unit and a different failure mode:
+
+| | mirrors (§5.2, §5.3) | projects (§5.8, §5.9) |
+|---|---|---|
+| unit | one journal line | one resolved transaction |
+| TRANSFER legs | copied, for audit | **skipped** — the TRANSFER line replaces them |
+| HELD / REVIEW | copied | **withheld** until resolved (§5.8) / posted to suspense (§5.9) |
+| categories | absent (§0.7) | attached, and refreshed when rules change |
+
+Emitting a TRANSFER line *and* its two legs double-counts every internal movement, silently — a
+wrong total rather than an error. It is the most expensive mistake available in an egress, so the
+leg exclusion is asserted against a real-shaped fixture and not left to reasoning.
+
+**A trex-gateway client, not a journal follower.** Categories and `rulesRevision` come from the one
+owner (§5.7), so the egress can never project under a rule set the UI never showed.
+
+**Firefly's data shape is Firefly's concern.** Where its model differs from trex's, the egress
+adapts; trex does not bend. Two consequences, both load-bearing:
+
+- **Firefly's vocabulary lives only in this module.** `Projection` is the one place that knows what
+  an expense account is. trex-core, the journal, trex-category and the gateway never learn the word.
+- **The projection is one-way.** Nothing Firefly computes — its `category` field, its rules, its
+  auto-created accounts — ever flows back into trex (§0.7). Reading back our own `external_id`, our
+  own `trex-category:` tag and our own notes is recovering our own state, not importing an opinion,
+  and the line stays drawn exactly there.
+
+**The transaction type is decided by the two accounts' Firefly types, not by trex's
+TRANSFER/EXTERNAL classification** (verified against 6.7.3): `asset↔asset` and
+`liability↔liability` are a `transfer`, `asset→liability` a `withdrawal` (paying a card or a loan),
+`liability→asset` a `deposit`. Firefly rejects a `transfer` that crosses the asset/liability line.
+`destination_name` for an ordinary spend is the merchant stem (§5.6), so Firefly auto-creates one
+expense account per merchant and its own rules have something to match on.
+
+**The projection cache is an accelerator, not a record.** Everything it holds is recoverable from
+Firefly itself — the group id from `external_id`, the category last projected from the
+`trex-category:` tag, the journal `n` from `notes`. Deleting it costs requests, never a fact, and
+the durability rigour (transactional cursor, backup, migration) goes away with it.
+
+**Re-tagging is read-modify-write, per split.** `PUT` takes the complete transactions array, so a
+body built from scratch collapses a group the human split in the UI and destroys the work silently.
+The tag is always overwritten; `category_name` only when it still equals the old tag value — when
+the evidence is unclear the human wins. A correction made in Firefly is a symptom, not a workflow:
+trex already has a pin, which fixes it for every consumer at once.
+
+**Reconvergence has a stated limit.** "Nuke Firefly, clear the cache, re-project" restores
+everything *trex* knows. It cannot restore what only Firefly knows — manual categories, splits,
+budgets, bills. Those are Firefly's data and Firefly's backup protects them.
+
+**Config:** `--gateway-url`, `--firefly-url`, `--accounts <firefly.yaml>` (§6), `--once`,
+`--dry-run`, `--verify`. Token from `FIREFLY_TOKEN` in the environment only — a flag lands in `ps`
+and in shell history, and §6 already bars it from config.
+
+---
+
+### 5.9 trex-egress-hledger — regenerating a plain-text ledger
+
+The same projection aimed at a file instead of a service, and the difference in target removes
+almost all of §5.8's machinery: **the file is regenerated whole on every run**, so there is no
+cache, no idempotency, no cursor and no drift. A correction made in the output is overwritten on
+the next run, which is the point — it forces every correction back into trex, where the other
+consumers can see it. Written through a temp file and renamed, so a reader never sees half a
+journal and a failed run leaves the previous one intact.
+
+**It projects completeness, not resolved units.** This is the one place it departs from §5.8, and
+the reason is balance assertions: the bank's running balance accounts for every movement, so a file
+that omits the HELD rows cannot assert against it. Nothing is withheld — an undecided row posts its
+known side and balances against `assets:unresolved`, and `hledger balance assets:unresolved` is a
+live list of what still needs deciding, returning to zero when the last one is resolved.
+
+**Balance assertions are the reason this egress is worth having.** trex carries the bank's own
+running balance on every line, which §0.1 reserves for provenance and *reconciliation*; asserting it
+is exactly that. hledger then verifies every account against what the bank said and fails at the
+transaction where it first stops being true — a check no other consumer performs, at the cost of one
+file rewrite.
+
+**Only a day's closing balance is asserted, and finding it is not trivial.** A journal line's `n` is
+ingest order, and ingest order is CSV row order, which is the bank's choice: BankWest exports newest
+first, ING exports newest first *and* splits deposits from withdrawals into separate files, so one
+account arrives as two interleaved runs. Nothing in the journal records any of this, and taking the
+highest `n` on a day as that day's close is therefore wrong for most accounts — wrong invisibly,
+because it picks a real balance off a real row, just not the last one.
+
+The balance column settles it with no per-bank configuration, because it is a running balance for
+the *account* and not for the file: a row's balance minus its own amount is the balance of whatever
+came immediately before it. Exactly one row on a day is a **tail** — its balance is no other row's
+"before" — and that tail is the day's close. Two failure shapes, with different costs:
+
+- **More than one tail:** the day's lines fall into disconnected runs, so trex is missing a line the
+  bank counted. The close is not knowable and **nothing is asserted** — a guess would assert a
+  figure wrong by the amount of the line we do not have. The count is reported per account instead.
+- **A unique tail but an ambiguous walk back from it** (two rows on the day happen to share a
+  balance): the close is still known and still asserted. Only the printed order of that day falls
+  back to `n`. Intra-day order was never knowable from a statement; the closing balance always was.
+
+**Opening balances are derived forward, the opposite of §5.8's, on purpose.** trex's history starts
+mid-life, so without an opening every assertion fails at the first transaction and the file says
+nothing about the data. §5.8 anchors backward, from the most recent balance, so that *today's*
+figure is right even when history is missing. Here the job is the opposite — to *find* the missing
+history — so the anchor is the earliest day whose close is knowable, less everything that moved up
+to it. That makes the early assertions hold and the first one after a gap fail, which names the gap;
+anchoring backward would instead fail every assertion before it, which names nothing. The
+disagreement between the two anchors is reported as the account's `gap`.
+
+**The account tree is the reporting model**, which is why `hledger.yaml` (§6) is the whole
+configuration and carries no type field: `hledger balance liabilities` works because the name says
+so. The category becomes part of the contra account (`expenses:groceries:woolworths`) rather than a
+tag, so a category report needs no extra machinery. **The top level follows the category, not the
+sign:** a refund is money coming in but is not income, and belongs in the expense account it
+reverses as a negative amount. Deciding by sign files every returned purchase under `income:` and
+overstates both sides of every report, so the income categories are declared.
+
+**Config:** `--gateway-url`, `--out <file>`, `--accounts <hledger.yaml>` (§6), `--no-assert`
+(for diagnosing a file that will not load), `--stdout`.
+
+---
+
 ---
 
 ## 6. Config
@@ -607,6 +730,14 @@ Separate files, not one: they change on different schedules, and the registry is
 
 - `accounts.yaml` — the registry (the spine): per account `ref` and `currency` (`AUD|USD|INR`). The sequencer uses it only to validate `accountRef` and stamp `currency`. It records no source type — that is bound per run by `--source-type` (§4) — and **no egress fields**: what a `ref` is called in Firefly belongs to `firefly.yaml` (§5.8), because the sequencer has no business knowing what a Firefly account is, and a second egress would otherwise add another column to the spine.
 - `firefly.yaml` — read by the Firefly egress and nothing else (§5.8): per `ref`, the Firefly account `name` and `type` (`asset|liability`). Keyed by **name, not by Firefly's numeric id** — a rebuilt instance changes every id and no name, so the mapping survives a restore; the id is resolved at startup and held only in the ephemeral cache. `type` is not decoration: Firefly rejects a `transfer` that crosses between asset and liability, so the type decides whether a movement is a `transfer`, a `withdrawal` or a `deposit`. A rename in Firefly is a hard stop at startup, with the unmapped account suggested by name, never a silent post into the wrong account.
+- `hledger.yaml` — read by the hledger egress and nothing else (§5.9), and optional: per `ref`, the
+  full hledger account name (`liabilities:bankwest:credit-card`). No type field, because in
+  plain-text accounting the name *is* the type. Also `income:` — which master categories mean money
+  earned, so a refund stays a negative expense instead of becoming income — plus `unresolved:` and
+  `equity:` account names. Separate from `firefly.yaml` because that one exists so Firefly can pick
+  a transaction *type* and this one exists because hledger needs a *name*; sharing them would put
+  one target's vocabulary in another target's config. An unmapped ref defaults to `assets:<ref>`,
+  which is right for most accounts and wrong for every card and loan, so the run warns.
 - `transfers.yaml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
 - `sequencer.yaml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `journal: {source, target}`. (No fsync option — always fsync, §3.1.)
 - `categories.yaml` — read by **journal consumers only** (§5.6); the sequencer never loads it (§0.7). Two keys:
@@ -670,6 +801,22 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
 20. **Placement is computed:** a rule colliding with nothing is appended; one that must beat rule *k* lands before *k* and the fold proves it now wins those rows; one wholly shadowed by an earlier rule is refused as redundant with that rule named. Against the shipped rule set, a `COSTCO GAS` rule and an `amazon` rule each land where the collision analysis says.
 21. **The view is the single owner:** with trex-gateway running, a rule written through the API and the same rule hand-edited into the file produce identical materialisations and the same `rulesRevision`; a failed reload keeps serving the previous rule set; an SSE frame carries no row data.
 22. **The decisions gateway checks before it forwards:** `CONFIRM_TRANSFER` on two rows with mismatched currencies, equal-signed amounts, the same account, or a row that is not HELD/REVIEW returns `422` and the journal is byte-identical — the sequencer is never called. A valid decision is relayed and its `Rejected` response is passed through unchanged, proving the check is a fast failure and not a second authority. A supplied `decisionRef` reaches the sequencer verbatim, so a retried call is idempotent.
+23. **The projection excludes legs:** on a real-shaped journal, no row whose id appears in some
+    TRANSFER's `legIds` is projected, and the unit count is the TRANSFER count plus the EXTERNAL
+    count. The guard against silently double-counting every internal movement (§5.8, §5.9).
+24. **The type follows the accounts, not the classification** (§5.8): `asset→asset` and
+    `liability→liability` project as a `transfer`, `asset→liability` as a `withdrawal`,
+    `liability→asset` as a `deposit`. A re-tag that changes the category clears the stale
+    `category_id` as well as the tag, because Firefly keeps the old category otherwise and the
+    disagreement then looks exactly like a hand edit.
+25. **The day closes where the bank says it does** (§5.9): with an account ingested newest-first,
+    the asserted balance is the day's chronological close and not the highest `n`; with one
+    ingested oldest-first, the same code reaches the same answer with no configuration. A day whose
+    lines fall into disconnected runs carries **no** assertion; a day with a unique tail but an
+    ambiguous middle still carries one.
+26. **The generated ledger validates itself** (§5.9): `hledger check accounts ordereddates
+    assertions` passes over a file generated from a real journal. This is the one test where the
+    checker is not ours, and it is checking trex's own numbers against the banks'.
 
 ---
 
@@ -704,6 +851,8 @@ Build bottom-up; each stage compiles and tests green before the next.
 21. **trex-web becomes a client** (§5.4): delete its fold, its config loading and its sequencer client; proxy every data and action endpoint to trex-gateway and relay the SSE. Last-good-snapshot cache so a trex-gateway restart degrades to stale-and-labelled, not blank.
 22. **The rule writer** (§5.6, §5.7): splice, validate-before-swap, `rulesRevision`, computed placement, hot reload, and the `proposal` dry-run endpoint. Write path before UI, so the contract is pinned by tests rather than by a button.
 23. **The Categorize tab** (§5.4): worklist with its evidence columns, coverage and collision preview, and one-click apply for both rules and pins. No clipboard anywhere in the loop.
+24. **The Firefly egress** (§5.8): `sinceN` on the gateway, the pure projection, the account map, the ephemeral cache, and the read-modify-write re-tag. Verified against a live 6.7.3 — the transaction-type matrix is not derivable from the docs (+ tests 23, 24).
+25. **The hledger egress** (§5.9): the pure renderer, the balance-column chronology, forward-anchored openings, and `hledger.yaml`. Deliberately after §5.8, because it is the cheap sidekick that checks the expensive one: a file rewrite that any bank statement can be held up against (+ tests 25, 26).
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 

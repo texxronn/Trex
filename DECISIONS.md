@@ -1099,3 +1099,52 @@ pass-through, while the expensive, stateful part of this service is the whole jo
 memory and recomputed on every rule change. Accepted with eyes open: the internal component that
 holds that fold keeps the name `MaterializedView`, so the thing the module name hides is spelled
 out the moment anyone opens the code.
+
+
+### V8 — the hledger egress asserts balances, and derives its openings forward
+
+Two egresses now project the same journal, and they disagree about three things on purpose.
+
+**Unit.** Firefly wants resolved units, so HELD and REVIEW rows are withheld until they are decided.
+hledger wants completeness: a balance assertion is a claim about the account's total, and the bank's
+running balance counted every movement, so a file that omits the undecided rows cannot assert
+against it at all. Nothing is withheld; an undecided row posts its known side against
+`assets:unresolved`, which doubles as a live worklist that returns to zero.
+
+**Opening balances.** Firefly anchors backward — the latest balance less everything that moved —
+so that *today's* figure is right even when history is missing. That was the right call there:
+Firefly is a dashboard, and a dashboard that is wrong today is useless. hledger's job here is the
+opposite, to *find* the missing history, so it anchors forward from the earliest day whose close is
+knowable. The early assertions then hold and the first one after a gap fails, which names the gap.
+Anchoring backward would fail every assertion before the gap, which names nothing. Both figures are
+computed in both modules, because their disagreement is worth more than either alone: it is exactly
+the value of the transactions the bank's balance knows about and the journal does not.
+
+**The contra account.** Firefly carries the category as a tag; hledger puts it in the account name,
+because the account tree *is* the reporting model there. That forced a question Firefly never asked:
+a refund is money coming in, but it is not income. Deciding by the sign of the amount — the obvious
+shortcut, and what the first cut did — files every returned purchase under `income:` and overstates
+both sides of every report. So the income categories are declared in `hledger.yaml`, and a refund
+stays a negative expense in the account it reverses.
+
+**What this bought immediately.** Generating the file and running `hledger check assertions` over it
+found, in order: that the journal had no opening balances at all; that `n` is ingest order and
+ingest order is the *bank's* row order, which runs backwards for BankWest and is split across two
+interleaved files for ING; and one day whose intra-day order genuinely cannot be read. None of these
+were visible from inside trex, and the third turned out not to matter. A consumer that can
+contradict the producer is worth more than one that agrees with it.
+
+**Why `n` could not be trusted, and what replaced it.** Nothing in the journal records which
+direction a CSV ran, and adding a per-bank flag would put an ingest detail into an egress's config.
+The balance column already carries the answer: it is a running balance for the account, not for the
+file, so a row's balance minus its own amount is the balance of whatever preceded it. Chaining that
+finds the day's close with no configuration and works for both directions and for interleaved files.
+Where the chain breaks into disconnected runs, trex is missing a line and nothing is asserted;
+where it has a unique end but an ambiguous middle, the close is asserted and only the printed order
+falls back.
+
+Superseded on the way: a first attempt voted on a single direction per *account*, reading adjacent
+lines to decide whether `n` ran with the clock or against it. ING breaks that outright — its
+deposits and withdrawals arrive as two separate files interleaved into one `n` sequence, so the
+account has no single direction to detect. The per-day chain has no such assumption, which is why
+it is the one that survived.

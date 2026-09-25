@@ -19,6 +19,7 @@
     <module>trex-gateway</module>
     <module>trex-web</module>
     <module>trex-egress-firefly</module>
+    <module>trex-egress-hledger</module>
     <module>trex-category</module>
   </modules>
 

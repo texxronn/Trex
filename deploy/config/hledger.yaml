@@ -1,0 +1,44 @@
+# hledger egress mapping — SPEC.md §5.9. Read by trex-egress-hledger and nothing else.
+#
+# In plain-text accounting the account tree IS the reporting model: `hledger balance liabilities`
+# works because the name says so, and nothing else records that a card is debt. So this file is
+# the whole configuration — there is no type field, because the name carries the type.
+#
+# Separate from firefly.yaml on purpose. That one exists because Firefly needs an account's
+# *type* to choose a transaction type; this one exists because hledger needs a *name*. Sharing
+# them would put one target's vocabulary in another target's config.
+#
+# Unmapped refs default to `assets:<ref>`, which is right for most accounts and wrong for every
+# card and loan, so the run warns about them rather than quietly misreporting net worth.
+
+accounts:
+  ing-savings:             "assets:ing:savings"
+  ing-orange:              "assets:ing:orange-everyday"
+  ing-salary:              "assets:ing:salary"
+  ing-loan-offset:         "assets:ing:loan-offset"
+  cba-smartaccess:         "assets:cba:smartaccess"
+  cba-netsaver:            "assets:cba:netbank-saver"
+
+  # Money owed. hledger's convention is that a liability balance is negative when you owe,
+  # which is already the sign the banks report, so nothing is flipped on the way through.
+  ing-credit-card:         "liabilities:ing:credit-card"
+  bw-credit-card:          "liabilities:bankwest:credit-card"
+  ing-mortgage-simplifier: "liabilities:ing:mortgage-simplifier"
+  ing-variable-rate:       "liabilities:ing:variable-rate-loan"
+
+# Which categories are income. Everything else becomes `expenses:<category>:<merchant>`.
+#
+# This exists so a refund stays a negative expense instead of becoming income. Deciding by the
+# sign of the amount instead — the obvious shortcut — files every returned purchase under
+# `income:` and overstates both sides of every report. Only the person who wrote categories.yaml
+# knows which of its names mean money earned, so it is declared rather than guessed.
+income: [SALARY, INTEREST_EARNED]
+
+# Where a movement goes while it is still HELD or REVIEW. Unlike the Firefly egress, nothing is
+# withheld here: balance assertions need every movement the bank counted, so an undecided row
+# posts its known side and parks the other here. `hledger balance assets:unresolved` is then a
+# live list of what still needs deciding, and it returns to zero when the last one is resolved.
+unresolved: "assets:unresolved"
+
+# Where the balance an account held before trex first saw it comes from.
+equity: "equity:opening-balances"
