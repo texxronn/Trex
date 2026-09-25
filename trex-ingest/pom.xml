@@ -27,12 +27,6 @@
       <artifactId>trex-sequencer</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- the dry run categorises what it ingested, as a journal consumer would -->
-    <dependency>
-      <groupId>trex</groupId>
-      <artifactId>trex-category</artifactId>
-      <scope>test</scope>
-    </dependency>
     <!-- The binding belongs to the runnable module, never to a library. -->
     <!-- Text extraction for cba-pdf (SPEC §4). Ingress only: no other module reads PDFs. -->
     <dependency>

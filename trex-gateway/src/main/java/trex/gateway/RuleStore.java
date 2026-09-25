@@ -1,4 +1,7 @@
-package trex.category;
+package trex.gateway;
+
+import trex.category.Categorizer;
+import trex.category.CategoryRules;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,7 +77,7 @@ public final class RuleStore {
     }
 
     public Categorizer load() {
-        return CategoryRules.load(categoriesFile, pinsFile);
+        return trex.journal.RuleFiles.load(categoriesFile, pinsFile);
     }
 
     /**
@@ -165,9 +168,9 @@ public final class RuleStore {
             // file, since a pin is validated against the categories that file declares.
             try {
                 if (file.equals(categoriesFile)) {
-                    CategoryRules.load(temp, pinsFile);
+                    trex.journal.RuleFiles.load(temp, pinsFile);
                 } else {
-                    CategoryRules.load(categoriesFile, temp);
+                    trex.journal.RuleFiles.load(categoriesFile, temp);
                 }
             } catch (RuntimeException e) {
                 throw new Invalid("the amended " + file.getFileName() + " would not load: " + e.getMessage(), e);

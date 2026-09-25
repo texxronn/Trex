@@ -1,11 +1,9 @@
 package trex.category;
 
-import trex.journal.Yaml;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,19 +42,20 @@ public final class CategoryRules {
                      List<String> externalId, String match, String matchOn,
                      String direction, List<String> accounts, Long amountMin, Long amountMax) {}
 
-    /** Rules only, no pins — for a fixture or a consumer that has none. */
-    public static Categorizer load(Path categoriesFile) {
-        return load(categoriesFile, null);
-    }
-
     /**
-     * @param pinsFile {@code pins.yaml}, or null. A missing file is not an error: pins are optional
-     *                 by nature and the file does not exist until the first one is written (§5.7).
+     * Validate and compile already-parsed rule files. Pure: no file is read here.
+     * <p>
+     * The reading half lives in {@code trex.journal.RuleFiles} (§5.6). It is split because this
+     * class is the one every consumer needs and file access is the one thing trex-core may not
+     * have — and because keeping them together would have made trex-core depend on trex-journal
+     * for the YAML mapper, which already depends on trex-core.
+     *
+     * @param where     the categories file's name, for error messages
+     * @param parsed    bound {@code categories.yaml}
+     * @param pinsWhere the pins file's name, or null when there is none
+     * @param pins      bound {@code pins.yaml}, or null
      */
-    public static Categorizer load(Path categoriesFile, Path pinsFile) {
-        File parsed = Yaml.read(categoriesFile, File.class);
-        String where = categoriesFile.getFileName().toString();
-
+    public static Categorizer build(String where, File parsed, String pinsWhere, PinsFile pins) {
         // The key still binds, so the migration gets a pointed message instead of Jackson's.
         if (parsed.pins() != null && !parsed.pins().isEmpty()) {
             throw new IllegalArgumentException(
@@ -80,22 +79,14 @@ public final class CategoryRules {
         }
 
         List<Rule> rules = compile(where, "rule", parsed.rules(), declared);
-        List<Rule> pins = loadPins(pinsFile, declared);
-        warnOnShadowedPins(pins);
+        List<Rule> pinRules = pins == null ? List.of()
+            : compile(pinsWhere, "pin", pins.pins(), declared);
+        warnOnShadowedPins(pinRules);
 
         log.info("categories loaded: {} categories and {} rules from {}, {} pins from {}",
-            declared.size(), rules.size(), categoriesFile, pins.size(),
-            pinsFile == null ? "(none)" : pinsFile);
-        return new RuleCategorizer(List.copyOf(declared), pins, rules);
-    }
-
-    /** Pins are validated against the vocabulary {@code categories.yaml} declares, never their own. */
-    private static List<Rule> loadPins(Path pinsFile, Set<String> declared) {
-        if (pinsFile == null || !java.nio.file.Files.exists(pinsFile)) {
-            return List.of();
-        }
-        PinsFile parsed = Yaml.read(pinsFile, PinsFile.class);
-        return compile(pinsFile.getFileName().toString(), "pin", parsed.pins(), declared);
+            declared.size(), rules.size(), where, pinRules.size(),
+            pinsWhere == null ? "(none)" : pinsWhere);
+        return new RuleCategorizer(List.copyOf(declared), pinRules, rules);
     }
 
     /** Compile one entry as if it were at {@code index}, for a dry run that writes nothing. */

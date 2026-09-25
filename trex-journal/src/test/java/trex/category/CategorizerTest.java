@@ -1,5 +1,7 @@
 package trex.category;
 
+import trex.journal.RuleFiles;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.core.CanonicalEvent;
@@ -58,7 +60,7 @@ class CategorizerTest {
         } else {
             Files.deleteIfExists(pins);
         }
-        return CategoryRules.load(categories, pins);
+        return RuleFiles.load(categories, pins);
     }
 
     static CanonicalEvent line(String id, long amount, String rawDescription) {
@@ -268,7 +270,7 @@ class CategorizerTest {
 
     @Test
     void theShippedRulesFileLoads() {
-        Categorizer c = CategoryRules.load(
+        Categorizer c = RuleFiles.load(
             Path.of("..", "deploy", "config", "categories.yaml"),
             Path.of("..", "deploy", "config", "pins.yaml"));
         assertEquals(List.of("SALARY", "INTEREST_EARNED", "INTEREST_PAID", "FEES", "VISA_FEES",

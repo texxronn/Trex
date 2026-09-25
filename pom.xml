@@ -17,7 +17,6 @@
     <module>trex-egress</module>
     <module>trex-gateway</module>
     <module>trex-web</module>
-    <module>trex-category</module>
   </modules>
 
   <properties>
@@ -70,11 +69,6 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-sequencer</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>trex</groupId>
-        <artifactId>trex-category</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

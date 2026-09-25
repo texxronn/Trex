@@ -75,7 +75,7 @@ class LedgerRoutesTest {
     /** Small rules file for these tests; see src/test/resources. Not watched: these are read-only. */
     private static trex.gateway.Rules categorizer() {
         java.nio.file.Path file = java.nio.file.Path.of("src", "test", "resources", "gateway-categories.yaml");
-        trex.category.RuleStore store = new trex.category.RuleStore(file, null);
+        trex.gateway.RuleStore store = new trex.gateway.RuleStore(file, null);
         return new trex.gateway.Rules(store, store.load(), store.revision());
     }
 

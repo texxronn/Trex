@@ -1,7 +1,6 @@
 package trex.gateway;
 
 import trex.category.Categorizer;
-import trex.category.RuleStore;
 import trex.journal.JournalChanges;
 
 import org.slf4j.Logger;

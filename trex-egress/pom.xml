@@ -35,10 +35,6 @@
       <artifactId>trex-journal</artifactId>
     </dependency>
     <dependency>
-      <groupId>trex</groupId>
-      <artifactId>trex-category</artifactId>
-    </dependency>
-    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>

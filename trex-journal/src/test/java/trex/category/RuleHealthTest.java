@@ -1,5 +1,7 @@
 package trex.category;
 
+import trex.journal.RuleFiles;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.core.CanonicalEvent;
@@ -33,7 +35,7 @@ class RuleHealthTest {
     private Categorizer load(String categories, String pins) throws IOException {
         Files.writeString(dir.resolve("categories.yaml"), categories);
         Files.writeString(dir.resolve("pins.yaml"), pins == null ? "pins: []\n" : pins);
-        return CategoryRules.load(dir.resolve("categories.yaml"), dir.resolve("pins.yaml"));
+        return RuleFiles.load(dir.resolve("categories.yaml"), dir.resolve("pins.yaml"));
     }
 
     @Test

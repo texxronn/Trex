@@ -22,12 +22,12 @@ final class Lines {
     /** The same rule set, wrapped as the live holder the server now takes. */
     static trex.gateway.Rules rules() {
         java.nio.file.Path file = Path.of("src", "test", "resources", "grid-categories.yaml");
-        trex.category.RuleStore store = new trex.category.RuleStore(file, null);
+        trex.gateway.RuleStore store = new trex.gateway.RuleStore(file, null);
         return new trex.gateway.Rules(store, store.load(), store.revision());
     }
 
     static Categorizer categorizer() {
-        return CategoryRules.load(Path.of("src", "test", "resources", "grid-categories.yaml"));
+        return trex.journal.RuleFiles.load(Path.of("src", "test", "resources", "grid-categories.yaml"));
     }
 
     static CanonicalEvent line(long n, String id, String account, String date, long amount, String raw, EventState state) {

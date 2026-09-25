@@ -74,7 +74,7 @@ class DryRunTest {
         Path configDir = path(manifest.config() == null ? "../deploy/config" : manifest.config());
         int batchRows = manifest.batchRows() == null ? Integer.MAX_VALUE : manifest.batchRows();
         Config config = Config.load(configDir);
-        Categorizer categorizer = CategoryRules.load(
+        Categorizer categorizer = trex.journal.RuleFiles.load(
             configDir.resolve("categories.yaml"), configDir.resolve("pins.yaml"));
 
         StringBuilder out = new StringBuilder();

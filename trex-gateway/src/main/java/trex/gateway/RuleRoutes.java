@@ -7,7 +7,6 @@ import trex.category.Categorizer;
 import trex.category.Placement;
 import trex.category.Rule;
 import trex.category.RuleHealth;
-import trex.category.RuleStore;
 import trex.core.CanonicalEvent;
 import trex.gateway.Web.HttpError;
 import trex.journal.Json;
@@ -251,7 +250,7 @@ public final class RuleRoutes {
         body.put("refusal", coverage.refusal());
         body.put("sampleIds", coverage.sampleIds());
         // What would actually be written, so a preview can show the diff rather than describe it.
-        body.put("yaml", trex.category.RuleText.render(entry));
+        body.put("yaml", RuleText.render(entry));
         return body;
     }
 

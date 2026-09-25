@@ -1,4 +1,6 @@
-package trex.category;
+package trex.gateway;
+
+import trex.category.CategoryRules;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +22,7 @@ import java.util.List;
  * So this works on lines. It finds an entry's line span by scanning, and splices. Every byte
  * outside the span it touches is preserved exactly, which is what makes a machine write safe on a
  * file a human also edits. The written result is always validated by loading it before it replaces
- * anything ({@link RuleStore}), so a splice that produced nonsense cannot reach the running service.
+ * anything ({@code RuleStore} (trex-ws)), so a splice that produced nonsense cannot reach the running service.
  */
 public final class RuleText {
 

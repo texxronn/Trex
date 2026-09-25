@@ -5,7 +5,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import trex.category.RuleStore;
 import trex.core.CanonicalEvent;
 import trex.core.Confidence;
 import trex.core.EventState;

@@ -34,11 +34,6 @@
     </dependency>
     <dependency>
       <groupId>trex</groupId>
-      <artifactId>trex-category</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>trex</groupId>
       <artifactId>trex-sequencer</artifactId>
       <scope>test</scope>
     </dependency>

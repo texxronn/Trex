@@ -1,4 +1,11 @@
-package trex.category;
+package trex.gateway;
+
+import trex.category.Placement;
+import trex.category.Rule;
+
+import trex.category.Categorized;
+import trex.category.Categorizer;
+import trex.category.CategoryRules;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -263,7 +270,18 @@ class RuleWriterTest {
         return Placement.of(candidate, current, JOURNAL);
     }
 
+    /**
+     * A fixture line. It used to delegate to the evaluator's test in trex-category; that module is
+     * gone, and its tests stayed with the evaluator while this one followed the writer to trex-ws.
+     * Six lines of duplication beat a test-jar dependency between two modules.
+     */
     private static CanonicalEvent line(String id, long amount, String raw) {
-        return CategorizerTest.line(id, amount, raw);
+        return new CanonicalEvent(1, id, "ing-savings", null, "AUD",
+            java.time.LocalDate.of(2026, 7, 1), amount, 0, raw, raw,
+            amount < 0 ? trex.core.TypeHint.WITHDRAWAL : trex.core.TypeHint.DEPOSIT,
+            null, null, null, trex.core.EventState.EXTERNAL, null, java.util.List.of(),
+            trex.core.Provenance.BANK, "ing-csv", null, null, null, null, null, null,
+            java.time.Instant.EPOCH);
     }
+
 }

@@ -21,10 +21,6 @@
       <groupId>trex</groupId>
       <artifactId>trex-journal</artifactId>
     </dependency>
-    <dependency>
-      <groupId>trex</groupId>
-      <artifactId>trex-category</artifactId>
-    </dependency>
     <!-- tests write real journals with the sequencer's JsonlJournal -->
     <dependency>
       <groupId>trex</groupId>
