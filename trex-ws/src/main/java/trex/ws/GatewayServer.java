@@ -36,6 +36,7 @@ public final class GatewayServer implements AutoCloseable {
     private final BrowseRoutes browse;
     private final LedgerRoutes ledger;
     private final RuleRoutes ruleRoutes;
+    private final CashRoutes cashRoutes;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -60,7 +61,8 @@ public final class GatewayServer implements AutoCloseable {
     }
 
     /** Paths that change state. Never registered on a READ listener. */
-    private static final java.util.Set<String> MUTATING = java.util.Set.of("/api/decisions");
+    private static final java.util.Set<String> MUTATING =
+        java.util.Set.of("/api/decisions", "/api/cash");
 
     private final Role role;
 
@@ -76,6 +78,12 @@ public final class GatewayServer implements AutoCloseable {
 
     public GatewayServer(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Rules rules,
                      String bindAddress, int port, long heartbeatMillis, Role role) {
+        this(watcher, sequencer, rules, null, bindAddress, port, heartbeatMillis, role);
+    }
+
+    public GatewayServer(JournalWatcher<JournalView> watcher, SequencerClient sequencer, Rules rules,
+                     trex.core.account.AccountRegistry accounts,
+                     String bindAddress, int port, long heartbeatMillis, Role role) {
         this.role = role;
         if (role == Role.ADMIN && !bindAddress.equals("127.0.0.1")) {
             // Not configurable, and not a warning: this listener writes the files that decide how
@@ -88,6 +96,7 @@ public final class GatewayServer implements AutoCloseable {
         this.ledger = new LedgerRoutes(watcher, sequencer, rules);
         // The writer sees the same lines the table does, so a proposal's numbers are the
         // numbers on screen rather than a second reading of the journal.
+        this.cashRoutes = new CashRoutes(accounts, sequencer);
         this.ruleRoutes = new RuleRoutes(rules,
             () -> List.copyOf(watcher.status().view().ledger().latestLines()));
         try {
@@ -118,6 +127,10 @@ public final class GatewayServer implements AutoCloseable {
      * The ledger half owns the endpoints about resolving; everything else is browsing. Both are
      * flat under {@code /api/} because there are no pages here to collide with (§5.7).
      */
+    /** The registry, and the one way a line enters without a bank behind it (§5.7). */
+    private static final java.util.Set<String> CASH_PATHS =
+        java.util.Set.of("/api/accounts", "/api/cash");
+
     private static final java.util.Set<String> LEDGER_PATHS =
         java.util.Set.of("/api/ledger", "/api/decisions");
 
@@ -137,6 +150,8 @@ public final class GatewayServer implements AutoCloseable {
             }
             if (role == Role.READ && !path.startsWith("/api/")) {
                 PageServer.servePage(ex, path);
+            } else if (CASH_PATHS.contains(path)) {
+                cashRoutes.handle(ex, path);
             } else if (LEDGER_PATHS.contains(path)) {
                 ledger.handle(ex, path);
             } else if (isRulePath(path)) {

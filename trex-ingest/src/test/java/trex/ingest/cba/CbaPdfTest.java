@@ -1,5 +1,7 @@
 package trex.ingest.cba;
 
+import trex.core.account.Account;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.jupiter.api.Test;
 import trex.core.Candidate;

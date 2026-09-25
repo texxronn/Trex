@@ -76,6 +76,20 @@ public final class Web {
     }
 
     /** Best-effort error response; ignored if the response has already started. */
+    /**
+     * Pass a sequencer reply through unchanged — status and body. The sequencer is the authority
+     * (§3.5), so a Rejected must reach the caller as the sequencer wrote it, not reinterpreted.
+     */
+    public static void relay(HttpExchange ex, trex.ws.ledger.SequencerClient.Reply reply)
+            throws IOException {
+        byte[] bytes = reply.body().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", "application/json");
+        ex.sendResponseHeaders(reply.status(), bytes.length);
+        try (java.io.OutputStream out = ex.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
     public static void error(HttpExchange ex, int status, String message) {
         try {
             json(ex, status, Map.of("error", message == null ? "" : message));

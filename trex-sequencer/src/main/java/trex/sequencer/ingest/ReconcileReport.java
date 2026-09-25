@@ -1,5 +1,7 @@
 package trex.sequencer.ingest;
 
+import trex.core.account.Account;
+
 
 import trex.core.state.Reconciliation;
 

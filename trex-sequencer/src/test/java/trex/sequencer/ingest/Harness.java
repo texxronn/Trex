@@ -1,5 +1,8 @@
 package trex.sequencer.ingest;
 
+import trex.core.account.AccountRegistry;
+import trex.core.account.Account;
+
 import trex.core.BalanceSource;
 
 import trex.core.Candidate;

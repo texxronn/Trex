@@ -1,4 +1,4 @@
-package trex.sequencer.ingest;
+package trex.core.account;
 
 import trex.core.BalanceSource;
 

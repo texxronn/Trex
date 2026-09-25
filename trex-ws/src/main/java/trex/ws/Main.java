@@ -74,13 +74,19 @@ public final class Main implements Callable<Integer> {
             new JournalWatcher<>(journal, Clock.systemUTC(), CombinedFold::new).start(pollMs);
         SequencerClient sequencer = new SequencerClient(sequencerUrl);
 
+        // The same accounts.yaml the sequencer reads, through the same binder (§6). Without a
+        // --config directory this service cannot see accounts at all, and /api/cash says so
+        // rather than guessing.
+        trex.core.account.AccountRegistry accounts =
+            config == null ? null : trex.journal.AccountFiles.load(config);
+
         // Two listeners, one process (§5.7). While the rule writer was a separate service, the
         // process boundary kept it off the network; merging removed that, so the boundary is
         // explicit here. ADMIN refuses to bind anything but loopback — in its constructor, not by
         // convention — and READ simply has no mutating route registered on it.
-        GatewayServer admin = new GatewayServer(watcher, sequencer, rules,
+        GatewayServer admin = new GatewayServer(watcher, sequencer, rules, accounts,
             "127.0.0.1", adminPort, 15_000, GatewayServer.Role.ADMIN).start();
-        GatewayServer read = new GatewayServer(watcher, sequencer, rules,
+        GatewayServer read = new GatewayServer(watcher, sequencer, rules, accounts,
             bind, port, 15_000, GatewayServer.Role.READ).start();
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

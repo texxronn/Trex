@@ -19,10 +19,27 @@ public final class SequencerClient {
     public record Reply(int status, String body) {}
 
     private final URI decisionsUri;
+    private final URI candidatesUri;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     public SequencerClient(URI sequencerUrl) {
         this.decisionsUri = sequencerUrl.resolve("/decisions");
+        this.candidatesUri = sequencerUrl.resolve("/candidates");
+    }
+
+    /**
+     * Relay a hand-entered candidate batch (§5.7 {@code POST /api/cash}). The sequencer validates
+     * and decides; this only carries. Its response is passed back verbatim, including a Rejected,
+     * because it is the authority and this service is not a second opinion (§3.5).
+     */
+    public Reply postCandidates(byte[] json) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(candidatesUri)
+            .timeout(Duration.ofSeconds(30))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(json))
+            .build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return new Reply(response.statusCode(), response.body());
     }
 
     public Reply postDecisions(byte[] json) throws IOException, InterruptedException {

@@ -1,5 +1,7 @@
 package trex.ingest.bw;
 
+import trex.core.account.Account;
+
 import trex.core.Candidate;
 import trex.core.Provenance;
 import trex.ingest.BadRow;

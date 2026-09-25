@@ -1,4 +1,6 @@
-package trex.sequencer.ingest;
+package trex.core.account;
+
+import trex.core.BalanceSource;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,11 +23,16 @@ public final class AccountRegistry {
     }
 
     /** Refs whose balances arrive from a person rather than a statement (§6). */
-    public java.util.Set<String> refsWith(trex.core.BalanceSource source) {
+    public java.util.Set<String> refsWith(BalanceSource source) {
         return accounts.values().stream()
             .filter(a -> a.balanceSource() == source)
             .map(Account::ref)
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    /** Every account, for a consumer that publishes the registry (§5.7). */
+    public java.util.Collection<Account> all() {
+        return accounts.values();
     }
 
     public Optional<Account> find(String ref) {

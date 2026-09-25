@@ -1,9 +1,10 @@
 package trex.sequencer.config;
 
+import trex.journal.AccountFiles;
 import trex.journal.Yaml;
 import trex.core.BalanceSource;
-import trex.sequencer.ingest.Account;
-import trex.sequencer.ingest.AccountRegistry;
+import trex.core.account.Account;
+import trex.core.account.AccountRegistry;
 import trex.sequencer.ingest.TransferRules;
 
 import org.slf4j.Logger;
@@ -25,25 +26,6 @@ import java.util.Set;
 public record Config(Path journalSource, Path journalTarget, String bindHost, int bindPort,
                      AccountRegistry registry, TransferRules rules) {
 
-    /**
-     * Required, never defaulted. SPEC §6: a missing value would have to mean one of the two, and
-     * guessing decides whether a gap in this account's balance chain is reported as a fault or as
-     * normal — which is exactly the kind of ambiguity §0.6 says must not be resolved silently.
-     */
-    private static BalanceSource balanceSource(AccountEntry a) {
-        String v = a.balanceSource();
-        if (v == null || v.isBlank()) {
-            throw new IllegalArgumentException("accounts.yaml: " + a.ref()
-                + " needs a 'balanceSource' (statement | declared) — see SPEC §6");
-        }
-        return switch (v) {
-            case "statement" -> BalanceSource.STATEMENT;
-            case "declared" -> BalanceSource.DECLARED;
-            default -> throw new IllegalArgumentException("accounts.yaml: " + a.ref()
-                + " balanceSource must be 'statement' or 'declared', not '" + v + "'");
-        };
-    }
-
     private static final Logger log = LoggerFactory.getLogger(Config.class);
 
     private static final Set<String> CURRENCIES = Set.of("AUD", "USD", "INR");
@@ -55,17 +37,13 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
 
     record JournalPaths(String source, String target) {}
 
-    record AccountsFile(List<AccountEntry> accounts) {}
-
-    record AccountEntry(String ref, String currency, String balanceSource) {}
-
     record TransfersFile(Integer windowDays, List<String> allowlist) {}
 
     public static Config load(Path configDir) {
         rejectLeftoverToml(configDir);
 
         SequencerFile sequencer = Yaml.read(configDir.resolve("sequencer.yaml"), SequencerFile.class);
-        AccountsFile accounts = Yaml.read(configDir.resolve("accounts.yaml"), AccountsFile.class);
+        AccountRegistry registry = AccountFiles.load(configDir);
         TransfersFile transfers = Yaml.read(configDir.resolve("transfers.yaml"), TransfersFile.class);
 
         if (sequencer.journal() == null || sequencer.journal().source() == null || sequencer.journal().target() == null) {
@@ -86,21 +64,6 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
             throw new IllegalArgumentException("sequencer.yaml: bindPort out of range: " + port);
         }
 
-        if (accounts.accounts() == null || accounts.accounts().isEmpty()) {
-            throw new IllegalArgumentException("accounts.yaml: 'accounts' must list at least one account");
-        }
-        for (AccountEntry a : accounts.accounts()) {
-            if (a.ref() == null || a.ref().isBlank()) {
-                throw new IllegalArgumentException("accounts.yaml: every account needs a 'ref'");
-            }
-            if (!CURRENCIES.contains(a.currency())) {
-                throw new IllegalArgumentException("accounts.yaml: unsupported currency '" + a.currency() + "'");
-            }
-            balanceSource(a);           // validated here so the message names the account
-        }
-        List<Account> list = accounts.accounts().stream()
-            .map(a -> new Account(a.ref(), a.currency(), balanceSource(a)))
-            .toList();
 
         if (transfers.windowDays() == null) {
             throw new IllegalArgumentException("transfers.yaml: 'windowDays' is required");
@@ -110,8 +73,8 @@ public record Config(Path journalSource, Path journalTarget, String bindHost, in
         }
 
         log.info("config loaded from {}: {} accounts, {} transfer patterns, windowDays {}, bind {}:{}",
-            configDir, list.size(), transfers.allowlist().size(), transfers.windowDays(), host, port);
-        return new Config(source, target, host, port, new AccountRegistry(list),
+            configDir, registry.all().size(), transfers.allowlist().size(), transfers.windowDays(), host, port);
+        return new Config(source, target, host, port, registry,
             new TransferRules(transfers.allowlist(), transfers.windowDays()));
     }
 

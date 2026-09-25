@@ -34,7 +34,8 @@ class ListenerRolesTest {
 
     /** Every path that changes something. Adding a write endpoint must mean adding it here. */
     private static final java.util.List<String> MUTATING =
-        java.util.List.of("/api/decisions", "/api/rules", "/api/pins", "/api/proposal", "/api/worklist");
+        java.util.List.of("/api/decisions", "/api/cash",
+            "/api/rules", "/api/pins", "/api/proposal", "/api/worklist");
 
     @AfterEach
     void stop() {
@@ -86,6 +87,9 @@ class ListenerRolesTest {
         assertEquals(200, status("/", "GET"), "the index page");
         assertEquals(200, status("/resolve", "GET"), "the resolve page");
         assertTrue(status("/api/head", "GET") < 400, "reads must work");
+        // The registry is a read: the egresses need it to know what an account IS, and publishing
+        // it is the whole reason it has one owner (§5.7).
+        assertTrue(status("/api/accounts", "GET") < 400, "the registry must be readable");
     }
 
     /** The admin listener carries everything; these are not 404 there. */
