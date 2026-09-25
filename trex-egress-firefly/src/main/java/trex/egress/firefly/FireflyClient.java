@@ -147,6 +147,93 @@ public final class FireflyClient {
         return m.find() ? Long.parseLong(m.group(1)) : -1;
     }
 
+    /**
+     * Create an asset or liability account. Only ever called for one this config maps and the
+     * instance does not have, and only behind an explicit flag — a mistyped name would otherwise
+     * create an eleventh account and quietly post a year of transactions into it.
+     *
+     * @param opening cents; negative for a debt. Seeding a liability positive is what made four
+     *                accounts disagree by exactly twice their opening balance.
+     */
+    public String createAccount(String name, AccountMap.Kind kind, String currency,
+                                long opening, java.time.LocalDate asOf)
+            throws IOException, InterruptedException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", name);
+        body.put("currency_code", currency);
+        if (kind == AccountMap.Kind.LIABILITY) {
+            body.put("type", "liability");
+            body.put("liability_type", "debt");
+            body.put("liability_direction", "credit");
+        } else {
+            body.put("type", "asset");
+            body.put("account_role", "defaultAsset");
+        }
+        if (asOf != null) {
+            body.put("opening_balance", Projection.signedAmount(opening));
+            body.put("opening_balance_date", asOf.toString());
+        }
+        HttpResponse<String> r = send("POST", "/api/v1/accounts", Json.mapper().writeValueAsBytes(body));
+        if (r.statusCode() / 100 != 2) {
+            throw new IOException("creating account \"" + name + "\": " + r.statusCode() + " " + message(r.body()));
+        }
+        return Json.mapper().readTree(r.body()).path("data").path("id").asText();
+    }
+
+    /** A category Firefly already has: its id, and whether anything is written on it. */
+    public record CategoryInfo(String id, String name, String notes) {
+
+        public boolean hasNotes() {
+            return notes != null && !notes.isBlank();
+        }
+    }
+
+    /** Categories Firefly already has, keyed by name, so seeding is idempotent. */
+    public Map<String, CategoryInfo> categories() throws IOException, InterruptedException {
+        Map<String, CategoryInfo> out = new LinkedHashMap<>();
+        for (int page = 1; ; page++) {
+            JsonNode body = get("/api/v1/categories?limit=" + PAGE + "&page=" + page);
+            for (JsonNode c : body.path("data")) {
+                String name = c.path("attributes").path("name").asText();
+                out.put(name, new CategoryInfo(c.path("id").asText(), name,
+                    c.path("attributes").path("notes").asText(null)));
+            }
+            if (page >= body.path("meta").path("pagination").path("total_pages").asInt(1)) {
+                return out;
+            }
+        }
+    }
+
+    /**
+     * Write notes onto a category that has none. Only ever called when the existing notes are
+     * empty: anything you have typed there is yours, and an egress that overwrites it would be
+     * doing the thing the compare-and-swap on categories exists to prevent.
+     */
+    public void setCategoryNotes(String id, String notes) throws IOException, InterruptedException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("notes", notes);
+        HttpResponse<String> r = send("PUT", "/api/v1/categories/" + id, Json.mapper().writeValueAsBytes(body));
+        if (r.statusCode() / 100 != 2) {
+            throw new IOException("annotating category " + id + ": " + r.statusCode() + " " + message(r.body()));
+        }
+    }
+
+    /**
+     * Create a category, carrying trex's rule comment as its notes — so "why is this GROCERIES?"
+     * is answerable inside Firefly too, without coming back to the rule file.
+     */
+    public void createCategory(String name, String notes) throws IOException, InterruptedException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", name);
+        if (notes != null && !notes.isBlank()) {
+            body.put("notes", notes);
+        }
+        HttpResponse<String> r = send("POST", "/api/v1/categories", Json.mapper().writeValueAsBytes(body));
+        if (r.statusCode() / 100 != 2) {
+            throw new IOException("creating category \"" + name + "\": " + r.statusCode() + " " + message(r.body()));
+        }
+    }
+
     public Result post(Projection.Posting posting) throws IOException, InterruptedException {
         HttpResponse<String> r = send("POST", "/api/v1/transactions", Json.mapper().writeValueAsBytes(posting.body()));
         if (r.statusCode() / 100 == 2) {

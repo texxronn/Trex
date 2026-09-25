@@ -141,6 +141,11 @@ public final class Projection {
      * Cents to a fixed 2-decimal string. Never a float, and never formatted with the default
      * locale — a comma decimal separator would be accepted as a different number.
      */
+    /** Like {@link #amount} but keeps the sign — an opening balance may legitimately be a debt. */
+    static String signedAmount(long cents) {
+        return (cents < 0 ? "-" : "") + amount(cents);
+    }
+
     static String amount(long cents) {
         return BigDecimal.valueOf(Math.abs(cents), 2).setScale(2, RoundingMode.UNNECESSARY).toPlainString();
     }
