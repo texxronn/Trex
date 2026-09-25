@@ -1189,3 +1189,88 @@ therefore require two distinct trex rows to share an `external_id`, which is wha
 out, and a transaction created by hand in the UI carries none of ours. The rejection can only ever
 name the group holding that same row. No code changed; the fact is recorded in §5.8, because the
 next person to read that parser will have exactly the same worry.
+
+
+### V10 — cash is recorded as attestations, and nothing about it is asserted
+
+trex has never held a line a bank could not corroborate. Every `external_id` traces to a statement,
+and `balance` — the bank's own running total — is what lets the hledger egress fail at the exact
+transaction where trex and the bank stop agreeing. Cash has no statement, so admitting it means
+admitting the first data in the journal that nothing independent can check. That is the decision,
+and the rest follows from containing it rather than pretending otherwise.
+
+**What is actually wanted is narrow.** Not "track cash" — only *some* purchases, chosen by whether
+they are worth seeing in a report (a recurring $40 beats a one-off $50; size is not the criterion),
+plus an occasional statement of what is left, on no schedule. Most cash spending is never entered.
+So a cash account is a sparse stream of movements punctuated by rare observations, with a large
+residual between them. That residual is the output, not an embarrassment: it is value spent and
+never itemised, which is a number nobody has today.
+
+**Rejected: a second "balancing" account per cash account**, so that every entry could carry a
+synthesised `balance` and nothing else would need to change. It fails on arithmetic. That balance
+would be `previous + amount`, computed from the same amounts hledger sums, so the assertion
+`running total == asserted balance` holds **by construction** and can never fail. An assertion that
+cannot fail is worse than none, because it looks like verification. It also solves a problem trex
+does not have: a `CanonicalEvent` is one movement on one account, and double-entry exists only in
+the projections — there is nothing here to balance.
+
+**The same tautology nearly came back through the front door.** A later draft kept the attestation
+but had the hledger egress assert the stated figure after plugging the difference to make it hold —
+`X + (A − X) == A`, for every possible input. Identical defect, dressed as the feature. Hence the
+rule now in §5.9: **no balance assertion is ever written for a `declared` account.** The general
+test, worth applying to any check: *can this ever fail?* If the expected value is computed from the
+thing being checked, the answer is no and the check is decoration. The plug survives because the
+number was always the point; the checkmark never was.
+
+**An attestation is a line kind, not a field.** Attaching `balance` to every cash entry fails
+immediately, because declarations arrive on their own schedule and most entries have no balance to
+give. `0` cannot be the sentinel for "unknown", because **$0 is a legitimate attestation** — you
+spent your last cash — so the distinction has to be structural. `TypeHint` gains `ATTESTATION`:
+`amount = 0`, `balance` authoritative, `declared` accounts only. This reuses the mechanism already
+in place rather than inventing one; `TypeHint` is what every consumer already switches on to decide
+whether a line's balance means anything, and a TRANSFER line is the existing precedent for a value
+that is not a plain debit or credit. Adding it breaks every exhaustive switch until each is
+considered, which is the property §8 asks for.
+
+Named `ATTESTATION` and not `COUNT` because `TypeHint`'s other values name **movements** and this
+one names a **claim**. That is the property downstream has to respect: a claim can be recorded and
+reported, never verified.
+
+**The registry learns where balances come from, and it is the right place.** `balanceSource:
+statement | declared` sits beside `currency` because it is a fact about the account regardless of
+who is reading — the same test `currency` passes and a Firefly account name fails. It is required,
+never defaulted and never inferred: a wrong guess decides whether a broken chain reads as a fault
+or as normal, and §0.6 says ambiguity goes to review rather than to a default. Inference had a
+tempting precedent in `BwCsv`'s debit-sign detection, but that was justified by the choice being
+*observable* — the wrong convention broke the chain 1,516 times. Nothing observable distinguishes a
+cash account here.
+
+**DECISIONS S7 is not reversed.** The BankWest PDF was refused partly because it had *no per-row
+balance*, so §7 test 6 could never reconcile that account. That still stands: a **source** may never
+drop a balance the bank actually published, whatever an **account** declares about where its
+balances come from. Every file parser keeps its hard reject, unchanged. The cases only look alike —
+one discards available evidence, the other has none to discard.
+
+**Identity is forced, not chosen.** `occ` is assigned per batch (§2.5), so a hand-entered line is
+always `occ = 0`, and two genuinely different cash purchases sharing account, date, amount and
+description — entered on different days, hence different batches — mint the same content hash, and
+the second is dropped as a duplicate. Silently losing a real entry violates §0.6. So a manual line
+carries a client-minted `MAN-<ULID>` as its `receipt` and takes the natural-key path, which is
+unique by construction and touches no FROZEN code in §2.4. A resubmitted ref is an idempotent retry,
+exactly as `decisionRef` already is. Extending `IdentityStrategy` with a third case was rejected:
+it edits the identity contract for no gain.
+
+**The plug points at the cash-withdraw account, and this is not cosmetic.** An ATM withdrawal is
+already an expense. Posting a recorded cash purchase as another expense counts the same money twice
+— $500 out of the bank reported as $540 of spending. Pointing `cashPlug` at the cash-withdraw node
+makes itemising part of a withdrawal *re-label* it instead: $440 unitemised plus $40 of groceries.
+The fix is one line of `hledger.yaml` rather than code, which is the right shape — this is a
+question about a reporting tree, and the tree is what plain-text accounting uses as its model.
+
+**Scale, recorded so the next reader can judge it.** At the time of writing cash is **3 ATM
+withdrawals, $1,800, of $139,703 of expenses — 1.3%** — and all three sit on one account whose data
+starts 2026-05-31, so that is roughly three months, not a behavioural sample. The three-year
+backfill will give the real figure. This was built for the capability rather than that percentage,
+with eyes open: the cheaper alternative was splitting the withdrawal in Firefly's UI, which costs no
+code but never enters the journal and does not survive a rebuild (§5.8). Wanting cash in the source
+of truth is what decided it.

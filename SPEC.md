@@ -15,6 +15,8 @@ Design authority is `firefly-ingest-spec-v2.md` + the conversation's later decis
 ## 0. Non-negotiable invariants (every component honors these)
 
 1. **`external_id` is the sole identity of a transaction.** Natural key (`accountRef|date|receipt`) ▸ else content hash `sha256(accountRef|date|amount|rawDescription|occ)[:16]` — hashes the **verbatim** `rawDescription`, never the cleaned `description`, so description cleanup stays soft and can evolve without shifting ids. **`balance` is never in identity *or* transaction semantics** — it is provenance/reconciliation data only (see §2.2 field doc and §5). An `external_id` may appear on several journal lines (versions, §3.2); it is not a line key.
+
+   **What `balance` is.** An **observation from outside trex** about what the account held — never a figure trex derived. For a bank that observation is the statement's running balance, arriving on every row. For an account with no statement it is a person stating what they hold, arriving whenever they choose (§2.3 `ATTESTATION`). Both are evidence; neither is computed from the amounts trex already has, which is what makes asserting one downstream meaningful. **How often those observations arrive is declared per account** (`balanceSource`, §6), never guessed from the data, and an account whose observations are sparse has a chain with deliberate gaps rather than a broken one.
 2. **The journal is append-only, single-writer, immutable.** No update, no delete. A state change is a new line (a re-appended version, §3.2); corrections are new events with `corrects`.
 3. **`n` is the journal record sequence: a `long`, unique per journal line, strictly increasing, starting at 1.** Assigned when the line is appended, preserved forever (read back on replay). Never in identity. Every line — including a re-appended version of an existing transaction — takes the next `n`.
 4. **Amounts are `long` cents (fixed ×100 — every account is AUD/USD/INR, all 2-decimal).** `BigDecimal` appears **only at the CSV parse boundary** to convert a decimal string to cents (scale-checked, never rounded); never `double`/`float`, never in the core.
@@ -85,7 +87,8 @@ public record Candidate(
     LocalDate date,
     long amount,              // signed cents (×100); -ve = money out
     String rawDescription,    // verbatim
-    long balance,             // running balance (cents). PROVENANCE/RECONCILIATION ONLY — never identity, never transaction semantics
+    long balance,             // observed balance (cents), §0.1. PROVENANCE/RECONCILIATION ONLY — never identity, never transaction semantics.
+                              // Required on a `statement` account and on an ATTESTATION; otherwise 0 and meaningless (§6)
     String receipt,           // nullable; ING natural key
     String counterpartyBsb,   // nullable; CDR (phase 2)
     String counterpartyAcct,  // nullable; CDR (phase 2)
@@ -108,7 +111,8 @@ public record CanonicalEvent(
     String currency,          // stamped from registry (account attribute; no conversion)
     LocalDate date,
     long amount,              // cents. Signed on transaction lines; TRANSFER: absolute value (direction = accountRef → toAccountRef)
-    long balance,             // cents. PROVENANCE/RECONCILIATION ONLY — never identity, never transaction semantics. TRANSFER: 0
+    long balance,             // cents. PROVENANCE/RECONCILIATION ONLY — never identity, never transaction semantics.
+                              // TRANSFER: 0. On a `declared` account: 0 except on an ATTESTATION line, where it is the figure stated
     String description,       // cleaned (§3.3)
     String rawDescription,
     TypeHint typeHint,
@@ -134,7 +138,8 @@ public record CanonicalEvent(
 ### 2.3 Enums & sealed hierarchies (drive exhaustive `switch`)
 ```java
 public enum Provenance { BANK, AUTHORED }
-public enum TypeHint   { WITHDRAWAL, DEPOSIT, TRANSFER }
+public enum TypeHint   { WITHDRAWAL, DEPOSIT, TRANSFER, ATTESTATION }
+public enum BalanceSource { STATEMENT, DECLARED }   // where an account's observed balances come from (§6)
 public enum Confidence { EXACT, HIGH, REVIEW }
 public enum Flag       { POTENTIAL_DUP }
 public enum EventState { HELD, MATCHED, REVIEW, EXTERNAL }
@@ -169,6 +174,24 @@ public record NotTransfer(String leg)                                    impleme
 // Occurrence signature (content-hash banks)
 public record Sig(String accountRef, LocalDate date, long amount, String rawDescription) {}
 ```
+
+**`ATTESTATION` — the line that is not a movement.** `amount = 0`, `balance` authoritative, valid
+**only** on an account whose `balanceSource` is `declared` (§6); on a `statement` account it is a
+hard `Rejected`. It records no transfer of value — only what a person states they hold, on their own
+authority, at a moment of their choosing.
+
+It is named for what it is rather than what it counts: `TypeHint`'s other values name **movements**,
+and this is a *claim*. That distinction is load-bearing downstream — a claim can be recorded and
+reported, but it can never be verified, because nothing independent exists to contradict it (§5.9).
+
+`TypeHint` is already what every consumer switches on to decide whether a line's `balance` means
+anything: a TRANSFER line carries `0` and is skipped by the reconciliation fold (§7 test 6), by the
+hledger egress and by the Firefly egress. `ATTESTATION` is the mirror image — on a `declared`
+account it is the *only* line whose balance means anything.
+
+`0` could not have served as the sentinel for "no balance here", because **$0 is a legitimate
+attestation**: you spent your last cash. The distinction has to be structural, not a magic value.
+
 
 ### 2.4 Identity (trex-core/Ids)
 ```java
@@ -263,7 +286,10 @@ Validate-all-then-commit (atomic per batch):
      malformed body / wrong top-level structure -> 400, nothing appended
      malformed element                          -> Rejected(ref, reason)
    missing candidateRef -> "idx-" + zeroBasedIndex
-2. VALIDATE each (accountRef known via registry? amount/date/balance present & parseable?).
+2. VALIDATE each (accountRef known via registry? amount/date present & parseable? `balance` present
+   & parseable **when the account's `balanceSource` is `statement`, or the line is an `ATTESTATION`**
+   — otherwise it is written as 0 and carries no meaning; an `ATTESTATION` on a `statement` account
+   is a hard `Rejected`).
    On any hard Rejected, branch on the request's `allOrNone` (default false):
      allOrNone=true  -> append NOTHING; batchStatus=REJECTED; results carry every Rejected
      allOrNone=false -> exclude the rejects; the valid subset proceeds; batchStatus=PARTIAL
@@ -370,6 +396,13 @@ void   writeJson(HttpExchange ex, int status, Object obj); // transparently gzip
 ---
 
 ## 4. trex-ingress — ingress client (source types: `ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`)
+
+> **`manual` is a source type but not an ingress one.** A hand-entered line (§5.7 `POST /api/cash`)
+> carries `sourceType: "manual"` and `provenance: AUTHORED`, and never travels this path: trex-ingress
+> parses files, and there is no file. **Every parser below still hard-rejects a row with no balance**,
+> unchanged — a *source* may never drop a balance the bank published, whatever an *account* declares
+> about where its balances come from (§6). That is why `cba-pdf` was admitted and the BankWest PDF
+> refused, and nothing here reopens it.
 
 Separate CLI program; talks to trex over HTTP. Demonstrates the candidate contract. **All source-specific behavior (banks, feeds) lives in trex-ingress**; the sequencer has none. One module holds every source type: the CLI, HTTP client, gzip and day batching are shared (package `trex.ingress`), and each source type is one parser in its own sub-package (`trex.ingress.ing`, …). `ing-csv` was the starter; `bw-csv` (BankWest), `cba-csv` and `cba-pdf` (CommBank) followed; CDR and feed source types follow the same model in a later phase.
 ```
@@ -590,6 +623,15 @@ It exists because rules became *writable*. While rules were hand-edited, categor
 - `POST /api/pins` — body `{ category, comment, externalIds, rulesRevision }`. Same contract against `pins.yaml`, where placement is trivial because pins match exact ids.
 - `DELETE`/`PATCH` on a rule or pin by index, same validate-before-swap discipline. These are what "full edit rights" means: the service may rewrite and remove entries, not only add them.
 - `POST /api/decisions` — body `{ action, externalId?, legA?, legB?, comment?, decisionRef? }`. Checks the action against the **current ledger** before forwarding: the target is actually HELD or REVIEW; `DISMISS_DUP` targets a row flagged `POTENTIAL_DUP`; `CONFIRM_TRANSFER` names two distinct rows whose amounts are equal and opposite and non-zero, whose accounts differ and whose currencies match. A failure returns `422` naming the precondition, and nothing reaches the sequencer. Otherwise it builds the sequencer request and relays the response verbatim, including `Rejected` — the sequencer is still the authority, and this check is a courtesy that fails fast, never a second opinion that could disagree with it.
+
+- `GET /api/accounts` — `[{ ref, currency, balanceSource }]`, read from `accounts.yaml` in `--config`. The **one owner** of this fact: the egresses need it to decide whether an account's balances mean anything, and copying it into `hledger.yaml` and `firefly.yaml` would give two files that can disagree about the same account. Same argument as for categories (DECISIONS V1).
+- `POST /api/cash` — a hand-entered line on a `declared` account. Exactly one of two shapes, one line per call:
+  - a purchase — `{ ref, accountRef, date, amount, description }`, where `amount` is non-zero signed cents;
+  - an attestation — `{ ref, accountRef, date, attestedBalance }`, with no `amount` and no `description`.
+
+  **`ref` is the identity.** It is minted by the client once per entry (`MAN-<ULID>`) and becomes the line's `receipt`, so identity is the natural key `nk|accountRef|date|receipt` and no FROZEN code in §2.4 changes. This is forced, not preferred: `occ` is assigned **per batch** (§2.5), so a hand-entered line is always `occ = 0`, and two genuinely different cash purchases sharing account, date, amount and description — entered on different days, therefore different batches — would mint the same content hash and the second would be silently dropped as a duplicate (§3.3 step 5). Losing a real entry without saying so violates §0.6. A re-submitted `ref` is an idempotent retry, exactly as `decisionRef` already is.
+
+  Checked before forwarding, `422` naming the precondition and nothing reaching the sequencer: the account exists and its `balanceSource` is `declared` — **a hand-entered line into a `statement` account is refused**, because it would corrupt a chain the bank is the authority for; a purchase has a non-zero amount and a non-blank description; an attestation has neither. The sequencer stays the authority and this is a fast failure, never a second opinion.
   - `decisionRef` is passed through when supplied and minted as `ui-<UUID>` when not. A caller that supplies its own gets idempotent retries; the page, which has nothing to retry with, gets the old behaviour.
   - After a `Resolved`, trex-gateway reads the journal immediately rather than waiting for the watcher tick, so the SSE frame announcing the new `n` follows the decision instead of trailing it by up to `--poll-ms`.
 
@@ -741,6 +783,37 @@ sign:** a refund is money coming in but is not income, and belongs in the expens
 reverses as a negative amount. Deciding by sign files every returned purchase under `income:` and
 overstates both sides of every report, so the income categories are declared.
 
+**A `declared` account: the plug, and deliberately no assertion.** Recorded cash purchases render
+as ordinary transactions. At each `ATTESTATION` the egress emits one more — the difference between
+the running total it derived and the figure that was stated — posted to that account's `cashPlug`
+target (§6):
+
+```
+2026-09-12 * Market stall - vegetables
+    assets:cash:ron                       -$40.00
+    expenses:groceries:market-stall        $40.00
+
+2026-09-25 * Cash attestation
+    assets:cash:ron                       $160.00
+    expenses:cash-withdraw:ron           -$160.00
+```
+
+**No balance assertion is written, at the attestation or anywhere else on the account**, and the
+reason is the whole point of this egress. The plug is computed *as* `attested − derived`, so
+appending `= attested` would be satisfied by construction — `X + (A − X) == A` for every input. It
+could never fail. A bank assertion is worth running because the balance column and the amounts are
+reported independently, so a missing row breaks it; a `declared` account has no independent second
+source, so **no assertion on it can ever verify anything**. Emitting one would dilute the only claim
+this egress makes that is worth making: that a green `hledger check` means the banks agree. The
+assertion set stays entirely bank-backed.
+
+The plug keeps all of its value regardless — it is the *number* that was wanted, not the checkmark.
+Pointed at the cash-withdraw node, itemising part of a withdrawal **re-labels** it rather than
+adding to it, so `$500` out of the bank with `$40` itemised reports `$440` of cash-withdraw and
+`$40` of groceries rather than `$540` of spending, and the remainder reads as **cash spent but never
+itemised**. Pointing `cashPlug` anywhere else double-counts every cash purchase against the
+withdrawal that funded it.
+
 **Config:** `--gateway-url`, `--out <file>`, `--accounts <hledger.yaml>` (§6), `--no-assert`
 (for diagnosing a file that will not load), `--stdout`.
 
@@ -756,7 +829,11 @@ Config is YAML; **the journal is JSONL and stays JSONL** (§3.1) — the two nev
 
 Separate files, not one: they change on different schedules, and the registry is edited far more often than the rest.
 
-- `accounts.yaml` — the registry (the spine): per account `ref` and `currency` (`AUD|USD|INR`). The sequencer uses it only to validate `accountRef` and stamp `currency`. It records no source type — that is bound per run by `--source-type` (§4) — and **no egress fields**: what a `ref` is called in Firefly belongs to `firefly.yaml` (§5.8), because the sequencer has no business knowing what a Firefly account is, and a second egress would otherwise add another column to the spine.
+- `accounts.yaml` — the registry (the spine): per account `ref`, `currency` (`AUD|USD|INR`) and **`balanceSource`** (`statement|declared`, required — a missing or unknown value is a startup error). The sequencer uses it to validate `accountRef`, stamp `currency`, and decide whether a candidate must carry a `balance` (§3.3 step 2).
+
+  `balanceSource` is a fact about **the account itself**, which is why it belongs here beside `currency` and not in a consumer's file: it says where this account's observed balances come from (§0.1), and therefore whether a gap in the chain is a fault or the normal shape of the data. `statement` means every movement is accompanied by an observation and `Σ amount == closing − opening` must hold. `declared` means observations arrive only when a person supplies one (§2.3 `ATTESTATION`), so the chain has deliberate gaps and the tripwire reports them instead of failing (§7 test 6).
+
+  It still records no source type — that is bound per run by `--source-type` (§4) — and **no egress fields**: what a `ref` is called in Firefly belongs to `firefly.yaml` (§5.8), because the sequencer has no business knowing what a Firefly account is, and a second egress would otherwise add another column to the spine. `balanceSource` does not reopen that rule, and the test for whether a future field belongs here is the same one it passes: **is this true of the account regardless of who is reading?** A currency is. Where balances come from is. A Firefly name is not.
 - `firefly.yaml` — read by the Firefly egress and nothing else (§5.8): per `ref`, the Firefly account `name` and `type` (`asset|liability`). Keyed by **name, not by Firefly's numeric id** — a rebuilt instance changes every id and no name, so the mapping survives a restore; the id is resolved at startup and held only in the ephemeral cache. `type` is not decoration: Firefly rejects a `transfer` that crosses between asset and liability, so the type decides whether a movement is a `transfer`, a `withdrawal` or a `deposit`. A rename in Firefly is a hard stop at startup, with the unmapped account suggested by name, never a silent post into the wrong account.
 - `hledger.yaml` — read by the hledger egress and nothing else (§5.9), and optional: per `ref`, the
   full hledger account name (`liabilities:bankwest:credit-card`). No type field, because in
@@ -766,6 +843,7 @@ Separate files, not one: they change on different schedules, and the registry is
   a transaction *type* and this one exists because hledger needs a *name*; sharing them would put
   one target's vocabulary in another target's config. An unmapped ref defaults to `assets:<ref>`,
   which is right for most accounts and wrong for every card and loan, so the run warns.
+  It also carries **`cashPlug:`** — per `declared` account, the account the unrecorded remainder is posted to when an `ATTESTATION` is projected (§5.9). Normally the cash-withdraw expense node, so that itemising part of a withdrawal *re-labels* it rather than adding to it; pointing it anywhere else double-counts every cash purchase against the withdrawal that funded it.
 - `transfers.yaml` — allowlist regexes (case-insensitive, matched against `rawDescription`), `windowDays` (**required**, no default).
 - `sequencer.yaml` — `bindHost` (optional, default `127.0.0.1`), `bindPort` (required), `journal: {source, target}`. (No fsync option — always fsync, §3.1.)
 - `categories.yaml` — read by **journal consumers only** (§5.6); the sequencer never loads it (§0.7). Two keys:
@@ -813,6 +891,7 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
 4. **Batch idempotency:** POST batch A, then A again → second all `DroppedDuplicate`; nothing new appended.
 5. **Split-batch transfer:** legs in two separate batches → resolve to one `TRF-` id, no duplicate.
 6. **Reconciliation:** per account, order-independent, over leg lines (TRANSFER lines excluded), first line per `external_id`: each leg links `prev = balance − amount` → `balance`; opening = the `prev` that is no leg's `balance`; closing = the `balance` that is no leg's `prev`; exactly one opening and one closing required (else "unreconcilable" — never guess); assert `Σ amount == closing − opening`, exact `long`-cent equality, no epsilon/scale fuzz.
+   **Scope: `statement` accounts only.** A `declared` account (§6) has deliberate gaps, so it reconciles **between consecutive `ATTESTATION` lines** and reports the **total gap** instead of a pass/fail — that figure is the value spent and never recorded, which is information rather than a fault. The report distinguishes three states, `RECONCILED | BROKEN | DECLARED`, and `ok` means **no account is BROKEN**. Conflating "declared" with "broken" would leave the tripwire permanently red and therefore useless, which is the one outcome this test exists to prevent; a test asserts `ok` still goes false when a `statement` account genuinely breaks.
 7. **Recovery fold:** append N, restart (fold), in-memory state (firstLine/latest/held/review/highWaterN) matches pre-restart.
 8. **Follower resume:** kill follower mid-stream, restart → resumes at persisted offset, no gap/dup.
 9. **Materialize bit-identity:** `source != target` → target byte-identical (hash match), offsets still valid, torn tail truncated.
@@ -851,6 +930,26 @@ Golden-file harness + JUnit 5. The sequencer takes an injected `java.time.Clock`
 27. **The generated ledger validates itself** (§5.9): `hledger check accounts ordereddates
     assertions` passes over a file generated from a real journal. This is the one test where the
     checker is not ours, and it is checking trex's own numbers against the banks'.
+28. **`balanceSource` is declared, never inferred** (§6): an `accounts.yaml` entry missing it, or
+    carrying an unknown value, is a **startup error naming the account** — the same posture as an
+    unsupported currency. Nothing falls back to a default, because a wrong guess here decides
+    whether a broken chain is reported as a fault or as normal.
+29. **Balance is required exactly where it means something** (§3.3 step 2): a purchase on a
+    `declared` account is accepted with no `balance` and writes `0`; the identical candidate on a
+    `statement` account is `Rejected`. An `ATTESTATION` is accepted on a `declared` account and
+    `Rejected` on a `statement` one. An `ATTESTATION` of **$0** round-trips and is not confused with
+    "no balance" — the case that rules out a sentinel value.
+30. **A hand-entered line cannot be silently lost** (§5.7): two purchases identical in account, date,
+    amount and description but with different `ref`s, submitted in **separate batches**, produce two
+    `external_id`s and two lines. The same `ref` twice produces one. A re-submitted `ATTESTATION`
+    with a *different* stated balance raises `POTENTIAL_DUP` rather than being dropped.
+31. **The tripwire keeps working** (§7 test 6): `/reconcile` reports `DECLARED` with the correct gap
+    for a cash account while `ok` stays **true**, and `ok` goes **false** the moment a `statement`
+    account genuinely breaks. The third state must not become a way to hide a real break.
+32. **No assertion is ever written for a `declared` account** (§5.9): the generated file's assertion
+    count equals the count contributed by `statement` accounts alone, including at an attestation,
+    where one would pass by construction. The plug lands in the configured `cashPlug` account, and
+    `$500` withdrawn with `$40` itemised reports `$440` + `$40`, not `$540`.
 
 ---
 
@@ -887,6 +986,7 @@ Build bottom-up; each stage compiles and tests green before the next.
 23. **The Categorize tab** (§5.4): worklist with its evidence columns, coverage and collision preview, and one-click apply for both rules and pins. No clipboard anywhere in the loop.
 24. **The Firefly egress** (§5.8): `sinceN` on the gateway, the pure projection, the account map, the ephemeral cache, and the read-modify-write re-tag. Verified against a live 6.7.3 — the transaction-type matrix is not derivable from the docs (+ tests 23, 24).
 25. **The hledger egress** (§5.9): the pure renderer, the balance-column chronology, forward-anchored openings, and `hledger.yaml`. Deliberately after §5.8, because it is the cheap sidekick that checks the expensive one: a file rewrite that any bank statement can be held up against (+ tests 25, 26).
+26. **Cash accounts** (§0.1, §2.3, §5.7, §5.9): `balanceSource` in the registry, the `ATTESTATION` line kind, the `/reconcile` third state, `GET /api/accounts`, `POST /api/cash`, the hledger plug, and the entry form. Deliberately last: it is the first data in the journal that no bank can corroborate, so everything that *can* be corroborated is built and proven first (+ tests 28–32).
 
 Each component is small and single-purpose; keep trex-core free of any I/O so it stays exhaustively testable. Lean on sealed types + pattern-matching `switch` so extension (new bank, new tier, new state) surfaces every impact site at compile time.
 
