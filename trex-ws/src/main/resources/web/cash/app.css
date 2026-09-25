@@ -1,0 +1,359 @@
+/* Light, always (DECISIONS W5) — the same palette the other two pages use, because they are
+   one service and moving between tabs should not move between worlds. */
+:root {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --head: #f7f8fd;
+  --text: #16181d;
+  --muted: #6b7280;
+  --border: #e3e6ef;
+  --row-hover: #f1f4ff;
+  --accent: #4f46e5;
+  --accent-text: #ffffff;
+  --neg: #b42318;
+  --pos: #067647;
+  --warn-bg: #fef3c7;
+  --warn-fg: #92400e;
+  --ok: #16a34a;
+  --bad: #dc2626;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  --radius: 10px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 44px;
+  padding: 0 20px;
+  background: linear-gradient(180deg, var(--panel), var(--head));
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: baseline; gap: 6px; }
+.mark { font-weight: 700; letter-spacing: -.02em; font-size: 15px; color: var(--accent); }
+.divider { color: var(--border); }
+.product { color: var(--muted); }
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.segmented .tablink {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+.segmented .tablink:hover { background: var(--row-hover); color: var(--text); }
+.segmented .tablink.current { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+.status { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+.dot.bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 20%, transparent); }
+.status.bad { color: var(--bad); }
+
+.content { max-width: 1100px; margin: 0 auto; padding: 16px 20px 80px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(180deg, var(--panel), var(--head));
+  border-bottom: 1px solid var(--border);
+}
+.panel-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--row-hover);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.hint { color: var(--muted); font-size: 12px; }
+.spacer { flex: 1; }
+.toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); cursor: pointer; user-select: none; font-size: 12px; }
+.toggle input { accent-color: var(--accent); }
+
+.table-wrap { overflow-x: auto; }
+.grid { width: 100%; border-collapse: collapse; }
+.grid th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.grid td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.grid tbody tr:last-child td { border-bottom: 0; }
+.grid tbody tr:hover { background: var(--row-hover); }
+
+.col-merchant { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.col-num { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.col-seen, .col-acct { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.col-act { text-align: right !important; white-space: nowrap; }
+td.col-num.total { font-weight: 600; }
+.neg { color: var(--neg); }
+.pos { color: var(--pos); }
+
+/* How often a merchant recurs is the argument for a rule over a pin, so it is shown as a
+   shape rather than left to be inferred from two dates. */
+.cadence { font-size: 11px; color: var(--muted); }
+
+.empty { margin: 0; padding: 24px; text-align: center; color: var(--muted); }
+
+.btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn + .btn { margin-left: 6px; }
+
+/* ---------------------------------------------------------------- compose sheet */
+
+.compose {
+  width: min(560px, calc(100vw - 32px));
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+}
+.compose::backdrop { background: rgba(10, 12, 16, .45); backdrop-filter: blur(2px); }
+.compose h3 { margin: 0 0 12px; font-size: 15px; }
+
+.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.field em { font-style: normal; opacity: .75; }
+.field input, .field select {
+  font: inherit;
+  height: 32px;
+  padding: 0 8px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.field input:focus, .field select:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-color: var(--accent);
+}
+#f-match { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.row { display: flex; gap: 10px; }
+.grow { flex: 1; min-width: 0; }
+
+.coverage {
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.coverage-line { margin: 0; font-variant-numeric: tabular-nums; }
+.coverage-line.muted { color: var(--muted); font-size: 12px; }
+.coverage-line.bad { color: var(--bad); }
+.coverage b { font-weight: 600; }
+
+/* A pattern that steals rows from an existing rule is the mistake worth catching before it
+   lands — `coffee` contains "fee", `COSTCO GAS` is not `COSTCO WHOLESALE`. */
+.collisions { margin: 8px 0 0; padding: 0 0 0 18px; }
+.collisions li { color: var(--warn-fg); font-size: 12px; }
+.collisions:empty { display: none; }
+
+.yaml {
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.pin-what { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+
+.toasts { position: fixed; right: 16px; top: 56px; display: grid; gap: 8px; z-index: 30; }
+.toast {
+  max-width: 380px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .15);
+  animation: slide .18s ease-out;
+}
+.toast.bad { border-left-color: var(--bad); }
+@keyframes slide { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------------------------------------------------------------- narrow screens
+   The table keeps its shape down to tablet width; on a phone each merchant becomes a card,
+   because the evidence columns are the point and squeezing six of them into 360px loses it. */
+
+@media (max-width: 1024px) {
+  .content { padding: 14px 14px 80px; }
+  .col-seen { display: none; }
+}
+
+@media (max-width: 720px) {
+  .topbar { height: auto; min-height: 44px; flex-wrap: wrap; gap: 6px 12px; padding: 7px 14px; }
+  .segmented { order: 3; flex-basis: 100%; }
+  .segmented .tablink { flex: 1; justify-content: center; }
+  .content { padding: 10px 10px 80px; }
+
+  .grid, .grid tbody, .grid tr, .grid td { display: block; }
+  .grid thead { display: none; }
+  .grid tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "merchant total"
+      "meta     meta"
+      "action   action";
+    gap: 2px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .grid td { padding: 0; border: 0; min-width: 0; }
+  .col-merchant { grid-area: merchant; overflow-wrap: anywhere; }
+  td.col-num.total { grid-area: total; font-size: 15px; }
+  td.col-num.rows { display: none; }
+  .col-seen { grid-area: meta; display: block; }
+  .col-acct { grid-area: meta; }
+  .col-act { grid-area: action; margin-top: 8px; text-align: left !important; }
+  .col-act .btn { width: 100%; }
+  .col-act .btn + .btn { margin: 6px 0 0; }
+
+  .row { flex-direction: column; gap: 0; }
+  .toasts { left: 12px; right: 12px; top: 60px; }
+  .toast { max-width: none; }
+}
+
+/* Touch input: thumbs need more than 28px, and iOS zooms a focused field under 16px. */
+@media (pointer: coarse) {
+  .btn { height: 38px; padding: 0 14px; }
+  .field input, .field select { height: 40px; font-size: 16px; }
+  .grid td { padding-top: 10px; padding-bottom: 10px; }
+  .toggle input { width: 18px; height: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+/* ---------------------------------------------------------------- the rules panel */
+
+#rules-panel { margin-top: 16px; }
+.col-pattern {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-comment { color: var(--muted); font-size: 11.5px; }
+
+/* Two different problems with two different fixes, so they do not share a colour: a dead rule
+   wants its pattern looked at, a shadowed one wants moving or deleting. */
+.flag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.flag.dead { background: var(--warn-bg); color: var(--warn-fg); }
+.flag.shadowed { background: #e0e7ff; color: #3730a3; }
+.flag.stale { background: #fee2e2; color: #991b1b; }
+tr.problem td { background: color-mix(in srgb, var(--warn-bg) 25%, transparent); }
+
+.promotion {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 12px;
+}
+.promotion b { font-weight: 600; }
+.promotion .btn { margin-left: 8px; }
+
+@media (max-width: 720px) {
+  #rules-panel .grid tr {
+    grid-template-areas:
+      "merchant total"
+      "meta     meta"
+      "action   action";
+  }
+  #rules-panel .col-pattern { grid-area: meta; max-width: none; white-space: normal; overflow-wrap: anywhere; }
+  #rules-panel td.col-num:first-child { display: none; }
+}
+
+/* Cash form. Deliberately plain: this page is typed into, not read. */
+form label { display:block; margin:0 0 14px; }
+form label > span { display:block; font-size:13px; color:var(--muted,#667); margin-bottom:4px; }
+form input, form select {
+  width:100%; box-sizing:border-box; padding:8px 10px; font:inherit;
+  border:1px solid var(--line,#d5d9e0); border-radius:6px; background:#fff;
+}
+form small { display:block; margin-top:4px; font-size:12px; color:var(--muted,#889); }
+.modes { margin:0 0 18px; }
+.actions { display:flex; align-items:center; gap:12px; margin-top:6px; }
+.actions button {
+  padding:9px 18px; font:inherit; font-weight:600; cursor:pointer;
+  border:0; border-radius:6px; background:var(--accent,#3b6ef0); color:#fff;
+}
+.actions button[disabled] { opacity:.55; cursor:default; }
+.result { font-size:13px; }
+.result.ok { color:#1a7f47; }
+.result.bad { color:#b3261e; }

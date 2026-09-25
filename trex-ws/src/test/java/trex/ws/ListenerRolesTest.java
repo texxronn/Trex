@@ -102,6 +102,19 @@ class ListenerRolesTest {
     }
 
     /**
+     * The admin listener serves the pages too. Without this the resolve page could not post a
+     * decision and the cash form could not post a line — the UI would be able to show everything
+     * and do nothing, which is most of what it is for.
+     */
+    @Test
+    void theAdminListenerAlsoServesThePages() throws Exception {
+        start(GatewayServer.Role.ADMIN);
+        assertEquals(200, status("/", "GET"));
+        assertEquals(200, status("/resolve", "GET"));
+        assertEquals(200, status("/categorize", "GET"));
+    }
+
+    /**
      * Loopback is not the admin listener's default, it is its only option — enforced in the
      * constructor, so a config mistake fails at startup rather than exposing the rule writer.
      */

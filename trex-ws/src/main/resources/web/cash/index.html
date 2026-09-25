@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>trex · cash</title>
+  <link rel="stylesheet" href="/cash/app.css">
+  <script src="/cash/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">trex</span>
+      <span class="divider">/</span>
+      <span class="product">cash</span>
+    </div>
+    <div class="segmented" role="tablist" aria-label="View">
+      <a class="tablink" href="/" role="tab" title="Browse the journal">Transactions</a>
+      <a class="tablink" href="/categorize" role="tab">Categorize</a>
+      <a class="tablink" href="/resolve" role="tab" title="HELD and REVIEW worklist">Resolve</a>
+      <a class="tablink current" href="/cash" role="tab" aria-selected="true">Cash</a>
+    </div>
+    <div class="status" id="status">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="panel">
+      <div class="panel-head">
+        <h1>Record cash</h1>
+        <p class="hint">
+          Only what is worth seeing in a report — a recurring $40 beats a one-off $50. Everything
+          you skip shows up as the gap between attestations, which is the point.
+        </p>
+      </div>
+
+      <div class="segmented modes" role="tablist" aria-label="Kind">
+        <button class="tablink current" id="mode-spend" role="tab" aria-selected="true">Purchase</button>
+        <button class="tablink" id="mode-attest" role="tab">I have this much left</button>
+      </div>
+
+      <form id="form" autocomplete="off">
+        <label>
+          <span>Account</span>
+          <select id="account" required></select>
+        </label>
+        <label>
+          <span>Date</span>
+          <input type="date" id="date" required>
+        </label>
+
+        <div id="spend-fields">
+          <label>
+            <span>Amount spent</span>
+            <input type="number" id="amount" step="0.01" min="0.01" placeholder="40.00">
+          </label>
+          <label>
+            <span>What was it</span>
+            <input type="text" id="description" maxlength="120" placeholder="Market stall — vegetables">
+            <small>No bank wrote this line, so this text is the only thing that will identify it later.</small>
+          </label>
+        </div>
+
+        <div id="attest-fields" hidden>
+          <label>
+            <span>Cash on hand now</span>
+            <input type="number" id="attested" step="0.01" min="0" placeholder="60.00">
+            <small>Your count, and authoritative. $0 is a real answer — it means you spent the last of it.</small>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button type="submit" id="submit">Record</button>
+          <span id="result" class="result" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" id="recent-panel">
+      <div class="panel-head"><h2>Recent</h2></div>
+      <table class="grid"><tbody id="recent"></tbody></table>
+    </section>
+  </main>
+</body>
+</html>

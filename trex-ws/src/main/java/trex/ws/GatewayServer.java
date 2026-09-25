@@ -50,9 +50,20 @@ public final class GatewayServer implements AutoCloseable {
      * there. A guard can be bypassed by a routing mistake; an absent route cannot.
      */
     public enum Role {
-        /** Everything, including every write. Loopback only, always. */
+        /**
+         * Everything: pages, reads and every write. Loopback only, always.
+         * <p>
+         * This is the listener you use on your own machine, and the pages are served here too —
+         * otherwise the resolve page could not post a decision and the cash form could not post a
+         * line, which is most of what the UI is for.
+         */
         ADMIN,
-        /** Pages and reads. Safe to bind to another interface (§9). */
+        /**
+         * Pages and reads only. Safe to bind to another interface (§9) — this is what makes the
+         * UI reachable from a phone without putting the rule writer on the network. The same
+         * pages are served, and a write attempted from them fails with 404 because the route is
+         * not there: a read-only view of the same thing, not a different thing.
+         */
         READ;
 
         boolean allows(String path) {
@@ -148,7 +159,7 @@ public final class GatewayServer implements AutoCloseable {
                 // saying "forbidden" would advertise it.
                 throw new HttpError(404, "not found");
             }
-            if (role == Role.READ && !path.startsWith("/api/")) {
+            if (!path.startsWith("/api/")) {
                 PageServer.servePage(ex, path);
             } else if (CASH_PATHS.contains(path)) {
                 cashRoutes.handle(ex, path);

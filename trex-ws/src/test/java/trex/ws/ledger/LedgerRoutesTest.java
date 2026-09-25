@@ -123,9 +123,10 @@ class LedgerRoutesTest {
 
     @Test
     void theApiIsAllThereIs() throws Exception {
-        // The pages moved to trex-web; what is left must say so rather than 404 by accident.
-        assertEquals(404, get("/").statusCode());
-        assertEquals(404, get("/resolve").statusCode());
+        // The pages came back when trex-web merged in (§5.4): one process serves both, so the
+        // resolve page can post the decision it exists to collect.
+        assertEquals(200, get("/").statusCode());
+        assertEquals(200, get("/resolve").statusCode());
         assertEquals(405, get("/api/decisions").statusCode());
         assertEquals(200, get("/api/ledger").statusCode());
     }

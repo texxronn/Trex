@@ -87,8 +87,9 @@ class BrowseRoutesTest {
         assertEquals("[\"cba\",\"ing\"]", head.get("accounts").toString());
 
         // No pages here: this service answers questions, trex-web draws them (§5.7).
-        assertEquals(404, get("/").statusCode());
-        assertEquals(404, get("/app.js").statusCode());
+        // The pages came back when trex-web merged in (§5.4) — one process, one origin.
+        assertEquals(200, get("/").statusCode());
+        assertEquals(200, get("/app.js").statusCode());
     }
 
     @Test
