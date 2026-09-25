@@ -23,7 +23,8 @@ import java.util.Set;
  * to know an account's <em>type</em> to choose a transaction type; this one exists because hledger
  * needs a <em>name</em>. Sharing them would put one target's vocabulary in another's config.
  */
-public record Accounts(Map<String, String> byRef, Set<String> income, String unresolved, String equity) {
+public record Accounts(Map<String, String> byRef, Set<String> income, String unresolved,
+                       String equity, Map<String, String> cashPlug, Set<String> declared) {
 
     /** Where a movement goes when its contra is not yet known (a HELD or REVIEW row). */
     public static final String DEFAULT_UNRESOLVED = "assets:unresolved";
@@ -31,10 +32,11 @@ public record Accounts(Map<String, String> byRef, Set<String> income, String unr
     /** Where the balance an account held before trex saw it comes from. hledger's own convention. */
     public static final String DEFAULT_EQUITY = "equity:opening-balances";
 
-    record File(Map<String, String> accounts, List<String> income, String unresolved, String equity) {}
+    record File(Map<String, String> accounts, List<String> income, String unresolved,
+                String equity, Map<String, String> cashPlug) {}
 
     public static Accounts none() {
-        return new Accounts(Map.of(), Set.of(), DEFAULT_UNRESOLVED, DEFAULT_EQUITY);
+        return new Accounts(Map.of(), Set.of(), DEFAULT_UNRESOLVED, DEFAULT_EQUITY, Map.of(), Set.of());
     }
 
     public static Accounts load(Path file) {
@@ -57,7 +59,9 @@ public record Accounts(Map<String, String> byRef, Set<String> income, String unr
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         return new Accounts(Map.copyOf(out), income,
             parsed.unresolved() == null ? DEFAULT_UNRESOLVED : parsed.unresolved(),
-            parsed.equity() == null ? DEFAULT_EQUITY : parsed.equity());
+            parsed.equity() == null ? DEFAULT_EQUITY : parsed.equity(),
+            parsed.cashPlug() == null ? Map.of() : Map.copyOf(parsed.cashPlug()),
+            Set.of());
     }
 
     /**
@@ -100,5 +104,26 @@ public record Accounts(Map<String, String> byRef, Set<String> income, String unr
             .replaceAll("[^a-z0-9]+", "-")
             .replaceAll("(^-+)|(-+$)", "");
         return s.isBlank() ? "unknown" : s;
+    }
+
+    /** The same mapping, told which refs are declared — from the gateway, the one owner (§5.7). */
+    public Accounts withDeclared(Set<String> refs) {
+        return new Accounts(byRef, income, unresolved, equity, cashPlug, Set.copyOf(refs));
+    }
+
+    public boolean isDeclared(String ref) {
+        return declared.contains(ref);
+    }
+
+    /**
+     * Where an attestation's unrecorded remainder is posted.
+     * <p>
+     * Normally the cash-withdraw expense node, so that itemising part of a withdrawal
+     * <b>re-labels</b> it rather than adding to it. An ATM withdrawal is already an expense; a
+     * recorded cash purchase posted as another expense counts the same money twice — $500 out of
+     * the bank reported as $540 of spending. Pointing this anywhere else reintroduces exactly that.
+     */
+    public String plugFor(String ref) {
+        return cashPlug.getOrDefault(ref, "expenses:cash-withdraw:" + slug(ref));
     }
 }

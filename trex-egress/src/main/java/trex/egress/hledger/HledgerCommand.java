@@ -72,7 +72,10 @@ public final class HledgerCommand implements Callable<Integer> {
             System.err.println("--out or --stdout is required.");
             return 64;
         }
-        Accounts accounts = Accounts.load(accountsFile);
+        // Which accounts are declared comes from the gateway, not from hledger.yaml: the
+        // registry has one owner and copying balanceSource here would let two files disagree
+        // about the same account (§5.7).
+        Accounts accounts = Accounts.load(accountsFile).withDeclared(declaredRefs());
 
         List<Ledger.Row> rows = new ArrayList<>();
         long asOfN = 0;
@@ -146,6 +149,16 @@ public final class HledgerCommand implements Callable<Integer> {
                     Ledger.money(o.gap(), o.currency()));
             }
         }
+    }
+
+    private java.util.Set<String> declaredRefs() throws IOException, InterruptedException {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (JsonNode a : get("/api/accounts")) {
+            if ("declared".equals(a.path("balanceSource").asText())) {
+                out.add(a.path("ref").asText());
+            }
+        }
+        return out;
     }
 
     private JsonNode get(String path) throws IOException, InterruptedException {

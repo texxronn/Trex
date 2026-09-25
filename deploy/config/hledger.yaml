@@ -26,6 +26,17 @@ accounts:
   ing-mortgage-simplifier: "liabilities:ing:mortgage-simplifier"
   ing-variable-rate:       "liabilities:ing:variable-rate-loan"
 
+  cash-ron:                "assets:cash:ron"
+
+# Where an attestation's unrecorded remainder goes (§5.9) — cash spent and never itemised.
+#
+# Pointed at the cash-withdraw node on purpose. An ATM withdrawal is ALREADY an expense, so a
+# recorded cash purchase posted as another expense counts the same money twice: $500 out of the
+# bank reported as $540 of spending. Sending the plug here makes itemising part of a withdrawal
+# RE-LABEL it instead — $440 unitemised plus $40 of groceries — and leaves the total right.
+cashPlug:
+  cash-ron: "expenses:cash-withdraw:ron"
+
 # Which categories are income. Everything else becomes `expenses:<category>:<merchant>`.
 #
 # This exists so a refund stays a negative expense instead of becoming income. Deciding by the

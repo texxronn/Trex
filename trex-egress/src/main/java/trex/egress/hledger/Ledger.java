@@ -144,7 +144,7 @@ public final class Ledger {
         Map<String, List<CanonicalEvent>> byAccount = new LinkedHashMap<>();
         for (Row r : rows) {
             CanonicalEvent line = r.line();
-            if (line.typeHint() != TypeHint.TRANSFER) {
+            if (line.typeHint() != TypeHint.TRANSFER && !accounts.isDeclared(line.accountRef())) {
                 byAccount.computeIfAbsent(line.accountRef(), _ -> new ArrayList<>()).add(line);
             }
         }
@@ -297,11 +297,13 @@ public final class Ledger {
     }
 
     /** Every account-day, ordered. TRANSFER lines are excluded: they carry no balance. */
-    private static Map<String, Map<LocalDate, Day>> days(List<Row> rows) {
+    private Map<String, Map<LocalDate, Day>> days(List<Row> rows) {
         Map<String, Map<LocalDate, List<CanonicalEvent>>> raw = new LinkedHashMap<>();
         for (Row r : rows) {
             CanonicalEvent line = r.line();
-            if (line.typeHint() == TypeHint.TRANSFER) {
+            // A declared account has no chain to read: only an attestation carries a balance,
+            // and the gaps between them are deliberate (§5.9). Nothing here is assertable.
+            if (line.typeHint() == TypeHint.TRANSFER || accounts.isDeclared(line.accountRef())) {
                 continue;
             }
             raw.computeIfAbsent(line.accountRef(), _ -> new LinkedHashMap<>())
@@ -417,6 +419,38 @@ public final class Ledger {
         return List.of(accounts.of(line.accountRef()), contra(row));
     }
 
+    /** Running total per declared account, so an attestation knows what it is correcting. */
+    private final Map<String, Long> declaredRunning = new HashMap<>();
+
+    /**
+     * An attestation, rendered as the plug between what was recorded and what was stated — and
+     * deliberately carrying <b>no balance assertion</b>.
+     * <p>
+     * The plug is computed <em>as</em> {@code attested − derived}, so appending {@code = attested}
+     * would be satisfied by construction: {@code X + (A − X) == A} for every possible input. It
+     * could never fail. A bank assertion is worth running because the balance column and the
+     * amounts are independently reported, so a missing row breaks it; a declared account has no
+     * independent second source, so no assertion on it can verify anything — and emitting one
+     * would dilute the only claim this egress makes that is worth making, that a green
+     * `hledger check` means the banks agree.
+     * <p>
+     * The plug keeps all of its value regardless. It is the number that was wanted, not the tick.
+     */
+    private void attestation(StringBuilder out, Row row) {
+        CanonicalEvent line = row.line();
+        String account = accounts.of(line.accountRef());
+        long derived = declaredRunning.getOrDefault(line.accountRef(), 0L);
+        long plug = line.balance() - derived;
+        declaredRunning.put(line.accountRef(), line.balance());
+        if (plug == 0) {
+            out.append("    ; everything since the last attestation was recorded\n\n");
+            return;
+        }
+        posting(out, account, plug, line.currency(), null);
+        out.append("    ").append(accounts.plugFor(line.accountRef())).append('\n');
+        out.append('\n');
+    }
+
     private void transaction(StringBuilder out, Row row, Map<String, Long> assertions) {
         CanonicalEvent line = row.line();
         out.append(line.date()).append(' ').append(status(line)).append(' ')
@@ -427,6 +461,10 @@ public final class Ledger {
             out.append("    ; unresolved: ").append(line.state()).append('\n');
         }
 
+        if (line.typeHint() == TypeHint.ATTESTATION) {
+            attestation(out, row);
+            return;
+        }
         if (line.typeHint() == TypeHint.TRANSFER) {
             long amount = Math.abs(line.amount());
             posting(out, accounts.of(line.accountRef()), -amount, line.currency(),
@@ -434,6 +472,9 @@ public final class Ledger {
             posting(out, accounts.of(line.toAccountRef()), amount, line.currency(),
                 assertions.get(line.externalId() + "|" + line.toAccountRef()));
         } else {
+            if (accounts.isDeclared(line.accountRef())) {
+                declaredRunning.merge(line.accountRef(), line.amount(), Long::sum);
+            }
             posting(out, accounts.of(line.accountRef()), line.amount(), line.currency(),
                 assertions.get(line.externalId() + "|" + line.accountRef()));
             // The contra is elided: hledger infers it, and an inferred amount can never disagree
@@ -457,6 +498,9 @@ public final class Ledger {
      */
     private String contra(Row row) {
         CanonicalEvent line = row.line();
+        if (line.typeHint() == TypeHint.ATTESTATION) {
+            return accounts.plugFor(line.accountRef());
+        }
         if (line.state() == EventState.HELD || line.state() == EventState.REVIEW) {
             return accounts.unresolved();
         }

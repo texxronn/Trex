@@ -28,7 +28,8 @@ class LedgerTest {
         Map.of("ing-salary", "assets:ing:salary",
                "ing-orange", "assets:ing:orange-everyday",
                "bw-credit-card", "liabilities:bankwest:credit-card"),
-        Set.of("SALARY"), "assets:unresolved", "equity:opening-balances");
+        Set.of("SALARY"), "assets:unresolved", "equity:opening-balances",
+        Map.of("cash-ron", "expenses:cash-withdraw:ron"), Set.of("cash-ron"));
 
     private static final LocalDate D1 = LocalDate.of(2026, 9, 1);
     private static final LocalDate D2 = LocalDate.of(2026, 9, 2);
@@ -265,5 +266,58 @@ class LedgerTest {
         assertEquals("FOO, BAR", Ledger.clean("FOO; BAR"));
         assertEquals("A B", Ledger.clean("A\n  B"));
         assertEquals("(no description)", Ledger.clean(null));
+    }
+
+    // ---------------------------------------------------------------- declared accounts
+
+    private static Ledger.Row cash(long n, String id, LocalDate date, long amount,
+                                   long balance, TypeHint type, String raw) {
+        return new Ledger.Row(line(n, id, "cash-ron", null, date, amount, balance, raw, type,
+            EventState.EXTERNAL, null), type == TypeHint.ATTESTATION ? "TRANSFER" : "GROCERIES");
+    }
+
+    /**
+     * SPEC §7 test 32. The plug is computed AS attested-minus-derived, so an assertion on it would
+     * be satisfied by construction and could never fail — the same tautology that got the
+     * balancing account rejected. A declared account therefore carries none at all, and the
+     * generated file's assertion count must stay exactly what the bank accounts contribute.
+     */
+    @Test
+    void aDeclaredAccountCarriesNoAssertionAnywhere() {
+        var rows = List.of(
+            cash(1, "a1", D1, 0, 16000, TypeHint.ATTESTATION, "Cash attestation"),
+            cash(2, "p1", D2, -4000, 0, TypeHint.WITHDRAWAL, "Market stall"),
+            cash(3, "a2", LocalDate.of(2026, 9, 25), 0, 6000, TypeHint.ATTESTATION, "Cash attestation"));
+
+        String text = render(rows);
+        assertFalse(text.contains(" = "), "a declared account must assert nothing:\n" + text);
+        assertFalse(text.contains("Opening balance"), "and has no derivable opening:\n" + text);
+    }
+
+    /** The plug is the unrecorded remainder, and it lands where hledger.yaml points it. */
+    @Test
+    void anAttestationPlugsTheDifferenceIntoTheConfiguredAccount() {
+        var rows = List.of(
+            cash(1, "a1", D1, 0, 16000, TypeHint.ATTESTATION, "Cash attestation"),
+            cash(2, "p1", D2, -4000, 0, TypeHint.WITHDRAWAL, "Market stall"),
+            cash(3, "a2", LocalDate.of(2026, 9, 25), 0, 6000, TypeHint.ATTESTATION, "Cash attestation"));
+
+        String text = render(rows);
+        // opened at 160 from nothing, then 160-40 = 120 derived against 60 attested: -60 unrecorded
+        assertTrue(text.contains("$160.00"), "the first attestation opens the account:\n" + text);
+        assertTrue(text.contains("-$60.00"), "the second plugs the unrecorded remainder:\n" + text);
+        assertTrue(text.contains("expenses:cash-withdraw:ron"), text);
+    }
+
+    /** Recording everything leaves nothing to plug, and the file says so rather than posting 0. */
+    @Test
+    void anAttestationThatMatchesTheRecordPlugsNothing() {
+        var rows = List.of(
+            cash(1, "a1", D1, 0, 16000, TypeHint.ATTESTATION, "Cash attestation"),
+            cash(2, "p1", D2, -10000, 0, TypeHint.WITHDRAWAL, "Market stall"),
+            cash(3, "a2", LocalDate.of(2026, 9, 25), 0, 6000, TypeHint.ATTESTATION, "Cash attestation"));
+
+        assertTrue(render(rows).contains("everything since the last attestation was recorded"),
+            render(rows));
     }
 }

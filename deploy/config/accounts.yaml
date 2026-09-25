@@ -64,3 +64,11 @@ accounts:
   - ref: "cba-netsaver"
     currency: "AUD"
     balanceSource: statement
+
+  # Cash. balanceSource: declared — no statement exists, so balances arrive only when a person
+  # states one (§2.3 ATTESTATION) and the chain has deliberate gaps between them. One per person,
+  # because two wallets are two accounts however loosely either is tracked.
+  - ref: "cash-ron"
+    currency: "AUD"
+    balanceSource: declared
+
