@@ -205,12 +205,15 @@ rules:
         - match: "bunnings|mitre ?10"
 
   # Retail, including the op shops.
-  - category: SHOPPING
-    comment: "general retail that no narrower rule claimed"
+  - category: "SHOPPING"
+    comment: "general retail that no narrower rule claimed. alipayaustr and aiaumarkets\
+      \ are the same company — AIAU Markets Pty Ltd trades as Alipay (Australia), ABN\
+      \ 17 151 757 845 — so both descriptors mean a payment processor, not a shop"
     when:
       all:
-        - direction: out
-        - match: "amazon au|amazon pay india|kmart|big ?w|target [0-9]|st vincent de paul|vinnies|salvos|myer|ikea|just ?group|ebay au|alipayaustr|hmhennesmau|kathmandupt"
+      - direction: "out"
+      - match: "amazon au|amazon pay india|kmart|big ?w|target [0-9]|st vincent de paul|vinnies|salvos|myer|ikea|just\
+          \ ?group|ebay au|alipayaustr|aiaumarkets|hmhennesmau|kathmandupt"
 
   - category: BILLS
     comment: "household bills: power, water, phone, internet, council"
