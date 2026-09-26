@@ -1,5 +1,5 @@
 [Unit]
-Description=trex gateway (consumer API: materialized journal view, rule files, decisions gateway)
+Description=trex web service (pages, consumer API, rules and decisions)
 Documentation=file:///opt/trex/README.md
 After=trex-sequencer.service
 Wants=trex-sequencer.service
@@ -7,13 +7,13 @@ PartOf=trex.target
 
 [Service]
 Type=simple
-# Loopback is the design, not a default (SPEC.md §5.7): this service writes the rule
-# files and forwards decisions, and it has no authentication. Expose trex-web instead.
+# Both listeners stay on loopback by default. The admin listener serves the full UI;
+# the read listener serves the same pages without mutating routes (SPEC.md §5.7).
 ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-ws.jar \
   --journal /var/lib/trex/journal/journal.jsonl \
   --sequencer-url http://127.0.0.1:8080 \
   --config /etc/trex \
-  --bind 127.0.0.1 --port 8085
+  --bind 127.0.0.1 --port 8090 --admin-port 8085
 User=trex
 Group=trex
 EnvironmentFile=-/etc/trex/trex.env

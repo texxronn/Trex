@@ -7,7 +7,7 @@
 #   ingest.sh ing-csv ing-savings ../samples/ing-savings.csv
 #
 # accountRef must exist in ../config/accounts.yaml. Relative paths resolve
-# against the current directory. Config: ../config/ingress.env.
+# against the current directory. Config: ../config/ingest.env.
 
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 

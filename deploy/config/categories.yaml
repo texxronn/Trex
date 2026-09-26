@@ -28,7 +28,7 @@ categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHD
              DISCRETIONARY]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
-# hand-written and ordered, that one is written by trex-gateway and order-independent.
+# hand-written and ordered, that one is written by trex-ws and order-independent.
 
 # Order is the decision: first match wins. The narrow rules come first, so a line naming
 # both a specific merchant and a generic word lands where it belongs.
@@ -320,7 +320,6 @@ rules:
       all:
       - direction: "out"
       - match: "nswh |swslhd"
-
 
 
 

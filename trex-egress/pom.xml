@@ -12,11 +12,9 @@
 
   <artifactId>trex-egress</artifactId>
 
-  <!-- Regenerates a plain-text hledger journal from the gateway (SPEC §5.9).
+  <!-- Mirrors and projects the journal through four target subcommands (SPEC §5.2–5.9).
 
-       No SQLite: there is no projection cache, because the whole file is rewritten every run.
-       Nothing to reconcile, nothing to dedup, nothing to drift. trex-category is here only for
-       Merchant.stem, so expense account names match the merchants the worklist groups by. -->
+       The egresses are one jar; each target remains a separate command. -->
   <dependencies>
     <dependency>
       <groupId>trex</groupId>
@@ -93,7 +91,7 @@
         <artifactId>jib-maven-plugin</artifactId>
         <configuration>
           <skip>false</skip>
-          <to><image>${trex.image.prefix}/egress-hledger:${trex.image.tag}</image></to>
+          <to><image>${trex.image.prefix}/egress:${trex.image.tag}</image></to>
           <container><mainClass>trex.egress.Main</mainClass></container>
         </configuration>
       </plugin>

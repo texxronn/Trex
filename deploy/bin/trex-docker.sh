@@ -10,8 +10,7 @@
 #   trex-docker.sh ingest <sourceType> <account> <source>
 #   trex-docker.sh env                 print the resolved daemon endpoint
 #
-# Modules are the short image names: sequencer web egress-archive
-# egress-sqlite ingress. With none given, all six are built.
+# Images are the short names: sequencer ingest egress ws. With none given, all four are built.
 #
 # The only reason this script exists: jib talks to the daemon through DOCKER_HOST
 # and does not read Docker's context file, so `docker context use` alone would not
@@ -29,7 +28,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 
-MODULES="sequencer web egress-archive egress-sqlite ingress"
+MODULES="sequencer ingest egress ws"
 
 die() { echo "trex-docker: $*" >&2; exit 1; }
 
@@ -105,7 +104,7 @@ case "${1:-}" in
         # The CSV is read by the daemon's host, so mount its directory and pass the
         # basename; TREX_CSV_DIR is what compose.yml binds to /data.
         TREX_CSV_DIR="$(cd "$(dirname "$3")" && pwd)" \
-            compose run --rm ingress \
+            compose run --rm ingest \
                 --source-type "$1" --account "$2" --sequencer-url http://sequencer:8080 \
                 "/data/$(basename "$3")"
         ;;

@@ -1,37 +1,16 @@
-# trex — local and integration execution.
-#
-#   deploy/bin/trex-docker.sh build    # build the six images from Maven (jib)
-#   docker compose up -d
-#   docker compose run --rm ingress \
-#     --source-type ing-csv --account ing-savings --sequencer-url http://sequencer:8080 /data/statement.csv
-#   docker compose down                # add -v to discard the journal
-#
-# Everything here works against a remote Docker daemon too (see the README): images
-# are built by jib, config is delivered as compose `configs` (content is sent to the
-# daemon, not bind-mounted), and all state lives in named volumes. The one exception
-# is the `ingress` service, which needs a host path to read a CSV from.
-#
-# No authentication anywhere: every published port binds to 127.0.0.1 on the Docker
-# host. Do not change that without putting an authenticating proxy in front.
-
+# Local Docker deployment of the four runnable modules. The egress image is reused
+# with a different subcommand for each follower.
 name: trex
 
 x-hardening: &hardening
-  # Parity with the systemd units (NoNewPrivileges, ProtectSystem=strict,
-  # PrivateDevices, RestrictNamespaces): no capabilities, no privilege escalation,
-  # and an immutable container filesystem. All real writes go to the volumes, which
-  # are mounted separately and stay writable. /tmp is a tmpfs because the JVM wants
-  # a writable java.io.tmpdir (hsperfdata, and sqlite-jdbc unpacks its native
-  # library there).
   read_only: true
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   tmpfs: ["/tmp"]
 
-x-service: &service
+x-follower: &follower
   restart: unless-stopped
   environment:
-    # Runtime JVM tuning; the images carry only -XX:+UseSerialGC.
     JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
   depends_on:
     init:
@@ -41,19 +20,13 @@ x-service: &service
 
 configs:
   sequencer.yaml:
-    # Container variant: binds 0.0.0.0, journal under /var/lib/trex.
     file: ./deploy/compose/sequencer.yaml
   accounts.yaml:
     file: ./deploy/config/accounts.yaml
   transfers.yaml:
     file: ./deploy/config/transfers.yaml
-  # Read by the web service, never by the sequencer: a category is derived, not
-  # journalled (SPEC.md §0.7).
   categories.yaml:
     file: ./deploy/config/categories.yaml
-  # One-off overrides (SPEC.md §6). A docker config is mounted read-only, which is
-  # correct while pins are hand-written; trex-gateway (§5.7) writes this file, so it
-  # will need a bind mount rather than a config when that lands.
   pins.yaml:
     file: ./deploy/config/pins.yaml
 
@@ -61,61 +34,73 @@ volumes:
   journal:
   archive:
   sqlite:
+  config:
 
 services:
-  # Named volumes are created root-owned; the services run as uid 1000. One short
-  # root container fixes the ownership once, then exits. It reuses a trex image so
-  # nothing extra is pulled.
+  # Seed a writable, persistent config volume and set ownership for uid 1000.
+  # Existing rule files are kept on restart so UI edits survive container rebuilds.
   init:
     <<: *hardening
-    # chown on a root-owned volume needs CAP_CHOWN back; nothing else.
-    cap_drop: [ALL]
-    cap_add: [CHOWN]
     image: ${TREX_IMAGE_PREFIX:-trex}/sequencer:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     user: root
-    entrypoint: ["/bin/sh", "-c", "chown 1000:1000 /var/lib/trex/journal /var/lib/trex/archive /var/lib/trex/sqlite"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >-
+      mkdir -p /etc/trex /var/lib/trex/journal /var/lib/trex/archive /var/lib/trex/sqlite;
+      for f in sequencer.yaml accounts.yaml transfers.yaml categories.yaml pins.yaml; do
+        if [ ! -e "/etc/trex/$$f" ]; then cp "/bootstrap/$$f" "/etc/trex/$$f"; fi;
+      done;
+      chown -R 1000:1000 /etc/trex /var/lib/trex
+    cap_drop: [ALL]
+    # DAC_OVERRIDE is needed to seed files into fresh root-owned volume roots;
+    # CHOWN then hands the populated volumes to the service uid.
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    configs:
+      - source: sequencer.yaml
+        target: /bootstrap/sequencer.yaml
+      - source: accounts.yaml
+        target: /bootstrap/accounts.yaml
+      - source: transfers.yaml
+        target: /bootstrap/transfers.yaml
+      - source: categories.yaml
+        target: /bootstrap/categories.yaml
+      - source: pins.yaml
+        target: /bootstrap/pins.yaml
     volumes:
+      - config:/etc/trex
       - journal:/var/lib/trex/journal
       - archive:/var/lib/trex/archive
       - sqlite:/var/lib/trex/sqlite
     restart: "no"
 
-  # The single journal writer. Every other service mounts the journal read-only.
+  # The only journal writer. Config is shared read-only with it; trex-ws
+  # owns writes to categories.yaml and pins.yaml.
   sequencer:
     <<: *hardening
     image: ${TREX_IMAGE_PREFIX:-trex}/sequencer:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     command: ["/etc/trex"]
-    restart: unless-stopped
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
-    configs:
-      - source: sequencer.yaml
-        target: /etc/trex/sequencer.yaml
-      - source: accounts.yaml
-        target: /etc/trex/accounts.yaml
-      - source: transfers.yaml
-        target: /etc/trex/transfers.yaml
     volumes:
+      - config:/etc/trex:ro
       - journal:/var/lib/trex/journal
     ports:
       - "127.0.0.1:${TREX_SEQ_PORT:-8080}:8080"
-    # No curl in the base image; bash opens the socket instead.
     healthcheck:
       test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 5s
       timeout: 3s
       retries: 12
       start_period: 5s
-    # Leave time for an in-flight fsync, as TimeoutStopSec=30 does under systemd.
     stop_grace_period: 30s
     depends_on:
       init:
         condition: service_completed_successfully
 
   egress-archive:
-    <<: [*service, *hardening]
-    image: ${TREX_IMAGE_PREFIX:-trex}/egress-archive:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    <<: [*follower, *hardening]
+    image: ${TREX_IMAGE_PREFIX:-trex}/egress:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     command:
+      - archive
       - --journal
       - /var/lib/trex/journal/journal.jsonl
       - --archive
@@ -127,13 +112,11 @@ services:
       - archive:/var/lib/trex/archive
 
   egress-sqlite:
-    <<: [*service, *hardening]
-    image: ${TREX_IMAGE_PREFIX:-trex}/egress-sqlite:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
-    # sqlite-jdbc unpacks a native .so at startup and dlopen()s it, so this one
-    # service needs an executable tmpdir. The default tmpfs is noexec; the other
-    # five services keep it that way.
+    <<: [*follower, *hardening]
+    image: ${TREX_IMAGE_PREFIX:-trex}/egress:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     tmpfs: ["/tmp:exec"]
     command:
+      - sqlite
       - --journal
       - /var/lib/trex/journal/journal.jsonl
       - --db
@@ -144,59 +127,34 @@ services:
       - journal:/var/lib/trex/journal:ro
       - sqlite:/var/lib/trex/sqlite
 
-  # Browsing at / and the HELD/REVIEW worklist at /resolve, one process (SPEC.md §5.4).
-  # Loopback only: it can take decisions, so it carries the stricter posture of the two
-  # things it does.
-  # The consumer API (SPEC.md §5.7): the fold, the categories, the rule files and the
-  # decisions path. No published port — it is reachable only on the compose network,
-  # because it writes config and forwards decisions with no authentication.
-  gateway:
-    <<: [*service, *hardening]
-    image: ${TREX_IMAGE_PREFIX:-trex}/gateway:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+  # Host networking lets the host reach the admin listener, which is deliberately
+  # bound to 127.0.0.1 inside the service. The read listener stays loopback by
+  # default; TREX_WS_BIND can expose only its read-only routes on another interface.
+  ws:
+    <<: [*follower, *hardening]
+    image: ${TREX_IMAGE_PREFIX:-trex}/ws:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    network_mode: host
     command:
       - --journal
       - /var/lib/trex/journal/journal.jsonl
       - --sequencer-url
-      - http://sequencer:8080
+      - http://127.0.0.1:${TREX_SEQ_PORT:-8080}
       - --config
       - /etc/trex
       - --bind
-      - 0.0.0.0
+      - ${TREX_WS_BIND:-127.0.0.1}
       - --port
-      - "8085"
-    configs:
-      - source: categories.yaml
-        target: /etc/trex/categories.yaml
-      - source: pins.yaml
-        target: /etc/trex/pins.yaml
+      - ${TREX_WS_PORT:-8090}
+      - --admin-port
+      - ${TREX_ADMIN_PORT:-8085}
     volumes:
+      - config:/etc/trex
       - journal:/var/lib/trex/journal:ro
 
-  # Pages and a proxy. The only service with a published port.
-  web:
-    <<: [*service, *hardening]
-    image: ${TREX_IMAGE_PREFIX:-trex}/web:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
-    depends_on:
-      - gateway
-    command:
-      - --gateway-url
-      - http://gateway:8085
-      - --bind
-      - 0.0.0.0
-      - --port
-      - "8090"
-    ports:
-      - "127.0.0.1:${TREX_WEB_PORT:-8090}:8090"
-
-  # One-shot CSV import, not a daemon — hence the profile, so `up` ignores it:
-  #   docker compose run --rm ingress \
-  #     --source-type ing-csv --account ing-savings --sequencer-url http://sequencer:8080 /data/statement.csv
-  # `run` replaces the command, so --sequencer-url is passed every time rather than baked in.
-  # TREX_CSV_DIR is a path on the Docker *host*, so with a remote daemon it must be
-  # a directory on that host.
-  ingress:
+  # One-shot statement import. Replace the command on each `compose run`.
+  ingest:
     <<: *hardening
-    image: ${TREX_IMAGE_PREFIX:-trex}/ingress:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    image: ${TREX_IMAGE_PREFIX:-trex}/ingest:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
     profiles: ["tools"]
     volumes:
       - ${TREX_CSV_DIR:-./}:/data:ro

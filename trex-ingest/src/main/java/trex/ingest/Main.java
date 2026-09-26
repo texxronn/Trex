@@ -22,7 +22,8 @@ import java.util.concurrent.Callable;
 public final class Main implements Callable<Integer> {
 
     @Option(names = "--source-type", required = true, paramLabel = "<type>",
-        description = "Which parser reads the source, stamped on every candidate (known: ing-csv).")
+        description = "Which parser reads the source, stamped on every candidate "
+            + "(known: ing-csv, bw-csv, cba-csv, cba-pdf).")
     private String sourceType;
 
     @Option(names = "--account", required = true, paramLabel = "<accountRef>",

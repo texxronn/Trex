@@ -3,8 +3,8 @@
 trex turns bank statement exports into one append-only, deterministic journal of
 transactions. It gives every transaction a stable identity, deduplicates re-imports,
 matches transfers between your own accounts, and parks anything uncertain for a human
-to resolve. Downstream systems (an archive, SQLite, later Firefly III) follow the
-journal file.
+to resolve. An archive and SQLite mirror follow the journal; Firefly III and hledger
+receive projections of its resolved transactions.
 
 - **Specification:** [SPEC.md](SPEC.md) — the authoritative build spec.
 - **Design decisions:** [DECISIONS.md](DECISIONS.md) — why things are the way they are.
@@ -20,9 +20,8 @@ journal file.
                                              │       └── GET /held /review     │ tail (inotify)
                                   POST /decisions                               │
                                              │        ┌─────────────────────────┼──────────────────┐
-                                        trex-web ◄────┤                         │                  │
-                                 (browse + resolve,   │                 trex-egress-archive  trex-egress-sqlite
-                                   one page, SSE)     │                  (archive.jsonl)       (SQLite, WAL)
+                                          trex-ws ◄───┤                         │                  │
+                              (pages + consumer API)  │                    archive mirror     SQLite mirror
 ```
 
 - **One writer.** Only the sequencer writes the journal. Every batch is one write
@@ -41,11 +40,8 @@ journal file.
 | `trex-journal` | library | Journal read side: shared JSON mapper, framed JSONL reader, change signal. |
 | `trex-sequencer` | service | Journal writer, recovery, ingest pipeline, transfer matching, decisions, HTTP API. |
 | `trex-ingest` | CLI | Statement/feed → candidates → sequencer; one parser per source type (`ing-csv`, `bw-csv`, `cba-csv`, `cba-pdf`). |
-| `trex-egress-archive` | service | Mirrors every journal line to an archive JSONL file. |
-| `trex-egress-sqlite` | service | Mirrors every journal line into SQLite (one row per line, keyed by `n`). |
-| `trex-category` | library | Master category rules and the evaluator; merchant stems. Derived, never journalled. |
-| `trex-gateway` | service | The consumer API: the journal folded and categorised, the rule files it owns, and the decisions gateway to the sequencer. Loopback only. |
-| `trex-web` | service | The pages: browse at `/`, categorise at `/categorize`, resolve HELD/REVIEW at `/resolve`. Static files, one proxy to the gateway, one SSE relay. |
+| `trex-egress` | CLI/service | One jar with `archive`, `sqlite`, `firefly`, and `hledger` subcommands. |
+| `trex-ws` | service | Consumer API, rule writer, pages, browse/categorize/resolve workflows, and SSE. Its loopback-only admin listener carries every write. |
 
 ## Build
 
@@ -61,21 +57,26 @@ Container images are built from the same reactor — see [Container images](#con
 
 ## Quick start (local)
 
-[`deploy/bin/trex.sh`](deploy/bin/trex.sh) starts and stops all five services from the
+[`deploy/bin/trex.sh`](deploy/bin/trex.sh) starts and stops the four local services from the
 build tree. On first start it creates a run directory (`run/` by default, override with
 `TREX_RUN`) holding config, journal, logs and pid files; the config is copied from
 `deploy/config` once and is yours to edit after that.
 
 ```sh
-deploy/bin/trex.sh start                        # all five, sequencer first
+deploy/bin/trex.sh start                        # all four, sequencer first
 deploy/bin/trex.sh ingest ing-csv ing-savings statement.csv
 deploy/bin/trex.sh status
 deploy/bin/trex.sh logs sequencer               # tail -f
 deploy/bin/trex.sh stop                         # reverse order, SIGTERM
 ```
 
-Browse everything at <http://127.0.0.1:8090>, resolve HELD/REVIEW transactions at
-<http://127.0.0.1:8090/resolve> — one service, one port.
+Use <http://127.0.0.1:8085> for the full UI, including writes. Port 8090 serves the
+same pages and read API without mutating routes.
+
+The pages are `/` (browse), `/categorize`, `/resolve`, and `/cash`. The cash page
+lists accounts marked `balanceSource: declared` in `accounts.yaml`. Enter purchases
+as a positive amount spent; the page records them as outflows. Attestations record
+the amount of cash on hand, including zero.
 
 Individual services take the same arguments by hand:
 
@@ -90,9 +91,10 @@ java -jar trex-sequencer/target/trex-sequencer-0.1.0-SNAPSHOT-all.jar /tmp/trex
 java -jar trex-ingest/target/trex-ingest-0.1.0-SNAPSHOT-all.jar \
   --source-type ing-csv --account ing-savings --sequencer-url http://127.0.0.1:8080 statement.csv
 
-# 3. browse at http://127.0.0.1:8090 and resolve at http://127.0.0.1:8090/resolve
-java -jar trex-web/target/trex-web-0.1.0-SNAPSHOT-all.jar \
-  --journal /tmp/trex/journal/journal.jsonl --sequencer-url http://127.0.0.1:8080 --config /tmp/trex
+# 3. serve the full UI on 8085 and read-only pages on 8090
+java -jar trex-ws/target/trex-ws-0.1.0-SNAPSHOT-all.jar \
+  --journal /tmp/trex/journal/journal.jsonl --sequencer-url http://127.0.0.1:8080 \
+  --config /tmp/trex --admin-port 8085 --port 8090 --bind 127.0.0.1
 ```
 
 ## Configuration
@@ -105,7 +107,7 @@ belong to the journal consumers, not the sequencer.
 | File | Contents |
 |---|---|
 | `sequencer.yaml` | `bindHost` (default `127.0.0.1`), `bindPort`, `journal:` `source` / `target` |
-| `accounts.yaml` | `accounts:` entries: `ref`, `currency` (`AUD`/`USD`/`INR`) |
+| `accounts.yaml` | `accounts:` entries: `ref`, `currency` (`AUD`/`USD`/`INR`), `balanceSource` (`statement`/`declared`) |
 | `firefly.yaml` | per `ref`, the Firefly account `name` and `type` — read by the Firefly egress only, never by the sequencer |
 | `transfers.yaml` | `windowDays` (required), `allowlist` of case-insensitive regexes for transfer-shaped descriptions |
 | `categories.yaml` | master category rules — ordered, hand-written; read by journal consumers only, never by the sequencer |
@@ -121,10 +123,10 @@ The other programs take command-line flags:
 | Program | Flags (defaults) |
 |---|---|
 | `trex-ingest` | `--source-type <type> --account <ref> --sequencer-url <url> [--batch-rows N] [--no-gzip] <source>` |
-| `trex-egress-archive` | `--journal <path> --archive <path> [--poll-seconds 30] [--once]` |
-| `trex-egress-sqlite` | `--journal <path> --db <path> [--poll-seconds 30] [--once]` |
-| `trex-gateway` | `--journal <path> --sequencer-url <url> [--config <dir>] [--port 8085] [--bind 127.0.0.1] [--poll-ms 10000]` |
-| `trex-web` | `[--gateway-url <url>] [--port 8090] [--bind 127.0.0.1]` |
+| `trex-egress archive` | `--journal <path> --archive <path> [--poll-seconds 30] [--once]` |
+| `trex-egress sqlite` | `--journal <path> --db <path> [--poll-seconds 30] [--once]` |
+| `trex-egress firefly` / `hledger` | `--help` for each target's options |
+| `trex-ws` | `--journal <path> --sequencer-url <url> [--config <dir>] [--admin-port 8085] [--port 8090] [--bind 127.0.0.1] [--poll-ms 10000]` |
 
 For the followers, `--poll-seconds` / `--poll-ms` are only the fallback: they wake as
 soon as the journal changes.
@@ -254,10 +256,12 @@ They assume this layout:
 ```sh
 sudo useradd --system --home-dir /var/lib/trex --shell /usr/sbin/nologin trex
 sudo install -d /opt/trex/lib /etc/trex
-for m in trex-sequencer trex-ingest trex-egress-archive trex-egress-sqlite trex-web; do
+for m in trex-sequencer trex-ingest trex-egress trex-ws; do
   sudo install -m 0644 $m/target/$m-0.1.0-SNAPSHOT-all.jar /opt/trex/lib/$m.jar
 done
 sudo install -m 0644 deploy/config/*.yaml deploy/config/trex.env /etc/trex/
+# trex-ws atomically replaces category and pin files in this directory.
+sudo chown trex:trex /etc/trex
 sudo install -m 0644 deploy/systemd/* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now trex.target
@@ -270,12 +274,12 @@ elsewhere.
 
 Logs: `journalctl -u trex-sequencer -f` (and likewise for the other units).
 
-On a host without systemd, `deploy/bin/trex.sh` runs the same five services from the
+On a host without systemd, `deploy/bin/trex.sh` runs the same four services from the
 build tree with the same arguments — see [Quick start](#quick-start-local).
 
 ## Container images
 
-Six images, one per service module, built by [jib](https://github.com/GoogleContainerTools/jib)
+Four images, one per runnable module, built by [jib](https://github.com/GoogleContainerTools/jib)
 straight from Maven. There is no Dockerfile and no build context, so there is no
 `.dockerignore` either: jib assembles layers from the reactor and talks to the Docker
 daemon (or a registry) itself.
@@ -283,9 +287,8 @@ daemon (or a registry) itself.
 | Image | Module | Entry point | Port |
 |---|---|---|---|
 | `trex/sequencer` | trex-sequencer | `trex.sequencer.Main` | 8080 |
-| `trex/web` | trex-web | `trex.web.Main` | 8090 |
-| `trex/egress-archive` | trex-egress-archive | `trex.egress.archive.Main` | — |
-| `trex/egress-sqlite` | trex-egress-sqlite | `trex.egress.sqlite.Main` | — |
+| `trex/ws` | trex-ws | `trex.ws.Main` | 8085, 8090 |
+| `trex/egress` | trex-egress | `trex.egress.Main` | — |
 | `trex/ingest` | trex-ingest | `trex.ingest.Main` | — |
 
 Properties of every image:
@@ -294,20 +297,20 @@ Properties of every image:
 - runs as **uid 1000** (`ubuntu` in the Temurin base), never root;
 - **reproducible** — fixed layer timestamps plus `project.build.outputTimestamp`, so
   two clean builds of the same commit give the same image digest;
-- **no application data and no config**: the journal, archive and SQLite mirror all
-  live on volumes, and the sequencer's TOML arrives as a mount. Only JVM flags are
+- **no application data and no baked-in config**: the journal, archive, SQLite mirror,
+  and writable service config live on volumes. Only JVM flags are
   baked in, and `JAVA_TOOL_OPTIONS` overrides those at runtime.
 
 ### Building
 
 ```sh
-mvn package -Pdocker                      # all six, into the Docker daemon
-mvn package -Pdocker -am -pl trex-web     # just one
+mvn package -Pdocker                      # all four, into the Docker daemon
+mvn package -Pdocker -am -pl trex-ws      # ws and its sequencer dependency
 mvn package -Pdocker-push                 # build and push instead
 ```
 
 `deploy/bin/trex-docker.sh build [module...]` wraps the same commands and takes the
-short image names (`web`, `egress-sqlite`, …).
+short image names (`ws`, `egress`, …).
 
 > **Always build through the `package` phase.** A bare `mvn jib:dockerBuild` resolves
 > `trex-core` and `trex-journal` from `~/.m2` rather than the reactor; if what is
@@ -335,28 +338,34 @@ deploy/bin/trex-docker.sh ingest ing-csv ing-savings statement.csv
 deploy/bin/trex-docker.sh down          # add -v to discard the journal
 ```
 
-`compose.yml` starts the sequencer plus the four followers; `ingest` sits behind the
+`compose.yml` starts the sequencer, web service, archive and SQLite followers;
+`ingest` sits behind the
 `tools` profile because it is a one-shot import, not a daemon. The sequencer's config
 is delivered through compose `configs` (file **content**, not a bind mount), the
 journal/archive/sqlite volumes are named volumes, and every published port binds to
-`127.0.0.1` on the Docker host — nothing here is authenticated.
+`127.0.0.1` by default — nothing here is authenticated.
 
 Two details worth knowing:
 
-- Only the sequencer mounts the journal read-write. The followers and the web service
+- Only the sequencer mounts the journal read-write. The followers and `trex-ws`
   get `:ro`, which makes the single-writer invariant a mount-level guarantee.
-- A one-shot `init` container chowns the fresh volumes to uid 1000 and exits; named
-  volumes are created root-owned and the services are not root. It reuses the
+- A one-shot `init` container seeds the writable config volume and chowns fresh data
+  volumes to uid 1000; named volumes are created root-owned and services are not root. It reuses the
   sequencer image, so nothing extra is pulled.
 - Every service runs `read_only: true`, `cap_drop: [ALL]` and
   `no-new-privileges`, matching what the systemd units get from `ProtectSystem=strict`
   and friends. Writes go to the volumes and to a `/tmp` tmpfs. Two exceptions, both
   deliberate: `init` keeps `CAP_CHOWN` because that is its whole job, and
   `egress-sqlite` gets an `exec` tmpfs because sqlite-jdbc unpacks a native library
-  at startup and `dlopen()`s it — the other five keep `/tmp` `noexec`.
+  at startup and `dlopen()`s it — the other services keep `/tmp` `noexec`.
+
+The `ws` container uses host networking so the host can reach the admin listener,
+which is intentionally bound to loopback. This requires a Linux Docker Engine. Both
+listeners are loopback-only by default. Set `TREX_WS_BIND=0.0.0.0` only when the
+read-only listener should be reachable from other machines; writes remain on loopback.
 
 Useful variables: `TREX_IMAGE_PREFIX`, `TREX_IMAGE_TAG`, `TREX_JAVA_OPTS`,
-`TREX_SEQ_PORT`, `TREX_GATEWAY_PORT`, `TREX_WEB_PORT`, `TREX_POLL_SECONDS`.
+`TREX_SEQ_PORT`, `TREX_ADMIN_PORT`, `TREX_WS_PORT`, `TREX_WS_BIND`, `TREX_POLL_SECONDS`.
 
 ### Remote Docker daemon
 
@@ -379,7 +388,7 @@ export DOCKER_HOST=$(docker context inspect prod --format '{{.Endpoints.docker.H
 mvn package -Pdocker && docker compose up -d
 ```
 
-Loading six images over SSH is slow; pushing to a registry and letting the remote host
+Loading four images over SSH is slow; pushing to a registry and letting the remote host
 pull is usually better:
 
 ```sh
@@ -443,7 +452,7 @@ in the resolver; every action asks for confirmation because decisions cannot be 
 
 ### Logging
 
-Every module logs through SLF4J; the six runnable modules bind `slf4j-simple` at runtime
+Every module logs through SLF4J; the four runnable modules bind `slf4j-simple` at runtime
 scope (libraries never bind). Logs go to **stderr**, so stdout stays clean for CLI output
 such as the ingest client's per-row results.
 

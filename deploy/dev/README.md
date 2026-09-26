@@ -16,8 +16,8 @@ you poke it.
 
 ## Start
 
-    deploy/dev/bin/tmux.sh                   # all six panels, tiled
-    deploy/dev/bin/tmux-shells.sh            # same six panels, empty shells, nothing started
+    deploy/dev/bin/tmux.sh                   # four services plus a shell, tiled
+    deploy/dev/bin/tmux-shells.sh            # same five panels, empty shells
 
 or, by hand, one panel each (order matters only for readability — the followers
 retry until the journal exists):
@@ -25,15 +25,14 @@ retry until the journal exists):
     deploy/dev/bin/sequencer.sh
     deploy/dev/bin/egress-archive.sh
     deploy/dev/bin/egress-sqlite.sh
-    deploy/dev/bin/gateway.sh
-    deploy/dev/bin/web.sh
+    deploy/dev/bin/ws.sh
 
 Each script takes `start` (the default), `stop` or `status`. `start` runs the
 JVM in the foreground, so the panel is the log and **Ctrl-C is the stop**;
 `stop` exists for driving a panel from somewhere else and for scripting:
 
-    deploy/dev/bin/web.sh stop
-    deploy/dev/bin/status.sh                 # all five, plus URLs and journal size
+    deploy/dev/bin/ws.sh stop
+    deploy/dev/bin/status.sh                 # four services, URLs and journal size
     deploy/dev/bin/stop-all.sh               # followers first, sequencer last
     deploy/dev/bin/reset.sh --force          # stop everything, wipe run/
 
@@ -51,7 +50,7 @@ bad-row file. See `samples/README.md` for what each row proves.
     curl -s http://127.0.0.1:8080/review    | python3 -m json.tool
     curl -s http://127.0.0.1:8080/reconcile | python3 -m json.tool
 
-Web UI: <http://127.0.0.1:8090>  ·  worklist at <http://127.0.0.1:8090/resolve>
+Full UI (writes enabled): <http://127.0.0.1:8085> · read-only UI: <http://127.0.0.1:8090>
 
 ## Project it out
 
@@ -91,12 +90,12 @@ Neither is a tmux panel: a panel is a log you watch, and these are commands you 
 | `config/sequencer.yaml` | trex-sequencer | YAML, `bindPort` + `journal:` |
 | `config/accounts.yaml` | trex-sequencer | YAML, the account registry |
 | `config/transfers.yaml` | trex-sequencer | YAML, allowlist + `windowDays` |
-| `config/categories.yaml` | trex-web | YAML, master category rules — hand-written, ordered |
-| `config/pins.yaml` | trex-web | YAML, one-off overrides — order-independent, machine-writable |
+| `config/categories.yaml` | trex-ws | YAML, master category rules — hand-written, ordered |
+| `config/pins.yaml` | trex-ws | YAML, one-off overrides — order-independent, machine-writable |
 | `config/egress-archive.env` | trex-egress-archive | shell vars → CLI flags |
 | `config/egress-sqlite.env` | trex-egress-sqlite | shell vars → CLI flags |
-| `config/web.env` | trex-web | shell vars → CLI flags |
-| `config/ingress.env` | trex-ingest | shell vars → CLI flags |
+| `config/ws.env` | trex-ws | shell vars → CLI flags |
+| `config/ingest.env` | trex-ingest | shell vars → CLI flags |
 
 Every value in a `.env` file is written `VAR="${VAR:-default}"`, so exporting
 one wins over the file for a single run:
@@ -105,7 +104,7 @@ one wins over the file for a single run:
 
 The sequencer reads `sequencer.yaml`, `accounts.yaml` and `transfers.yaml`;
 trex-ws reads `categories.yaml` and `pins.yaml` and is their single writer
-(SPEC.md §6). Everything else — the followers, trex-web and ingress — is
+(SPEC.md §6). Everything else — the followers, trex-ws and ingest — is
 configured by command-line flags, so their `.env` files are plain shell sourced
 by the scripts, not a second config format.
 
@@ -118,7 +117,7 @@ seconds instead of minutes, heap 256m.
 
 ## Notes
 
-- Ports: sequencer 8080, web 8090. Change them in
+- Ports: sequencer 8080, admin UI 8085, read-only UI 8090. Change them in
   `trex-dev.env` — and the sequencer's also in `config/sequencer.yaml`, which is
   the file the sequencer actually reads.
 - No service authenticates. Everything binds loopback; keep it that way.

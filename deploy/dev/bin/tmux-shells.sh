@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The same six-panel tmux layout as tmux.sh, but every panel is a plain shell
+# The same five-panel tmux layout as tmux.sh, but every panel is a plain shell
 # in deploy/dev — nothing is started. For running the component scripts by hand,
 # in whatever order, or with ONCE=1 and friends.
 #
@@ -13,7 +13,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 SESSION="${TREX_TMUX_SHELLS_SESSION:-trex-shells}"
-PANELS=6
+PANELS=5
 
 command -v tmux > /dev/null || die "tmux not installed"
 

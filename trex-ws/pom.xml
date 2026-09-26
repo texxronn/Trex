@@ -84,20 +84,21 @@
           </execution>
         </executions>
       </plugin>
-      <!-- Container image: ${trex.image.prefix}/gateway:${trex.image.tag}. Loopback only in
-           practice (§5.7): it writes the rule files and forwards decisions. -->
+      <!-- Container image: ${trex.image.prefix}/ws:${trex.image.tag}. The admin
+           listener remains loopback-only; the bind option controls the read listener. -->
       <plugin>
         <groupId>com.google.cloud.tools</groupId>
         <artifactId>jib-maven-plugin</artifactId>
         <configuration>
           <skip>false</skip>
           <to>
-            <image>${trex.image.prefix}/gateway:${trex.image.tag}</image>
+            <image>${trex.image.prefix}/ws:${trex.image.tag}</image>
           </to>
           <container>
             <mainClass>trex.ws.Main</mainClass>
             <ports>
               <port>8085</port>
+              <port>8090</port>
             </ports>
           </container>
         </configuration>

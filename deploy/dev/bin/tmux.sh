@@ -7,7 +7,7 @@
 #   tmux.sh --kill       kill the session and its panels
 #
 # Layout (tiled):
-#   sequencer | egress-archive | egress-sqlite | ws | web | shell
+#   sequencer | egress-archive | egress-sqlite | ws | shell
 #
 # Ctrl-C in a panel stops just that service; its script can be re-run in place
 # with the up arrow. Killing the session TERMs everything.

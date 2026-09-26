@@ -34,7 +34,7 @@
 
     <!-- Container images (jib). See README "Container images". -->
     <jib.version>3.4.6</jib.version>
-    <!-- Only the six service modules build an image; jib is skipped everywhere else. -->
+    <!-- Only the four runnable modules build an image; jib is skipped elsewhere. -->
     <jib.skip>true</jib.skip>
     <!-- Base image pinned by digest: reproducible builds need an immutable base.
          This is eclipse-temurin:25-jre as of 2026-09-18. To move it, re-resolve the
@@ -58,11 +58,6 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-journal</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>trex</groupId>
-        <artifactId>trex-web</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -242,8 +237,8 @@
   </build>
 
   <profiles>
-    <!-- mvn package -Pdocker        → build all six images into the Docker daemon
-         mvn package -Pdocker-push   → push all six to ${trex.image.prefix}
+    <!-- mvn package -Pdocker        → build all four images into the Docker daemon
+         mvn package -Pdocker-push   → push all four to ${trex.image.prefix}
          Both honour DOCKER_HOST; see deploy/bin/trex-docker.sh for Docker contexts. -->
     <profile>
       <id>docker</id>

@@ -82,7 +82,7 @@
           </execution>
         </executions>
       </plugin>
-      <!-- Container image: ${trex.image.prefix}/ingress:${trex.image.tag}.
+      <!-- Container image: ${trex.image.prefix}/ingest:${trex.image.tag}.
            Shared config (base image, non-root user, reproducible timestamps) is in
            the parent pom; only the name, entry point and ports differ here. -->
       <plugin>
@@ -91,7 +91,7 @@
         <configuration>
           <skip>false</skip>
           <to>
-            <image>${trex.image.prefix}/ingress:${trex.image.tag}</image>
+            <image>${trex.image.prefix}/ingest:${trex.image.tag}</image>
           </to>
           <container>
             <mainClass>trex.ingest.Main</mainClass>

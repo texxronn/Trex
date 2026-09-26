@@ -12,13 +12,13 @@
 #   trex.sh logs <service>         tail -f one log
 #   trex.sh ingest <sourceType> <account> <source>
 #
-# Services: sequencer egress-archive egress-sqlite gateway web
+# Services: sequencer egress-archive egress-sqlite ws
 #
 # Environment:
 #   TREX_RUN        run directory (default <repo>/run) — config, journal, logs, pids
 #   TREX_BIND       bind address for every HTTP service (default 127.0.0.1)
 #   TREX_SEQ_PORT   sequencer API port (default 8080)
-#   TREX_GATEWAY_PORT   consumer API port, loopback only (default 8085)
+#   TREX_ADMIN_PORT     admin listener port, loopback only (default 8085)
 #   TREX_WEB_PORT       (default 8090)
 #   JAVA_HOME       JDK to run with
 #   JAVA_OPTS       JVM options (default matches deploy/config/trex.env)
@@ -100,12 +100,16 @@ args_for() {
 pid_of() {
     local svc="$1"
     local pidfile="$PIDS/$svc.pid"
-    local pid
+    local pid needle
     [ -f "$pidfile" ] || return 1
     pid="$(cat "$pidfile")"
     kill -0 "$pid" 2>/dev/null || return 1
     if [ -r "/proc/$pid/cmdline" ]; then
-        tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q "trex-$svc-" || return 1
+        case "$svc" in
+            egress-*) needle="trex-egress-[^ ]+-all.jar ${svc#egress-} " ;;
+            *)        needle="trex-$svc-" ;;
+        esac
+        tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Eq "$needle" || return 1
     fi
     echo "$pid"
 }
@@ -205,8 +209,8 @@ cmd_start() {
     for svc in $list; do start_one "$svc"; done
     echo
     echo "  sequencer API  http://$BIND:$SEQ_PORT"
-    echo "  gateway        http://127.0.0.1:$ADMIN_PORT  (consumer API; loopback only)"
-    echo "  web            http://$BIND:$WEB_PORT  (browse; /resolve for the worklist)"
+    echo "  full UI        http://127.0.0.1:$ADMIN_PORT  (admin listener; loopback only)"
+    echo "  read UI        http://$BIND:$WEB_PORT  (pages and read-only API)"
     echo "  journal        $JOURNAL"
     echo "  logs           $LOGS"
 }

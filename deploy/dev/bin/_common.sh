@@ -44,7 +44,7 @@ in_run() {
     esac
 }
 
-# Read a per-component config file, e.g. load_env web → config/web.env
+# Read a per-component config file, e.g. load_env ws → config/ws.env
 load_env() {
     local f="$CONF/$1.env"
     [ -f "$f" ] || die "missing $f"
@@ -104,12 +104,16 @@ Fix either side:
 # A pid file counts only if the process is alive AND still the service we
 # started — pids are reused, and TERMing a stranger is worse than a stale file.
 pid_of() {
-    local svc="$1" pidfile="$PIDS/$1.pid" pid
+    local svc="$1" pidfile="$PIDS/$1.pid" pid needle
     [ -f "$pidfile" ] || return 1
     pid="$(cat "$pidfile")"
     kill -0 "$pid" 2>/dev/null || return 1
     if [ -r "/proc/$pid/cmdline" ]; then
-        tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q "trex-$svc-" || return 1
+        case "$svc" in
+            egress-*) needle="trex-egress-[^ ]+-all.jar ${svc#egress-} " ;;
+            *)        needle="trex-$svc-" ;;
+        esac
+        tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Eq "$needle" || return 1
     fi
     echo "$pid"
 }

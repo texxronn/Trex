@@ -5,7 +5,7 @@
 #   - the transaction no sensible rule would catch (a one-off you still want counted)
 #   - the override, when a rule is right about thirty rows and wrong about this one
 #
-# This file is written by trex-gateway (§5.7) as well as by hand. That is why `comment` is a
+# This file is written by trex-ws (§5.7) as well as by hand. That is why `comment` is a
 # field here and not a `#` comment: a `#` line cannot survive a machine rewrite, and the comment
 # is shown in the UI beside the category it explains.
 #

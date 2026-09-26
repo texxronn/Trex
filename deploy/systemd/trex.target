@@ -1,5 +1,5 @@
 [Unit]
-Description=trex (sequencer, followers, resolver, grid)
+Description=trex (sequencer, journal followers and web service)
 Documentation=file:///opt/trex/README.md
 Wants=trex-sequencer.service trex-egress-archive.service trex-egress-sqlite.service trex-ws.service
 
