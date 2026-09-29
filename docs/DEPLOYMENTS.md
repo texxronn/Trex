@@ -62,6 +62,40 @@ scp deploy/config/accounts.yaml deploy/config/users.yaml deploy/config/categorie
 `docker compose up -d` re-runs the `init` service, which seeds the config volume only if a file is
 absent, so live rule edits survive an update.
 
+### Seeding and testing (day 0)
+
+The stack is seeded from the nine standard statement exports (private; never committed). The
+mapping is the one the statements use:
+
+| file | sourceType | account |
+|---|---|---|
+| `Salary_Account.csv` | ing-csv | ing-salary |
+| `Loan_Offset.csv` | ing-csv | ing-loan-offset |
+| `Mortgage_Simplifier.csv` | ing-csv | ing-mortgage-simplifier |
+| `Variable_Rate.csv` | ing-csv | ing-variable-rate |
+| `Orange_Everyday.csv` | ing-csv | ing-orange |
+| `ING_Credit_Card.csv` | ing-csv | ing-credit-card |
+| `Bankwest_Transactions_full.csv` | bw-csv | bw-credit-card |
+| `CBA_SmartAccess.csv` | cba-csv | cba-smartaccess |
+| `CBA_NetSaver_TransactionSummary.pdf` | cba-pdf | cba-netsaver |
+
+On the host:
+
+```sh
+/opt/trex/ingest-all.sh /opt/trex/statements      # from deploy/v2/ingest-all.sh
+```
+
+Re-running is safe (whole-observation dedup appends nothing). After the first seed: `n=1857`
+facts, 9 evidence files, 24 transfers, 1775 units, 98 review items (24 `POTENTIAL_DUP`,
+25 `RESTATEMENT`, 49 `UNMATCHED_LEG`), and all nine accounts reconcile. The revision that produced
+it is in `/api/status` (`configRevision`).
+
+To start over — day 0 again — wipe the volumes and re-seed:
+
+```sh
+cd /opt/trex && docker compose down -v && docker compose up -d && ./ingest-all.sh
+```
+
 ### Back up (volume → tarball)
 
 The journal, evidence and config volumes are the only irreplaceable state; the index is rebuilt.
