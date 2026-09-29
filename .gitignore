@@ -7,4 +7,5 @@ run/
 *.local.yaml
 statements/
 *.statements.yaml
-index/
+# The runtime index lives outside the repo, but an accidental one at the root is not source.
+/index/

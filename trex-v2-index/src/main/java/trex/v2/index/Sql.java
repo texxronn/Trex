@@ -1,0 +1,66 @@
+package trex.v2.index;
+
+import java.util.List;
+
+/**
+ * Every DML statement the index runs, named by the table it touches (plan §4, coding standards:
+ * every SQL statement lives in a .sql file or a named constant with a comment naming its table).
+ * No user input is ever concatenated into these.
+ */
+final class Sql {
+
+    private Sql() {}
+
+    // ---- meta -------------------------------------------------------------------------------
+
+    static final String UPSERT_META = "INSERT INTO meta(key, value) VALUES(?, ?) "
+        + "ON CONFLICT(key) DO UPDATE SET value = excluded.value";
+    static final String SELECT_META = "SELECT value FROM meta WHERE key = ?";
+
+    // ---- mirror: fact -----------------------------------------------------------------------
+
+    static final String INSERT_FACT = "INSERT INTO fact(n, external_id, account_ref, date, amount, balance, "
+        + "raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, ingested_at) "
+        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    static final String SELECT_FACTS = "SELECT n, external_id, account_ref, date, amount, balance, "
+        + "raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, ingested_at "
+        + "FROM fact ORDER BY n";
+
+    // ---- mirror: decision -------------------------------------------------------------------
+
+    static final String INSERT_DECISION = "INSERT INTO decision(n, action, payload, actor, user_id, at) "
+        + "VALUES(?,?,?,?,?,?)";
+    static final String SELECT_DECISIONS = "SELECT payload FROM decision ORDER BY n";
+
+    // ---- level 2: dropped and rebuilt wholesale --------------------------------------------
+
+    static final List<String> DERIVED_TABLES = List.of(
+        "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
+        "category_current", "pin_current", "ineffective_decision", "unit");
+
+    static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
+        + "VALUES(?,?,?,?)";
+    static final String INSERT_CHAIN_RESOLVED = "INSERT INTO chain_resolved(id, current_id) VALUES(?,?)";
+    static final String INSERT_TXN_CURRENT = "INSERT INTO txn_current(external_id, n, account_ref, date, amount, "
+        + "balance, raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, "
+        + "ingested_at, leg, transfer_id, category, category_origin, rule_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    static final String INSERT_TRANSFER = "INSERT INTO transfer(transfer_id, from_leg, to_leg, confidence, origin, "
+        + "decision_n, matched_at) VALUES(?,?,?,?,?,?,?)";
+    static final String INSERT_PENDING = "INSERT INTO pending(external_id, fact_n, account_ref, date, amount, "
+        + "settled_by, state) VALUES(?,?,?,?,?,?,?)";
+    static final String INSERT_REVIEW_ITEM = "INSERT INTO review_item(subject, kind, detail, amount_stake, "
+        + "opened_at, state_hash) VALUES(?,?,?,?,?,?)";
+    static final String INSERT_CATEGORY_CURRENT = "INSERT INTO category_current(external_id, category, origin, "
+        + "rule_id) VALUES(?,?,?,?)";
+    static final String INSERT_PIN_CURRENT = "INSERT INTO pin_current(external_id, category, decision_n, user_id, "
+        + "comment) VALUES(?,?,?,?,?)";
+    static final String INSERT_INEFFECTIVE = "INSERT INTO ineffective_decision(decision_n, action, reason) "
+        + "VALUES(?,?,?)";
+    static final String INSERT_UNIT = "INSERT INTO unit(unit_id, unit_kind, account_ref, date, amount, currency, "
+        + "category, origin, pairing, retired, ineffective) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
+
+    /** Wipe every derived table before a full re-derive. */
+    static String deleteAll(String table) {
+        return "DELETE FROM " + table;
+    }
+}
