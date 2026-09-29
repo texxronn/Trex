@@ -102,3 +102,9 @@ systemctl start trex-hub
 ```
 
 Run that drill on a schedule; it is the cold recovery path, not an emergency procedure.
+
+## Deployments
+
+Where the stack actually runs — the `trex` host, its Docker context, `/opt/trex`, the state volumes
+and the backup commands — is recorded in [`docs/DEPLOYMENTS.md`](../docs/DEPLOYMENTS.md). The server
+compose is `deploy/v2/compose.server.yml`; `deploy/v2/compose.yml` is the repo-local variant.

@@ -1,3 +1,8 @@
+# Deployment compose — the trex server, at /opt/trex/compose.yml.
+# Identical to deploy/v2/compose.yml except the config paths: the project directory here is
+# /opt/trex, so the tuned rules are ./config/... rather than ../config/... and the sequencer
+# config sits beside them. Keep the two in step; this is the file the server runs.
+
 # trex v2 — the container deployment (V2-PROPOSAL.md §14: "Deployment is one image").
 #
 #   mvn -pl trex-v2-dist -am package -Pdocker        # builds trex/trex-v2:<version>
@@ -27,19 +32,19 @@ x-trex: &trex
 
 configs:
   sequencer.yaml:
-    file: ./sequencer.yaml
+    file: ./config/sequencer.yaml
   accounts.yaml:
-    file: ../config/accounts.yaml
+    file: ./config/accounts.yaml
   users.yaml:
-    file: ../config/users.yaml
+    file: ./config/users.yaml
   categories.yaml:
-    file: ../config/categories.yaml
+    file: ./config/categories.yaml
   transfers.yaml:
-    file: ../config/transfers.yaml
+    file: ./config/transfers.yaml
   pins.yaml:
-    file: ../config/pins.yaml
+    file: ./config/pins.yaml
   firefly.yaml:
-    file: ../config/firefly.yaml
+    file: ./config/firefly.yaml
 
 volumes:
   config:
