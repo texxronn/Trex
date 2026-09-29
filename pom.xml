@@ -6,7 +6,7 @@
 
   <groupId>trex</groupId>
   <artifactId>trex</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.1-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <modules>
@@ -30,7 +30,7 @@
     <!-- Reproducible builds: fixes the timestamps Maven writes into jar entries.
          Without it every rebuild produces different jar bytes, which lands in the
          image as a different dependency layer and a different digest. -->
-    <project.build.outputTimestamp>2026-09-29T23:58:09Z</project.build.outputTimestamp>
+    <project.build.outputTimestamp>2026-09-29T23:58:20Z</project.build.outputTimestamp>
     <jackson.version>2.18.1</jackson.version>
     <picocli.version>4.7.6</picocli.version>
     <pdfbox.version>3.0.3</pdfbox.version>
