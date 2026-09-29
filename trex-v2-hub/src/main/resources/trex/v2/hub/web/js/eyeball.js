@@ -5,7 +5,7 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
-import { el, clear, field } from './dom.js';
+import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
@@ -140,7 +140,7 @@ function openItemsTable(items) {
     el('td', { class: 'amount' }, item.amountStake == null ? '' : money(item.amountStake)),
     el('td', {}, button('Dismiss', () => submit(
       decisions.dismiss(ctx, item.kind, [item.subject], 'dismissed in eyeball'))))));
-  return el('table', {}, el('thead', {}, head), el('tbody', {}, ...body));
+  return scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)));
 }
 
 // ---- anomalies --------------------------------------------------------------------------------
@@ -156,7 +156,7 @@ function anomaliesList(anomalies) {
   for (const [kind, rows] of byKind) {
     blocks.push(el('div', {},
       el('h4', {}, `${KIND_LABEL[kind] || kind} (${rows.length})`),
-      el('table', {}, el('tbody', {}, ...rows.map(anomalyRow)))));
+      scroll(el('table', {}, el('tbody', {}, ...rows.map(anomalyRow))))));
   }
   return el('div', {}, ...blocks);
 }
@@ -205,7 +205,7 @@ function bucketBlock(b) {
     el('td', {}, button('Pin', () => pinRow(row)))));
   return el('div', { class: 'bucket' },
     el('h4', {}, `${b.key}  ·  ${span}  ·  total ${money(b.total)}  ·  closing ${closing}`),
-    el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)));
+    scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 // ---- actions ----------------------------------------------------------------------------------
@@ -280,7 +280,7 @@ function button(label, onClick) {
   return el('button', { type: 'button', onclick: onClick }, label);
 }
 
-function select(name, options, value, onChange) {
+function select(options, value, onChange) {
   return el('select', { onchange: (e) => onChange(e.target.value) },
     ...options.map((o) => el('option', { value: o, selected: o === value }, o)));
 }

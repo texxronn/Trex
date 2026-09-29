@@ -2,8 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>trex</title>
+  <script>
+    // Pick the theme before first paint: the stored choice, else the OS preference.
+    (function () {
+      var t = localStorage.getItem('trex.theme');
+      if (t !== 'light' && t !== 'grey' && t !== 'dark') {
+        t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+          ? 'light' : 'grey';
+      }
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
   <link rel="stylesheet" href="/ui/app.css">
 </head>
 <body>
@@ -15,6 +26,14 @@
       <a href="#eyeball" data-mode="eyeball">Eyeball</a>
       <a href="#rules" data-mode="rules">Rules</a>
     </nav>
+    <span class="spacer"></span>
+    <label class="theme" title="Theme">
+      <select id="theme" aria-label="Theme">
+        <option value="light">Light</option>
+        <option value="grey">Grey</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
   </header>
   <div id="status" class="status"></div>
   <main id="main"></main>

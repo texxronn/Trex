@@ -2,7 +2,7 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
-import { el, clear, field } from './dom.js';
+import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
@@ -14,6 +14,16 @@ let kind = '';
 
 const KINDS = ['', 'POTENTIAL_DUP', 'RESTATEMENT', 'AMBIGUOUS_TRANSFER', 'AMBIGUOUS_SETTLEMENT',
   'UNMATCHED_LEG', 'STALE_PENDING', 'INEFFECTIVE_DECISION'];
+
+const KIND_LABEL = {
+  POTENTIAL_DUP: 'possible duplicate',
+  RESTATEMENT: 'restatement',
+  AMBIGUOUS_TRANSFER: 'ambiguous transfer',
+  AMBIGUOUS_SETTLEMENT: 'ambiguous settlement',
+  UNMATCHED_LEG: 'unmatched leg',
+  STALE_PENDING: 'stale pending',
+  INEFFECTIVE_DECISION: 'ineffective decision',
+};
 
 export function mount(container, context) {
   host = container;
@@ -56,16 +66,16 @@ function renderRows(rows) {
   const body = rows.map((row) => {
     const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
     return el('tr', {},
-      el('td', {}, row.kind),
+      el('td', {}, el('span', { class: 'badge ' + row.kind }, KIND_LABEL[row.kind] || row.kind)),
       el('td', { class: 'muted', title: row.subject }, shortId(row.subject)),
       el('td', { class: 'desc' }, row.detail),
       el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
-      el('td', { class: 'muted' }, row.openedAt),
+      el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),
       el('td', {}, canDismiss
-        ? el('button', { type: 'button', onclick: () => dismiss(row) }, 'Dismiss')
+        ? el('button', { type: 'button', class: 'ghost', onclick: () => dismiss(row) }, 'Dismiss')
         : el('span', { class: 'muted' }, 'revoke the decision')));
   });
-  listHost.append(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)));
+  listHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 async function dismiss(row) {

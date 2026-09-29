@@ -3,7 +3,7 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
-import { el, clear, field } from './dom.js';
+import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
@@ -119,7 +119,7 @@ function renderRows() {
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
   });
-  tableHost.append(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows)));
+  tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows))));
 }
 
 function renderPager() {

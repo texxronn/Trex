@@ -25,6 +25,11 @@ export function clear(node) {
   node.replaceChildren();
 }
 
+/** A horizontally scrollable wrapper, so a wide table scrolls instead of squeezing on mobile. */
+export function scroll(node) {
+  return el('div', { class: 'scroll' }, node);
+}
+
 export function field(labelText, control) {
   return el('label', {}, labelText, control);
 }

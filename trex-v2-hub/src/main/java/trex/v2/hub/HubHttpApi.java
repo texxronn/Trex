@@ -193,6 +193,9 @@ final class HubHttpApi {
             }
             byte[] bytes = in.readAllBytes();
             ex.getResponseHeaders().set("Content-Type", contentType(relative));
+            // The UI is small and changes with the image; revalidate so a redeploy is not
+            // masked by a cached module.
+            ex.getResponseHeaders().set("Cache-Control", "no-cache");
             ex.sendResponseHeaders(200, bytes.length);
             try (OutputStream out = ex.getResponseBody()) {
                 out.write(bytes);

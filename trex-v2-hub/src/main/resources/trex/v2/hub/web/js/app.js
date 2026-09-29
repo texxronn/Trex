@@ -23,6 +23,7 @@ const ctx = {
 let activeMode = null;
 
 async function boot() {
+  initTheme();
   try {
     ctx.refdata = await api.refdata();
   } catch (error) {
@@ -73,6 +74,17 @@ function refreshActive() {
   if (activeMode && activeMode.refresh) {
     activeMode.refresh();
   }
+}
+
+/** The theme select mirrors data-theme (set before paint) and persists the choice. */
+function initTheme() {
+  const select = document.getElementById('theme');
+  if (!select) return;
+  select.value = document.documentElement.dataset.theme || 'light';
+  select.addEventListener('change', () => {
+    document.documentElement.dataset.theme = select.value;
+    localStorage.setItem('trex.theme', select.value);
+  });
 }
 
 boot();
