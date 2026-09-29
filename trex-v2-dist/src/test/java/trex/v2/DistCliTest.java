@@ -42,6 +42,61 @@ class DistCliTest {
     }
 
     @Test
+    void recoveryDrillStopHubWipeIndexRebuildVerify(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                new Fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, 900, "COLES 1234", null, 0,
+                    Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1",
+                    Instant.parse("2026-09-30T00:00:00Z"))));
+        }
+        Path index = dir.resolve("trex.sqlite");
+        CommandLine cli = Main.commandLine();
+
+        // Warm the index, then run the drill: stop the hub (none here), wipe, rebuild, verify.
+        assertEquals(0, cli.execute("index", "--journal", journal.toString(), "--config", configDir.toString(),
+            "--index", index.toString(), "--rebuild", "--as-of", "2026-10-01T00:00:00Z"));
+        assertTrue(Files.exists(index));
+        Files.delete(index);
+        Files.deleteIfExists(index.resolveSibling(index.getFileName() + ".lock"));
+
+        assertEquals(0, cli.execute("index", "--journal", journal.toString(), "--config", configDir.toString(),
+            "--index", index.toString(), "--rebuild", "--as-of", "2026-10-01T00:00:00Z"));
+        assertEquals(0, cli.execute("verify", "--journal", journal.toString(), "--config", configDir.toString(),
+            "--as-of", "2026-10-01T00:00:00Z"));
+    }
+
+    private static void config(Path configDir) throws Exception {
+        Files.writeString(configDir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+            """);
+        Files.writeString(configDir.resolve("users.yaml"), """
+            users:
+              - id: "ron"
+                name: "Ron"
+                active: true
+            """);
+        Files.writeString(configDir.resolve("categories.yaml"), """
+            categories: [GROCERIES]
+            rules:
+              - category: GROCERIES
+                when:
+                  match: "COLES"
+            """);
+        Files.writeString(configDir.resolve("transfers.yaml"), """
+            windowDays: 4
+            allowlist:
+              - 'Transfer'
+            """);
+    }
+
+    @Test
     void indexAndVerifyRunFromTheOneMain(@TempDir Path dir) throws Exception {
         Path configDir = dir.resolve("config");
         Files.createDirectories(configDir);
