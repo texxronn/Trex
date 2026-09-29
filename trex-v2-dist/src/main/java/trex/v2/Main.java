@@ -23,6 +23,8 @@ import java.util.concurrent.Callable;
     mixinStandardHelpOptions = true,
     version = "trex-v2 0.1.0-SNAPSHOT",
     description = "The v2 ledger: one artifact, one role per subcommand.",
+    // 64 (EX_USAGE) is the documented contract; picocli would use 2.
+    exitCodeOnInvalidInput = 64,
     subcommands = {
         SequencerCommand.class,
         HubCommand.class,
@@ -39,7 +41,19 @@ public final class Main implements Callable<Integer> {
     public Main() {}
 
     public static void main(String[] args) {
-        System.exit(new CommandLine(new Main()).execute(args));
+        System.exit(commandLine().execute(args));
+    }
+
+    /** The one CLI, with the usage exit code (64, EX_USAGE) applied to every nested command. */
+    public static CommandLine commandLine() {
+        CommandLine cli = new CommandLine(new Main());
+        applyUsageExitCode(cli);
+        return cli;
+    }
+
+    private static void applyUsageExitCode(CommandLine cli) {
+        cli.getCommandSpec().exitCodeOnInvalidInput(64);
+        cli.getSubcommands().values().forEach(Main::applyUsageExitCode);
     }
 
     @Override

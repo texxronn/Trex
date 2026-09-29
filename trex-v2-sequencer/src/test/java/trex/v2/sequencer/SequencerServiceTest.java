@@ -162,6 +162,32 @@ class SequencerServiceTest {
         }
     }
 
+    @Test
+    void rejectsUnsupportedEncodingAndUnknownPaths(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (SequencerService service = SequencerService.start(journal, configDir, "127.0.0.1", 0,
+                Clock.systemUTC())) {
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + service.port());
+
+            HttpResponse<byte[]> unsupported = client.send(HttpRequest.newBuilder(base.resolve("/facts"))
+                .header("Content-Encoding", "br")
+                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofByteArray());
+            assertEquals(415, unsupported.statusCode());
+
+            HttpResponse<byte[]> unknown = client.send(HttpRequest.newBuilder(base.resolve("/head/extra"))
+                .GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+            assertEquals(404, unknown.statusCode());
+
+            HttpResponse<byte[]> wrongMethod = client.send(HttpRequest.newBuilder(base.resolve("/facts"))
+                .GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+            assertEquals(405, wrongMethod.statusCode());
+        }
+    }
+
     private static HttpResponse<byte[]> postGzip(HttpClient client, URI uri, Object body) throws Exception {
         byte[] json = Json.mapper().writeValueAsBytes(body);
         ByteArrayOutputStream out = new ByteArrayOutputStream();

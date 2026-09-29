@@ -198,8 +198,10 @@ public final class Sequencer implements AutoCloseable {
 
     public synchronized BatchResponse submitDecisions(DecisionBatch batch) {
         List<DecisionDraft> drafts = batch.decisions() == null ? List.of() : batch.decisions();
+        boolean allOrNone = Boolean.TRUE.equals(batch.allOrNone());
         List<RowResult> results = new ArrayList<>();
         List<Decision> toAppend = new ArrayList<>();
+        String[] errors = new String[drafts.size()];
         long next = state.headN;
         boolean anyRejected = false;
         for (int i = 0; i < drafts.size(); i++) {
@@ -210,9 +212,20 @@ public final class Sequencer implements AutoCloseable {
                 next++;
                 results.add(new RowResult(ref(i, d), RowResult.RESOLVED, null, decision.n(), null));
             } catch (IllegalArgumentException e) {
+                errors[i] = e.getMessage();
                 anyRejected = true;
                 results.add(new RowResult(ref(i, d), RowResult.REJECTED, null, null, e.getMessage()));
             }
+        }
+        if (allOrNone && anyRejected) {
+            results.clear();
+            for (int i = 0; i < drafts.size(); i++) {
+                results.add(errors[i] != null
+                    ? rejected(ref(i, drafts.get(i)), errors[i])
+                    : new RowResult(ref(i, drafts.get(i)), RowResult.REJECTED, null, null,
+                        "batch rejected (allOrNone)"));
+            }
+            return new BatchResponse(handle(), BatchResponse.REJECTED, results);
         }
         if (!toAppend.isEmpty()) {
             journal.appendBatch(new ArrayList<>(toAppend));

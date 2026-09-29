@@ -27,12 +27,18 @@ class DistCliTest {
 
     @Test
     void listsEverySubcommand() {
-        CommandLine cli = new CommandLine(new Main());
+        CommandLine cli = Main.commandLine();
         assertTrue(cli.getSubcommands().keySet().containsAll(
             List.of("sequencer", "hub", "index", "ingest", "egress", "reflow", "verify", "export", "import")),
             "every role is a subcommand: " + cli.getSubcommands().keySet());
         assertTrue(cli.getSubcommands().get("egress").getSubcommands().keySet().containsAll(
             List.of("archive", "firefly")));
+    }
+
+    @Test
+    void usageErrorExits64() {
+        // v1's documented contract: 64 (EX_USAGE) on bad usage, not picocli's default 2.
+        assertEquals(64, Main.commandLine().execute("sequencer"));
     }
 
     @Test

@@ -48,4 +48,13 @@ class ConfigLoaderTest {
         assertEquals(ConfigLoader.load(configDir()).config().configRevision(),
             ConfigLoader.load(configDir()).config().configRevision());
     }
+
+    @Test
+    void loadsTheSequencerFile() {
+        ConfigLoader.ServerConfig server = ConfigLoader.loadSequencer(configDir());
+        assertEquals("127.0.0.1", server.host());
+        assertEquals(8080, server.port());
+        assertTrue(server.journalSource().isAbsolute());
+        assertTrue(server.journalTarget().isAbsolute());
+    }
 }

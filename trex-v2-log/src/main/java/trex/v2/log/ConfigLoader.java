@@ -136,4 +136,30 @@ public final class ConfigLoader {
 
     public record TransfersFile(int windowDays, List<String> allowlist, Integer dupTolerance,
                                Integer amountTolerance, Integer holdWindowDays, Double restatementOverlap) {}
+
+    // ---- the sequencer service file (v1's sequencer.yaml) -----------------------------------
+
+    /** Bind host/port and the journal paths, resolved against the config directory. */
+    public record ServerConfig(String host, int port, Path journalSource, Path journalTarget) {}
+
+    record SequencerFile(String bindHost, Integer bindPort, JournalPaths journal) {}
+    record JournalPaths(String source, String target) {}
+
+    /**
+     * Read {@code sequencer.yaml}. Relative journal paths resolve against the config directory
+     * (v1's rule); an unknown or duplicated key is a startup error. Absent host/port default to
+     * loopback:8080.
+     */
+    public static ServerConfig loadSequencer(Path configDir) {
+        Path file = configDir.resolve("sequencer.yaml");
+        SequencerFile parsed = Yaml.read(file, SequencerFile.class);
+        if (parsed.journal() == null || parsed.journal().source() == null || parsed.journal().target() == null) {
+            throw new IllegalArgumentException(file.getFileName() + ": 'journal' needs both 'source' and 'target'");
+        }
+        String host = parsed.bindHost() == null || parsed.bindHost().isBlank() ? "127.0.0.1" : parsed.bindHost();
+        int port = parsed.bindPort() == null ? 8080 : parsed.bindPort();
+        return new ServerConfig(host, port,
+            configDir.resolve(parsed.journal().source()),
+            configDir.resolve(parsed.journal().target()));
+    }
 }

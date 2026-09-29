@@ -257,4 +257,19 @@ class SequencerTest {
             assertEquals(RowResult.RESOLVED, resp.results().getFirst().outcome());
         }
     }
+
+    @Test
+    void decisionAllOrNoneWritesNothingWhenAnyRowIsBad(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            String id = s.submitFacts(new FactBatch(false,
+                List.of(draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"))))
+                .results().getFirst().externalId();
+            long head = s.headN();
+            BatchResponse resp = s.submitDecisions(new DecisionBatch(true, List.of(
+                new D("MARK_EXTERNAL", "user").user("ron").at(AT).externalId(id).build(),
+                new D("REVOKE", "user").user("ron").at(AT).target(999L).build())));
+            assertEquals(BatchResponse.REJECTED, resp.batchStatus());
+            assertEquals(head, s.headN(), "allOrNone decisions append nothing");
+        }
+    }
 }
