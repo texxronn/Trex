@@ -5,19 +5,17 @@ import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.v2.hub.api.ErrorResponse;
-import trex.v2.hub.api.HeadResponse;
-import trex.v2.hub.api.StatusResponse;
 import trex.v2.log.Json;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.function.Supplier;
 
 /**
- * The hub's read API (V2-PROPOSAL.md §7.4, §10). For now it serves the status strip and the head;
- * the blotter routes land next. Handlers run on virtual threads and read through the pool.
+ * The hub's read API (V2-PROPOSAL.md §7.4, §10). Handlers run on virtual threads and read through
+ * the pool, so every client sees one instant of the journal.
  */
 final class HubHttpApi {
 
@@ -25,11 +23,24 @@ final class HubHttpApi {
 
     private HubHttpApi() {}
 
-    static HttpServer start(String host, int port, Supplier<HeadResponse> head, Supplier<StatusResponse> status)
-            throws IOException {
+    static HttpServer start(String host, int port, HubApi api) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
-        route(server, "/head", "GET", ex -> write(ex, 200, head.get()));
-        route(server, "/api/status", "GET", ex -> write(ex, 200, status.get()));
+        route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
+        route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
+        route(server, "/api/refdata", "GET", ex -> write(ex, 200, api.refdata()));
+        route(server, "/api/ledger", "GET", ex -> {
+            try {
+                write(ex, 200, api.ledger(BlotterQuery.parse(ex.getRequestURI().getQuery())));
+            } catch (IllegalArgumentException e) {
+                sendError(ex, 400, e.getMessage());
+            }
+        });
+        route(server, "/api/review", "GET", ex -> {
+            String kind = param(ex.getRequestURI().getQuery(), "kind");
+            write(ex, 200, api.review(kind));
+        });
+        route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
+        route(server, "/api/units", "GET", ex -> write(ex, 200, api.units()));
         server.createContext("/", ex -> sendError(ex, 404, "not found"));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
@@ -58,6 +69,21 @@ final class HubHttpApi {
                 ex.close();
             }
         });
+    }
+
+    private static String param(String rawQuery, String key) {
+        if (rawQuery == null || rawQuery.isBlank()) {
+            return null;
+        }
+        for (String pair : rawQuery.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0 && pair.substring(0, eq).equals(key)) {
+                String value = java.net.URLDecoder.decode(pair.substring(eq + 1),
+                    java.nio.charset.StandardCharsets.UTF_8);
+                return value.isBlank() ? null : value;
+            }
+        }
+        return null;
     }
 
     private static void write(HttpExchange ex, int status, Object body) throws IOException {

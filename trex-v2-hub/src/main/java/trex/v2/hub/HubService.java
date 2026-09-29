@@ -3,9 +3,17 @@ package trex.v2.hub;
 import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trex.v2.core.config.Account;
 import trex.v2.core.config.DeriveConfig;
+import trex.v2.core.config.Registry;
+import trex.v2.core.config.User;
 import trex.v2.hub.api.HeadResponse;
+import trex.v2.hub.api.LedgerPage;
+import trex.v2.hub.api.RefdataResponse;
+import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
+import trex.v2.hub.api.TransferJson;
+import trex.v2.hub.api.UnitJson;
 import trex.v2.index.IndexLock;
 import trex.v2.index.Indexer;
 import trex.v2.log.ConfigLoader;
@@ -13,6 +21,7 @@ import trex.v2.log.ConfigLoader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -23,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Restart is safe: it catches up from the persisted offset. A missing, corrupt or
  * schema-mismatched index is rebuilt rather than repaired.
  */
-public final class HubService implements AutoCloseable {
+public final class HubService implements HubApi, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(HubService.class);
 
@@ -56,7 +65,7 @@ public final class HubService implements AutoCloseable {
             refresher = new IndexRefresher(config.journal(), config.configDir(), indexer,
                 loaded.config(), config.refreshDebounceMs());
             HubService service = new HubService(config, lock, indexer, reads, refresher);
-            service.server = HubHttpApi.start(config.host(), config.port(), service::head, service::status);
+            service.server = HubHttpApi.start(config.host(), config.port(), service);
             log.info("trex hub listening on {}:{}; journal {}; index {}",
                 config.host(), service.server.getAddress().getPort(), config.journal(), config.index());
             return service;
@@ -95,6 +104,7 @@ public final class HubService implements AutoCloseable {
         return new HeadResponse(reads.logHeadN(), offset, head, Math.max(0, head - offset));
     }
 
+    @Override
     public StatusResponse status() {
         DeriveConfig c = refresher.config();
         long head = journalSize();
@@ -102,6 +112,41 @@ public final class HubService implements AutoCloseable {
         return new StatusResponse(reads.logHeadN(), offset, head, Math.max(0, head - offset),
             reads.counts(), reads.reviewByKind(), c.configRevision(),
             DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION);
+    }
+
+    @Override
+    public RefdataResponse refdata() {
+        DeriveConfig c = refresher.config();
+        Registry registry = c.registry();
+        List<RefdataResponse.AccountJson> accounts = registry.accounts().values().stream()
+            .map(a -> new RefdataResponse.AccountJson(a.ref(), a.currency(), a.balanceSource().wire(),
+                a.settlementWindowDays()))
+            .toList();
+        List<RefdataResponse.UserJson> users = registry.users().values().stream()
+            .map(u -> new RefdataResponse.UserJson(u.id(), u.name(), u.active(), u.cadence()))
+            .toList();
+        return new RefdataResponse(accounts, users, c.categories().declared(), c.configRevision(),
+            DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION);
+    }
+
+    @Override
+    public LedgerPage ledger(BlotterQuery query) {
+        return reads.ledger(query);
+    }
+
+    @Override
+    public List<ReviewRow> review(String kind) {
+        return reads.review(kind);
+    }
+
+    @Override
+    public List<TransferJson> transfers() {
+        return reads.transfers();
+    }
+
+    @Override
+    public List<UnitJson> units() {
+        return reads.units();
     }
 
     private long journalSize() {
