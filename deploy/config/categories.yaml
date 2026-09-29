@@ -60,8 +60,26 @@ rules:
         - direction: out
         - match: "interest"
 
+  # School fees first, so a school's "fees" is never read as a bank charge. The school and the
+  # after-school care share a name but are different money — "COM*HolyFamilyCathol" against
+  # "Direct Debit … Holy Family OOSH" — so this sits above FEES and above CHILDCARE.
+  - category: SCHOOL_FEES
+    comment: "school fees and school-billed extras"
+    when:
+      all:
+        - direction: out
+        - match: "holyfamilycatho|school fees|tuition"
+
+  - category: "SCHOOL_FEES"
+    comment: "schools, university and student accommodation, plus book club and assessments"
+    when:
+      all:
+      - direction: "out"
+      - match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
+
   # What the bank charges you: account keeping, safe custody, overdraw, late payment, dishonour.
   # \bfees?\b on purpose — "COFFEE" contains "fee" and would otherwise be a bank charge.
+  # School fees are claimed above, so a school's "fees" never reaches here.
   # The `not` clause matters too: ING writes cash withdrawals with an "ATM owner fee of $0.00"
   # suffix, so the word appears on rows that are withdrawals, not fees.
   - category: FEES
@@ -82,9 +100,9 @@ rules:
         - direction: out
         - match: "statebankin|vfsglobal|home affairs|immi account"
 
-  # Cash out of an ATM. Before FEES, because ING suffixes these rows with "ATM owner fee of
-  # $0.00" — the row is a withdrawal that mentions a fee, not a fee. Honest at master level:
-  # once it is cash, the statement cannot say what it bought.
+  # Cash out of an ATM. FEES runs above but excludes the "ATM owner fee of $0.00" suffix ING
+  # writes on these rows, so a withdrawal that mentions a fee is not read as one. Honest at
+  # master level: once it is cash, the statement cannot say what it bought.
   - category: CASH_WITHDRAW
     comment: "cash out of an ATM — at master level the statement cannot say what it bought"
     when:
@@ -92,7 +110,7 @@ rules:
         - direction: out
         - match: "\\batm\\b|wdl atm|cash out|cash withdrawal"
 
-  # Before BILLS, which also matches the word "insurance"; these providers never write it.
+  # Insurance premiums, by provider name; some providers never write the word.
   - category: INSURANCE
     comment: "insurance premiums, by provider name"
     when:
@@ -154,15 +172,6 @@ rules:
       all:
         - direction: out
         - match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph"
-
-  # School fees, before CHILDCARE: the school and the after-school care share a name, and
-  # they are different money — "COM*HolyFamilyCathol" against "Direct Debit … Holy Family OOSH".
-  - category: SCHOOL_FEES
-    comment: "school fees and school-billed extras"
-    when:
-      all:
-        - direction: out
-        - match: "holyfamilycatho|school fees|tuition"
 
   - category: CHILDCARE
     comment: "childcare and after-school care"
@@ -280,13 +289,6 @@ rules:
       all:
       - direction: "out"
       - match: "tax store|smart tax advisors"
-
-  - category: "SCHOOL_FEES"
-    comment: "schools, university and student accommodation, plus book club and assessments"
-    when:
-      all:
-      - direction: "out"
-      - match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
 
   - category: "SPORT_AND_LEISURE"
     comment: "travel, outings and junior sport: flights, accommodation, ticketing, zoos,\

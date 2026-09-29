@@ -11,11 +11,12 @@
 # \brego\b vs GREGORY, \bATO\b vs GELATO), the excluded ATM owner fee, direction, and the
 # orderings where two rules would both match (COSTCO GAS vs WHOLESALE, AMAZON WEB SERVICES vs
 # AMAZON AU, UBER *TRIP vs UBER EATS, MORTGAGE INTEREST vs MORTGAGE REPAYMENT, INTEREST EARNED in
-# vs out, BREADTOP in FOOD(2) before GROCERIES(2), UDAYA RESTAURANT in DISCRETIONARY before
-# GROCERIES(2)). Descriptions are the raw bank text: match defaults to raw, verbatim.
+# vs out, SCHOOL FEES before FEES, BREADTOP in FOOD(2) before GROCERIES(2), UDAYA RESTAURANT in
+# DISCRETIONARY before GROCERIES(2)). Descriptions are the raw bank text: match defaults to raw,
+# verbatim.
 
 tests:
-  # --- SALARY (rule 1): in, salary/payroll/wages -------------------------------------------
+  # --- SALARY: in, salary/payroll/wages -------------------------------------------
   - description: "SALARY PAYROLL ACME PTY LTD"
     amount: 1000
     category: SALARY
@@ -26,7 +27,7 @@ tests:
     amount: -1000
     category: UNCATEGORIZED   # direction in; a salary-looking debit is not salary
 
-  # --- INTEREST_EARNED (rule 2) / INTEREST_PAID (rule 3) -----------------------------------
+  # --- INTEREST_EARNED / INTEREST_PAID -----------------------------------
   - description: "INTEREST EARNED"
     amount: 500
     category: INTEREST_EARNED
@@ -49,7 +50,7 @@ tests:
     amount: -90000
     category: INTEREST_PAID    # rule 3 wins before BILLS matches "mortgage"
 
-  # --- FEES (rule 4): \bfees?\b, but never an ATM owner fee ---------------------------------
+  # --- FEES: \bfees?\b, but never an ATM owner fee ---------------------------------
   - description: "MONTHLY FEES"
     amount: -500
     category: FEES
@@ -66,7 +67,7 @@ tests:
     amount: -20000
     category: CASH_WITHDRAW    # the fee exclusion sends it to the withdrawal rule
 
-  # --- VISA_FEES (rule 5): never the bare word "visa" --------------------------------------
+  # --- VISA_FEES: never the bare word "visa" --------------------------------------
   - description: "HOLIDAY VISA VFSGLOBAL"
     amount: -3000
     category: VISA_FEES
@@ -80,7 +81,7 @@ tests:
     amount: -1500
     category: GROCERIES         # a card row saying Visa is not a visa fee
 
-  # --- CASH_WITHDRAW (rule 6) --------------------------------------------------------------
+  # --- CASH_WITHDRAW --------------------------------------------------------------
   - description: "ATM WDL 123 SMITH ST"
     amount: -20000
     category: CASH_WITHDRAW
@@ -91,7 +92,7 @@ tests:
     amount: -5000
     category: CASH_WITHDRAW
 
-  # --- INSURANCE (rule 7) ------------------------------------------------------------------
+  # --- INSURANCE ------------------------------------------------------------------
   - description: "NRMA INSURANCE"
     amount: -8000
     category: INSURANCE
@@ -102,7 +103,7 @@ tests:
     amount: -4500
     category: INSURANCE
 
-  # --- SUBSCRIPTIONS (rule 8) --------------------------------------------------------------
+  # --- SUBSCRIPTIONS --------------------------------------------------------------
   - description: "NETFLIX.COM"
     amount: -2000
     category: SUBSCRIPTIONS
@@ -119,7 +120,7 @@ tests:
     amount: -1200
     category: SUBSCRIPTIONS
 
-  # --- TRANSPORT (rule 9) ------------------------------------------------------------------
+  # --- TRANSPORT ------------------------------------------------------------------
   - description: "TFNSW OPAL"
     amount: -500
     category: TRANSPORT
@@ -133,7 +134,7 @@ tests:
     amount: -3000
     category: FOOD              # only UBER *TRIP is transport
 
-  # --- FUEL (rule 10) ----------------------------------------------------------------------
+  # --- FUEL ----------------------------------------------------------------------
   - description: "AMPOL FOODARY"
     amount: -5000
     category: FUEL
@@ -153,7 +154,7 @@ tests:
     amount: -1000
     category: UNCATEGORIZED     # a suburb, not the petrol brand; \bshell\b must not fire
 
-  # --- VEHICLE (rule 11) -------------------------------------------------------------------
+  # --- VEHICLE -------------------------------------------------------------------
   - description: "BLUEGUM AUTO CARE"
     amount: -12000
     category: VEHICLE
@@ -167,7 +168,7 @@ tests:
     amount: -1000
     category: UNCATEGORIZED     # "rego" inside Gregory; \brego\b must not fire
 
-  # --- GROCERIES (rule 12): no direction, so a refund is still groceries --------------------
+  # --- GROCERIES: no direction, so a refund is still groceries --------------------
   - description: "WOOLWORTHS 1234"
     amount: -1000
     category: GROCERIES
@@ -181,7 +182,7 @@ tests:
     amount: 500
     category: GROCERIES         # the rule is direction-blind
 
-  # --- FOOD (rule 13) ----------------------------------------------------------------------
+  # --- FOOD ----------------------------------------------------------------------
   - description: "PICCOLO ME"
     amount: -800
     category: FOOD
@@ -192,11 +193,17 @@ tests:
     amount: -1500
     category: FOOD
 
-  # --- SCHOOL_FEES (rule 14) before CHILDCARE (rule 15) ------------------------------------
+  # --- SCHOOL_FEES before FEES and CHILDCARE ------------------------------------------------
   - description: "COM*HOLYFAMILYCATHO"
     amount: -30000
     category: SCHOOL_FEES
+  - description: "SCHOOL FEES TERM 1"
+    amount: -25000
+    category: SCHOOL_FEES    # not FEES: the school's fees are claimed above the bank-charge rule
   - description: "TUITION PAYMENT"
+    amount: -25000
+    category: SCHOOL_FEES
+  - description: "TUITION FEE"
     amount: -25000
     category: SCHOOL_FEES
   - description: "DIRECT DEBIT HOLY FAMILY OOSH"
@@ -206,7 +213,7 @@ tests:
     amount: -5000
     category: CHILDCARE
 
-  # --- HEALTH_SUPPLIES (rule 16) / HEALTH (rule 17) ----------------------------------------
+  # --- HEALTH_SUPPLIES / HEALTH ----------------------------------------
   - description: "CHEMIST WAREHOUSE"
     amount: -2000
     category: HEALTH_SUPPLIES
@@ -223,7 +230,7 @@ tests:
     amount: -1000
     category: HEALTH
 
-  # --- SPORT_AND_LEISURE (rule 18) ---------------------------------------------------------
+  # --- SPORT_AND_LEISURE ---------------------------------------------------------
   - description: "YMCA SYDNEY"
     amount: -2000
     category: SPORT_AND_LEISURE
@@ -234,7 +241,7 @@ tests:
     amount: -2500
     category: SPORT_AND_LEISURE
 
-  # --- HOME_IMPROVEMENT (rule 19) ----------------------------------------------------------
+  # --- HOME_IMPROVEMENT ----------------------------------------------------------
   - description: "BUNNINGS WAREHOUSE 812"
     amount: -5000
     category: HOME_IMPROVEMENT
@@ -242,7 +249,7 @@ tests:
     amount: -3000
     category: HOME_IMPROVEMENT
 
-  # --- SHOPPING (rule 20) ------------------------------------------------------------------
+  # --- SHOPPING ------------------------------------------------------------------
   - description: "KMART 123"
     amount: -2000
     category: SHOPPING
@@ -262,7 +269,7 @@ tests:
     amount: -1000
     category: HEALTH_SUPPLIES   # "target [0-9]" needs the store number
 
-  # --- BILLS (rule 21): no direction -------------------------------------------------------
+  # --- BILLS: no direction -------------------------------------------------------
   - description: "AGL SALES"
     amount: -8000
     category: BILLS
@@ -279,7 +286,7 @@ tests:
     amount: 200
     category: BILLS             # the rule is direction-blind
 
-  # --- TAXES (rule 22): no direction, \bATO\b bounded --------------------------------------
+  # --- TAXES: no direction, \bATO\b bounded --------------------------------------
   - description: "ATO PAYMENT"
     amount: -10000
     category: TAXES
@@ -293,7 +300,7 @@ tests:
     amount: -500
     category: UNCATEGORIZED     # "ATO" inside GELATO; \bATO\b must not fire
 
-  # --- SAVINGS (rule 23) -------------------------------------------------------------------
+  # --- SAVINGS -------------------------------------------------------------------
   - description: "VANGUARD INVESTMENTS"
     amount: -50000
     category: SAVINGS
@@ -304,7 +311,7 @@ tests:
     amount: -30000
     category: SAVINGS
 
-  # --- DISCRETIONARY (rule 24) -------------------------------------------------------------
+  # --- DISCRETIONARY -------------------------------------------------------------
   - description: "ROYAL PUB SYDNEY"
     amount: -4000
     category: DISCRETIONARY
@@ -324,7 +331,7 @@ tests:
     amount: -5000
     category: DISCRETIONARY   # rule 24 beats GROCERIES(2)'s "udaya"
 
-  # --- FOOD (rule 25) before GROCERIES (rule 26) -------------------------------------------
+  # --- FOOD before GROCERIES -------------------------------------------
   - description: "DOMINOS PIZZA"
     amount: -2000
     category: FOOD
@@ -347,7 +354,7 @@ tests:
     amount: -1200
     category: GROCERIES
 
-  # --- SUBSCRIPTIONS (rule 27) -------------------------------------------------------------
+  # --- SUBSCRIPTIONS -------------------------------------------------------------
   - description: "UDEMY COURSE"
     amount: -2000
     category: SUBSCRIPTIONS
@@ -361,7 +368,7 @@ tests:
     amount: -500
     category: SHOPPING          # eBay AU is retail, eBay Plus is the membership
 
-  # --- VEHICLE (rule 28) -------------------------------------------------------------------
+  # --- VEHICLE -------------------------------------------------------------------
   - description: "SERVICE NSW"
     amount: -5000
     category: VEHICLE
@@ -372,7 +379,7 @@ tests:
     amount: -1000
     category: VEHICLE
 
-  # --- TAXES (rule 29) ---------------------------------------------------------------------
+  # --- TAXES ---------------------------------------------------------------------
   - description: "TAX STORE"
     amount: -3000
     category: TAXES
@@ -380,10 +387,10 @@ tests:
     amount: -2000
     category: TAXES
 
-  # --- SCHOOL_FEES (rule 30) ---------------------------------------------------------------
-  - description: "UNSW ENROLMENT"
+  # --- SCHOOL_FEES, second block (providers, university) -----------------------------------
+  - description: "UNSW FEES"
     amount: -15000
-    category: SCHOOL_FEES
+    category: SCHOOL_FEES    # not FEES
   - description: "SCHOLASTIC BOOK CLUB"
     amount: -800
     category: SCHOOL_FEES
@@ -391,7 +398,7 @@ tests:
     amount: -12000
     category: SCHOOL_FEES
 
-  # --- SPORT_AND_LEISURE (rule 31) ---------------------------------------------------------
+  # --- SPORT_AND_LEISURE ---------------------------------------------------------
   - description: "BOOKING.COM"
     amount: -20000
     category: SPORT_AND_LEISURE
@@ -405,7 +412,7 @@ tests:
     amount: -5000
     category: SPORT_AND_LEISURE
 
-  # --- SHOPPING (rule 32) ------------------------------------------------------------------
+  # --- SHOPPING ------------------------------------------------------------------
   - description: "JB HI-FI"
     amount: -20000
     category: SHOPPING
@@ -419,7 +426,7 @@ tests:
     amount: -1500
     category: SHOPPING
 
-  # --- BILLS (rule 33) ---------------------------------------------------------------------
+  # --- BILLS ---------------------------------------------------------------------
   - description: "AGLENERGY PTY"
     amount: -9000
     category: BILLS
@@ -430,7 +437,7 @@ tests:
     amount: -7000
     category: BILLS
 
-  # --- HEALTH (rule 34) --------------------------------------------------------------------
+  # --- HEALTH --------------------------------------------------------------------
   - description: "NSWH PAYMENT"
     amount: -5000
     category: HEALTH
@@ -442,15 +449,3 @@ tests:
   - description: "ZZQX UNKNOWN VENDOR"
     amount: -100
     category: UNCATEGORIZED
-
-  # --- known rule collisions, pinned as-is -------------------------------------------------
-  # categories.yaml is the tuned contract (plan §1.2); these pin what it actually does, and they
-  # are the feedback loop if the rules are ever narrowed. Both are rules findings, not code
-  # defects: v2 executes the file exactly. FEES (\bfees?\b, rule 4) fires before SCHOOL_FEES
-  # (rules 14/30), so a description whose "fees" belongs to a school still lands in FEES.
-  - description: "SCHOOL FEES TERM 1"
-    amount: -25000
-    category: FEES
-  - description: "TUITION FEE"
-    amount: -25000
-    category: FEES
