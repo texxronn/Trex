@@ -38,6 +38,11 @@ final class Sql {
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
         "category_current", "pin_current", "ineffective_decision", "unit");
 
+    /** Mirror and derived tables, for counts and verification. */
+    static final List<String> ALL_TABLES = List.of(
+        "fact", "decision", "supersession", "chain_resolved", "txn_current", "transfer", "pending",
+        "review_item", "category_current", "pin_current", "ineffective_decision", "unit");
+
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
     static final String INSERT_CHAIN_RESOLVED = "INSERT INTO chain_resolved(id, current_id) VALUES(?,?)";

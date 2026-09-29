@@ -391,6 +391,21 @@ public final class Indexer implements AutoCloseable {
 
     // ---- verification support ---------------------------------------------------------------
 
+    /** Row counts for the status strip (V2-PROPOSAL.md §14). */
+    public synchronized java.util.Map<String, Long> counts() {
+        java.util.Map<String, Long> out = new java.util.LinkedHashMap<>();
+        try (Statement st = conn.createStatement()) {
+            for (String table : Sql.ALL_TABLES) {
+                try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + table)) {
+                    out.put(table, rs.next() ? rs.getLong(1) : 0L);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IndexException("cannot count the index", e);
+        }
+        return out;
+    }
+
     /**
      * A hash of every derived table's rows, sorted, for the rebuild-equivalence test (§15.3) and
      * {@code trex verify}. Two indexes that derive the same answer share a fingerprint.
