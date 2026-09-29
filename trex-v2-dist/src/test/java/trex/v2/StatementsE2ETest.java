@@ -21,6 +21,7 @@ import trex.v2.log.ConfigLoader;
 import trex.v2.log.EvidenceStore;
 import trex.v2.log.FramedReader;
 import trex.v2.log.Yaml;
+import trex.v2.core.workbook.Workbook;
 import trex.v2.sequencer.SequencerService;
 
 import java.io.OutputStream;
@@ -207,6 +208,45 @@ class StatementsE2ETest {
         long uncategorised = d.categories().stream()
             .filter(c -> "UNCATEGORIZED".equals(c.category())).count();
         line(out, "  uncategorised: %d of %d", uncategorised, d.categories().size());
+
+        // The P2 loop (V2-PROPOSAL.md §10.4): what the rules do on real history, and where they stop.
+        Workbook.Report wb = Workbook.of(loaded.config(), d);
+        line(out, "-- coverage --");
+        line(out, "  total=%d rule=%d pin=%d structural=%d uncategorised=%d",
+            wb.coverage().total(), wb.coverage().categorized(), wb.coverage().pinned(),
+            wb.coverage().structural(), wb.coverage().uncategorized());
+        if (!wb.findings().isEmpty()) {
+            line(out, "  rule lint:");
+            wb.findings().forEach(f -> line(out, "    %-20s %-14s %s", f.kind(), f.subject(), f.detail()));
+        }
+
+        Map<String, String> raw = new java.util.HashMap<>();
+        for (CurrentFact c : d.current()) {
+            raw.put(c.externalId(), c.fact().rawDescription());
+        }
+        List<Workbook.Suggestion> uncat = wb.suggestions().stream()
+            .filter(s -> s.source() == Workbook.SuggestionSource.UNCATEGORISED)
+            .limit(50).toList();
+        long clusters = wb.suggestions().stream()
+            .filter(s -> s.source() == Workbook.SuggestionSource.UNCATEGORISED).count();
+        line(out, "  uncategorised clusters (top %d of %d by rows):", uncat.size(), clusters);
+        for (Workbook.Suggestion s : uncat) {
+            line(out, "    %-38s %4d rows  %12s  %s..%s  %s",
+                s.stem(), s.occurrences(), money(s.total()), s.firstSeen(), s.lastSeen(), s.accounts());
+            s.sampleIds().stream().limit(3).forEach(id -> line(out, "        %s", raw.getOrDefault(id, id)));
+        }
+        List<Workbook.Suggestion> promotions = wb.suggestions().stream()
+            .filter(s -> s.source() == Workbook.SuggestionSource.PIN).toList();
+        if (!promotions.isEmpty()) {
+            line(out, "  pin promotions (>= %d pins -> a rule):", Workbook.PROMOTION_THRESHOLD);
+            promotions.forEach(s -> line(out, "    %-38s %4d pins  -> %s",
+                s.stem(), s.occurrences(), s.category()));
+        }
+    }
+
+    private static String money(long cents) {
+        return String.format(java.util.Locale.ROOT, "%s%d.%02d", cents < 0 ? "-" : "",
+            Math.abs(cents) / 100, Math.abs(cents) % 100);
     }
 
     private static List<Fact> currentFacts(Derivation d) {
