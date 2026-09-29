@@ -68,6 +68,8 @@ public final class Derive {
         Map<String, String> transferIdByLeg = new HashMap<>();
         List<TransferRow> transfers = List.of();
         List<ReviewItem> pairingReview = new ArrayList<>();
+        List<ReviewItem> pendingReview = new ArrayList<>();
+        List<PendingRow> pending = List.of();
 
         Ctx(List<Fact> facts, List<Decision> decisions, DeriveConfig config, Instant asOf) {
             this.facts = facts.stream().sorted(Comparator.comparingLong(Fact::n)).toList();
@@ -94,6 +96,7 @@ public final class Derive {
                     .thenComparingLong(c -> c.fact().n()))
                 .toList();
 
+            pending = pendingSettlement();
             List<ReviewItem> review = reviewItems();
             List<Unit> units = units();
             ineffective.sort(Comparator.comparingLong(IneffectiveDecision::decisionN)
@@ -104,7 +107,7 @@ public final class Derive {
                 new ArrayList<>(supersession.values()),
                 current,
                 transfers,
-                List.of(),
+                pending,
                 new ArrayList<>(categories.values()),
                 pins(),
                 review,
@@ -636,10 +639,94 @@ public final class Derive {
                 row.ruleId());
         }
 
+        // ---- P8: pending settlement and staleness (V2-PROPOSAL.md §9.9.D) --------------------
+
+        /**
+         * Settlement is resolved before pairing, because a pending authorisation is not yet
+         * matchable. A pending row shares its account, currency and merchant stem with the row
+         * that settles it, its date is within the account's settlement window, and — per §12.3 and
+         * the adapters' normalised sign — the amount is the <em>same</em> signed figure.
+         */
+        private List<PendingRow> pendingSettlement() {
+            Map<String, String> forced = new TreeMap<>();
+            for (Decision d : effective) {
+                if (d instanceof Decision.Settle s) {
+                    String pid = resolve(s.pendingId());
+                    String qid = resolve(s.postedId());
+                    if (pid == null || qid == null) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "SETTLE names an unknown id (" + s.pendingId() + " -> " + s.postedId() + ")"));
+                    } else {
+                        forced.put(pid, qid);
+                    }
+                }
+            }
+            Set<String> currentIds = new HashSet<>();
+            Map<String, java.time.LocalDate> frontier = new TreeMap<>();
+            for (CurrentFact c : current) {
+                currentIds.add(c.externalId());
+                frontier.merge(c.fact().accountRef(), c.fact().date(),
+                    (a, b) -> a.isAfter(b) ? a : b);
+            }
+
+            List<PendingRow> out = new ArrayList<>();
+            for (String id : new TreeSet<>(factsById.keySet())) {
+                if (supersession.containsKey(id)) {
+                    continue;
+                }
+                Fact f = latestById.get(id);
+                if (f.observation() != Observation.PENDING) {
+                    continue;
+                }
+                int window = config.registry().account(f.accountRef()).settlementWindowDays();
+                String currency = config.registry().account(f.accountRef()).currency();
+                List<String> candidates = new ArrayList<>();
+                for (CurrentFact c : current) {
+                    Fact g = c.fact();
+                    if (!g.accountRef().equals(f.accountRef())
+                        || g.date().isBefore(f.date())
+                        || ChronoUnit.DAYS.between(f.date(), g.date()) > window
+                        || oppositeSign(f.amount(), g.amount())
+                        || Math.abs(g.amount() - f.amount()) > config.transfers().amountTolerance()
+                        || !config.registry().account(g.accountRef()).currency().equals(currency)
+                        || !MerchantStem.similar(f.rawDescription(), g.rawDescription(),
+                            config.transfers().restatementOverlap())) {
+                        continue;
+                    }
+                    candidates.add(g.externalId());
+                }
+                Collections.sort(candidates);
+
+                String force = forced.get(id);
+                if (force != null && currentIds.contains(force)) {
+                    out.add(new PendingRow(f, force, PendingState.SETTLED));
+                } else if (candidates.size() == 1) {
+                    out.add(new PendingRow(f, candidates.getFirst(), PendingState.SETTLED));
+                } else if (candidates.size() > 1) {
+                    out.add(new PendingRow(f, null, PendingState.OPEN));
+                    pendingReview.add(new ReviewItem(id, ReviewItem.AMBIGUOUS_SETTLEMENT,
+                        String.join(",", candidates), Math.abs(f.amount()), f.ingestedAt(),
+                        Hashes.sha256(ReviewItem.AMBIGUOUS_SETTLEMENT + "|" + id + "|" + String.join(",", candidates))));
+                } else {
+                    java.time.LocalDate newest = frontier.get(f.accountRef());
+                    if (newest != null && ChronoUnit.DAYS.between(f.date(), newest) > window) {
+                        out.add(new PendingRow(f, null, PendingState.STALE));
+                        pendingReview.add(new ReviewItem(id, ReviewItem.STALE_PENDING,
+                            f.accountRef() + " " + f.date(), Math.abs(f.amount()), f.ingestedAt(),
+                            Hashes.sha256(ReviewItem.STALE_PENDING + "|" + id)));
+                    } else {
+                        out.add(new PendingRow(f, null, PendingState.OPEN));
+                    }
+                }
+            }
+            return out;
+        }
+
         // ---- P10: review items --------------------------------------------------------------
 
         private List<ReviewItem> reviewItems() {
             List<ReviewItem> items = new ArrayList<>(pairingReview);
+            items.addAll(pendingReview);
             Map<String, Long> newestFactBySubject = new TreeMap<>();
             for (Fact f : facts) {
                 String subject = resolve(f.externalId());
