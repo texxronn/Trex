@@ -226,7 +226,7 @@ class StatementsE2ETest {
         }
         List<Workbook.Suggestion> uncat = wb.suggestions().stream()
             .filter(s -> s.source() == Workbook.SuggestionSource.UNCATEGORISED)
-            .limit(50).toList();
+            .limit(Integer.getInteger("trex.tuning.limit", 50)).toList();
         long clusters = wb.suggestions().stream()
             .filter(s -> s.source() == Workbook.SuggestionSource.UNCATEGORISED).count();
         line(out, "  uncategorised clusters (top %d of %d by rows):", uncat.size(), clusters);

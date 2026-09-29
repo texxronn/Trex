@@ -449,3 +449,79 @@ tests:
   - description: "ZZQX UNKNOWN VENDOR"
     amount: -100
     category: UNCATEGORIZED
+
+  # --- additions from a real statement run ---------------------------------------------------
+  - description: "CAMDEN COUNCIL MALC      MOUNT ANNAN"
+    amount: -740
+    category: BILLS
+  - description: "CAMPBELLTOWN CITY COUN   CAMPBELLTOWN NS"
+    amount: -5850
+    category: BILLS
+  - description: "Direct Credit 421520 YIPOSE TRADING C Fortnight wage"
+    amount: 206240
+    category: SALARY
+  - description: "UBER   *TRIP     Sydney       AU"
+    amount: -830
+    category: TRANSPORT
+  - description: "TRANSLINK SMARTTICKET    QLD"
+    amount: -530
+    category: TRANSPORT
+  - description: "TRANSPORTFORNSW TAP      SYDNEY"
+    amount: -410
+    category: TRANSPORT
+  - description: "EG GROUP        1480     NARELLAN     NS"
+    amount: -375
+    category: FUEL
+  - description: "CWH EMERALD HILLS        LEPPINGTON   NS"
+    amount: -9594
+    category: HEALTH_SUPPLIES
+  - description: "PAYPAL *SUPERCHEAP       4029357733   AU"
+    amount: -3299
+    category: VEHICLE
+  - description: "OFFICEWORKS 0275         CASULA       02"
+    amount: -4150
+    category: SHOPPING
+  - description: "TK MAXX CAMPBELLTOWN     CAMPBELLTOWN"
+    amount: -5393
+    category: SHOPPING
+  - description: "H&M Campbelltown AU003   Narellan     NS"
+    amount: -2599
+    category: SHOPPING
+  - description: "PAYPAL *TEMU COM         4029357733   AU"
+    amount: -3345
+    category: SHOPPING
+  - description: "MCDONALDS INGLEBURN      INGLEBURN    NS"
+    amount: -1490
+    category: FOOD
+  - description: "PAYPAL *KFC 544A4ACD-C   4029357733   AU"
+    amount: -4490
+    category: FOOD
+  - description: "GLORIA JEANS STRATHFIE   STRATHFIELD  NS"
+    amount: -1077
+    category: FOOD
+  - description: "SUSHIA SYDNEY INTL AI    Mascot       NS"
+    amount: -1200
+    category: FOOD
+  - description: "FLYSCOOT.Z68WNY          Singapore    SG"
+    amount: -5400
+    category: SPORT_AND_LEISURE
+
+  # --- refunds: a merchant-identity rule is direction-blind and claims the credit -----------
+  - description: "PAYPAL *MYERPTYLTD       0136937      AU"
+    amount: 5600
+    category: SHOPPING
+  - description: "PAYPAL *NRMA             0286617307   AU"
+    amount: 6180
+    category: INSURANCE
+  - description: "BUNNINGS 402000          CASULA"
+    amount: 10000
+    category: HOME_IMPROVEMENT
+  - description: "Return 30/07/26 Direct Debit 518466 Holy Family OOSH A00MV7PQ0EHC"
+    amount: 33760
+    category: CHILDCARE
+  - description: "CCS PAYMENT      000049203944 CCS  - Receipt 102428"
+    amount: 70067
+    category: CHILDCARE
+  - description: "THE WAGGA CLUB MOTEL     WAGGA WAGGA"
+    amount: 10000
+    category: SPORT_AND_LEISURE
