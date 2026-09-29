@@ -44,6 +44,12 @@ final class HubSql {
                observation, source_type, provenance, evidence_id, parser, ingested_at
         FROM txn_current ORDER BY n""";
 
+    static final String FACT_KNOWN = "SELECT 1 FROM chain_resolved WHERE id = ?";
+
+    static final String DECISION_KNOWN = "SELECT 1 FROM decision WHERE n = ?";
+
+    static final String LEG_OF = "SELECT leg FROM txn_current WHERE external_id = ?";
+
     static List<String> reviewKinds() {
         return List.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER", "AMBIGUOUS_SETTLEMENT",
             "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION");

@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.log.Json;
 
@@ -42,6 +43,15 @@ final class HubHttpApi {
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
         route(server, "/api/units", "GET", ex -> write(ex, 200, api.units()));
         route(server, "/api/reconcile", "GET", ex -> write(ex, 200, api.reconcile()));
+        route(server, "/api/decisions", "POST", ex -> {
+            try {
+                DecisionRequest request = Json.mapper().readValue(readBody(ex), DecisionRequest.class);
+                DecisionOutcome outcome = api.submitDecisions(request);
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
         server.createContext("/", ex -> sendError(ex, 404, "not found"));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
@@ -85,6 +95,14 @@ final class HubHttpApi {
             }
         }
         return null;
+    }
+
+    private static String readBody(HttpExchange ex) throws IOException {
+        byte[] bytes = ex.getRequestBody().readAllBytes();
+        if (bytes.length > 10 * 1024 * 1024) {
+            throw new IOException("request body too large");
+        }
+        return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private static void write(HttpExchange ex, int status, Object body) throws IOException {

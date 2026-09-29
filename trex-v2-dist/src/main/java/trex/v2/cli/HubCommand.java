@@ -31,10 +31,14 @@ public final class HubCommand implements Callable<Integer> {
     @Option(names = "--port", defaultValue = "8090", description = "Bind port.")
     int port;
 
+    @Option(names = "--sequencer-url",
+        description = "The only writer's base URL; without it the hub is read-only.")
+    String sequencerUrl;
+
     @Override
     public Integer call() throws Exception {
         HubConfig hubConfig = new HubConfig(journal, index, config, host, port,
-            HubConfig.DEFAULT_DEBOUNCE_MS);
+            HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl);
         HubService service = HubService.start(hubConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-hub-shutdown"));
         System.out.println("trex hub listening on " + host + ":" + service.port()

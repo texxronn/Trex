@@ -1,5 +1,6 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.ReconcileResponse;
@@ -29,4 +30,6 @@ interface HubApi {
     List<UnitJson> units();
 
     ReconcileResponse reconcile();
+
+    DecisionOutcome submitDecisions(DecisionRequest request);
 }

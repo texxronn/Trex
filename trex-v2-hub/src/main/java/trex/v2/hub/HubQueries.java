@@ -274,6 +274,47 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    // ---- existence checks (decision precheck) ----------------------------------------------
+
+    /** True when any fact id, superseded or not, resolves in the log. */
+    public boolean factKnown(String externalId) {
+        return exists(HubSql.FACT_KNOWN, externalId);
+    }
+
+    public boolean decisionKnown(long n) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.DECISION_KNOWN)) {
+                ps.setLong(1, n);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next();
+                }
+            }
+        });
+    }
+
+    /** The current leg state of an id, or null when it is not a current transaction. */
+    public String legOf(String externalId) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.LEG_OF)) {
+                ps.setString(1, externalId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getString(1) : null;
+                }
+            }
+        });
+    }
+
+    private boolean exists(String sql, String value) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, value);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next();
+                }
+            }
+        });
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
     private static int bind(PreparedStatement ps, List<Object> params) throws SQLException {

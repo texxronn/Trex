@@ -30,5 +30,12 @@
       <groupId>trex</groupId>
       <artifactId>trex-v2-index</artifactId>
     </dependency>
+    <!-- Type-only dependency: the writer's API DTOs (FactDraft/DecisionDraft/…) live in
+         trex-v2-sequencer, and the plan's graph gives no shared API module. The hub forwards
+         decisions to the sequencer over HTTP and never calls its classes to write the journal. -->
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-sequencer</artifactId>
+    </dependency>
   </dependencies>
 </project>
