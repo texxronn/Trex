@@ -13,6 +13,7 @@ import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.User;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.CategoryRow;
+import trex.v2.core.derive.Opening;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.Reconciliation;
 import trex.v2.core.derive.ReviewItem;
@@ -31,15 +32,19 @@ import trex.v2.log.Yaml;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
+import trex.v2.hub.api.OpeningResponse;
 import trex.v2.hub.api.PrecheckResponse;
+import trex.v2.hub.api.ProjectionRequest;
+import trex.v2.hub.api.ProjectionStateResponse;
 import trex.v2.hub.api.ReconcileResponse;
 import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
-import trex.v2.hub.api.UnitJson;
+import trex.v2.hub.api.UnitsResponse;
 import trex.v2.index.IndexLock;
 import trex.v2.index.Indexer;
+import trex.v2.index.ProjectionRow;
 import trex.v2.log.ConfigLoader;
 import trex.v2.sequencer.api.BatchResponse;
 import trex.v2.sequencer.api.DecisionBatch;
@@ -187,8 +192,31 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     @Override
-    public List<UnitJson> units() {
-        return reads.units();
+    public UnitsResponse units() {
+        DeriveConfig c = refresher.config();
+        return new UnitsResponse(reads.logHeadN(), c.configRevision(), DeriveConfig.DERIVE_VERSION,
+            DeriveConfig.HASH_VERSION, reads.projectionUnits());
+    }
+
+    @Override
+    public ProjectionStateResponse projection() {
+        return new ProjectionStateResponse(indexer.projection());
+    }
+
+    @Override
+    public DecisionOutcome putProjection(ProjectionRequest request) {
+        List<ProjectionRow> rows = request.rows() == null ? List.of() : request.rows();
+        if (Boolean.TRUE.equals(request.replace())) {
+            indexer.replaceProjection(rows);
+        } else {
+            indexer.upsertProjection(rows);
+        }
+        return new DecisionOutcome(200, Map.of("recorded", rows.size()));
+    }
+
+    @Override
+    public OpeningResponse opening() {
+        return new OpeningResponse(Opening.of(reads.currentFacts(), refresher.config().registry()));
     }
 
     @Override

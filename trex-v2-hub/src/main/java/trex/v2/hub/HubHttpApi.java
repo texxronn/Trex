@@ -50,7 +50,21 @@ final class HubHttpApi {
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
         route(server, "/api/units", "GET", ex -> write(ex, 200, api.units()));
         route(server, "/api/reconcile", "GET", ex -> write(ex, 200, api.reconcile()));
+        route(server, "/api/opening", "GET", ex -> write(ex, 200, api.opening()));
         route(server, "/api/workbook", "GET", ex -> write(ex, 200, api.workbook()));
+        Map<String, Handler> projection = new LinkedHashMap<>();
+        projection.put("GET", ex -> write(ex, 200, api.projection()));
+        projection.put("POST", ex -> {
+            try {
+                trex.v2.hub.api.ProjectionRequest request = Json.mapper().readValue(readBody(ex),
+                    trex.v2.hub.api.ProjectionRequest.class);
+                DecisionOutcome outcome = api.putProjection(request);
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
+        route(server, "/api/projection", projection);
         route(server, "/api/decisions", "POST", ex -> {
             try {
                 DecisionRequest request = Json.mapper().readValue(readBody(ex), DecisionRequest.class);

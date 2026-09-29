@@ -4,7 +4,7 @@ import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.LedgerRow;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.TransferJson;
-import trex.v2.hub.api.UnitJson;
+import trex.v2.hub.api.ProjectionUnit;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -232,17 +232,61 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
-    public List<UnitJson> units() {
+    /** Projectable units, enriched for the egress (V2-PROPOSAL.md §11.2, §11.6). */
+    public List<trex.v2.hub.api.ProjectionUnit> projectionUnits() {
         return read(conn -> {
-            List<UnitJson> rows = new ArrayList<>();
-            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.UNITS_SELECT)) {
+            Map<String, trex.v2.core.Fact> facts = new java.util.TreeMap<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.CURRENT_FACTS)) {
                 while (rs.next()) {
-                    rows.add(new UnitJson(rs.getString(1), rs.getString(2), rs.getString(3),
-                        LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getString(6), rs.getString(7),
-                        rs.getString(8), rs.getString(9), rs.getInt(10) != 0, rs.getInt(11) != 0));
+                    trex.v2.core.Fact fact = new trex.v2.core.Fact(
+                        rs.getLong(1), rs.getString(2), rs.getString(3), LocalDate.parse(rs.getString(4)),
+                        rs.getLong(5), rs.getLong(6), rs.getString(7), rs.getString(8), rs.getInt(9),
+                        trex.v2.core.Observation.fromWire(rs.getString(10)), rs.getString(11),
+                        trex.v2.core.Provenance.fromWire(rs.getString(12)), rs.getString(13), rs.getString(14),
+                        Instant.parse(rs.getString(15)));
+                    facts.put(fact.externalId(), fact);
                 }
             }
-            return rows;
+            Map<String, String[]> legs = new java.util.HashMap<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.TRANSFER_LEGS)) {
+                while (rs.next()) {
+                    legs.put(rs.getString(1), new String[] { rs.getString(2), rs.getString(3) });
+                }
+            }
+            List<trex.v2.hub.api.ProjectionUnit> out = new ArrayList<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.UNITS_SELECT)) {
+                while (rs.next()) {
+                    String unitId = rs.getString(1);
+                    String kind = rs.getString(2);
+                    String currency = rs.getString(6);
+                    if ("TRANSFER".equals(kind)) {
+                        String[] pair = legs.get(unitId);
+                        trex.v2.core.Fact from = pair == null ? null : facts.get(pair[0]);
+                        trex.v2.core.Fact to = pair == null ? null : facts.get(pair[1]);
+                        if (from == null || to == null) {
+                            continue;
+                        }
+                        out.add(new trex.v2.hub.api.ProjectionUnit(unitId, "TRANSFER",
+                            Math.max(from.n(), to.n()), from.accountRef(), to.accountRef(), from.date(),
+                            Math.abs(from.amount()), currency, "TRANSFER", "STRUCTURAL", "MATCHED",
+                            false, false, from.rawDescription(),
+                            unitHash(unitId, "TRANSFER", from.accountRef(), to.accountRef(), from.date(),
+                                Math.abs(from.amount()), currency, "TRANSFER")));
+                    } else {
+                        trex.v2.core.Fact fact = facts.get(unitId);
+                        if (fact == null) {
+                            continue;
+                        }
+                        out.add(new trex.v2.hub.api.ProjectionUnit(unitId, "EXTERNAL", fact.n(),
+                            fact.accountRef(), null, fact.date(), fact.amount(), currency, rs.getString(7),
+                            rs.getString(8), rs.getString(9), rs.getInt(10) != 0, rs.getInt(11) != 0,
+                            fact.rawDescription(),
+                            unitHash(unitId, "EXTERNAL", fact.accountRef(), null, fact.date(), fact.amount(),
+                                currency, rs.getString(7))));
+                    }
+                }
+            }
+            return out;
         });
     }
 
@@ -355,6 +399,15 @@ public final class HubQueries implements AutoCloseable {
             ps.setObject(index++, value);
         }
         return index;
+    }
+
+    /** The unit's projectable content, hashed so a content move (supersede, restatement) is visible. */
+    private static String unitHash(String unitId, String kind, String accountRef, String toAccountRef,
+                                   LocalDate date, long amount, String currency, String category) {
+        return trex.v2.core.Hashes.sha256(String.join("|", unitId, kind,
+            accountRef == null ? "" : accountRef, toAccountRef == null ? "" : toAccountRef,
+            date.toString(), Long.toString(amount), currency == null ? "" : currency,
+            category == null ? "" : category));
     }
 
     private long scalarLong(String sql, long fallback) {

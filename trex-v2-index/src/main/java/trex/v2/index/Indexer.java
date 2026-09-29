@@ -379,6 +379,70 @@ public final class Indexer implements AutoCloseable {
         }
     }
 
+    // ---- projection state (V2-PROPOSAL.md §11.6) --------------------------------------------
+
+    /** Every recorded projection-state row, for the egress's resume point. */
+    public synchronized List<ProjectionRow> projection() {
+        List<ProjectionRow> out = new ArrayList<>();
+        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(Sql.SELECT_PROJECTION)) {
+            while (rs.next()) {
+                out.add(new ProjectionRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                    rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8)));
+            }
+        } catch (SQLException e) {
+            throw new IndexException("cannot read projection_state", e);
+        }
+        return out;
+    }
+
+    /** Record what was written to Firefly as each write lands; a rerun resumes rather than repeats. */
+    public synchronized void upsertProjection(List<ProjectionRow> rows) {
+        try {
+            inTransaction(() -> {
+                try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_PROJECTION)) {
+                    for (ProjectionRow row : rows) {
+                        bindProjection(ps, row);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            });
+        } catch (SQLException e) {
+            throw new IndexException("cannot record projection_state", e);
+        }
+    }
+
+    /** Rebuild the accelerator from Firefly ({@code --verify}): the same path a deleted cache takes. */
+    public synchronized void replaceProjection(List<ProjectionRow> rows) {
+        try {
+            inTransaction(() -> {
+                try (Statement st = conn.createStatement()) {
+                    st.execute(Sql.DELETE_PROJECTION);
+                }
+                try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_PROJECTION)) {
+                    for (ProjectionRow row : rows) {
+                        bindProjection(ps, row);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            });
+        } catch (SQLException e) {
+            throw new IndexException("cannot replace projection_state", e);
+        }
+    }
+
+    private static void bindProjection(PreparedStatement ps, ProjectionRow row) throws SQLException {
+        ps.setString(1, row.unitId());
+        ps.setString(2, row.unitKind());
+        ps.setString(3, row.groupId());
+        ps.setString(4, row.category());
+        ps.setString(5, row.stateHash());
+        ps.setString(6, row.configRevision());
+        ps.setString(7, row.deriveVersion());
+        ps.setString(8, row.verifiedAt());
+    }
+
     // ---- mirror read ------------------------------------------------------------------------
 
     private List<Fact> readFacts() throws SQLException {

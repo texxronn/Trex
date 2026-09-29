@@ -7,11 +7,15 @@ import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.ReconcileResponse;
+import trex.v2.hub.api.OpeningResponse;
+import trex.v2.hub.api.ProjectionRequest;
+import trex.v2.hub.api.ProjectionStateResponse;
 import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
-import trex.v2.hub.api.UnitJson;
+import trex.v2.hub.api.UnitsResponse;
+import trex.v2.core.derive.Opening;
 import trex.v2.core.workbook.Workbook;
 
 import java.util.List;
@@ -31,9 +35,11 @@ interface HubApi {
 
     List<TransferJson> transfers();
 
-    List<UnitJson> units();
+    UnitsResponse units();
 
     ReconcileResponse reconcile();
+
+    OpeningResponse opening();
 
     List<AckJson> acks();
 
@@ -48,6 +54,10 @@ interface HubApi {
     DecisionOutcome saveCategories(String categoriesYaml);
 
     Workbook.Report workbook();
+
+    ProjectionStateResponse projection();
+
+    DecisionOutcome putProjection(ProjectionRequest request);
 
     DecisionOutcome submitDecisions(DecisionRequest request);
 }

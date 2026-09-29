@@ -39,6 +39,8 @@ final class HubSql {
                retired, ineffective
         FROM unit ORDER BY date, unit_id""";
 
+    static final String TRANSFER_LEGS = "SELECT transfer_id, from_leg, to_leg FROM transfer";
+
     static final String CURRENT_FACTS = """
         SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
                observation, source_type, provenance, evidence_id, parser, ingested_at

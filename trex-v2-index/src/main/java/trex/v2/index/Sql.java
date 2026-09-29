@@ -70,6 +70,18 @@ final class Sql {
     static final String INSERT_USER_ACK = "INSERT INTO user_ack(user_id, period, through_n, state_hash, "
         + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?,?)";
 
+    // ---- projection state (V2-PROPOSAL.md §11.6): an accelerator, never wiped by derive -------
+
+    static final String SELECT_PROJECTION = "SELECT unit_id, unit_kind, firefly_group_id, category, "
+        + "state_hash, config_revision, derive_version, verified_at FROM projection_state ORDER BY unit_id";
+    static final String UPSERT_PROJECTION = "INSERT INTO projection_state(unit_id, unit_kind, "
+        + "firefly_group_id, category, state_hash, config_revision, derive_version, verified_at) "
+        + "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(unit_id) DO UPDATE SET unit_kind=excluded.unit_kind, "
+        + "firefly_group_id=excluded.firefly_group_id, category=excluded.category, "
+        + "state_hash=excluded.state_hash, config_revision=excluded.config_revision, "
+        + "derive_version=excluded.derive_version, verified_at=excluded.verified_at";
+    static final String DELETE_PROJECTION = "DELETE FROM projection_state";
+
     /** Wipe every derived table before a full re-derive. */
     static String deleteAll(String table) {
         return "DELETE FROM " + table;
