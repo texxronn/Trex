@@ -8,6 +8,8 @@ import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.ReconcileResponse;
 import trex.v2.hub.api.OpeningResponse;
+import trex.v2.hub.api.CursorRequest;
+import trex.v2.hub.api.CursorResponse;
 import trex.v2.hub.api.ProjectionRequest;
 import trex.v2.hub.api.ProjectionStateResponse;
 import trex.v2.hub.api.RefdataResponse;
@@ -58,6 +60,10 @@ interface HubApi {
     ProjectionStateResponse projection();
 
     DecisionOutcome putProjection(ProjectionRequest request);
+
+    CursorResponse cursors();
+
+    DecisionOutcome putCursors(CursorRequest request);
 
     DecisionOutcome submitDecisions(DecisionRequest request);
 }

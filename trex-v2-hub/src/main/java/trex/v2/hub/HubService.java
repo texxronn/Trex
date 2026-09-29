@@ -25,6 +25,8 @@ import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
+import trex.v2.hub.api.CursorRequest;
+import trex.v2.hub.api.CursorResponse;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ReflowPreview;
 import trex.v2.core.workbook.Workbook;
@@ -109,7 +111,7 @@ public final class HubService implements HubApi, AutoCloseable {
             reads = new HubQueries(config.index(), 4);
             HubEvents events = new HubEvents();
             refresher = new IndexRefresher(config.journal(), config.configDir(), indexer,
-                loaded.config(), config.refreshDebounceMs(), events);
+                loaded.config(), config.refreshDebounceMs(), events, config.evidenceDir());
             SequencerClient sequencer = config.sequencerUrl() == null ? null : new SequencerClient(config.sequencerUrl());
             HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events);
             service.server = HubHttpApi.start(config.host(), config.port(), service, events);
@@ -212,6 +214,19 @@ public final class HubService implements HubApi, AutoCloseable {
             indexer.upsertProjection(rows);
         }
         return new DecisionOutcome(200, Map.of("recorded", rows.size()));
+    }
+
+    @Override
+    public CursorResponse cursors() {
+        return new CursorResponse(indexer.cursors());
+    }
+
+    @Override
+    public DecisionOutcome putCursors(CursorRequest request) {
+        Map<String, String> cursors = request.cursors() == null ? Map.of() : request.cursors();
+        String at = Instant.now().toString();
+        cursors.forEach((source, cursor) -> indexer.putCursor(source, cursor, at));
+        return new DecisionOutcome(200, Map.of("recorded", cursors.size()));
     }
 
     @Override

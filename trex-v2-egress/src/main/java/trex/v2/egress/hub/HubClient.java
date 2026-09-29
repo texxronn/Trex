@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The egress's only feed (V2-PROPOSAL.md §11.6): it reads the projectable units and the projection
@@ -50,6 +51,43 @@ public final class HubClient {
 
     public List<ProjectionState> projection() {
         return get("/api/projection", ProjectionStateList.class).rows();
+    }
+
+    /** One current transaction, as the blotter API publishes it. */
+    public record LedgerRow(String externalId, long n, String accountRef, LocalDate date, long amount,
+                            long balance, String rawDescription, String leg, String transferId,
+                            String category, String categoryOrigin, String ruleId, boolean hasReview) {}
+
+    public record LedgerPage(long total, List<LedgerRow> rows) {}
+
+    /** A page of current transactions (the export reads these). */
+    public LedgerPage ledger(int limit, int offset) {
+        return get("/api/ledger?limit=" + limit + "&offset=" + offset, LedgerPage.class);
+    }
+
+    /** Every current transaction, paged. */
+    public List<LedgerRow> allLedger() {
+        List<LedgerRow> all = new java.util.ArrayList<>();
+        int offset = 0;
+        while (true) {
+            LedgerPage page = ledger(1000, offset);
+            all.addAll(page.rows());
+            if (all.size() >= page.total() || page.rows().isEmpty()) {
+                return all;
+            }
+            offset += page.rows().size();
+        }
+    }
+
+    /** The account ref -> currency map, from the hub's reference data. */
+    public Map<String, String> currencyByAccount() {
+        com.fasterxml.jackson.databind.JsonNode node = get("/api/refdata",
+            com.fasterxml.jackson.databind.JsonNode.class);
+        Map<String, String> out = new java.util.TreeMap<>();
+        for (com.fasterxml.jackson.databind.JsonNode account : node.path("accounts")) {
+            out.put(account.path("ref").asText(), account.path("currency").asText());
+        }
+        return out;
     }
 
     /** Per-account openings, for creating missing accounts (V2-PROPOSAL.md §11.3). */

@@ -65,6 +65,19 @@ final class HubHttpApi {
             }
         });
         route(server, "/api/projection", projection);
+        Map<String, Handler> cursors = new LinkedHashMap<>();
+        cursors.put("GET", ex -> write(ex, 200, api.cursors()));
+        cursors.put("POST", ex -> {
+            try {
+                trex.v2.hub.api.CursorRequest request = Json.mapper().readValue(readBody(ex),
+                    trex.v2.hub.api.CursorRequest.class);
+                DecisionOutcome outcome = api.putCursors(request);
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
+        route(server, "/api/cursors", cursors);
         route(server, "/api/decisions", "POST", ex -> {
             try {
                 DecisionRequest request = Json.mapper().readValue(readBody(ex), DecisionRequest.class);

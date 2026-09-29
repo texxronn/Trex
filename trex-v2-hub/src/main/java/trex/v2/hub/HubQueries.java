@@ -33,7 +33,7 @@ public final class HubQueries implements AutoCloseable {
 
     private static final List<String> STATUS_TABLES = List.of(
         "fact", "decision", "supersession", "chain_resolved", "txn_current", "transfer", "pending",
-        "review_item", "category_current", "pin_current", "ineffective_decision", "unit");
+        "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "evidence");
 
     private final BlockingQueue<Connection> pool;
     private final int size;

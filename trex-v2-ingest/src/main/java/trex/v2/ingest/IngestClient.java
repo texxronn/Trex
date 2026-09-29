@@ -11,6 +11,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 /**
@@ -70,11 +71,18 @@ public final class IngestClient {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(gzip(json)))
                 .build();
             HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] body = response.body();
+            String contentEncoding = response.headers().firstValue("Content-Encoding").orElse("");
+            if (contentEncoding.contains("gzip") && body.length > 0) {
+                try (GZIPInputStream in = new GZIPInputStream(new java.io.ByteArrayInputStream(body))) {
+                    body = in.readAllBytes();
+                }
+            }
             if (response.statusCode() / 100 != 2) {
                 throw new IngestException("sequencer answered HTTP " + response.statusCode() + ": "
-                    + new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
+                    + new String(body, java.nio.charset.StandardCharsets.UTF_8));
             }
-            return Json.mapper().readValue(response.body(), BatchResponse.class);
+            return Json.mapper().readValue(body, BatchResponse.class);
         } catch (IOException e) {
             throw new IngestException("cannot reach the sequencer at " + base + ": " + e.getMessage(), e);
         } catch (InterruptedException e) {

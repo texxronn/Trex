@@ -82,6 +82,14 @@ final class Sql {
         + "derive_version=excluded.derive_version, verified_at=excluded.verified_at";
     static final String DELETE_PROJECTION = "DELETE FROM projection_state";
 
+    // ---- evidence and source cursors (V2-PROPOSAL.md §7.2, §12.2) ---------------------------
+
+    static final String UPSERT_EVIDENCE = "INSERT OR IGNORE INTO evidence(sha256, path, bytes, "
+        + "media_type, source_type, first_seen) VALUES(?,?,?,?,?,?)";
+    static final String SELECT_CURSORS = "SELECT source, cursor FROM source_cursor ORDER BY source";
+    static final String UPSERT_CURSOR = "INSERT INTO source_cursor(source, cursor, at) VALUES(?,?,?) "
+        + "ON CONFLICT(source) DO UPDATE SET cursor=excluded.cursor, at=excluded.at";
+
     /** Wipe every derived table before a full re-derive. */
     static String deleteAll(String table) {
         return "DELETE FROM " + table;

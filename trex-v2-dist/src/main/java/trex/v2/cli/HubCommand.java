@@ -35,10 +35,13 @@ public final class HubCommand implements Callable<Integer> {
         description = "The only writer's base URL; without it the hub is read-only.")
     String sequencerUrl;
 
+    @Option(names = "--evidence", description = "Evidence store to index (optional).")
+    Path evidence;
+
     @Override
     public Integer call() throws Exception {
         HubConfig hubConfig = new HubConfig(journal, index, config, host, port,
-            HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl);
+            HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl, evidence);
         HubService service = HubService.start(hubConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-hub-shutdown"));
         System.out.println("trex hub listening on " + host + ":" + service.port()

@@ -443,6 +443,57 @@ public final class Indexer implements AutoCloseable {
         ps.setString(8, row.verifiedAt());
     }
 
+    // ---- evidence and source cursors (V2-PROPOSAL.md §7.2, §12.2) ---------------------------
+
+    /** Record evidence-store entries; existing rows are left alone, so {@code first_seen} is stable. */
+    public synchronized void upsertEvidence(List<EvidenceRow> rows) {
+        try {
+            inTransaction(() -> {
+                try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_EVIDENCE)) {
+                    for (EvidenceRow row : rows) {
+                        ps.setString(1, row.sha256());
+                        ps.setString(2, row.path());
+                        ps.setLong(3, row.bytes());
+                        ps.setString(4, row.mediaType());
+                        ps.setString(5, row.sourceType());
+                        ps.setString(6, row.firstSeen());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            });
+        } catch (SQLException e) {
+            throw new IndexException("cannot record evidence", e);
+        }
+    }
+
+    public synchronized java.util.Map<String, String> cursors() {
+        java.util.Map<String, String> out = new java.util.TreeMap<>();
+        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(Sql.SELECT_CURSORS)) {
+            while (rs.next()) {
+                out.put(rs.getString(1), rs.getString(2));
+            }
+        } catch (SQLException e) {
+            throw new IndexException("cannot read source_cursor", e);
+        }
+        return out;
+    }
+
+    public synchronized void putCursor(String source, String cursor, String at) {
+        try {
+            inTransaction(() -> {
+                try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_CURSOR)) {
+                    ps.setString(1, source);
+                    ps.setString(2, cursor);
+                    ps.setString(3, at);
+                    ps.executeUpdate();
+                }
+            });
+        } catch (SQLException e) {
+            throw new IndexException("cannot record source cursor", e);
+        }
+    }
+
     // ---- mirror read ------------------------------------------------------------------------
 
     private List<Fact> readFacts() throws SQLException {

@@ -16,6 +16,7 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -40,12 +41,13 @@ final class IndexRefresher implements AutoCloseable {
     private final WatchService watch;
     private final Thread worker;
     private final HubEvents events;
+    private final Path evidenceDir;
 
     private volatile DeriveConfig config;
     private volatile boolean running = true;
 
     IndexRefresher(Path journal, Path configDir, Indexer indexer, DeriveConfig initial, long debounceMs,
-                   HubEvents events) {
+                   HubEvents events, Path evidenceDir) {
         this.journal = journal.toAbsolutePath();
         this.journalDir = this.journal.getParent();
         this.configDir = configDir.toAbsolutePath();
@@ -53,6 +55,7 @@ final class IndexRefresher implements AutoCloseable {
         this.config = initial;
         this.debounceMs = debounceMs;
         this.events = events;
+        this.evidenceDir = evidenceDir;
         try {
             this.watch = FileSystems.getDefault().newWatchService();
             journalDir.register(watch, StandardWatchEventKinds.ENTRY_CREATE,
@@ -148,6 +151,7 @@ final class IndexRefresher implements AutoCloseable {
                 log.debug("index refreshed ({})", why);
                 publish();
             }
+            scanEvidence();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (RuntimeException e) {
@@ -158,6 +162,24 @@ final class IndexRefresher implements AutoCloseable {
     private void publish() {
         events.publish(new HubEvents.Change(indexer.logHeadN(), indexer.offset(),
             config.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION));
+    }
+
+    /** Index the evidence store's files; the table is disposable and the files are the truth. */
+    private void scanEvidence() {
+        if (evidenceDir == null || Files.notExists(evidenceDir)) {
+            return;
+        }
+        try {
+            List<trex.v2.index.EvidenceRow> rows = new trex.v2.log.EvidenceStore(evidenceDir).list().stream()
+                .map(e -> new trex.v2.index.EvidenceRow(e.id(), e.path().toString(), e.bytes(), null, null,
+                    Instant.now().toString()))
+                .toList();
+            if (!rows.isEmpty()) {
+                indexer.upsertEvidence(rows);
+            }
+        } catch (RuntimeException e) {
+            log.warn("evidence scan failed: {}", e.getMessage());
+        }
     }
 
     @Override
