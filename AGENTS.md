@@ -4,9 +4,10 @@
 
 `V2-PROPOSAL.md` is the authoritative specification for the system being built.
 `V2-IMPLEMENTATION-PLAN.md` is the build order, the acceptance tests and the fixtures.
-`CLAUDE.md` (this file) carries the invariants that never move.
-`SPEC.md` and `DECISIONS.md` describe v1 and are **reference only** — read them, do not
-treat them as the target, and do not migrate from them.
+`AGENTS.md` (this file) carries the invariants that never move.
+`docs/SPEC.md`, `docs/DECISIONS.md` and `docs/V1-CLAUDE.md` describe v1 and are
+**reference only** — read them, do not treat them as the target, and do not migrate from
+them.
 
 Do not invent or silently change architecture, invariants, identity rules, log
 semantics, state semantics, or API contracts.

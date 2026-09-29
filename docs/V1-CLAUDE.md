@@ -1,4 +1,9 @@
-# trex implementation instructions
+# trex implementation instructions (v1 — archived)
+
+> **Archived.** This was the instruction file for the v1 build. It is kept because it
+> states the v1 invariants plainly and `docs/SPEC.md` + `docs/DECISIONS.md` are written
+> against it. It is **not** loaded by agents: the active file is `/AGENTS.md`, and the
+> active specification is `/V2-PROPOSAL.md`.
 
 ## Authority
 

@@ -2,7 +2,7 @@
 
 > **Personal project, single operator, private.** The requirements here are
 > self-imposed. Decisions that are taste rather than correctness may be changed freely;
-> only the invariants in `CLAUDE.md` and `V2-PROPOSAL.md` are not to be bent.
+> only the invariants in `AGENTS.md` and `V2-PROPOSAL.md` are not to be bent.
 
 **How to build `V2-PROPOSAL.md`.** This is the build order, the module layout, the
 acceptance tests, the working rules and the fixtures. It is written to be executed by
@@ -10,7 +10,7 @@ an agent (human or LLM) with no further design decisions: where a decision is st
 open it is listed in §12 — and §12 distinguishes what must be asked before guessing
 from what a sensible default may settle.
 
-Read in this order: `CLAUDE.md` → `V2-PROPOSAL.md` (the spec) → this file. Where this
+Read in this order: `AGENTS.md` → `V2-PROPOSAL.md` (the spec) → this file. Where this
 file and the proposal disagree, the proposal wins.
 
 ---
@@ -52,16 +52,16 @@ implementation until the operator says otherwise (§11.5).
 ```
 Trex/
   pom.xml                     # reactor
-  SPEC.md  DECISIONS.md       # v1 reference — keep, do not delete
+  AGENTS.md                   # instructions for agents (the active file)
   V2-PROPOSAL.md              # the specification
   V2-IMPLEMENTATION-PLAN.md   # this file
-  CLAUDE.md
   trex-core/ trex-journal/ trex-sequencer/ trex-ingest/ trex-ws/ trex-web/
   trex-egress/                # v1 — reference only; not called by the new system
   deploy/
     config/                   # the tuned rules (§1.2) — commit, never rewrite by hand
     dev/                      # dev harness; journal is operator-supplied (§1.3)
   docs/
+    SPEC.md  DECISIONS.md  V1-CLAUDE.md   # v1 reference — keep, do not delete
     v2-lifecycles.html
 ```
 
