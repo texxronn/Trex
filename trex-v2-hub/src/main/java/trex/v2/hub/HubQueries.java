@@ -246,6 +246,34 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /** The current posted facts, for reconciliation. */
+    public List<trex.v2.core.Fact> currentFacts() {
+        return read(conn -> {
+            List<trex.v2.core.Fact> rows = new ArrayList<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.CURRENT_FACTS)) {
+                while (rs.next()) {
+                    rows.add(new trex.v2.core.Fact(
+                        rs.getLong(1),
+                        rs.getString(2),
+                        rs.getString(3),
+                        LocalDate.parse(rs.getString(4)),
+                        rs.getLong(5),
+                        rs.getLong(6),
+                        rs.getString(7),
+                        rs.getString(8),
+                        rs.getInt(9),
+                        trex.v2.core.Observation.fromWire(rs.getString(10)),
+                        rs.getString(11),
+                        trex.v2.core.Provenance.fromWire(rs.getString(12)),
+                        rs.getString(13),
+                        rs.getString(14),
+                        Instant.parse(rs.getString(15))));
+                }
+            }
+            return rows;
+        });
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
     private static int bind(PreparedStatement ps, List<Object> params) throws SQLException {

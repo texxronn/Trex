@@ -406,6 +406,37 @@ public final class Indexer implements AutoCloseable {
         return out;
     }
 
+    /** The current posted facts, for reconciliation (V2-PROPOSAL.md §15.10). */
+    public synchronized List<Fact> currentFacts() {
+        List<Fact> out = new ArrayList<>();
+        String sql = "SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
+            + "occ, observation, source_type, provenance, evidence_id, parser, ingested_at "
+            + "FROM txn_current ORDER BY n";
+        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                out.add(new Fact(
+                    rs.getLong(1),
+                    rs.getString(2),
+                    rs.getString(3),
+                    java.time.LocalDate.parse(rs.getString(4)),
+                    rs.getLong(5),
+                    rs.getLong(6),
+                    rs.getString(7),
+                    rs.getString(8),
+                    rs.getInt(9),
+                    Observation.fromWire(rs.getString(10)),
+                    rs.getString(11),
+                    Provenance.fromWire(rs.getString(12)),
+                    rs.getString(13),
+                    rs.getString(14),
+                    Instant.parse(rs.getString(15))));
+            }
+        } catch (SQLException e) {
+            throw new IndexException("cannot read txn_current", e);
+        }
+        return out;
+    }
+
     /**
      * A hash of every derived table's rows, sorted, for the rebuild-equivalence test (§15.3) and
      * {@code trex verify}. Two indexes that derive the same answer share a fingerprint.

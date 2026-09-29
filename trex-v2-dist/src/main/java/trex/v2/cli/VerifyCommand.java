@@ -47,18 +47,28 @@ public final class VerifyCommand implements Callable<Integer> {
             indexer.apply(journal, at);
             String incremental = indexer.derivedFingerprint();
             Map<String, Long> counts = indexer.counts();
+            java.util.Set<String> declared = loaded.config().registry().accounts().values().stream()
+                .filter(a -> a.balanceSource() == trex.v2.core.config.BalanceSource.DECLARED)
+                .map(trex.v2.core.config.Account::ref)
+                .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+            Map<String, trex.v2.core.derive.Reconciliation.AccountResult> reconcile =
+                trex.v2.core.derive.Reconciliation.reconcile(indexer.currentFacts(), declared);
+            boolean reconcileOk = reconcile.values().stream()
+                .allMatch(trex.v2.core.derive.Reconciliation.AccountResult::balances);
             indexer.rebuild(journal, at);
             String rebuilt = indexer.derivedFingerprint();
-            ok = incremental.equals(rebuilt);
+            ok = incremental.equals(rebuilt) && reconcileOk;
 
             System.out.println("journal:  " + journal + " (head " + head + " bytes)");
             System.out.println("config:   " + loaded.config().configRevision()
                 + "  derive " + trex.v2.core.config.DeriveConfig.DERIVE_VERSION
                 + "  hash " + trex.v2.core.config.DeriveConfig.HASH_VERSION);
             counts.forEach((table, count) -> System.out.printf("  %-20s %d%n", table, count));
+            reconcile.values().forEach(r -> System.out.printf("  reconcile %-16s %s%n",
+                r.accountRef(), r.status().name().toLowerCase(java.util.Locale.ROOT)));
             System.out.println(ok
-                ? "index:    rebuild ≡ incremental"
-                : "index:    MISMATCH rebuild != incremental");
+                ? "index:    rebuild ≡ incremental; reconciliation green"
+                : "verify:   FAILED (rebuild mismatch or reconciliation broken)");
         } finally {
             if (scratch) {
                 Files.deleteIfExists(db);

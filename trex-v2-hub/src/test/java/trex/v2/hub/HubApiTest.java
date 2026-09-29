@@ -64,6 +64,7 @@ class HubApiTest {
             assertTrue(get(client, base, "/api/review?kind=POTENTIAL_DUP").body().contains("POTENTIAL_DUP"));
 
             assertTrue(get(client, base, "/api/transfers").body().contains("\"confidence\":\"HIGH\""));
+            assertTrue(get(client, base, "/api/reconcile").body().contains("\"accountRef\":\"ing-savings\""));
 
             HttpResponse<String> bad = get(client, base, "/api/ledger?sort=bogus");
             assertEquals(400, bad.statusCode());

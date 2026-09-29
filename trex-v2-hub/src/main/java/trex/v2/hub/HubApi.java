@@ -2,6 +2,7 @@ package trex.v2.hub;
 
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
+import trex.v2.hub.api.ReconcileResponse;
 import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
@@ -26,4 +27,6 @@ interface HubApi {
     List<TransferJson> transfers();
 
     List<UnitJson> units();
+
+    ReconcileResponse reconcile();
 }

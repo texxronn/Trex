@@ -4,11 +4,14 @@ import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.v2.core.config.Account;
+import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.User;
+import trex.v2.core.derive.Reconciliation;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
+import trex.v2.hub.api.ReconcileResponse;
 import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
@@ -22,7 +25,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * The index owner (V2-PROPOSAL.md §7.4). One process holds the {@link IndexLock}, applies the
@@ -147,6 +154,23 @@ public final class HubService implements HubApi, AutoCloseable {
     @Override
     public List<UnitJson> units() {
         return reads.units();
+    }
+
+    @Override
+    public ReconcileResponse reconcile() {
+        DeriveConfig c = refresher.config();
+        Set<String> declared = c.registry().accounts().values().stream()
+            .filter(a -> a.balanceSource() == BalanceSource.DECLARED)
+            .map(Account::ref)
+            .collect(Collectors.toCollection(TreeSet::new));
+        Map<String, Reconciliation.AccountResult> results = Reconciliation.reconcile(reads.currentFacts(), declared);
+        List<ReconcileResponse.AccountJson> accounts = results.values().stream()
+            .map(r -> new ReconcileResponse.AccountJson(r.accountRef(),
+                r.status().name().toLowerCase(java.util.Locale.ROOT), r.reconcilable(), r.balances(),
+                r.opening(), r.closing(), r.sum(), r.gap()))
+            .toList();
+        boolean ok = accounts.stream().allMatch(ReconcileResponse.AccountJson::balances);
+        return new ReconcileResponse(ok, accounts);
     }
 
     private long journalSize() {

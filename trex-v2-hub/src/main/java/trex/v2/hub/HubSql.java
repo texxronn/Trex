@@ -39,6 +39,11 @@ final class HubSql {
                retired, ineffective
         FROM unit ORDER BY date, unit_id""";
 
+    static final String CURRENT_FACTS = """
+        SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
+               observation, source_type, provenance, evidence_id, parser, ingested_at
+        FROM txn_current ORDER BY n""";
+
     static List<String> reviewKinds() {
         return List.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER", "AMBIGUOUS_SETTLEMENT",
             "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION");
