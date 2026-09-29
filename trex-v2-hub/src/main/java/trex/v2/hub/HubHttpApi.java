@@ -106,7 +106,9 @@ final class HubHttpApi {
                 String period = param(query, "period");
                 String user = param(query, "user");
                 String asOf = param(query, "asOf");
-                write(ex, 200, api.eyeball(period, user, asOf == null ? null : java.time.LocalDate.parse(asOf)));
+                String bucket = param(query, "bucket");
+                write(ex, 200, api.eyeball(period, user,
+                    asOf == null ? null : java.time.LocalDate.parse(asOf), bucket));
             } catch (IllegalArgumentException e) {
                 sendError(ex, 400, e.getMessage());
             }

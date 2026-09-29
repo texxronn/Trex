@@ -78,8 +78,12 @@ class HubApiTest {
             HttpResponse<String> walk = get(client, base, "/api/eyeball?period=2026-09&user=ron");
             assertEquals(200, walk.statusCode(), walk.body());
             assertTrue(walk.body().contains("\"anomalies\""), walk.body());
-            assertTrue(walk.body().contains("\"days\""), walk.body());
+            assertTrue(walk.body().contains("\"buckets\""), walk.body());
             assertTrue(walk.body().contains("NEW_MERCHANT_STEM"), walk.body());
+            assertTrue(get(client, base, "/api/eyeball?period=2026-09&user=ron&bucket=week")
+                .body().contains("\"granularity\":\"week\""));
+            assertEquals(400, get(client, base,
+                "/api/eyeball?period=2026-09&user=ron&bucket=fortnight").statusCode());
             assertEquals(400, get(client, base, "/api/eyeball?period=2026-13&user=ron").statusCode());
 
             HttpResponse<String> bad = get(client, base, "/api/ledger?sort=bogus");

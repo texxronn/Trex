@@ -152,17 +152,33 @@ class EyeballTest {
             ledger("c", 4, "ing-savings", LocalDate.of(2026, 9, 2), 3000, 12000, "REFUND"));
         EyeballResponse walk = walk(List.of(), rows, List.of(), List.of(),
             registry(statement("ing-savings"), statement("ing-orange")));
-        assertEquals(2, walk.days().size());
-        assertEquals(-1500, walk.days().get(0).total(), "transfer legs never double-count");
-        assertEquals(Map.of("ing-savings", 7000L, "ing-orange", 4000L), walk.days().get(0).closingBalances());
-        assertEquals(3000, walk.days().get(1).total());
+        assertEquals(2, walk.buckets().size());
+        assertEquals(-1500, walk.buckets().get(0).total(), "transfer legs never double-count");
+        assertEquals(Map.of("ing-savings", 7000L, "ing-orange", 4000L), walk.buckets().get(0).closingBalances());
+        assertEquals(3000, walk.buckets().get(1).total());
+    }
+
+    @Test
+    void theWalkBucketsByDayWeekOrMonth() {
+        List<LedgerRow> rows = List.of(
+            ledger("a", 1, "ing-savings", LocalDate.of(2026, 9, 1), -1000, 9000, "COLES 1234"),
+            ledger("b", 2, "ing-savings", LocalDate.of(2026, 9, 3), -500, 8500, "COFFEE CART"),
+            ledger("c", 3, "ing-savings", LocalDate.of(2026, 10, 1), -200, 8300, "WOOLWORTHS 99"));
+        Registry reg = registry(statement("ing-savings"));
+        TransferRules rules = TransferRules.defaults(List.of("Transfer"));
+        assertEquals(3, Eyeball.walk("2026", "ron", AS_OF, "day", List.of(), rows, List.of(), List.of(), reg, rules)
+            .buckets().size());
+        assertEquals(2, Eyeball.walk("2026", "ron", AS_OF, "week", List.of(), rows, List.of(), List.of(), reg, rules)
+            .buckets().size(), "two different ISO weeks");
+        assertEquals(2, Eyeball.walk("2026", "ron", AS_OF, "month", List.of(), rows, List.of(), List.of(), reg, rules)
+            .buckets().size(), "September and October");
     }
 
     @Test
     void anEmptyWalkIsEmptyNotBroken() {
         EyeballResponse walk = walk(List.of(), List.of(), List.of(), List.of(), registry(statement("ing-savings")));
         assertTrue(walk.anomalies().isEmpty());
-        assertTrue(walk.days().isEmpty());
+        assertTrue(walk.buckets().isEmpty());
         assertTrue(walk.openItems().isEmpty());
         assertEquals(PERIOD, walk.period());
         assertEquals(AS_OF, walk.asOf());
@@ -172,7 +188,7 @@ class EyeballTest {
 
     private static EyeballResponse walk(List<Fact> facts, List<LedgerRow> rows, List<ReviewRow> review,
                                         List<PendingView> pending, Registry registry) {
-        return Eyeball.walk(PERIOD, "ron", AS_OF, facts, rows, review, pending, registry,
+        return Eyeball.walk(PERIOD, "ron", AS_OF, "day", facts, rows, review, pending, registry,
             TransferRules.defaults(List.of("Transfer")));
     }
 

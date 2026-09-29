@@ -34,8 +34,12 @@ export const api = {
   units: () => request('GET', '/api/units'),
   reconcile: () => request('GET', '/api/reconcile'),
   acks: () => request('GET', '/api/acks'),
-  eyeball: (period, user, asOf) => request('GET', '/api/eyeball?' + new URLSearchParams(
-    asOf ? { period, user, asOf } : { period, user })),
+  eyeball: (period, user, opts = {}) => request('GET', '/api/eyeball?' + new URLSearchParams({
+    period,
+    user,
+    ...(opts.asOf ? { asOf: opts.asOf } : {}),
+    ...(opts.bucket ? { bucket: opts.bucket } : {}),
+  })),
   postAck: (body) => request('POST', '/api/acks', body),
   ackDiff: (user, period) => request('GET', '/api/acks/diff?' + new URLSearchParams({ user, period })),
   decisions: (asOfN, decisions) => request('POST', '/api/decisions', { asOfN, decisions }),

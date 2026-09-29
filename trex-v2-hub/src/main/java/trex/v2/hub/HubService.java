@@ -269,11 +269,15 @@ public final class HubService implements HubApi, AutoCloseable {
         }).toList();
     }
 
-    /** The eyeball walk for one period (§10.3): open items, the anomaly checks, the day-by-day view. */
+    /** The eyeball walk for one period (§10.3): open items, anomalies, and day/week/month buckets. */
     @Override
-    public EyeballResponse eyeball(String period, String user, LocalDate asOf) {
+    public EyeballResponse eyeball(String period, String user, LocalDate asOf, String granularity) {
         if (period == null || period.isBlank()) {
             throw new IllegalArgumentException("period is required");
+        }
+        String bucket = granularity == null || granularity.isBlank() ? "day" : granularity;
+        if (!Set.of("day", "week", "month").contains(bucket)) {
+            throw new IllegalArgumentException("bucket must be day, week or month, not '" + bucket + "'");
         }
         Period.Range range = Period.bounds(period);
         DeriveConfig c = refresher.config();
@@ -281,7 +285,7 @@ public final class HubService implements HubApi, AutoCloseable {
         List<Fact> facts = reads.currentFacts();
         LedgerPage page = reads.ledger(new BlotterQuery(null, null, null, null, range.from(), range.to(),
             null, null, null, false, "date", "asc", MAX_WALK_ROWS, 0));
-        return Eyeball.walk(period, user, at, facts, page.rows(), reads.review(null), reads.pending(),
+        return Eyeball.walk(period, user, at, bucket, facts, page.rows(), reads.review(null), reads.pending(),
             c.registry(), c.transfers());
     }
 

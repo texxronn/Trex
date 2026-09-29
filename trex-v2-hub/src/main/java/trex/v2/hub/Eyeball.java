@@ -9,7 +9,7 @@ import trex.v2.core.config.TransferRules;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.ReviewItem;
 import trex.v2.hub.api.EyeballAnomaly;
-import trex.v2.hub.api.EyeballDay;
+import trex.v2.hub.api.EyeballBucket;
 import trex.v2.hub.api.EyeballResponse;
 import trex.v2.hub.api.LedgerRow;
 import trex.v2.hub.api.ReviewRow;
@@ -59,7 +59,7 @@ public final class Eyeball {
 
     private Eyeball() {}
 
-    public static EyeballResponse walk(String period, String user, LocalDate asOf,
+    public static EyeballResponse walk(String period, String user, LocalDate asOf, String granularity,
                                        List<Fact> facts, List<LedgerRow> periodRows,
                                        List<ReviewRow> review, List<PendingView> pending,
                                        Registry registry, TransferRules transferRules) {
@@ -81,8 +81,8 @@ public final class Eyeball {
             .thenComparing(a -> a.date() == null ? LocalDate.MAX : a.date())
             .thenComparing(a -> a.subject() == null ? "" : a.subject()));
 
-        return new EyeballResponse(period, user, asOf, openItems(range, review, ordered, pending),
-            anomalies, days(periodRows));
+        return new EyeballResponse(period, user, asOf, granularity,
+            openItems(range, review, ordered, pending), anomalies, buckets(periodRows, granularity));
     }
 
     // ---- the nine checks --------------------------------------------------------------------
@@ -302,15 +302,16 @@ public final class Eyeball {
         return open;
     }
 
-    private static List<EyeballDay> days(List<LedgerRow> periodRows) {
-        Map<LocalDate, List<LedgerRow>> byDate = new TreeMap<>();
+    /** Group the period's rows into day, ISO-week or month buckets, each totalled and closed. */
+    private static List<EyeballBucket> buckets(List<LedgerRow> periodRows, String granularity) {
+        Map<String, List<LedgerRow>> byKey = new TreeMap<>();
         for (LedgerRow r : periodRows) {
-            byDate.computeIfAbsent(r.date(), k -> new ArrayList<>()).add(r);
+            byKey.computeIfAbsent(bucketKey(r.date(), granularity), k -> new ArrayList<>()).add(r);
         }
-        List<EyeballDay> days = new ArrayList<>();
-        for (Map.Entry<LocalDate, List<LedgerRow>> e : byDate.entrySet()) {
+        List<EyeballBucket> buckets = new ArrayList<>();
+        for (Map.Entry<String, List<LedgerRow>> e : byKey.entrySet()) {
             List<LedgerRow> rows = e.getValue();
-            rows.sort(Comparator.comparingLong(LedgerRow::n));
+            rows.sort(Comparator.comparing(LedgerRow::date).thenComparingLong(LedgerRow::n));
             long total = 0;
             Map<String, Long> closing = new LinkedHashMap<>();
             for (LedgerRow r : rows) {
@@ -319,9 +320,18 @@ public final class Eyeball {
                 }
                 closing.put(r.accountRef(), r.balance());
             }
-            days.add(new EyeballDay(e.getKey(), total, closing, rows));
+            buckets.add(new EyeballBucket(e.getKey(), rows.getFirst().date(), rows.getLast().date(),
+                total, closing, rows));
         }
-        return days;
+        return buckets;
+    }
+
+    private static String bucketKey(LocalDate date, String granularity) {
+        return switch (granularity) {
+            case "week" -> Period.weekKey(date);
+            case "month" -> java.time.YearMonth.from(date).toString();
+            default -> date.toString();
+        };
     }
 
     private static Map<String, Fact> byId(List<Fact> facts) {

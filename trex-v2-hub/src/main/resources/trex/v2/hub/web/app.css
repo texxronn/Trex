@@ -107,3 +107,6 @@ tr.bad td { background: #fef2f2; }
 .day { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
 .pin select { font-size: 12px; }
+
+.bucket { margin-bottom: 1rem; }
+.bucket select, .toolbar select { font-size: 12px; }
