@@ -246,6 +246,38 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /** The projectable units as core models, for state hashes. */
+    public List<trex.v2.core.derive.Unit> unitModels() {
+        return read(conn -> {
+            List<trex.v2.core.derive.Unit> rows = new ArrayList<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.UNITS_SELECT)) {
+                while (rs.next()) {
+                    rows.add(new trex.v2.core.derive.Unit(rs.getString(1), rs.getString(2), rs.getString(3),
+                        LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getString(6), rs.getString(7),
+                        trex.v2.core.derive.CategoryOrigin.valueOf(rs.getString(8)),
+                        trex.v2.core.derive.LegState.valueOf(rs.getString(9)),
+                        rs.getInt(10) != 0, rs.getInt(11) != 0));
+                }
+            }
+            return rows;
+        });
+    }
+
+    /** The stored eyeball markers, one row per (user, period). */
+    public List<trex.v2.core.derive.UserAckRow> userAcks() {
+        return read(conn -> {
+            List<trex.v2.core.derive.UserAckRow> rows = new ArrayList<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.USER_ACK_SELECT)) {
+                while (rs.next()) {
+                    rows.add(new trex.v2.core.derive.UserAckRow(rs.getString(1), rs.getString(2), rs.getLong(3),
+                        rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
+                        Instant.parse(rs.getString(8)), 0));
+                }
+            }
+            return rows;
+        });
+    }
+
     /** The current posted facts, for reconciliation. */
     public List<trex.v2.core.Fact> currentFacts() {
         return read(conn -> {

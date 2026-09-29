@@ -50,6 +50,10 @@ final class HubSql {
 
     static final String LEG_OF = "SELECT leg FROM txn_current WHERE external_id = ?";
 
+    static final String USER_ACK_SELECT = """
+        SELECT user_id, period, through_n, state_hash, config_revision, derive_version, hash_version, acked_at
+        FROM user_ack ORDER BY user_id, period""";
+
     static List<String> reviewKinds() {
         return List.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER", "AMBIGUOUS_SETTLEMENT",
             "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION");

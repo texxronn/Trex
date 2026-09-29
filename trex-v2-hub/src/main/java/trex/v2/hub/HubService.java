@@ -11,7 +11,15 @@ import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.User;
+import trex.v2.core.derive.Derivation;
+import trex.v2.core.derive.Period;
 import trex.v2.core.derive.Reconciliation;
+import trex.v2.core.derive.StateHash;
+import trex.v2.core.derive.Unit;
+import trex.v2.core.derive.UserAckRow;
+import trex.v2.hub.api.AckDiff;
+import trex.v2.hub.api.AckJson;
+import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.HeadResponse;
@@ -33,10 +41,13 @@ import trex.v2.sequencer.api.DecisionDraft;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -186,8 +197,83 @@ public final class HubService implements HubApi, AutoCloseable {
         return new ReconcileResponse(ok, accounts);
     }
 
-    // ---- decision path (V2-PROPOSAL.md §6.6, §6.8) -----------------------------------------
+    // ---- eyeball markers (V2-PROPOSAL.md §9.4) ----------------------------------------------
 
+    @Override
+    public List<AckJson> acks() {
+        List<Unit> units = reads.unitModels();
+        return reads.userAcks().stream().map(a -> {
+            boolean stale = !DeriveConfig.HASH_VERSION.equals(a.hashVersion())
+                || !StateHash.forPeriod(units, a.period()).equals(a.stateHash());
+            return new AckJson(a.userId(), a.period(), a.throughN(), a.stateHash(), stale, a.ackedAt());
+        }).toList();
+    }
+
+    /** Close a period for one user: compute the period's hash and forward a USER_ACK to the writer. */
+    @Override
+    public DecisionOutcome postAck(AckRequest request) {
+        DeriveConfig c = refresher.config();
+        if (request.user() == null || c.registry().findUser(request.user()).isEmpty()) {
+            return new DecisionOutcome(422, new PrecheckResponse(List.of(
+                new PrecheckResponse.Failure(0, "unknown user '" + request.user() + "'"))));
+        }
+        if (request.period() == null || request.period().isBlank()) {
+            return new DecisionOutcome(422, new PrecheckResponse(List.of(
+                new PrecheckResponse.Failure(0, "period is required"))));
+        }
+        try {
+            Period.contains(request.period(), java.time.LocalDate.now());
+        } catch (RuntimeException e) {
+            return new DecisionOutcome(422, new PrecheckResponse(List.of(
+                new PrecheckResponse.Failure(0, e.getMessage()))));
+        }
+        long throughN = reads.logHeadN();
+        String stateHash = StateHash.forPeriod(reads.unitModels(), request.period());
+        DecisionDraft ack = new DecisionDraft("USER_ACK", "user", request.user(), null, request.comment(),
+            null, null, null, null, null, null, null, null, null, null, null, null,
+            request.period(), throughN, c.configRevision(), DeriveConfig.DERIVE_VERSION,
+            DeriveConfig.HASH_VERSION, stateHash, null);
+        return submitDecisions(new DecisionRequest(null, null, List.of(ack)));
+    }
+
+    /** The rows that moved in an acknowledged period, by deriving it at the ACK's throughN. */
+    @Override
+    public Optional<AckDiff> ackDiff(String user, String period) {
+        if (user == null || period == null) {
+            return Optional.empty();
+        }
+        Optional<UserAckRow> ack = reads.userAcks().stream()
+            .filter(a -> a.userId().equals(user) && a.period().equals(period))
+            .findFirst();
+        if (ack.isEmpty()) {
+            return Optional.empty();
+        }
+        DeriveConfig c = refresher.config();
+        Instant now = Instant.now();
+        Map<String, Unit> before = unitsInPeriod(indexer.deriveWith(c, now, ack.get().throughN()).units(), period);
+        Map<String, Unit> after = unitsInPeriod(indexer.deriveWith(c, now, Long.MAX_VALUE).units(), period);
+        Set<String> ids = new TreeSet<>(before.keySet());
+        ids.addAll(after.keySet());
+        List<String> moved = ids.stream()
+            .filter(id -> !java.util.Objects.equals(before.get(id), after.get(id)))
+            .toList();
+        boolean stale = !moved.isEmpty()
+            || !DeriveConfig.HASH_VERSION.equals(ack.get().hashVersion())
+            || !StateHash.forPeriod(reads.unitModels(), period).equals(ack.get().stateHash());
+        return Optional.of(new AckDiff(user, period, ack.get().throughN(), stale, moved));
+    }
+
+    private static Map<String, Unit> unitsInPeriod(List<Unit> units, String period) {
+        Map<String, Unit> out = new TreeMap<>();
+        for (Unit u : units) {
+            if (Period.contains(period, u.date())) {
+                out.put(u.unitId(), u);
+            }
+        }
+        return out;
+    }
+
+    // ---- decision path (V2-PROPOSAL.md §6.6, §6.8) -----------------------------------------
     /** Precheck against the index, apply the staleness check, and forward to the only writer. */
     @Override
     public DecisionOutcome submitDecisions(DecisionRequest request) {

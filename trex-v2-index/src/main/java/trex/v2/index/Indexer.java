@@ -346,44 +346,95 @@ public final class Indexer implements AutoCloseable {
             }
             ps.executeBatch();
         }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_USER_ACK)) {
+            for (var ack : d.userAcks()) {
+                ps.setString(1, ack.userId());
+                ps.setString(2, ack.period());
+                ps.setLong(3, ack.throughN());
+                ps.setString(4, ack.stateHash());
+                ps.setString(5, ack.configRevision());
+                ps.setString(6, ack.deriveVersion());
+                ps.setString(7, ack.hashVersion());
+                ps.setString(8, ack.ackedAt().toString());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    // ---- pure re-derivation for previews and diffs (does not touch the tables) ---------------
+
+    /**
+     * Run {@code derive()} against the mirror with a candidate config, restricted to lines with
+     * {@code n <= maxN} (V2-PROPOSAL.md §9.3, §9.4). Pure: it reads the mirror and returns tables,
+     * writing nothing. Used by {@code reflow --preview} and by the ACK diff.
+     */
+    public synchronized Derivation deriveWith(DeriveConfig candidate, Instant asOf, long maxN) {
+        try {
+            List<Fact> facts = readFacts(maxN);
+            List<Decision> decisions = readDecisions(maxN);
+            return Derive.derive(facts, decisions, candidate, asOf);
+        } catch (SQLException e) {
+            throw new IndexException("cannot re-derive from the mirror", e);
+        }
     }
 
     // ---- mirror read ------------------------------------------------------------------------
 
     private List<Fact> readFacts() throws SQLException {
+        return readFacts(Long.MAX_VALUE);
+    }
+
+    private List<Fact> readFacts(long maxN) throws SQLException {
         List<Fact> out = new ArrayList<>();
-        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(Sql.SELECT_FACTS)) {
-            while (rs.next()) {
-                out.add(new Fact(
-                    rs.getLong(1),
-                    rs.getString(2),
-                    rs.getString(3),
-                    java.time.LocalDate.parse(rs.getString(4)),
-                    rs.getLong(5),
-                    rs.getLong(6),
-                    rs.getString(7),
-                    rs.getString(8),
-                    rs.getInt(9),
-                    Observation.fromWire(rs.getString(10)),
-                    rs.getString(11),
-                    Provenance.fromWire(rs.getString(12)),
-                    rs.getString(13),
-                    rs.getString(14),
-                    Instant.parse(rs.getString(15))));
+        String sql = maxN == Long.MAX_VALUE ? Sql.SELECT_FACTS : Sql.SELECT_FACTS_UPTO;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (maxN != Long.MAX_VALUE) {
+                ps.setLong(1, maxN);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(new Fact(
+                        rs.getLong(1),
+                        rs.getString(2),
+                        rs.getString(3),
+                        java.time.LocalDate.parse(rs.getString(4)),
+                        rs.getLong(5),
+                        rs.getLong(6),
+                        rs.getString(7),
+                        rs.getString(8),
+                        rs.getInt(9),
+                        Observation.fromWire(rs.getString(10)),
+                        rs.getString(11),
+                        Provenance.fromWire(rs.getString(12)),
+                        rs.getString(13),
+                        rs.getString(14),
+                        Instant.parse(rs.getString(15))));
+                }
             }
         }
         return out;
     }
 
     private List<Decision> readDecisions() throws SQLException {
+        return readDecisions(Long.MAX_VALUE);
+    }
+
+    private List<Decision> readDecisions(long maxN) throws SQLException {
         List<Decision> out = new ArrayList<>();
-        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(Sql.SELECT_DECISIONS)) {
-            while (rs.next()) {
-                LogLine line = LogCodec.parse(rs.getString(1).getBytes(StandardCharsets.UTF_8));
-                if (!(line instanceof Decision decision)) {
-                    throw new IndexException("decision table holds a non-decision line n=" + line.n());
+        String sql = maxN == Long.MAX_VALUE ? Sql.SELECT_DECISIONS : Sql.SELECT_DECISIONS_UPTO;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (maxN != Long.MAX_VALUE) {
+                ps.setLong(1, maxN);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    LogLine line = LogCodec.parse(rs.getString(1).getBytes(StandardCharsets.UTF_8));
+                    if (!(line instanceof Decision decision)) {
+                        throw new IndexException("decision table holds a non-decision line n=" + line.n());
+                    }
+                    out.add(decision);
                 }
-                out.add(decision);
             }
         }
         return out;

@@ -1,5 +1,8 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.AckDiff;
+import trex.v2.hub.api.AckJson;
+import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
@@ -30,6 +33,12 @@ interface HubApi {
     List<UnitJson> units();
 
     ReconcileResponse reconcile();
+
+    List<AckJson> acks();
+
+    DecisionOutcome postAck(AckRequest request);
+
+    java.util.Optional<AckDiff> ackDiff(String user, String period);
 
     DecisionOutcome submitDecisions(DecisionRequest request);
 }

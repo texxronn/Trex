@@ -26,7 +26,8 @@ public record Derivation(
     List<PinRow> pins,
     List<ReviewItem> review,
     List<IneffectiveDecision> ineffective,
-    List<Unit> units) {
+    List<Unit> units,
+    List<UserAckRow> userAcks) {
 
     public Derivation {
         chainResolved = Map.copyOf(new TreeMap<>(chainResolved));
@@ -39,6 +40,7 @@ public record Derivation(
         review = List.copyOf(review);
         ineffective = List.copyOf(ineffective);
         units = List.copyOf(units);
+        userAcks = List.copyOf(userAcks);
     }
 
     public Optional<CurrentFact> current(String externalId) {

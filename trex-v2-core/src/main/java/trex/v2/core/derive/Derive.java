@@ -109,7 +109,22 @@ public final class Derive {
                 pins(),
                 review,
                 ineffective,
-                units);
+                units,
+                userAcks());
+        }
+
+        /** The latest effective USER_ACK per (user, period) (V2-PROPOSAL.md §9.4). */
+        private List<UserAckRow> userAcks() {
+            Map<String, Decision.UserAck> latest = new TreeMap<>();
+            for (Decision d : effective) {
+                if (d instanceof Decision.UserAck ack) {
+                    latest.put(ack.user() + '\u0000' + ack.period(), ack);
+                }
+            }
+            return latest.values().stream()
+                .map(a -> new UserAckRow(a.user(), a.period(), a.throughN(), a.stateHash(),
+                    a.configRevision(), a.deriveVersion(), a.hashVersion(), a.at(), a.n()))
+                .toList();
         }
 
         // ---- P4: effective decisions (REVOKEs applied) ------------------------------------

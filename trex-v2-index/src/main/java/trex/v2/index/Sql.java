@@ -25,23 +25,27 @@ final class Sql {
     static final String SELECT_FACTS = "SELECT n, external_id, account_ref, date, amount, balance, "
         + "raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, ingested_at "
         + "FROM fact ORDER BY n";
+    static final String SELECT_FACTS_UPTO = "SELECT n, external_id, account_ref, date, amount, balance, "
+        + "raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, ingested_at "
+        + "FROM fact WHERE n <= ? ORDER BY n";
 
     // ---- mirror: decision -------------------------------------------------------------------
 
     static final String INSERT_DECISION = "INSERT INTO decision(n, action, payload, actor, user_id, at) "
         + "VALUES(?,?,?,?,?,?)";
     static final String SELECT_DECISIONS = "SELECT payload FROM decision ORDER BY n";
+    static final String SELECT_DECISIONS_UPTO = "SELECT payload FROM decision WHERE n <= ? ORDER BY n";
 
     // ---- level 2: dropped and rebuilt wholesale --------------------------------------------
 
     static final List<String> DERIVED_TABLES = List.of(
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
-        "category_current", "pin_current", "ineffective_decision", "unit");
+        "category_current", "pin_current", "ineffective_decision", "unit", "user_ack");
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "supersession", "chain_resolved", "txn_current", "transfer", "pending",
-        "review_item", "category_current", "pin_current", "ineffective_decision", "unit");
+        "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "user_ack");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
@@ -63,6 +67,8 @@ final class Sql {
         + "VALUES(?,?,?)";
     static final String INSERT_UNIT = "INSERT INTO unit(unit_id, unit_kind, account_ref, date, amount, currency, "
         + "category, origin, pairing, retired, ineffective) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
+    static final String INSERT_USER_ACK = "INSERT INTO user_ack(user_id, period, through_n, state_hash, "
+        + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?,?)";
 
     /** Wipe every derived table before a full re-derive. */
     static String deleteAll(String table) {
