@@ -30,11 +30,21 @@ public final class SequencerService implements AutoCloseable {
 
     /** Recover the journal, take the writer lock, load config and serve. Port 0 binds an ephemeral port. */
     public static SequencerService start(Path journalPath, Path configDir, String host, int port, Clock clock) {
+        return start(journalPath, journalPath, configDir, host, port, clock);
+    }
+
+    /**
+     * Start against {@code target}, recovering from {@code source} (V2-PROPOSAL.md §6.4). When
+     * source and target differ, source is authoritative and is byte-copied over the target at
+     * startup, SHA-256 verified: the sequencer then writes to the copy and never mutates the
+     * original. This is how an alternative journal can be fed to the writer.
+     */
+    public static SequencerService start(Path source, Path target, Path configDir, String host, int port, Clock clock) {
         ConfigLoader.Loaded loaded = ConfigLoader.load(configDir);
-        JournalLock lock = JournalLock.acquire(journalPath);
+        JournalLock lock = JournalLock.acquire(target);
         try {
-            Recovery.recover(journalPath, journalPath);
-            JsonlJournal journal = new JsonlJournal(journalPath);
+            Recovery.recover(source, target);
+            JsonlJournal journal = new JsonlJournal(target);
             Sequencer sequencer = new Sequencer(journal, loaded.registry(), loaded.config().categories(), clock);
             HttpServer server = HttpApi.start(host, port, sequencer);
             return new SequencerService(lock, journal, sequencer, server);

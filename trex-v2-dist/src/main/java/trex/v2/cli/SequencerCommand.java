@@ -13,8 +13,12 @@ import java.util.concurrent.Callable;
     description = "Run the single writer: POST /facts, POST /decisions, GET /head.")
 public final class SequencerCommand implements Callable<Integer> {
 
-    @Option(names = "--journal", required = true, description = "Path to trex.jsonl.")
+    @Option(names = "--journal", required = true, description = "Path to trex.jsonl (the target; written).")
     Path journal;
+
+    @Option(names = "--journal-source",
+        description = "Authoritative journal to materialize over --journal at startup; the original is never written.")
+    Path journalSource;
 
     @Option(names = "--config", required = true, description = "Config directory.")
     Path config;
@@ -27,9 +31,10 @@ public final class SequencerCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        SequencerService service = SequencerService.start(journal, config, host, port, Clock.systemUTC());
+        Path source = journalSource == null ? journal : journalSource;
+        SequencerService service = SequencerService.start(source, journal, config, host, port, Clock.systemUTC());
         System.out.println("trex sequencer listening on " + host + ":" + service.port()
-            + " (journal " + journal + ")");
+            + " (journal " + journal + (journalSource == null ? "" : ", materialized from " + journalSource) + ")");
         try (service) {
             Thread.currentThread().join();
         }

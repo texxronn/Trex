@@ -29,6 +29,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,6 +106,42 @@ class SequencerServiceTest {
         // The journal is the record: two lines, re-openable and re-foldable.
         try (JsonlJournal journalFile = new JsonlJournal(journal)) {
             assertEquals(2, journalFile.replayFrom(0).count());
+        }
+    }
+
+    @Test
+    void materializesAnAlternativeJournalAndWritesOnlyTheCopy(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        Path source = dir.resolve("source.jsonl");
+        Path target = dir.resolve("copy.jsonl");
+        byte[] sourceLine;
+        try (JsonlJournal src = new JsonlJournal(source)) {
+            src.appendBatch(List.of(new trex.v2.core.Fact(1, "src1", "ing-savings", LocalDate.of(2026, 9, 1),
+                -1000, 0, "COLES 1234", null, 0, Observation.POSTED, "ing-csv", Provenance.BANK, null,
+                "ing-csv/1", Instant.parse("2026-09-30T00:00:00Z"))));
+        }
+        sourceLine = Files.readAllBytes(source);
+
+        try (SequencerService service = SequencerService.start(source, target, configDir, "127.0.0.1", 0,
+                Clock.fixed(Instant.parse("2026-09-29T08:00:00Z"), ZoneOffset.UTC))) {
+            // The target is a verified byte-copy of the authoritative source.
+            assertArrayEquals(sourceLine, Files.readAllBytes(target));
+            assertEquals(1, service.sequencer().headN());
+
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + service.port());
+            FactDraft draft = new FactDraft("ing-savings", LocalDate.of(2026, 9, 2), -2000L, 0L,
+                "COLES 5678", null, Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", null);
+            HttpResponse<byte[]> response = postGzip(client, base.resolve("/facts"),
+                new FactBatch(false, List.of(draft)));
+            assertEquals(200, response.statusCode());
+            assertEquals(2, service.sequencer().headN());
+
+            // Writes went to the copy; the authoritative original is untouched.
+            assertArrayEquals(sourceLine, Files.readAllBytes(source));
+            assertTrue(Files.size(target) > sourceLine.length);
         }
     }
 
