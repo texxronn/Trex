@@ -101,7 +101,7 @@ services:
       - config:/etc/trex:ro
       - journal:/var/lib/trex/journal
     ports:
-      - "127.0.0.1:${TREX_SEQ_PORT:-8080}:8080"
+      - "${TREX_SEQ_BIND:-127.0.0.1}:${TREX_SEQ_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 5s
@@ -138,7 +138,9 @@ services:
       - index:/var/lib/trex/index
       - evidence:/var/lib/trex/evidence
     ports:
-      - "127.0.0.1:${TREX_HUB_PORT:-8090}:8090"
+      # Loopback by default. Set TREX_HUB_BIND=0.0.0.0 (or a LAN IP) to put the UI on the
+      # network. The API has no auth, so front it with Caddy/Tailscale before exposure.
+      - "${TREX_HUB_BIND:-127.0.0.1}:${TREX_HUB_PORT:-8090}:8090"
     depends_on:
       init:
         condition: service_completed_successfully

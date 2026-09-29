@@ -13,11 +13,25 @@ shell history. No secrets here. Add a section per host.
 | Layout | `/opt/trex/compose.yml`, `/opt/trex/config/*.yaml`, `/opt/trex/.env` |
 | Compose source | `deploy/v2/compose.server.yml` (a copy at `/opt/trex/compose.yml`) |
 | Image | `trex/trex-v2:0.1.0-SNAPSHOT` — tag pinned in `/opt/trex/.env` |
-| Services | `trex-v2-sequencer-1` on `127.0.0.1:8080`, `trex-v2-hub-1` on `127.0.0.1:8090` |
+| Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN) |
 | State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive` |
 
-The sequencer and hub bind loopback only; reach them from the host, or over an SSH tunnel:
-`ssh -L 8090:127.0.0.1:8090 deploy@10.10.10.142`.
+### Network exposure
+
+The **hub** is published on the LAN — **http://10.10.10.142:8090/** (the Blotter UI and the
+read/decision API). The **sequencer** stays on loopback: it is the only writer and nothing off-host
+needs it.
+
+The bind hosts are compose variables, loopback by default, set per host in `/opt/trex/.env`:
+
+```
+TREX_HUB_BIND=0.0.0.0     # the UI on the LAN
+TREX_SEQ_BIND=127.0.0.1   # the writer stays private
+```
+
+**There is no authentication.** Anyone who can reach :8090 can read the journal and write decisions,
+so it is LAN-only for now; front it with Caddy (TLS, optional auth) and/or Tailscale before it goes
+anywhere wider.
 
 ### Why `/opt/trex/compose.yml` differs from `deploy/v2/compose.yml`
 
