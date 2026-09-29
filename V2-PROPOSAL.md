@@ -147,7 +147,7 @@ list does not exist here. Explicitly preserve:
 | A parser fix (PDF extraction, normalization) re-mints ids for affected rows, permanently. | Parsed output is hashed; the raw source is discarded. | **Evidence store** + `SUPERSEDE` decisions; identity contract unchanged. |
 | Every decision appends a full event copy; mirrors carry every version; each reader re-implements "latest line wins". | One stream conflates observation and conclusion. | Facts never repeat; decisions are tiny; one fold, one derivation. |
 | The blotter's query engine is hand-rolled (`GridIndex`/`GridQuery`), and adding a filter is Java work. | No query layer. | Rebuildable **SQLite** read model; the UI sends SQL-shaped intent. |
-| Weekly review has no memory and no cadence; anomalies are noticed by staring. | Review is a queue, not a routine. | **Eyeball mode**, per-user `USER_ACK` markers, anomaly queries, "changed since reviewed". |
+| Weekly review has no memory and no cadence; anomalies are noticed by staring. | Review is a queue, not a routine. | **Eyeball mode**, per-user `USER_ACK` markers, anomaly queries, "changed since read". |
 | Firefly can drift (missed runs, hand edits, supersedes) and nothing reports it. | Egress is fire-and-forget. | **Convergence**: plan / apply / verify with a drift taxonomy. |
 | Category rules have no health signals; pins accumulate unexamined. | Rules are data but have no feedback loop. | **Workbook**: lint, regression fixtures, suggestions from pins and uncategorised clusters. |
 | A mis-pairing or bad `MARK_EXTERNAL` is permanent by design. | Decisions cannot be undone. | Decisions remain append-only but are revocable: family inverses plus `REVOKE` (§6.2, §13). |
@@ -417,7 +417,8 @@ The full action set — small on purpose:
 | `SUPERSEDE` | `fromId`, `toId`, `reason` | A re-parse or correction replaces one fact with another. |
 | `RETIRE` | `externalId`, `reason` | The fact no longer counts and has no replacement. |
 | `REVOKE` | `target`, `comment?` | Undo decision `n = target`; the general escape hatch. |
-| `USER_ACK` | `period`, `throughN`, `configRevision`, `deriveVersion`, `hashVersion`, `stateHash`, `comment?` | "I have eyeballed this period; the derived state was X." The `user` is on the line; other users' markers are untouched. |
+| `USER_ACK` | `externalId`, `stateHash`, `configRevision`, `deriveVersion`, `hashVersion`, `comment?` | "I have read this row; its derived content was X." One line per row per user; the `user` is on the line and other users' markers are untouched. |
+| `USER_UNACK` | `externalId`, `comment?` | Release that row's read marker for this user; the family inverse of `USER_ACK`. |
 | `NOTE` | `externalId?`, `text` | Free annotation; never identity, never logic. |
 
 Every decision carries `actor` (`user`, `migrated`, `system`), a `user` id when a person
@@ -428,9 +429,9 @@ example of every event is §6.7.
 undo is itself a decision (§13):
 
 - **Family inverses** are the everyday path: `UNPAIR` answers `PAIR`, `MARK_EXTERNAL`
-  answers a pairing, `UNPIN` answers `PIN`, a later `PIN` re-pins, a later `USER_ACK`
-  re-acknowledges. For a leg, the latest effective pairing decision naming it wins; for
-  an id, the latest category decision naming it wins (§9.8).
+  answers a pairing, `UNPIN` answers `PIN`, `USER_UNACK` answers `USER_ACK`, a later `PIN`
+  re-pins, a later `USER_ACK` re-reads. For a leg, the latest effective pairing decision
+  naming it wins; for an id, the latest category decision naming it wins (§9.8).
 - **`REVOKE` is the general undo.** It names the `n` of the decision it revokes and is
   the only way back from `SUPERSEDE`, `RETIRE` and `DISMISS`. A `REVOKE` is itself a
   decision, so revoking a `REVOKE` restores the original: the latest answer wins.
@@ -599,10 +600,10 @@ permissions. The model is deliberately small: **attribution, not authorization.*
   "resolved by X" as soon as the SSE frame lands. If a stale decision still reaches the
   sequencer, it is recorded (§6.8) and derivation marks it ineffective rather than
   silently applying it.
-- **Eyeballing is personal, and so is its cadence.** `USER_ACK` is per `(user, period)`:
+- **Eyeballing is personal, and so is its cadence.** `USER_ACK` is per `(user, row)`:
   four people looking at the same ledger produce four independent attestations, not one
-  shared sign-off (§9.4). One may clear weekly, one fortnightly, one yearly — the queue
-  waits, the backlog is visible to that person, and no one else's view changes. There is
+  shared sign-off (§9.4). One may read daily, one weekly, one yearly — the queue waits,
+  the backlog is visible to that person, and no one else's view changes. There is
   deliberately no "jointly reviewed" state.
 - Ingest optionally records the operator on the evidence record; facts themselves stay
   bank-only and carry no user. A `PIN`/`UNPIN` is a decision, so attribution is native;
@@ -612,9 +613,10 @@ permissions. The model is deliberately small: **attribution, not authorization.*
   view filter over this file, never a partition of the journal.
 
 API: `GET /api/users` returns `[{id, name, active}]`; `GET /api/acks` returns every
-user's markers with staleness computed (`{user, period, stateHash, stale, ackedAt}`).
-Mutating requests carry the acting user — the UI has a user switcher, the CLI takes
-`--user` where it matters — and the sequencer validates it.
+user's read markers with staleness computed (`{user, externalId, stateHash, stale,
+ackedAt}`), and `POST /api/acks` takes `{user, externalId, action: "ACK" | "UNACK",
+comment?}` for one row at a time. Mutating requests carry the acting user — the UI has a
+user switcher, the CLI takes `--user` where it matters — and the sequencer validates it.
 
 ### 6.7 Every sequencer event, with an example
 
@@ -636,10 +638,11 @@ anything absent is not in the journal.
 | 10 | `SUPERSEDE` | `POST /decisions` (re-parse tool or a correction) | `decision` | Replace a fact after a re-parse or correction |
 | 11 | `RETIRE` | `POST /decisions` (re-parse tool or a correction) | `decision` | A fact must no longer count and has no replacement |
 | 12 | `REVOKE` | `POST /decisions` | `decision` | Undo an earlier decision by its `n` |
-| 13 | `USER_ACK` | `POST /decisions` | `decision` | A person closes an eyeball period |
-| 14 | `NOTE` | `POST /decisions` | `decision` | Annotate |
-| 15 | `PIN` | `POST /decisions` | `decision` | A person overrides a category |
-| 16 | `UNPIN` | `POST /decisions` | `decision` | A person returns a row to the rules |
+| 13 | `USER_ACK` | `POST /decisions` | `decision` | A person reads one transaction row |
+| 14 | `USER_UNACK` | `POST /decisions` | `decision` | A person releases a row's read marker |
+| 15 | `NOTE` | `POST /decisions` | `decision` | Annotate |
+| 16 | `PIN` | `POST /decisions` | `decision` | A person overrides a category |
+| 17 | `UNPIN` | `POST /decisions` | `decision` | A person returns a row to the rules |
 
 **Facts (1–4)**
 
@@ -759,33 +762,40 @@ anything absent is not in the journal.
 ```
 
 ```json
-// 13 · USER_ACK — one line per user per period
+// 13 · USER_ACK — one line per user per row
 {"n":8433,"kind":"decision","action":"USER_ACK",
- "period":"2026-W39","throughN":8432,
- "configRevision":"sha256:7c1a…","deriveVersion":"derive/1","hashVersion":"statehash/1",
+ "externalId":"9e546cc0260ead1e",
+ "configRevision":"sha256:7c1a…","deriveVersion":"derive/2","hashVersion":"statehash/2",
  "stateHash":"sha256:6e21…","comment":null,
  "actor":"user","user":"ron","at":"2026-09-29T19:04:10Z"}
 ```
 
 ```json
-// 14 · NOTE
-{"n":8434,"kind":"decision","action":"NOTE",
+// 14 · USER_UNACK — release this row for this user
+{"n":8434,"kind":"decision","action":"USER_UNACK",
+ "externalId":"9e546cc0260ead1e","comment":"double-checking this one",
+ "actor":"user","user":"ron","at":"2026-09-29T19:05:00Z"}
+```
+
+```json
+// 15 · NOTE
+{"n":8435,"kind":"decision","action":"NOTE",
  "externalId":"9e546cc0260ead1e",
  "text":"reimbursed by work, not a personal expense",
  "actor":"user","user":"priya","at":"2026-09-29T19:08:00Z"}
 ```
 
 ```json
-// 15 · PIN — one event can cover a cluster
-{"n":8435,"kind":"decision","action":"PIN",
+// 16 · PIN — one event can cover a cluster
+{"n":8436,"kind":"decision","action":"PIN",
  "externalIds":["9e546cc0260ead1e","c3d41f7a9b2e4061"],
  "category":"TAXES","comment":"ATO instalment, not a bank fee",
  "actor":"user","user":"ron","at":"2026-09-29T19:12:00Z"}
 ```
 
 ```json
-// 16 · UNPIN — back to the rules
-{"n":8436,"kind":"decision","action":"UNPIN",
+// 17 · UNPIN — back to the rules
+{"n":8437,"kind":"decision","action":"UNPIN",
  "externalIds":["9e546cc0260ead1e"],
  "comment":"rule now covers this",
  "actor":"user","user":"priya","at":"2026-09-29T19:14:00Z"}
@@ -798,8 +808,10 @@ no `user` — so the migrated state is exactly what v1 had (§16).
 **What is deliberately not an event.** No batch header (a batch is a request, answered
 and logged, never a journal line); no state transitions (derived); no TRANSFER lines
 (derived); no control or watermark lines (removed in v1); no edits (a correction is a
-`SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never rewritten). Category *rules* are not
-events — files are their home — but a category *decision* is (`PIN`/`UNPIN`, 15–16).
+`SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never rewritten); no period review
+state (a period is only the view the Eyeball buckets rows by, never something to clear,
+§9.4). Category *rules* are not events — files are their home
+— but a category *decision* is (`PIN`/`UNPIN`, 16–17).
 If it is not in the table above, the journal does not contain it.
 
 **Responses are not events either.** `POST /facts` answers
@@ -827,7 +839,7 @@ is a chain of appended events plus derived transitions:
 | Category | `rule answer → pinned → re-pinned \| unpinned` | events: `PIN` / `UNPIN`; otherwise derived |
 | Review item | `open → resolved` | derivation: the cause is gone |
 | | `open → dismissed → open` | event: `DISMISS`; a newer fact or a `REVOKE` re-opens it |
-| Eyeball period | `unseen → green → changed → green` | `USER_ACK`, a reflow, then a re-ack |
+| Read marker | `unread → read → changed → read` | `USER_ACK`, a reflow, then a re-ack; `USER_UNACK` releases |
 | Projection | `planned → posted → drifted → corrected` | the egress; `human-owned` is terminal-but-reported |
 
 One diagram, seven lifecycles — every transition is labelled by what drives it:
@@ -911,15 +923,16 @@ stateDiagram-v2
         r_dismissed --> r_open : derive · a newer fact lands, or event · REVOKE
     }
 
-    state "Eyeball period (§9.4)" as Ack {
+    state "Read marker (§9.4)" as Ack {
         direction TB
-        [*] --> a_unseen
-        state "unseen" as a_unseen
-        state "green" as a_green
+        [*] --> a_unread
+        state "unread" as a_unread
+        state "read" as a_read
         state "changed" as a_changed
-        a_unseen --> a_green : event · USER_ACK (user, period, stateHash)
-        a_green --> a_changed : reflow · the period's content moved
-        a_changed --> a_green : event · re-acknowledge
+        a_unread --> a_read : event · USER_ACK (user, row, stateHash)
+        a_read --> a_unread : event · USER_UNACK
+        a_read --> a_changed : reflow · the row's content moved
+        a_changed --> a_read : event · re-acknowledge
     }
 
     state "Firefly projection (§11)" as Proj {
@@ -1074,12 +1087,12 @@ CREATE TABLE pin_current (
 );
 
 CREATE TABLE user_ack (
-  user_id TEXT NOT NULL, period TEXT NOT NULL,
-  through_n INTEGER NOT NULL, state_hash TEXT NOT NULL,
+  user_id TEXT NOT NULL, external_id TEXT NOT NULL,
+  state_hash TEXT NOT NULL,
   config_revision TEXT NOT NULL, derive_version TEXT NOT NULL,
   hash_version TEXT NOT NULL,
   acked_at TEXT NOT NULL,
-  PRIMARY KEY (user_id, period)
+  PRIMARY KEY (user_id, external_id)
 );
 
 CREATE TABLE projection_state (
@@ -1229,7 +1242,7 @@ those is a materialisation of something that exists first somewhere durable:
 | Facts (observations) | log | `fact` mirror |
 | Decisions (every human action) | log | `decision` mirror |
 | Users | `users.yaml` + git | — |
-| Eyeball markers (period reviewed) | log (`USER_ACK` decision) | `user_ack` (one row per user per period) |
+| Read markers (row read) | log (`USER_ACK`/`USER_UNACK` decisions) | `user_ack` (one row per user per row) |
 | Category ref data | `refdata.yaml` + git | — |
 | Rules | `categories.yaml` + git | `category_current` |
 | Pins | log (`PIN`/`UNPIN` decisions) | `pin_current` |
@@ -1383,7 +1396,7 @@ trex reflow --preview
     UNCATEGORIZED → GROCERIES       261
     UNCATEGORIZED → FOOD             41
     DISCRETIONARY → SPORT_AND_LEISURE 16
-  reviewed periods invalidated: 2026-W38, 2026-W39
+  read rows invalidated: 3 (9e546cc0…, c3d41f7a…, 7f2b…)
   egress impact: 44 Firefly groups to retag, 12 to create
 ```
 
@@ -1400,7 +1413,7 @@ is a decision: `PAIR`, `UNPAIR`, `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `SUPERSED
 rule edit can silently undo one. The actionable
 rule: **if you want something to survive a rule change, make it a decision; everything
 else is rule output and will move when the rules move.** And nothing moves silently — a
-moved period invalidates its `USER_ACK`, so history never changes under a green tick.
+moved row invalidates its `USER_ACK`, so history never changes under a stale read mark.
 
 **Pins are decisions, not rules.** A `PIN` names one or more `externalId`s and a
 category; an `UNPIN` releases them. They are events like `PAIR`, which means attribution
@@ -1434,30 +1447,31 @@ validates the same references on the log's terms. A pin made redundant by a late
 not an error — the workbook offers an `UNPIN`; a pin whose id no longer exists is an
 orphan, and a lint item.
 
-### 9.4 Per-user review markers and invalidation
+### 9.4 Per-user read markers and invalidation
 
-`USER_ACK` records `(user, period, throughN, stateHash, configRevision, deriveVersion,
-hashVersion)` — one row per person per period. The period is an ISO-8601 key —
-`2026-W39` (week), `2026-09` (month), `2026-Q3` (quarter), `2026` (year) — and
-`cadence` in `users.yaml` only suggests the grain someone tends to use; any user may
-close any grain (§6.6). The marker names the hash machinery it
-used, so an old marker is always interpretable. Eyeballing is personal: each user checks
-the same ledger, and their marker is their own attestation. After every reflow, each
-user's stored hash is compared with the recomputed hash for their period — comparing
-only when `hashVersion` matches:
+`USER_ACK` records `(user, externalId, stateHash, configRevision, deriveVersion,
+hashVersion)` — one row per person per transaction. Reading is a deliberate, per-row
+ceremony: a person opens a row, looks at it, and acknowledges **that one row**. There is
+no bulk "ack the period" action, because the small friction is the point — it is what
+makes the habit an actual look rather than a gesture. `USER_UNACK` releases a row's
+marker; the latest effective decision naming `(user, externalId)` wins. The marker names
+the hash machinery it used, so an old marker is always interpretable. Eyeballing is
+personal: each user reads the same ledger, and their markers are their own attestations.
+After every reflow, each user's stored hash is compared with the recomputed hash of that
+row — comparing only when `hashVersion` matches:
 
-- unchanged → that period stays green **for that user**;
-- changed → that period is marked **changed since reviewed** for that user, with the
-  specific ids that moved, and re-enters their un-cleared queue.
+- unchanged → that row stays read **for that user**;
+- changed → that row is marked **changed since read** for that user, and re-enters their
+  unread queue while every other row keeps its marker.
 
-Users fall out of step naturally — one is weekly, one fortnightly, one yearly — and that
-is the point, not a problem. The queue is yours to clear when you choose: closing a
-sitting writes one `USER_ACK` per period covered (the decisions API already takes a
-batch), so a yearly user writes 52 tiny lines once a year and a weekly user one a week.
-`cadence` in `users.yaml` exists only to phrase the nudge ("6 weeks since your last
-look"); it never gates anything, and there is no joint status to chase. That is what
-makes an irregular habit compatible with a reflowable history: you never silently review
-a state that no longer exists, and you never have to redo a week that did not move.
+There is no period state and nothing to clear. A period — a day, week, month, quarter or
+year — is only the grain the Eyeball buckets and filters rows by; the read state is
+entirely per row. `cadence` in `users.yaml` only suggests the grain someone tends to look
+at (§6.6) and phrases the nudge ("N rows still unread"); it never gates anything, and
+there is no joint status to chase. Users fall out of step naturally — one reads daily,
+one weekly, one yearly — and that is the point, not a problem. That is what makes an
+irregular habit compatible with a reflowable history: you never silently review a state
+that no longer exists, and you never have to redo a row that did not move.
 
 ### 9.5 Determinism and the one caveat
 
@@ -1470,12 +1484,12 @@ consequences worth stating:
    embed them. That is how "as of March" stays answerable: log + decisions + the config
    files at that commit + the `derive` code at that version.
 2. **`stateHash` is content, not provenance.** It hashes a canonical, ordered
-   serialisation of the period's derived content: for each current transaction dated in
-   the period — its resolved id, account, date, amount, category and origin, pairing
-   state, pending/settled state, retirement. It never includes ages, display formatting,
-   `n` ordering noise, or any revision below. So a version bump re-evaluates an
-   acknowledged period only when something actually moved — "you never redo a week that
-   did not move" holds across upgrades too.
+   serialisation of the derived content it protects: for a read marker, one row — its
+   resolved id, account, date, amount, category and origin, pairing state, pending/settled
+   state, retirement; for a projection, the unit's fields (§9.9.G); for a review item, its
+   detail payload. It never includes ages, display formatting, `n` ordering noise, or any
+   revision below. So a version bump re-evaluates an acknowledged row only when something
+   actually moved — "you never redo a row that did not move" holds across upgrades too.
 3. **The machinery is versioned.** `hashVersion` (e.g. `statehash/1`) stamps the hash
    function; `deriveVersion` stamps the derivation; `configRevision` stamps the inputs.
    All three are recorded on projections and ACK lines. If `hashVersion` differs from the
@@ -1558,8 +1572,10 @@ Then, per question:
 - **Supersession.** `SUPERSEDE`/`RETIRE`, latest effective per `from` id wins; a chain
   that would close a cycle, or a `toId` that is itself retired, is ineffective and
   surfaced.
-- **Eyeball.** A `USER_ACK` is effective until its period hash moves or a later
-  `USER_ACK` for the same `(user, period)` replaces it.
+- **Read marker.** A `USER_ACK` stays effective until a later `USER_UNACK` or `USER_ACK`
+  for the same `(user, externalId)` replaces it; like every decision it resolves its id
+  through the supersession map, so a `SUPERSEDE` carries the marker forward. A reflow
+  moves the row's hash but never the marker's effectiveness.
 
 ### 9.9 The derivation, specified
 
@@ -1707,14 +1723,15 @@ compare (§9.5).
 - **Unit.** A `transfer` row is one unit; a current posted fact whose pairing state is
   `EXTERNAL` is one unit; an `ATTESTATION` is never a unit (§11). The unit id, kind and
   category come from P7/P9.
-- **`stateHash(period)`.** Canonical, ordered serialisation of, for every unit current
-  at P11 whose date falls in the period: `unit_id`, `unit_kind`, `accountRef`, `date`,
-  `amount`, `currency`, `category`, `origin`, pairing state, pending state, `retired`,
-  `ineffective`. Excluded: any age or stale badge, any display field, `n` ordering noise,
-  `configRevision`, `deriveVersion`, `hashVersion`. The hash is of content only
-  (`hashVersion` stamps the algorithm; §9.5).
-- **Recomputing a period** is exactly `derive()` restricted to that period's units, which
-  is why `USER_ACK` invalidation is a comparison and not a second derivation.
+- **`stateHash(row)`.** Canonical, ordered serialisation of one current transaction:
+  `externalId`, `unit_kind`, `accountRef`, `date`, `amount`, `currency`, `category`,
+  `origin`, pairing state, pending state, `retired`, `ineffective`. Excluded: any age or
+  stale badge, any display field, `n` ordering noise, `configRevision`, `deriveVersion`,
+  `hashVersion`. The hash is of content only (`hashVersion` stamps the algorithm; §9.5).
+  The projection unit keeps its own content hash (§11); the marker hashes the row, not the
+  projection.
+- **Recomputing a row** is exactly `derive()` restricted to that row, which is why
+  `USER_ACK` invalidation is a comparison and not a second derivation.
 
 #### H. Complexity and the incremental contract
 
@@ -1737,7 +1754,7 @@ pretty reports); the blotter is for deciding things.
 |---|---|---|
 | **Blotter** (default) | "What happened, and is it true?" | Every current transaction, filters, inline category, transfer pairing, projection status |
 | **Review** | "What needs a decision?" | Derived review items, ranked, batch actions — duplicates, restatements, ambiguous matches, stale pending |
-| **Eyeball** | "Have I looked at what I meant to?" | Period walk (default: your un-cleared weeks), anomalies, balance ribbon, per-user `USER_ACK` |
+| **Eyeball** | "Have I read what I meant to?" | The period's rows with read/unread, anomalies, balance ribbon, per-user `USER_ACK` |
 | **Rules** | "Why is this categorised like that?" | Rule editor, blast radius, lint, fixtures |
 
 Everything else is a filter on one of these, and every mode cross-links to the others.
@@ -1765,9 +1782,10 @@ Everything else is a filter on one of these, and every mode cross-links to the o
 
 ### 10.3 Eyeball mode (the routine, at your cadence)
 
-A guided walk of the periods you have not cleared, at whatever cadence you keep. The
-weekly habit finishes in minutes; the yearly backlog is 52 periods, each one click, and
-nobody else waits on it.
+The Blotter, filtered to one period and sorted for reading, at whatever cadence you keep.
+Unread rows are emphasised and read rows fade, so the remaining work is the bright part of
+the page. The weekly habit finishes in minutes; the yearly backlog is a long list of bright
+rows, and nobody else waits on it.
 
 1. **Open items** — the shared review queue filtered to the period. Any user may
    resolve any item, and the row shows who did.
@@ -1782,14 +1800,16 @@ nobody else waits on it.
    - a pending observation whose statement period has arrived without settling;
    - `UNCATEGORIZED` rows;
    - account silent longer than its usual cadence (feeds).
-3. **Day-by-day** — the transactions, grouped by day, with totals and closing balance;
-   keyboard to next/previous day, `pin` inline.
-4. **Close** — one button writes `USER_ACK(user, period, throughN, …)` (the full tuple in
-   §6.2) for the current user. The period goes green for them; a later reflow that moves
-   it flags it for them alone. Other users' markers are untouched.
+3. **The rows** — the transactions, grouped by day, with totals and closing balance;
+   keyboard to next/previous day; `pin` and **read/unread** inline.
+4. **Read** — each row carries an `Ack` (or, once read, an `Unack`) for the current user.
+   Acking writes one `USER_ACK(user, externalId, …)` for that row (the full tuple in §6.2)
+   and fades it; `Unack` writes the `USER_UNACK`. A later reflow that moves the row flags
+   it — for that user alone — as *changed since read*. Other users' markers are untouched.
+   The period is only the window you are looking at; there is nothing to close.
 
-The routine is then: open Eyeball, fix what is red, close it. The system remembers — per
-person, at their own pace.
+The routine is then: open Eyeball, fix what is red, read the rows. The system remembers —
+per person, per row, at their own pace.
 
 ### 10.4 Rules mode
 
@@ -2120,8 +2140,8 @@ decisions safer; it makes people avoid using the tool.
 
 The mechanism is deliberately small (§6.2):
 
-- **family inverses** for the everyday cases — `UNPAIR`, `MARK_EXTERNAL`, `UNPIN`, a
-  re-`PIN`, a later `USER_ACK`;
+- **family inverses** for the everyday cases — `UNPAIR`, `MARK_EXTERNAL`, `UNPIN`,
+  `USER_UNACK`, a re-`PIN`, a later `USER_ACK`;
 - **`REVOKE`** as the general undo — it names the `n` of the decision it undoes and is
   the only way back from `SUPERSEDE`, `RETIRE` and `DISMISS`. A later `REVOKE` can revoke
   the `REVOKE`, because the latest answer wins;
@@ -2141,8 +2161,8 @@ The system is a habit, not a program. Make the habit cheap:
 |---|---|---|
 | Per statement / feed tick | `trex ingest …` | Facts appended; duplicates no-op; egress plan ready |
 | After ingest | `trex hub` → Review | Review queue drained (or deliberately deferred) |
-| On your own cadence (weekly is typical) | Eyeball mode → fix red → `USER_ACK` | Periods green for **you**; anomalies explained; categories improving |
-| Before a rule edit | `trex reflow --preview` | Diff reviewed, then save; acked periods flag automatically if rows moved |
+| On your own cadence (weekly is typical) | Eyeball mode → fix red → read the rows | Rows read for **you**; anomalies explained; categories improving |
+| Before a rule edit | `trex reflow --preview` | Diff reviewed, then save; read rows flag automatically if they moved |
 | Timer (plan) | `trex egress firefly --plan` / `--verify`; `--apply` on instruction | Firefly convergence known; nothing half-tuned projected |
 | Nightly | `trex egress archive` + backup | Log + evidence on a second disk |
 | Monthly | `trex verify` | Framing, reconciliation, index equivalence (rebuild into a scratch file), evidence hashes, egress plan all green |
@@ -2156,14 +2176,14 @@ and systemd differ only in the `command:`/`ExecStart=` line.
 That is a much smaller backup story than v1's, and a much easier restore test.
 
 **Disaster recovery drill:** stop `trex-hub`, wipe `index/`, run
-`trex index --rebuild && trex verify`, start the hub again, compare the period hashes.
+`trex index --rebuild && trex verify`, start the hub again, compare the row hashes.
 This is the cold path — a re-snapshot; a restart is the warm path, resuming from the
 persisted offset. Run the cold one as a scheduled test, not an emergency.
 
 **Status strip** (always visible in trex-hub, also printed by `trex verify`):
 `n`, index lag (lines behind the log head), facts, open review by kind, duplicates,
 unmatched transfer-shaped rows, open and stale pending, `UNCATEGORIZED` count, Firefly
-drift count, the current user's eyeball state (weeks green / changed since reviewed),
+drift count, the current user's read state (rows unread / changed since read),
 config revision + derive version + hash version, last reflow, last backup,
 reconciliation state per account.
 
@@ -2186,8 +2206,8 @@ v1's tests are good; v2 adds invariants that only exist once derivation is separ
    journal equals the set before; full v1 journal bytes map to v2 facts+decisions with
    no id changes.
 6. **Reflow is honest.** A preview diff equals the actual result of applying it.
-7. **Per-user ACK invalidation.** Moving a reviewed period flips it red for the user who
-   acked it — and only for them — and names the rows that moved.
+7. **Per-user ACK invalidation.** Moving a read row marks it *changed since read* for the
+   user who read it — and only for them — while every other row keeps its marker.
 8. **Egress convergence.** After `--apply`, `--plan` is empty; a hand edit in Firefly
    is reported, never overwritten; a de-projected unit becomes a reported orphan and is
    never deleted automatically (§11.5).
@@ -2303,7 +2323,7 @@ still better than before.
 |---|---|---|---|
 | **P0 — Index** | `trex-index` reads the v1 journal into a v1-shaped mirror (the log, row for row) and derives today's views in SQL; the blotter's `/api/snapshot` and `/api/ledger` query SQLite instead of the in-memory fold. The §7.2 fact/decision schema is the P1 target, not P0's. Also collapse the build to one shaded jar and one image (roles by command). No log format change. | Same pages and answers; stop hub, `rm index && rebuild` reproduces them; daily use unaffected; every role runs from the one artifact | M |
 | **P1 — Log v2** | Fact/decision lines, sequencer writer, migration, `SUPERSEDE`/`RETIRE`/`REVOKE`, reflow **preview** | Migration verification green; preview on a real history produces a believable diff | M–L |
-| **P2 — Automatic re-derive** | `derive()` versioned, state hashes, per-user `USER_ACK` invalidation; a saved rule change recomputes immediately, and the egress converges | Reflow twice = no diff; moving a reviewed period flags it for its user | M |
+| **P2 — Automatic re-derive** | `derive()` versioned, state hashes, per-user `USER_ACK` invalidation; a saved rule change recomputes immediately, and the egress converges | Reflow twice = no diff; moving a read row flags it for its user | M |
 | **P3 — Workbook** | Lint, fixtures, suggestions, coverage, redundant-pin cleanup; rule editing against the SQL index | The uncategorised share trends down and pins stop accumulating | M |
 | **P4 — Convergence** | Firefly plan/apply/verify, drift taxonomy, projection state in the index | `--verify` green on a timer; a hand edit is reported, not clobbered | M |
 | **P5 — Evidence & feeds** | Evidence store, re-parse workflow, feed adapters, provisional pending observations | A parser fix flows through as a reviewed supersede; a feed and a statement agree on ids; nothing pending is lost | L |

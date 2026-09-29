@@ -113,15 +113,16 @@ stateDiagram-v2
         r_dismissed --> r_open : derive · a newer fact lands, or event · REVOKE
     }
 
-    state "Eyeball period (§9.4)" as Ack {
+    state "Read marker (§9.4)" as Ack {
         direction TB
-        [*] --> a_unseen
-        state "unseen" as a_unseen
-        state "green" as a_green
+        [*] --> a_unread
+        state "unread" as a_unread
+        state "read" as a_read
         state "changed" as a_changed
-        a_unseen --> a_green : event · USER_ACK (user, period, stateHash)
-        a_green --> a_changed : reflow · the period's content moved
-        a_changed --> a_green : event · re-acknowledge
+        a_unread --> a_read : event · USER_ACK (user, row, stateHash)
+        a_read --> a_unread : event · USER_UNACK
+        a_read --> a_changed : reflow · the row's content moved
+        a_changed --> a_read : event · re-acknowledge
     }
 
     state "Firefly projection (§11)" as Proj {
