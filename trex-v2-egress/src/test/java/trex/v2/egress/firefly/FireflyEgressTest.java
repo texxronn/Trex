@@ -40,7 +40,7 @@ class FireflyEgressTest {
 
     private static Map<String, Object> splitOf(FakeFirefly fake, String externalId) {
         return fake.groups().values().stream()
-            .map(FakeFirefly.Group::split)
+            .flatMap(g -> g.splits().stream())
             .filter(s -> externalId.equals(s.get("external_id")))
             .findFirst().orElseThrow();
     }
@@ -113,6 +113,40 @@ class FireflyEgressTest {
             assertEquals("FOOD", splitOf(fake, "ext1").get("category_name"));
             assertNull(splitOf(fake, "ext1").get("category_id"),
                 "a stale category_id is cleared so the name is authoritative");
+        }
+    }
+
+    @Test
+    void splitsAndGroupTitleSurviveARetag() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            // A group that was projected, then hand-split into two lines with a title.
+            Map<String, Object> first = new java.util.LinkedHashMap<>();
+            first.put("external_id", "ext1");
+            first.put("category_name", "GROCERIES");
+            first.put("tags", List.of("trex", "trex-category:GROCERIES"));
+            first.put("amount", "6.00");
+            Map<String, Object> second = new java.util.LinkedHashMap<>(first);
+            second.put("amount", "4.00");
+            String groupId = fake.seedGroup("ext1", "Weekly shop", List.of(first, second));
+
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01", -1000,
+                "FOOD", "COLES 1234", "h1"));
+            hub.projection.put("ext1", Map.of("unitId", "ext1", "unitKind", "EXTERNAL", "groupId", groupId,
+                "category", "GROCERIES", "stateHash", "", "configRevision", "cfg", "deriveVersion",
+                "derive/1", "verifiedAt", "now"));
+
+            FireflyEgress.Outcome outcome = egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals(1, outcome.retags());
+
+            Map<String, Object> body = fake.lastPutBody;
+            assertEquals("Weekly shop", body.get("group_title"), "the title survives read-modify-write");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> splits = (List<Map<String, Object>>) body.get("transactions");
+            assertEquals(2, splits.size(), "both splits survive read-modify-write");
+            for (Map<String, Object> split : splits) {
+                assertEquals("FOOD", split.get("category_name"));
+                assertTrue(((List<?>) split.get("tags")).contains("trex-category:FOOD"));
+            }
         }
     }
 

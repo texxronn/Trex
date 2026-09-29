@@ -7,6 +7,8 @@ import picocli.CommandLine.Spec;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.egress.archive.ArchiveMirror;
 import trex.v2.egress.firefly.AccountMap;
+import trex.v2.egress.firefly.AccountProvisioning;
+import trex.v2.egress.firefly.CategorySeeding;
 import trex.v2.egress.firefly.FireflyClient;
 import trex.v2.egress.firefly.FireflyEgress;
 import trex.v2.egress.hub.HubClient;
@@ -166,22 +168,9 @@ public final class EgressCommand implements Callable<Integer> {
             for (HubClient.OpeningState o : hub.opening()) {
                 openings.put(o.accountRef(), o);
             }
-            for (Map.Entry<String, AccountMap.Entry> e : map.byRef().entrySet()) {
-                if (resolved.get(e.getKey()).id() != null) {
-                    continue;
-                }
-                HubClient.OpeningState opening = openings.get(e.getKey());
-                long cents = opening == null ? 0 : opening.backwardOpening();
-                // A liability is seeded negative: seeding one positive puts the account out by
-                // exactly twice the figure (a measured mistake).
-                if (e.getValue().kind() == AccountMap.Kind.LIABILITY) {
-                    cents = -Math.abs(cents);
-                }
-                String currency = opening == null ? "AUD" : opening.currency();
-                String id = firefly.createAccount(e.getValue().name(), e.getValue().kind(), currency, cents, null);
-                idsByName.put(e.getValue().name(), id);
-                System.out.printf("created account \"%s\" (id %s, opening %d)%n", e.getValue().name(), id, cents);
-            }
+            List<String> created = AccountProvisioning.createMissing(firefly, map, resolved, openings);
+            created.forEach(ref -> System.out.println("created Firefly account for " + ref));
+            firefly.accounts().forEach((name, info) -> idsByName.put(name, info.id()));
             return map.resolved(idsByName);
         }
 
@@ -192,21 +181,9 @@ public final class EgressCommand implements Callable<Integer> {
             var rules = ConfigLoader.load(config).config().categories();
             Map<String, String> comments = new LinkedHashMap<>();
             rules.rules().forEach(r -> comments.putIfAbsent(r.category(), r.comment()));
-            Map<String, FireflyClient.CategoryInfo> existing = firefly.categories();
-            int created = 0;
-            int annotated = 0;
-            for (String category : rules.declared()) {
-                String notes = comments.get(category);
-                FireflyClient.CategoryInfo info = existing.get(category);
-                if (info == null) {
-                    firefly.createCategory(category, notes);
-                    created++;
-                } else if (!info.hasNotes() && notes != null && !notes.isBlank()) {
-                    firefly.setCategoryNotes(info.id(), notes);
-                    annotated++;
-                }
-            }
-            System.out.printf("categories seeded: %d created, %d annotated%n", created, annotated);
+            CategorySeeding.Result result = CategorySeeding.seed(firefly, rules.declared(), comments);
+            System.out.printf("categories seeded: %d created, %d annotated%n",
+                result.created(), result.annotated());
         }
     }
 }

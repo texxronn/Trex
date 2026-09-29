@@ -59,7 +59,7 @@ public final class HubClient {
 
     /** Matches the hub's Opening.PerAccount shape. */
     public record OpeningState(String accountRef, String currency, boolean declared, long latestBalance,
-                               long backwardOpening, long forwardOpening, long gap) {}
+                               long backwardOpening, long forwardOpening, long gap, LocalDate openedAt) {}
 
     private record OpeningList(List<OpeningState> accounts) {}
 

@@ -22,7 +22,8 @@ import java.util.TreeMap;
 public final class Opening {
 
     public record PerAccount(String accountRef, String currency, boolean declared, long latestBalance,
-                             long backwardOpening, long forwardOpening, long gap) {}
+                             long backwardOpening, long forwardOpening, long gap,
+                             java.time.LocalDate openedAt) {}
 
     private Opening() {}
 
@@ -50,7 +51,7 @@ public final class Opening {
         long backward = latest - sum;
         Fact first = sorted.getFirst();
         long forward = first.balance() - first.amount();
-        return new PerAccount(ref, currency, false, latest, backward, forward, backward - forward);
+        return new PerAccount(ref, currency, false, latest, backward, forward, backward - forward, first.date());
     }
 
     private static PerAccount declared(String ref, String currency, List<Fact> sorted) {
@@ -75,6 +76,7 @@ public final class Opening {
             }
         }
         long gap = seenAttestation ? latest - (opening + sumAfter) : 0;
-        return new PerAccount(ref, currency, true, latest, opening, opening, gap);
+        java.time.LocalDate openedAt = sorted.getFirst().date();
+        return new PerAccount(ref, currency, true, latest, opening, opening, gap, openedAt);
     }
 }
