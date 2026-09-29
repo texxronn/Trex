@@ -52,7 +52,18 @@ public final class Workbook {
 
     public record Finding(FindingKind kind, String subject, String detail) {}
 
-    public record Promotion(String stem, String category, int pinned, List<String> externalIds) {}
+    /** Where a suggested rule comes from: clustered pins, or a cluster of uncategorised rows. */
+    public enum SuggestionSource { PIN, UNCATEGORISED }
+
+    /**
+     * A proposed rule with its measured effect on history (V2-PROPOSAL.md §10.4): the merchant stem,
+     * the proposed regex, and how many current rows it matches, how many are currently
+     * uncategorised (the gain) and how many already have a category (the risk). A proposal only.
+     */
+    public record Suggestion(SuggestionSource source, String stem, String category, int occurrences,
+                             long total, String proposedRegex, int regexMatches, int regexNew,
+                             int regexConflicts, java.time.LocalDate firstSeen, java.time.LocalDate lastSeen,
+                             List<String> accounts, List<String> sampleIds) {}
 
     public record TrendPoint(String period, int rule, int pin, int uncategorized) {}
 
@@ -60,7 +71,9 @@ public final class Workbook {
                            Map<String, Long> amountByOrigin, List<TrendPoint> trend) {}
 
     public record Report(List<RuleStat> rules, List<PinStat> pins, List<Finding> findings,
-                         List<Promotion> promotions, Coverage coverage) {}
+                         List<Suggestion> suggestions, Coverage coverage) {}
+
+    private record FactInfo(CurrentFact fact, String origin, String category, String stem) {}
 
     private Workbook() {}
 
@@ -184,25 +197,47 @@ public final class Workbook {
             }
         }
 
-        // Promotions: a merchant pinned enough times is a rule asking to be written.
-        Map<String, List<String>> byStemCategory = new LinkedHashMap<>();
-        Map<String, String> categoryOf = new LinkedHashMap<>();
-        for (PinRow pin : derivation.pins()) {
-            CurrentFact fact = current.get(pin.externalId());
-            if (fact == null) {
-                continue;
-            }
-            String key = MerchantStem.stem(fact.fact().rawDescription()) + '\u0000' + pin.category();
-            byStemCategory.computeIfAbsent(key, k -> new ArrayList<>()).add(pin.externalId());
-            categoryOf.put(key, pin.category());
+        // Suggestions: pin clusters and uncategorised clusters, each with a proposed regex and its
+        // measured effect on history (V2-PROPOSAL.md §10.4). Proposals only; nothing decides here.
+        List<FactInfo> infos = new ArrayList<>();
+        for (CurrentFact fact : derivation.current()) {
+            CategoryRow row = categories.get(fact.externalId());
+            String origin = row == null ? "NONE" : row.origin().name();
+            infos.add(new FactInfo(fact, origin, row == null ? null : row.category(),
+                MerchantStem.stem(fact.fact().rawDescription())));
         }
-        List<Promotion> promotions = byStemCategory.entrySet().stream()
-            .filter(e -> e.getValue().size() >= PROMOTION_THRESHOLD)
-            .map(e -> new Promotion(e.getKey().substring(0, e.getKey().indexOf('\u0000')),
-                categoryOf.get(e.getKey()), e.getValue().size(), List.copyOf(e.getValue())))
-            .sorted(Comparator.comparingInt(Promotion::pinned).reversed()
-                .thenComparing(Promotion::stem))
-            .toList();
+        Map<String, List<FactInfo>> uncategorisedByStem = new LinkedHashMap<>();
+        for (FactInfo info : infos) {
+            if (info.origin().equals("NONE")) {
+                uncategorisedByStem.computeIfAbsent(info.stem(), k -> new ArrayList<>()).add(info);
+            }
+        }
+        Map<String, FactInfo> infoById = new LinkedHashMap<>();
+        for (FactInfo info : infos) {
+            infoById.put(info.fact().externalId(), info);
+        }
+        Map<String, List<FactInfo>> pinnedByStemCategory = new LinkedHashMap<>();
+        for (PinRow pin : derivation.pins()) {
+            FactInfo info = infoById.get(pin.externalId());
+            if (info != null) {
+                pinnedByStemCategory.computeIfAbsent(info.stem() + '\u0000' + pin.category(),
+                    k -> new ArrayList<>()).add(info);
+            }
+        }
+
+        List<Suggestion> suggestions = new ArrayList<>();
+        uncategorisedByStem.forEach((stem, members) ->
+            suggestions.add(suggestion(SuggestionSource.UNCATEGORISED, stem, null, members, infos)));
+        pinnedByStemCategory.forEach((key, members) -> {
+            if (members.size() >= PROMOTION_THRESHOLD) {
+                int separator = key.indexOf('\u0000');
+                suggestions.add(suggestion(SuggestionSource.PIN, key.substring(0, separator),
+                    key.substring(separator + 1), members, infos));
+            }
+        });
+        suggestions.sort(Comparator.comparing((Suggestion s) -> s.source().ordinal())
+            .thenComparing(Comparator.comparingInt(Suggestion::occurrences).reversed())
+            .thenComparing(Suggestion::stem));
 
         List<TrendPoint> trendPoints = trend.entrySet().stream()
             .map(e -> new TrendPoint(e.getKey(), e.getValue()[0], e.getValue()[1], e.getValue()[2]))
@@ -212,7 +247,34 @@ public final class Workbook {
             structural, amountByOrigin, trendPoints);
 
         findings.sort(Comparator.comparing((Finding f) -> f.kind().name()).thenComparing(Finding::subject));
-        return new Report(ruleStats, pinStats, findings, promotions, coverage);
+        return new Report(ruleStats, pinStats, findings, suggestions, coverage);
+    }
+
+    private static Suggestion suggestion(SuggestionSource source, String stem, String category,
+                                         List<FactInfo> members, List<FactInfo> all) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            java.util.regex.Pattern.quote(stem),
+            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CASE);
+        int matches = 0;
+        int isNew = 0;
+        int conflicts = 0;
+        for (FactInfo info : all) {
+            if (pattern.matcher(info.fact().fact().rawDescription()).find()) {
+                matches++;
+                if (info.origin().equals("NONE")) {
+                    isNew++;
+                } else {
+                    conflicts++;
+                }
+            }
+        }
+        long total = members.stream().mapToLong(m -> m.fact().fact().amount()).sum();
+        return new Suggestion(source, stem, category, members.size(), total,
+            "(?i)" + java.util.regex.Pattern.quote(stem), matches, isNew, conflicts,
+            members.stream().map(m -> m.fact().fact().date()).min(Comparator.naturalOrder()).orElse(null),
+            members.stream().map(m -> m.fact().fact().date()).max(Comparator.naturalOrder()).orElse(null),
+            members.stream().map(m -> m.fact().fact().accountRef()).distinct().sorted().toList(),
+            members.stream().map(m -> m.fact().externalId()).limit(5).toList());
     }
 
     /** "rule #7" -> 7; anything else -> 0. */

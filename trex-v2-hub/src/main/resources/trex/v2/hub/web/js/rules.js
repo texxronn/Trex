@@ -66,10 +66,13 @@ function renderWorkbook(report) {
       ? [el('p', { class: 'muted' }, 'No findings.')]
       : report.findings.map((f) =>
           el('div', {}, el('span', { class: 'tag NONE' }, f.kind), ' ', f.subject, ' — ', f.detail))),
-    section('Suggestions', report.promotions.length === 0
-      ? [el('p', { class: 'muted' }, 'No pins clustered enough to propose a rule.')]
-      : report.promotions.map((p) =>
-          el('div', {}, `${p.stem} pinned ${p.pinned}\u00d7 as ${p.category} — consider a rule`))),
+    section('Suggestions', report.suggestions.length === 0
+      ? [el('p', { class: 'muted' }, 'No suggestions.')]
+      : report.suggestions.map((s) => el('div', {},
+          `${s.source === 'PIN' ? 'pin cluster' : 'uncategorised'}: ${s.stem}` +
+          (s.category ? ` as ${s.category}` : '') +
+          ` \u00d7${s.occurrences} \u2014 regex ${s.proposedRegex} matches ${s.regexMatches} ` +
+          `(${s.regexNew} new, ${s.regexConflicts} already categorised)`))),
     section('Pins', renderPins(report.pins)),
     section('Trend (by month: rule / pin / uncategorised)',
       report.coverage.trend.map((t) =>

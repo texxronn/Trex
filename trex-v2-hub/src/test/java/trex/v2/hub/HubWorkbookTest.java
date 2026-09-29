@@ -38,17 +38,18 @@ class HubWorkbookTest {
             j.appendBatch(List.of(
                 fact(1, "a", "COLES 1234"),
                 fact(2, "b", "COLES 5678"),
-                new Decision.Pin(3, List.of("b"), "GROCERIES", "one-off", Actor.USER, "ron", AT)));
+                fact(3, "c", "MYSTERY SHOP 42"),
+                new Decision.Pin(4, List.of("b"), "GROCERIES", "one-off", Actor.USER, "ron", AT)));
         }
         Path index = dir.resolve("trex.sqlite");
         try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {
-            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 2L);
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 3L);
             Workbook.Report report = hub.workbook();
 
-            assertEquals(2, report.coverage().total());
+            assertEquals(3, report.coverage().total());
             assertEquals(2, report.coverage().categorized());
             assertEquals(1, report.coverage().pinned());
-            assertEquals(0, report.coverage().uncategorized());
+            assertEquals(1, report.coverage().uncategorized());
             assertEquals(1, report.pins().size());
             assertTrue(report.pins().getFirst().redundant(), "the rule already assigns GROCERIES");
 
@@ -56,6 +57,15 @@ class HubWorkbookTest {
                 .anyMatch(f -> f.kind() == Workbook.FindingKind.REDUNDANT_PIN), report.findings().toString());
             assertTrue(report.findings().stream()
                 .anyMatch(f -> f.kind() == Workbook.FindingKind.NEVER_FIRES), report.findings().toString());
+
+            // An uncategorised cluster is a suggestion with a proposed regex and its test on history.
+            Workbook.Suggestion uncategorised = report.suggestions().stream()
+                .filter(s -> s.source() == Workbook.SuggestionSource.UNCATEGORISED)
+                .findFirst().orElseThrow();
+            assertTrue(uncategorised.proposedRegex().contains("MYSTERY"), uncategorised.proposedRegex());
+            assertEquals(1, uncategorised.regexMatches());
+            assertEquals(1, uncategorised.regexNew());
+            assertEquals(0, uncategorised.regexConflicts());
         }
     }
 
