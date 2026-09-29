@@ -249,6 +249,7 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(i++, c.category());
                 ps.setString(i++, c.categoryOrigin().name());
                 ps.setString(i++, c.ruleId());
+                ps.setString(i++, c.stateHash());
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -349,13 +350,12 @@ public final class Indexer implements AutoCloseable {
         try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_USER_ACK)) {
             for (var ack : d.userAcks()) {
                 ps.setString(1, ack.userId());
-                ps.setString(2, ack.period());
-                ps.setLong(3, ack.throughN());
-                ps.setString(4, ack.stateHash());
-                ps.setString(5, ack.configRevision());
-                ps.setString(6, ack.deriveVersion());
-                ps.setString(7, ack.hashVersion());
-                ps.setString(8, ack.ackedAt().toString());
+                ps.setString(2, ack.externalId());
+                ps.setString(3, ack.stateHash());
+                ps.setString(4, ack.configRevision());
+                ps.setString(5, ack.deriveVersion());
+                ps.setString(6, ack.hashVersion());
+                ps.setString(7, ack.ackedAt().toString());
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -366,8 +366,8 @@ public final class Indexer implements AutoCloseable {
 
     /**
      * Run {@code derive()} against the mirror with a candidate config, restricted to lines with
-     * {@code n <= maxN} (V2-PROPOSAL.md §9.3, §9.4). Pure: it reads the mirror and returns tables,
-     * writing nothing. Used by {@code reflow --preview} and by the ACK diff.
+     * {@code n <= maxN} (V2-PROPOSAL.md §9.3). Pure: it reads the mirror and returns tables,
+     * writing nothing. Used by {@code reflow --preview} and the workbook.
      */
     public synchronized Derivation deriveWith(DeriveConfig candidate, Instant asOf, long maxN) {
         try {

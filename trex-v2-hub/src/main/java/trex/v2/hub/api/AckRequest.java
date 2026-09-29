@@ -1,4 +1,4 @@
 package trex.v2.hub.api;
 
-/** {@code POST /api/acks}: close an eyeball period for one user (V2-PROPOSAL.md §9.4). */
-public record AckRequest(String user, String period, String comment) {}
+/** {@code POST /api/acks}: read ({@code ACK}) or release ({@code UNACK}) one row for one user. */
+public record AckRequest(String user, String externalId, String action, String comment) {}

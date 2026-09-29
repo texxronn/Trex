@@ -12,6 +12,14 @@ everything is under **Unreleased**.
 The v2 system per `V2-PROPOSAL.md`, built in the stage order of `V2-IMPLEMENTATION-PLAN.md`:
 `trex-v2-core`, `-log`, `-index`, `-sequencer`, `-hub`, `-egress`, `-ingest`, `-dist`.
 
+### Changed
+
+- **Read markers are per row.** `USER_ACK` records one row (with the row's `stateHash`), `USER_UNACK`
+  is its family inverse, and `user_ack` is keyed by `(user, external_id)`; the period is only the
+  Eyeball's bucketing view, never stored or cleared. `StateHash` is now a row hash
+  (`statehash/2`); `txn_current` carries each row's `state_hash`; the per-period `/api/acks/diff`
+  is gone (staleness is per row). `deriveVersion` is `derive/3`. See `V2-PER-ROW-ACK-PLAN.md`.
+
 ### Added
 
 **P0 — the spine**

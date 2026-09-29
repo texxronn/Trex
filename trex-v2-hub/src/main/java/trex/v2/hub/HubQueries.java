@@ -309,18 +309,44 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
-    /** The stored eyeball markers, one row per (user, period). */
+    /** The stored read markers, one row per (user, external_id). */
     public List<trex.v2.core.derive.UserAckRow> userAcks() {
         return read(conn -> {
             List<trex.v2.core.derive.UserAckRow> rows = new ArrayList<>();
             try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.USER_ACK_SELECT)) {
                 while (rs.next()) {
-                    rows.add(new trex.v2.core.derive.UserAckRow(rs.getString(1), rs.getString(2), rs.getLong(3),
-                        rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
-                        Instant.parse(rs.getString(8)), 0));
+                    rows.add(new trex.v2.core.derive.UserAckRow(rs.getString(1), rs.getString(2),
+                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6),
+                        Instant.parse(rs.getString(7)), 0));
                 }
             }
             return rows;
+        });
+    }
+
+    /** The current row's content hash, or null when the id is not a current transaction. */
+    public String rowStateHash(String externalId) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ROW_STATE_HASH)) {
+                ps.setString(1, externalId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getString(1) : null;
+                }
+            }
+        });
+    }
+
+    /** Every current row's content hash, for read-marker staleness (V2-PROPOSAL.md §9.4). */
+    public Map<String, String> currentStateHashes() {
+        return read(conn -> {
+            Map<String, String> out = new java.util.HashMap<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.CURRENT_STATE_HASHES)) {
+                while (rs.next()) {
+                    out.put(rs.getString(1), rs.getString(2));
+                }
+            }
+            return out;
         });
     }
 

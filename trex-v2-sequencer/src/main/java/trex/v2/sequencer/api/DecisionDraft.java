@@ -34,8 +34,6 @@ public record DecisionDraft(
     // REVOKE
     Long target,
     // USER_ACK
-    String period,
-    Long throughN,
     String configRevision,
     String deriveVersion,
     String hashVersion,

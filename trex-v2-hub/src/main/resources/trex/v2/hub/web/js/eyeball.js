@@ -1,7 +1,7 @@
-// Eyeball mode (V2-PROPOSAL.md §10.3): the Blotter list, scoped to a period, with a read state.
-// The nested tabs pick the period grain (Daily / Weekly / Monthly). A transaction covered by the
-// acting user's USER_ACK is "read" and renders faded; the rest are unread and bright. "Mark read"
-// writes that USER_ACK. Each row can be re-categorised in place (a PIN).
+// Eyeball mode (V2-PROPOSAL.md §10.3): the Blotter list, scoped to a period, with a per-row read
+// state. The nested tabs pick the period grain (Daily / Weekly / Monthly) — a period is only a
+// bucketing view, never something to clear. A row the acting user has read (a USER_ACK) renders
+// faded; the rest are unread and bright. Each row carries its own Ack/Unack and Categorize.
 //
 // Open items and anomalies (the walk's other sections) are parked for now; the API still returns
 // them, and the UI will bring them back.
@@ -18,8 +18,7 @@ let categories = [];
 let grain = 'week';
 let period;
 let rows = [];
-let acks = [];
-let ack = null;
+let read = new Map();
 
 let errorBar;
 let jumpInput;
@@ -65,10 +64,9 @@ function render() {
       field('Jump', jumpInput),
       periodLabel,
       button('\u203a', () => step(1)),
-      stateChip,
-      el('button', { type: 'button', class: 'primary', onclick: markRead }, 'Mark read')),
+      stateChip),
     el('p', { class: 'muted hint' },
-      'Bright rows are unread; Mark read fades the period for you. Categorize pins a row.'),
+      'Bright rows are unread; Ack fades one row for you. Categorize pins a row.'),
     tableHost);
 }
 
@@ -93,8 +91,10 @@ async function load() {
     const walk = await api.eyeball(period, ctx.user, { bucket: 'day' });
     rows = (walk.buckets || []).flatMap((b) => b.rows).sort(byDateThenN);
     const all = await api.acks();
-    acks = all.filter((a) => a.user === ctx.user);
-    ack = acks.find((a) => a.period === period) || null;
+    read = new Map();
+    for (const a of all) {
+      if (a.user === ctx.user) read.set(a.externalId, a);
+    }
     errorBar.hidden = true;
     renderHeading();
     renderTable();
@@ -107,12 +107,17 @@ function renderHeading() {
   periodLabel.textContent = `${GRAIN_LABEL[grain]} · ${labelOf(period)}`;
   const b = boundsOf(period);
   if (b) jumpInput.value = isoDay(b.from);
+  const unread = rows.filter((r) => !read.has(r.externalId)).length;
+  const changed = rows.filter((r) => {
+    const marker = read.get(r.externalId);
+    return marker && marker.stale;
+  }).length;
   clear(stateChip);
-  stateChip.append(ack
-    ? (ack.stale
-      ? el('span', { class: 'tag NONE' }, 'changed since read')
-      : el('span', { class: 'tag good' }, 'read'))
-    : el('span', { class: 'tag' }, 'unread'));
+  stateChip.append(el('span', { class: 'tag' + (unread === 0 ? ' good' : '') },
+    unread === 0 ? 'all read' : `${unread} unread`));
+  if (changed > 0) {
+    stateChip.append(el('span', { class: 'tag NONE' }, `${changed} changed since read`));
+  }
 }
 
 function renderTable() {
@@ -121,15 +126,15 @@ function renderTable() {
     tableHost.append(el('p', { class: 'muted' }, 'No transactions in this period.'));
     return;
   }
-  // Exactly the Blotter's columns, plus a per-row action; no checkbox or batch bar.
+  // Exactly the Blotter's columns, plus per-row read/unread and categorise; no batch bar.
   const head = el('tr', {},
     el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'),
     el('th', {}, 'Category'), el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'),
-    el('th', {}, ''));
+    el('th', {}, ''), el('th', {}, ''));
   const body = rows.map((row) => {
-    const read = isRead(row.date);
-    return el('tr', { class: read ? 'read' : 'unread' },
+    const isRead = read.has(row.externalId);
+    return el('tr', { class: isRead ? 'read' : 'unread' },
       el('td', {}, row.date),
       el('td', {}, row.accountRef),
       el('td', { class: 'amount' }, money(row.amount)),
@@ -139,21 +144,23 @@ function renderTable() {
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
+      el('td', {}, button(isRead ? 'Unack' : 'Ack', () => toggleAck(row))),
       el('td', {}, button('Categorize', () => openCategorize(ctx, row, categories, load))));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
-/** Read means the acting user has a USER_ACK whose period covers this row's date. */
-function isRead(dateIso) {
-  const d = parseIso(dateIso);
-  return acks.some((a) => covers(a.period, d));
-}
-
-async function markRead() {
+/** Read is per row: the acting user's USER_ACK for this row's id, released by a USER_UNACK. */
+async function toggleAck(row) {
+  const isRead = read.has(row.externalId);
   try {
-    await api.postAck({ user: ctx.user, period, comment: null });
-    toast(`Marked ${period} read for ${ctx.user}`);
+    await api.postAck({
+      user: ctx.user,
+      externalId: row.externalId,
+      action: isRead ? 'UNACK' : 'ACK',
+      comment: null,
+    });
+    toast(`${isRead ? 'Unacked' : 'Acked'} ${shortId(row.externalId)} for ${ctx.user}`);
     await load();
   } catch (error) {
     reportError(error);
@@ -218,11 +225,6 @@ function boundsOf(key) {
     return { from, to: new Date(from.getTime() + 6 * 86400000) };
   }
   return null;
-}
-
-function covers(key, date) {
-  const b = boundsOf(key);
-  return b !== null && date >= b.from && date <= b.to;
 }
 
 function labelOf(key) {

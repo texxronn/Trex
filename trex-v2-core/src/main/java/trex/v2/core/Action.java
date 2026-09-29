@@ -16,6 +16,7 @@ public enum Action {
     RETIRE,
     REVOKE,
     USER_ACK,
+    USER_UNACK,
     NOTE;
 
     public String wire() {

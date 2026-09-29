@@ -4,7 +4,7 @@
 > file is the build order for one change to it. Where this file and `V2-PROPOSAL.md`
 > disagree, the proposal wins — and the proposal has already been edited for this change.
 
-**Status:** spec updated, no code changed yet.
+**Status:** implemented; build and tests green; local stack redeployed from scratch.
 **Authority:** `V2-PROPOSAL.md` §6.2, §6.6, §6.7, §6.8, §7.2, §9.4, §9.5, §9.8, §9.9.G,
 §10.1, §10.3, §13, §14, §15.7, §17; `AGENTS.md`.
 **Supersedes:** the period-marker model (`USER_ACK` per `(user, period)`, the

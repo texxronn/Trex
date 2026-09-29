@@ -52,8 +52,9 @@ class LogCodecTest {
             new Decision.Supersede(8, "from", "to", "parser fix", Actor.SYSTEM, null, AT),
             new Decision.Retire(9, "x", "double up", Actor.SYSTEM, null, AT),
             new Decision.Revoke(10, 5, "real after all", Actor.USER, "ron", AT),
-            new Decision.UserAck(11, "2026-W39", 11, "sha256:cfg", "derive/1", "statehash/1",
+            new Decision.UserAck(11, "9e546cc0260ead1e", "sha256:cfg", "derive/3", "statehash/2",
                 "sha256:st", null, Actor.USER, "ron", AT),
+            new Decision.UserUnack(13, "9e546cc0260ead1e", "double-checking", Actor.USER, "ron", AT),
             new Decision.Note(12, "a", "reimbursed", Actor.USER, "mel", AT));
         for (LogLine line : decisions) {
             assertEquals(line, LogCodec.parse(LogCodec.encode(line)),
@@ -70,8 +71,8 @@ class LogCodecTest {
 
     @Test
     void userAckWritesNullComment() {
-        String json = LogCodec.encodeString(new Decision.UserAck(11, "2026-W39", 11, "cfg", "derive/1",
-            "statehash/1", "st", null, Actor.USER, "ron", AT));
+        String json = LogCodec.encodeString(new Decision.UserAck(11, "9e546cc0260ead1e", "cfg", "derive/3",
+            "statehash/2", "st", null, Actor.USER, "ron", AT));
         assertTrue(json.contains("\"comment\":null"), json);
     }
 

@@ -60,7 +60,8 @@ is not migrated from.
   (nullable), `parser`, `ingestedAt`.
 - **Decisions** (`Decision`): `n`, `action`, `actor` (`user | migrated | system`), `user` (nullable),
   `at`, plus the action's fields. The complete action set is `PAIR`, `UNPAIR`, `MARK_EXTERNAL`,
-  `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `REVOKE`, `USER_ACK`, `NOTE`.
+  `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `REVOKE`, `USER_ACK`, `USER_UNACK`,
+  `NOTE`.
 - **Recovery.** A source journal may be materialised over a target at startup; the original is never
   written. A torn tail is truncated to the last complete line.
 
@@ -82,9 +83,10 @@ content rows each take `0`.
 
 ## 5. Decisions
 
-- **Revocable, never rewritten.** Family inverses (`UNPAIR`, `UNPIN`, `MARK_EXTERNAL`, a later `PIN`
-  or `USER_ACK`) cover the everyday undo; `REVOKE(n)` is the general one and the only way back from
-  `SUPERSEDE`, `RETIRE` and `DISMISS`. A later `REVOKE` may revoke a `REVOKE`.
+- **Revocable, never rewritten.** Family inverses (`UNPAIR`, `UNPIN`, `MARK_EXTERNAL`,
+  `USER_UNACK`, a later `PIN` or `USER_ACK`) cover the everyday undo; `REVOKE(n)` is the general one
+  and the only way back from `SUPERSEDE`, `RETIRE` and `DISMISS`. A later `REVOKE` may revoke a
+  `REVOKE`.
 - **Effectiveness is derived**, from order and `REVOKE`s, never stored.
 - **References and structure are checked at the writer**; a semantically wrong but well-formed
   decision is recorded and surfaced as `INEFFECTIVE_DECISION`, never dropped.
@@ -146,15 +148,15 @@ Single-writer `FileLock`; the API is unauthenticated and binds loopback by defau
 
 `/head`, `/api/status`, `/api/refdata`, `/api/ledger`, `/api/review`, `/api/transfers`, `/api/units`,
 `/api/reconcile`, `/api/opening`, `/api/workbook`, `/api/projection` (GET/POST), `/api/cursors`
-(GET/POST), `/api/decisions` (POST), `/api/acks` (GET/POST), `/api/acks/diff`, `/api/eyeball`,
+(GET/POST), `/api/decisions` (POST), `/api/acks` (GET/POST), `/api/eyeball`,
 `/api/reflow/preview` (POST), `/api/config/categories` (GET/PUT), and `/api/events` (SSE snapshot
 then deltas).
 
 The UI has four modes (§10): **Blotter** (SQL-backed filters, inline decisions, status strip),
 **Review** (the derived queue, one decision away from clear), **Eyeball** (§10.3 — open items, the
 nine anomaly checks with an explicit `asOf`, and transactions bucketed by day/week/month with a
-per-row pin and a per-period `USER_ACK` close), and **Rules** (editor with blast-radius preview,
-lint, fixtures, coverage).
+per-row `Ack`/`Unack` (a `USER_ACK`/`USER_UNACK`) and a per-row pin), and **Rules** (editor with
+blast-radius preview, lint, fixtures, coverage).
 
 ---
 

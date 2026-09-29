@@ -92,6 +92,7 @@ public final class Derive {
             Map<String, CategoryRow> categories = categories(withPairing);
             current = withPairing.values().stream()
                 .map(c -> withCategory(c, categories.get(c.externalId())))
+                .map(this::withStateHash)
                 .sorted(Comparator.comparing((CurrentFact c) -> c.fact().date())
                     .thenComparingLong(c -> c.fact().n()))
                 .toList();
@@ -116,18 +117,30 @@ public final class Derive {
                 userAcks());
         }
 
-        /** The latest effective USER_ACK per (user, period) (V2-PROPOSAL.md §9.4). */
+        /** The latest effective USER_ACK/USER_UNACK per (user, row) (V2-PROPOSAL.md §9.4). */
         private List<UserAckRow> userAcks() {
-            Map<String, Decision.UserAck> latest = new TreeMap<>();
+            Map<String, Decision> latest = new TreeMap<>();
             for (Decision d : effective) {
+                String raw;
                 if (d instanceof Decision.UserAck ack) {
-                    latest.put(ack.user() + '\u0000' + ack.period(), ack);
+                    raw = ack.externalId();
+                } else if (d instanceof Decision.UserUnack unack) {
+                    raw = unack.externalId();
+                } else {
+                    continue;
+                }
+                String id = resolve(raw);
+                latest.put(d.user() + '\u0000' + (id == null ? raw : id), d);
+            }
+            List<UserAckRow> out = new ArrayList<>();
+            for (Decision d : latest.values()) {
+                if (d instanceof Decision.UserAck ack) {
+                    String id = resolve(ack.externalId());
+                    out.add(new UserAckRow(ack.user(), id == null ? ack.externalId() : id, ack.stateHash(),
+                        ack.configRevision(), ack.deriveVersion(), ack.hashVersion(), ack.at(), ack.n()));
                 }
             }
-            return latest.values().stream()
-                .map(a -> new UserAckRow(a.user(), a.period(), a.throughN(), a.stateHash(),
-                    a.configRevision(), a.deriveVersion(), a.hashVersion(), a.at(), a.n()))
-                .toList();
+            return out;
         }
 
         // ---- P4: effective decisions (REVOKEs applied) ------------------------------------
@@ -267,7 +280,8 @@ public final class Derive {
                 }
                 Fact f = latestById.get(id);
                 if (f.observation() == Observation.POSTED) {
-                    out.put(id, new CurrentFact(f, LegState.EXTERNAL, null, null, CategoryOrigin.NONE, null));
+                    out.put(id, new CurrentFact(f, LegState.EXTERNAL, null, null, CategoryOrigin.NONE, null,
+                        null));
                 }
             }
             return out;
@@ -545,7 +559,7 @@ public final class Derive {
             Map<String, CurrentFact> out = new LinkedHashMap<>();
             currentMap.forEach((id, c) -> out.put(id, new CurrentFact(c.fact(),
                 legState.getOrDefault(id, LegState.EXTERNAL), transferIdByLeg.get(id), null,
-                CategoryOrigin.NONE, null)));
+                CategoryOrigin.NONE, null, null)));
             return out;
         }
 
@@ -636,7 +650,12 @@ public final class Derive {
                 return c;
             }
             return new CurrentFact(c.fact(), c.leg(), c.transferId(), row.category(), row.origin(),
-                row.ruleId());
+                row.ruleId(), c.stateHash());
+        }
+
+        /** Fill in the row's content hash, once its category and pairing are final (§9.4). */
+        private CurrentFact withStateHash(CurrentFact c) {
+            return c.withStateHash(StateHash.forRow(c, currency(c)));
         }
 
         // ---- P8: pending settlement and staleness (V2-PROPOSAL.md §9.9.D) --------------------

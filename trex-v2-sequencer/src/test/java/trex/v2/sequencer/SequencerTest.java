@@ -77,8 +77,6 @@ class SequencerTest {
         private String toId;
         private String reason;
         private Long target;
-        private String period;
-        private Long throughN;
         private String configRevision;
         private String deriveVersion;
         private String hashVersion;
@@ -102,7 +100,7 @@ class SequencerTest {
 
         DecisionDraft build() {
             return new DecisionDraft(action, actor, user, at, comment, legA, legB, externalId, pendingId,
-                postedId, item, externalIds, category, fromId, toId, reason, target, period, throughN,
+                postedId, item, externalIds, category, fromId, toId, reason, target,
                 configRevision, deriveVersion, hashVersion, stateHash, text);
         }
     }

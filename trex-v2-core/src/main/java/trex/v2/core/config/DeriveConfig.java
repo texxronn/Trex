@@ -12,10 +12,10 @@ public record DeriveConfig(Registry registry, RuleSet categories, TransferRules 
                            String configRevision) {
 
     /** Stamps the derivation; bump when derive's semantics change (a silent reflow, §9.5). */
-    public static final String DERIVE_VERSION = "derive/2";
+    public static final String DERIVE_VERSION = "derive/3";
 
     /** Stamps the state-hash algorithm; old hashes are incomparable across a bump (§9.4). */
-    public static final String HASH_VERSION = "statehash/1";
+    public static final String HASH_VERSION = "statehash/2";
 
     public DeriveConfig {
         if (configRevision == null || configRevision.isBlank()) {

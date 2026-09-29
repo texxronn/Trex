@@ -1,6 +1,5 @@
 package trex.v2.hub;
 
-import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
@@ -49,8 +48,6 @@ interface HubApi {
                                             String granularity);
 
     DecisionOutcome postAck(AckRequest request);
-
-    java.util.Optional<AckDiff> ackDiff(String user, String period);
 
     DecisionOutcome reflowPreview(String categoriesYaml);
 

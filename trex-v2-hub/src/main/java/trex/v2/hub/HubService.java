@@ -18,12 +18,8 @@ import trex.v2.core.derive.Opening;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.Reconciliation;
 import trex.v2.core.derive.ReviewItem;
-import trex.v2.core.derive.StateHash;
-import trex.v2.core.derive.Unit;
-import trex.v2.core.derive.UserAckRow;
 import trex.v2.core.workbook.Workbook;
 import trex.v2.core.Hashes;
-import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.CursorRequest;
@@ -261,11 +257,12 @@ public final class HubService implements HubApi, AutoCloseable {
 
     @Override
     public List<AckJson> acks() {
-        List<Unit> units = reads.unitModels();
+        Map<String, String> current = reads.currentStateHashes();
         return reads.userAcks().stream().map(a -> {
+            String hash = current.get(a.externalId());
             boolean stale = !DeriveConfig.HASH_VERSION.equals(a.hashVersion())
-                || !StateHash.forPeriod(units, a.period()).equals(a.stateHash());
-            return new AckJson(a.userId(), a.period(), a.throughN(), a.stateHash(), stale, a.ackedAt());
+                || hash == null || !hash.equals(a.stateHash());
+            return new AckJson(a.userId(), a.externalId(), a.stateHash(), stale, a.ackedAt());
         }).toList();
     }
 
@@ -289,7 +286,7 @@ public final class HubService implements HubApi, AutoCloseable {
             c.registry(), c.transfers());
     }
 
-    /** Close a period for one user: compute the period's hash and forward a USER_ACK to the writer. */
+    /** Read or release one row for one user: forward a USER_ACK/USER_UNACK to the writer. */
     @Override
     public DecisionOutcome postAck(AckRequest request) {
         DeriveConfig c = refresher.config();
@@ -297,60 +294,30 @@ public final class HubService implements HubApi, AutoCloseable {
             return new DecisionOutcome(422, new PrecheckResponse(List.of(
                 new PrecheckResponse.Failure(0, "unknown user '" + request.user() + "'"))));
         }
-        if (request.period() == null || request.period().isBlank()) {
+        if (request.externalId() == null || request.externalId().isBlank()) {
             return new DecisionOutcome(422, new PrecheckResponse(List.of(
-                new PrecheckResponse.Failure(0, "period is required"))));
+                new PrecheckResponse.Failure(0, "externalId is required"))));
         }
-        try {
-            Period.contains(request.period(), java.time.LocalDate.now());
-        } catch (RuntimeException e) {
+        String action = request.action() == null || request.action().isBlank()
+            ? "ACK" : request.action().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!action.equals("ACK") && !action.equals("UNACK")) {
             return new DecisionOutcome(422, new PrecheckResponse(List.of(
-                new PrecheckResponse.Failure(0, e.getMessage()))));
+                new PrecheckResponse.Failure(0, "action must be ACK or UNACK, not '" + request.action() + "'"))));
         }
-        long throughN = reads.logHeadN();
-        String stateHash = StateHash.forPeriod(reads.unitModels(), request.period());
-        DecisionDraft ack = new DecisionDraft("USER_ACK", "user", request.user(), null, request.comment(),
-            null, null, null, null, null, null, null, null, null, null, null, null,
-            request.period(), throughN, c.configRevision(), DeriveConfig.DERIVE_VERSION,
-            DeriveConfig.HASH_VERSION, stateHash, null);
-        return submitDecisions(new DecisionRequest(null, null, List.of(ack)));
-    }
-
-    /** The rows that moved in an acknowledged period, by deriving it at the ACK's throughN. */
-    @Override
-    public Optional<AckDiff> ackDiff(String user, String period) {
-        if (user == null || period == null) {
-            return Optional.empty();
-        }
-        Optional<UserAckRow> ack = reads.userAcks().stream()
-            .filter(a -> a.userId().equals(user) && a.period().equals(period))
-            .findFirst();
-        if (ack.isEmpty()) {
-            return Optional.empty();
-        }
-        DeriveConfig c = refresher.config();
-        Instant now = Instant.now();
-        Map<String, Unit> before = unitsInPeriod(indexer.deriveWith(c, now, ack.get().throughN()).units(), period);
-        Map<String, Unit> after = unitsInPeriod(indexer.deriveWith(c, now, Long.MAX_VALUE).units(), period);
-        Set<String> ids = new TreeSet<>(before.keySet());
-        ids.addAll(after.keySet());
-        List<String> moved = ids.stream()
-            .filter(id -> !java.util.Objects.equals(before.get(id), after.get(id)))
-            .toList();
-        boolean stale = !moved.isEmpty()
-            || !DeriveConfig.HASH_VERSION.equals(ack.get().hashVersion())
-            || !StateHash.forPeriod(reads.unitModels(), period).equals(ack.get().stateHash());
-        return Optional.of(new AckDiff(user, period, ack.get().throughN(), stale, moved));
-    }
-
-    private static Map<String, Unit> unitsInPeriod(List<Unit> units, String period) {
-        Map<String, Unit> out = new TreeMap<>();
-        for (Unit u : units) {
-            if (Period.contains(period, u.date())) {
-                out.put(u.unitId(), u);
+        String stateHash = null;
+        if (action.equals("ACK")) {
+            stateHash = reads.rowStateHash(request.externalId());
+            if (stateHash == null) {
+                return new DecisionOutcome(422, new PrecheckResponse(List.of(
+                    new PrecheckResponse.Failure(0,
+                        "externalId names no current row '" + request.externalId() + "'"))));
             }
         }
-        return out;
+        DecisionDraft ack = new DecisionDraft(action.equals("ACK") ? "USER_ACK" : "USER_UNACK",
+            "user", request.user(), null, request.comment(),
+            null, null, request.externalId(), null, null, null, null, null, null, null, null, null,
+            c.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION, stateHash, null);
+        return submitDecisions(new DecisionRequest(null, null, List.of(ack)));
     }
 
     // ---- reflow preview (V2-PROPOSAL.md §9.3) -----------------------------------------------
@@ -565,15 +532,19 @@ public final class HubService implements HubApi, AutoCloseable {
                     : "REVOKE names a decision n that does not exist: " + d.target();
             }
             case USER_ACK -> {
-                if (d.period() == null || d.period().isBlank()) {
-                    yield "period is required";
+                if (d.externalId() == null || d.externalId().isBlank()) {
+                    yield "externalId is required";
                 }
-                if (d.throughN() == null || d.configRevision() == null || d.deriveVersion() == null
+                if (reads.rowStateHash(d.externalId()) == null) {
+                    yield "USER_ACK names no current row '" + d.externalId() + "'";
+                }
+                if (d.configRevision() == null || d.deriveVersion() == null
                     || d.hashVersion() == null || d.stateHash() == null) {
-                    yield "USER_ACK needs throughN, configRevision, deriveVersion, hashVersion and stateHash";
+                    yield "USER_ACK needs configRevision, deriveVersion, hashVersion and stateHash";
                 }
                 yield null;
             }
+            case USER_UNACK -> oneFact(d.externalId(), "externalId");
             case NOTE -> d.text() == null || d.text().isBlank() ? "text is required" : null;
         };
     }

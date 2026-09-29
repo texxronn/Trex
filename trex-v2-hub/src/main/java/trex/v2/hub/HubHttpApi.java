@@ -4,7 +4,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
@@ -143,16 +142,6 @@ final class HubHttpApi {
             }
         });
         route(server, "/api/config/categories", configCategories);
-        route(server, "/api/acks/diff", "GET", ex -> {
-            String user = param(ex.getRequestURI().getQuery(), "user");
-            String period = param(ex.getRequestURI().getQuery(), "period");
-            Optional<AckDiff> diff = api.ackDiff(user, period);
-            if (diff.isEmpty()) {
-                sendError(ex, 404, "no such ack");
-            } else {
-                write(ex, 200, diff.get());
-            }
-        });
 
         server.createContext("/", ex -> serveStaticOrNotFound(ex));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());

@@ -63,8 +63,12 @@ final class HubSql {
     static final String LEG_OF = "SELECT leg FROM txn_current WHERE external_id = ?";
 
     static final String USER_ACK_SELECT = """
-        SELECT user_id, period, through_n, state_hash, config_revision, derive_version, hash_version, acked_at
-        FROM user_ack ORDER BY user_id, period""";
+        SELECT user_id, external_id, state_hash, config_revision, derive_version, hash_version, acked_at
+        FROM user_ack ORDER BY user_id, external_id""";
+
+    static final String ROW_STATE_HASH = "SELECT state_hash FROM txn_current WHERE external_id = ?";
+
+    static final String CURRENT_STATE_HASHES = "SELECT external_id, state_hash FROM txn_current";
 
     static List<String> reviewKinds() {
         return List.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER", "AMBIGUOUS_SETTLEMENT",

@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS txn_current (
   transfer_id     TEXT,
   category        TEXT NOT NULL,
   category_origin TEXT NOT NULL,
-  rule_id         TEXT
+  rule_id         TEXT,
+  state_hash      TEXT
 );
 CREATE INDEX IF NOT EXISTS txn_current_date ON txn_current(date);
 CREATE INDEX IF NOT EXISTS txn_current_account ON txn_current(account_ref);
@@ -158,14 +159,13 @@ CREATE TABLE IF NOT EXISTS projection_state (
 
 CREATE TABLE IF NOT EXISTS user_ack (
   user_id         TEXT NOT NULL,
-  period          TEXT NOT NULL,
-  through_n       INTEGER NOT NULL,
+  external_id     TEXT NOT NULL,
   state_hash      TEXT NOT NULL,
   config_revision TEXT NOT NULL,
   derive_version  TEXT NOT NULL,
   hash_version    TEXT NOT NULL,
   acked_at        TEXT NOT NULL,
-  PRIMARY KEY (user_id, period)
+  PRIMARY KEY (user_id, external_id)
 );
 
 CREATE TABLE IF NOT EXISTS source_cursor (

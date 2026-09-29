@@ -52,7 +52,8 @@ final class Sql {
     static final String INSERT_CHAIN_RESOLVED = "INSERT INTO chain_resolved(id, current_id) VALUES(?,?)";
     static final String INSERT_TXN_CURRENT = "INSERT INTO txn_current(external_id, n, account_ref, date, amount, "
         + "balance, raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, "
-        + "ingested_at, leg, transfer_id, category, category_origin, rule_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        + "ingested_at, leg, transfer_id, category, category_origin, rule_id, state_hash) "
+        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_TRANSFER = "INSERT INTO transfer(transfer_id, from_leg, to_leg, confidence, origin, "
         + "decision_n, matched_at) VALUES(?,?,?,?,?,?,?)";
     static final String INSERT_PENDING = "INSERT INTO pending(external_id, fact_n, account_ref, date, amount, "
@@ -67,8 +68,8 @@ final class Sql {
         + "VALUES(?,?,?)";
     static final String INSERT_UNIT = "INSERT INTO unit(unit_id, unit_kind, account_ref, date, amount, currency, "
         + "category, origin, pairing, retired, ineffective) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
-    static final String INSERT_USER_ACK = "INSERT INTO user_ack(user_id, period, through_n, state_hash, "
-        + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?,?)";
+    static final String INSERT_USER_ACK = "INSERT INTO user_ack(user_id, external_id, state_hash, "
+        + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?)";
 
     // ---- projection state (V2-PROPOSAL.md §11.6): an accelerator, never wiped by derive -------
 

@@ -283,10 +283,12 @@ public final class Sequencer implements AutoCloseable {
                 }
                 yield new Decision.Revoke(n, d.target(), d.comment(), actor, user, at);
             }
-            case USER_ACK -> new Decision.UserAck(n, require(d.period(), "period"),
-                require(d.throughN(), "throughN"), require(d.configRevision(), "configRevision"),
-                require(d.deriveVersion(), "deriveVersion"), require(d.hashVersion(), "hashVersion"),
-                require(d.stateHash(), "stateHash"), d.comment(), actor, user, at);
+            case USER_ACK -> new Decision.UserAck(n, requireFact(d.externalId(), "externalId"),
+                require(d.configRevision(), "configRevision"), require(d.deriveVersion(), "deriveVersion"),
+                require(d.hashVersion(), "hashVersion"), require(d.stateHash(), "stateHash"),
+                d.comment(), actor, user, at);
+            case USER_UNACK -> new Decision.UserUnack(n, requireFact(d.externalId(), "externalId"),
+                d.comment(), actor, user, at);
             case NOTE -> new Decision.Note(n, d.externalId(), require(d.text(), "text"), actor, user, at);
         };
     }

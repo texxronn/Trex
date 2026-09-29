@@ -41,7 +41,6 @@ export const api = {
     ...(opts.bucket ? { bucket: opts.bucket } : {}),
   })),
   postAck: (body) => request('POST', '/api/acks', body),
-  ackDiff: (user, period) => request('GET', '/api/acks/diff?' + new URLSearchParams({ user, period })),
   decisions: (asOfN, decisions) => request('POST', '/api/decisions', { asOfN, decisions }),
   reflowPreview: (categories) => request('POST', '/api/reflow/preview', { categories }),
   categoriesYaml: () => request('GET', '/api/config/categories'),

@@ -126,13 +126,16 @@ public final class LogCodec {
                 putNullable(o, "comment", rv.comment());
             }
             case Decision.UserAck ack -> {
-                o.put("period", ack.period());
-                o.put("throughN", ack.throughN());
+                o.put("externalId", ack.externalId());
                 o.put("configRevision", ack.configRevision());
                 o.put("deriveVersion", ack.deriveVersion());
                 o.put("hashVersion", ack.hashVersion());
                 o.put("stateHash", ack.stateHash());
                 putNullable(o, "comment", ack.comment());
+            }
+            case Decision.UserUnack unack -> {
+                o.put("externalId", unack.externalId());
+                putNullable(o, "comment", unack.comment());
             }
             case Decision.Note note -> {
                 putNullable(o, "externalId", note.externalId());
@@ -202,9 +205,11 @@ public final class LogCodec {
             case SUPERSEDE -> new Decision.Supersede(seq, text(n, "fromId"), text(n, "toId"), text(n, "reason"), actor, user, at);
             case RETIRE -> new Decision.Retire(seq, text(n, "externalId"), text(n, "reason"), actor, user, at);
             case REVOKE -> new Decision.Revoke(seq, lng(n, "target"), opt(n, "comment"), actor, user, at);
-            case USER_ACK -> new Decision.UserAck(seq, text(n, "period"), lng(n, "throughN"),
+            case USER_ACK -> new Decision.UserAck(seq, text(n, "externalId"),
                 text(n, "configRevision"), text(n, "deriveVersion"), text(n, "hashVersion"),
                 text(n, "stateHash"), opt(n, "comment"), actor, user, at);
+            case USER_UNACK -> new Decision.UserUnack(seq, text(n, "externalId"), opt(n, "comment"),
+                actor, user, at);
             case NOTE -> new Decision.Note(seq, opt(n, "externalId"), text(n, "text"), actor, user, at);
         };
     }

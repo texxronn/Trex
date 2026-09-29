@@ -18,7 +18,7 @@ import java.util.Objects;
 public sealed interface Decision extends LogLine
     permits Decision.Pair, Decision.Unpair, Decision.MarkExternal, Decision.Settle,
             Decision.Dismiss, Decision.Pin, Decision.Unpin, Decision.Supersede,
-            Decision.Retire, Decision.Revoke, Decision.UserAck, Decision.Note {
+            Decision.Retire, Decision.Revoke, Decision.UserAck, Decision.UserUnack, Decision.Note {
 
     long n();
 
@@ -200,12 +200,12 @@ public sealed interface Decision extends LogLine
         }
     }
 
-    /** "I have eyeballed this period; the derived state was X." The user is on the line. */
-    record UserAck(long n, String period, long throughN, String configRevision, String deriveVersion,
+    /** "I have read this row; its derived content was X." The user is on the line. */
+    record UserAck(long n, String externalId, String configRevision, String deriveVersion,
                    String hashVersion, String stateHash, String comment, Actor actor, String user, Instant at)
         implements Decision {
         public UserAck {
-            require(period, "period");
+            require(externalId, "externalId");
             require(configRevision, "configRevision");
             require(deriveVersion, "deriveVersion");
             require(hashVersion, "hashVersion");
@@ -218,6 +218,22 @@ public sealed interface Decision extends LogLine
         @Override
         public Action action() {
             return Action.USER_ACK;
+        }
+    }
+
+    /** Release that row's read marker for this user; the family inverse of {@code USER_ACK}. */
+    record UserUnack(long n, String externalId, String comment, Actor actor, String user, Instant at)
+        implements Decision {
+        public UserUnack {
+            require(externalId, "externalId");
+            require(actor, "actor");
+            require(user, "user");
+            require(at, "at");
+        }
+
+        @Override
+        public Action action() {
+            return Action.USER_UNACK;
         }
     }
 
