@@ -55,8 +55,10 @@ async function boot() {
 }
 
 function route() {
-  const requested = location.hash.slice(1) || 'blotter';
+  const raw = location.hash.slice(1) || 'blotter';
+  const [requested, query] = raw.split('?');
   const name = modes[requested] ? requested : 'blotter';
+  ctx.modeQuery = new URLSearchParams(query || '');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.mode === name));
   const main = document.getElementById('main');
   main.replaceChildren();

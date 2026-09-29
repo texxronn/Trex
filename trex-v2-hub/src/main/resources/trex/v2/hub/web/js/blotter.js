@@ -28,6 +28,12 @@ export function mount(container, context) {
   refdata = context.refdata;
   selected = new Set();
   filters.offset = 0;
+  const query = context.modeQuery || new URLSearchParams();
+  if (query.has('q')) filters.q = query.get('q');
+  if (query.has('account')) filters.account = query.get('account');
+  if (query.has('category')) filters.category = query.get('category');
+  if (query.has('leg')) filters.leg = query.get('leg');
+  if (query.has('hasReview')) filters.hasReview = query.get('hasReview') === 'true';
   render();
   load();
   return { refresh: load };

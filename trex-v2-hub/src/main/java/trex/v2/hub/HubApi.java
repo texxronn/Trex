@@ -45,6 +45,8 @@ interface HubApi {
 
     List<AckJson> acks();
 
+    trex.v2.hub.api.EyeballResponse eyeball(String period, String user, java.time.LocalDate asOf);
+
     DecisionOutcome postAck(AckRequest request);
 
     java.util.Optional<AckDiff> ackDiff(String user, String period);

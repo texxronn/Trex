@@ -100,3 +100,10 @@ tr.bad td { background: #fef2f2; }
   max-width: 28rem;
 }
 .toast.bad { background: var(--bad); }
+
+.mode-section { margin-top: 1.25rem; }
+.mode-section h3 { margin: 0 0 0.4rem; font-size: 14px; }
+.mode-section h4 { margin: 0.75rem 0 0.25rem; font-size: 13px; color: var(--muted); }
+.day { margin-bottom: 1rem; }
+.pin { display: inline-flex; gap: 0.25rem; align-items: center; }
+.pin select { font-size: 12px; }

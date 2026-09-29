@@ -322,6 +322,20 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /** The pending observations as the index holds them, for the eyeball walk (§10.3). */
+    public List<PendingView> pending() {
+        return read(conn -> {
+            List<PendingView> rows = new ArrayList<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.PENDING_SELECT)) {
+                while (rs.next()) {
+                    rows.add(new PendingView(rs.getString(1), rs.getString(2), LocalDate.parse(rs.getString(3)),
+                        rs.getLong(4), rs.getString(5), rs.getString(6)));
+                }
+            }
+            return rows;
+        });
+    }
+
     /** The current posted facts, for reconciliation. */
     public List<trex.v2.core.Fact> currentFacts() {
         return read(conn -> {

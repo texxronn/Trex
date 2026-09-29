@@ -100,6 +100,17 @@ final class HubHttpApi {
             }
         });
         route(server, "/api/acks", acks);
+        route(server, "/api/eyeball", "GET", ex -> {
+            try {
+                String query = ex.getRequestURI().getQuery();
+                String period = param(query, "period");
+                String user = param(query, "user");
+                String asOf = param(query, "asOf");
+                write(ex, 200, api.eyeball(period, user, asOf == null ? null : java.time.LocalDate.parse(asOf)));
+            } catch (IllegalArgumentException e) {
+                sendError(ex, 400, e.getMessage());
+            }
+        });
         route(server, "/api/reflow/preview", "POST", ex -> {
             try {
                 ReflowRequest request = Json.mapper().readValue(readBody(ex), ReflowRequest.class);

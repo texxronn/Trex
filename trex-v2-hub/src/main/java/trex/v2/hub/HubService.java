@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.v2.core.Action;
 import trex.v2.core.Actor;
+import trex.v2.core.Fact;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
@@ -28,6 +29,7 @@ import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.CursorRequest;
 import trex.v2.hub.api.CursorResponse;
 import trex.v2.hub.api.DecisionRequest;
+import trex.v2.hub.api.EyeballResponse;
 import trex.v2.hub.api.ReflowPreview;
 import trex.v2.core.workbook.Workbook;
 import trex.v2.log.Yaml;
@@ -57,6 +59,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -78,6 +81,9 @@ import java.util.stream.Collectors;
 public final class HubService implements HubApi, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(HubService.class);
+
+    /** A walk is one period; this is a guard against an unbounded scan, not a page size. */
+    private static final int MAX_WALK_ROWS = 100_000;
 
     private final HubConfig config;
     private final IndexLock lock;
@@ -261,6 +267,22 @@ public final class HubService implements HubApi, AutoCloseable {
                 || !StateHash.forPeriod(units, a.period()).equals(a.stateHash());
             return new AckJson(a.userId(), a.period(), a.throughN(), a.stateHash(), stale, a.ackedAt());
         }).toList();
+    }
+
+    /** The eyeball walk for one period (§10.3): open items, the anomaly checks, the day-by-day view. */
+    @Override
+    public EyeballResponse eyeball(String period, String user, LocalDate asOf) {
+        if (period == null || period.isBlank()) {
+            throw new IllegalArgumentException("period is required");
+        }
+        Period.Range range = Period.bounds(period);
+        DeriveConfig c = refresher.config();
+        LocalDate at = asOf == null ? LocalDate.now() : asOf;
+        List<Fact> facts = reads.currentFacts();
+        LedgerPage page = reads.ledger(new BlotterQuery(null, null, null, null, range.from(), range.to(),
+            null, null, null, false, "date", "asc", MAX_WALK_ROWS, 0));
+        return Eyeball.walk(period, user, at, facts, page.rows(), reads.review(null), reads.pending(),
+            c.registry(), c.transfers());
     }
 
     /** Close a period for one user: compute the period's hash and forward a USER_ACK to the writer. */

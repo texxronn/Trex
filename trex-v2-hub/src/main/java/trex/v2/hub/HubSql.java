@@ -46,6 +46,10 @@ final class HubSql {
                observation, source_type, provenance, evidence_id, parser, ingested_at
         FROM txn_current ORDER BY n""";
 
+    static final String PENDING_SELECT = """
+        SELECT external_id, account_ref, date, amount, settled_by, state
+        FROM pending ORDER BY date, external_id""";
+
     static final String FACT_KNOWN = "SELECT 1 FROM chain_resolved WHERE id = ?";
 
     static final String DECISION_KNOWN = "SELECT 1 FROM decision WHERE n = ?";

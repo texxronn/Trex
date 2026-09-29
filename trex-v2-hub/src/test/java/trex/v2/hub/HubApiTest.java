@@ -75,6 +75,13 @@ class HubApiTest {
             assertEquals(404, get(client, base, "/ui/does-not-exist.js").statusCode());
             assertTrue(get(client, base, "/api/workbook").body().contains("coverage"));
 
+            HttpResponse<String> walk = get(client, base, "/api/eyeball?period=2026-09&user=ron");
+            assertEquals(200, walk.statusCode(), walk.body());
+            assertTrue(walk.body().contains("\"anomalies\""), walk.body());
+            assertTrue(walk.body().contains("\"days\""), walk.body());
+            assertTrue(walk.body().contains("NEW_MERCHANT_STEM"), walk.body());
+            assertEquals(400, get(client, base, "/api/eyeball?period=2026-13&user=ron").statusCode());
+
             HttpResponse<String> bad = get(client, base, "/api/ledger?sort=bogus");
             assertEquals(400, bad.statusCode());
         }
