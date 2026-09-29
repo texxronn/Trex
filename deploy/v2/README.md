@@ -73,6 +73,25 @@ Each role is one `command:` on the one image:
 | egress archive | `egress archive …` | byte mirror + evidence copy |
 | egress firefly | `egress firefly … --plan` | `--apply` on instruction only |
 
+## Local dev
+
+The same stack, on your own Docker daemon, with the UI served from the working tree:
+
+```sh
+deploy/v2/dev.sh build      # build the image locally (after a Java change)
+deploy/v2/dev.sh up         # start; UI at http://localhost:8090
+deploy/v2/dev.sh ingest     # the standard statements (~/Downloads/Statements/Statements_CSV)
+deploy/v2/dev.sh reset      # stop and delete the volumes — day 0 again
+deploy/v2/dev.sh ps|logs hub
+```
+
+`compose.dev.yml` mounts `trex-v2-hub/src/main/resources/trex/v2/hub/web` at `/web` and sets
+`-Dtrex.hub.webDir=/web`, so a CSS or JS edit is a **reload, not a rebuild**. Java changes still
+need `dev.sh build` (the hub's classes live in the image). The overlay is additive — the base
+volumes are kept — and `dev.sh` clears `DOCKER_CONTEXT`/`DOCKER_HOST` so a dev build can never
+land on the deployment machine. Ports are loopback (8080 sequencer, 8090 hub), the same as the
+host but local.
+
 ## systemd
 
 Install the units in `deploy/v2/systemd/` into `/etc/systemd/system/`, the config into `/etc/trex/`,

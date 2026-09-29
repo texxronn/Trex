@@ -16,6 +16,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -186,21 +188,42 @@ final class HubHttpApi {
             sendError(ex, 404, "not found");
             return;
         }
-        try (InputStream in = HubHttpApi.class.getResourceAsStream("/trex/v2/hub/web/" + relative)) {
-            if (in == null) {
-                sendError(ex, 404, "not found");
-                return;
-            }
-            byte[] bytes = in.readAllBytes();
-            ex.getResponseHeaders().set("Content-Type", contentType(relative));
-            // The UI is small and changes with the image; revalidate so a redeploy is not
-            // masked by a cached module.
-            ex.getResponseHeaders().set("Cache-Control", "no-cache");
-            ex.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = ex.getResponseBody()) {
-                out.write(bytes);
+        byte[] bytes = fromWebDir(relative);
+        if (bytes == null) {
+            try (InputStream in = HubHttpApi.class.getResourceAsStream("/trex/v2/hub/web/" + relative)) {
+                if (in == null) {
+                    sendError(ex, 404, "not found");
+                    return;
+                }
+                bytes = in.readAllBytes();
             }
         }
+        ex.getResponseHeaders().set("Content-Type", contentType(relative));
+        // The UI is small and changes with the image; revalidate so a redeploy is not
+        // masked by a cached module.
+        ex.getResponseHeaders().set("Cache-Control", "no-cache");
+        ex.sendResponseHeaders(200, bytes.length);
+        try (OutputStream out = ex.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    /**
+     * Dev hook: when {@code -Dtrex.hub.webDir} names a directory, serve the UI from it, so a CSS or
+     * JS edit is a reload rather than a rebuild. Unset in production, where the resources come from
+     * the jar; a file missing from the directory falls back to the jar.
+     */
+    private static byte[] fromWebDir(String relative) throws IOException {
+        String dir = System.getProperty("trex.hub.webDir");
+        if (dir == null || dir.isBlank()) {
+            return null;
+        }
+        Path root = Path.of(dir).normalize();
+        Path file = root.resolve(relative).normalize();
+        if (!file.startsWith(root) || !Files.isRegularFile(file)) {
+            return null;
+        }
+        return Files.readAllBytes(file);
     }
 
     private static String contentType(String path) {

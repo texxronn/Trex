@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# dev.sh — the local v2 dev stack: the same shape as the trex host, on this machine's Docker
+# daemon, with the UI served from the working tree.
+#
+#   dev.sh build             build the image locally (needed after a Java change)
+#   dev.sh up                start/recreate the stack (picks up UI edits with no rebuild)
+#   dev.sh down              stop, keep volumes
+#   dev.sh reset             stop and delete the volumes (day 0 again)
+#   dev.sh ingest [DIR]      ingest statements (default ~/Downloads/Statements/Statements_CSV)
+#   dev.sh ps | logs [svc]   convenience
+#
+# Iterating on the UI: edit trex-v2-hub/src/main/resources/trex/v2/hub/web/*, reload
+# http://localhost:8090 — the hub reads them from the working tree (compose.dev.yml).
+# Iterating on Java: dev.sh build, then dev.sh up.
+#
+# The default Docker context wins; a DOCKER_CONTEXT/DOCKER_HOST set for the remote host is
+# cleared here so a dev build can never land on the deployment machine.
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$here/../.." && pwd)"
+
+export TREX_WEB_DIR="$repo/trex-v2-hub/src/main/resources/trex/v2/hub/web"
+export TREX_FIREFLY_URL="${TREX_FIREFLY_URL:-http://127.0.0.1:8081}"
+export TREX_IMAGE_TAG="${TREX_IMAGE_TAG:-$(sed -n 's|^  <version>\(.*\)</version>|\1|p' "$repo/pom.xml" | head -1)}"
+
+compose=(docker compose -f "$repo/deploy/v2/compose.yml" -f "$repo/deploy/v2/compose.dev.yml")
+
+die() { echo "dev: $*" >&2; exit 1; }
+
+local_docker() {
+    unset DOCKER_HOST
+    export DOCKER_CONTEXT=default
+}
+
+build() {
+    local_docker
+    echo "== building the image locally"
+    (cd "$repo" && deploy/bin/trex-v2-docker.sh build)
+}
+
+case "${1:-up}" in
+    build) build ;;
+    up)
+        local_docker
+        "${compose[@]}" up -d
+        echo "trex ui: http://localhost:8090"
+        ;;
+    down) local_docker; "${compose[@]}" down ;;
+    reset)
+        local_docker
+        "${compose[@]}" down -v
+        echo "volumes removed — next 'dev.sh up' is day 0"
+        ;;
+    ingest)
+        local_docker
+        dir="${2:-$HOME/Downloads/Statements/Statements_CSV}"
+        TREX_COMPOSE_DIR="$repo/deploy/v2" "$repo/deploy/v2/ingest-all.sh" "$dir"
+        ;;
+    ps) local_docker; "${compose[@]}" ps ;;
+    logs) shift; local_docker; "${compose[@]}" logs --tail 50 "$@" ;;
+    *) sed -n '3,22p' "$0" | sed 's|^# \{0,1\}||' ;;
+esac
