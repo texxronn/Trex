@@ -73,6 +73,7 @@ class HubApiTest {
             assertEquals(200, appJs.statusCode());
             assertTrue(appJs.headers().firstValue("Content-Type").orElse("").contains("javascript"));
             assertEquals(404, get(client, base, "/ui/does-not-exist.js").statusCode());
+            assertTrue(get(client, base, "/api/workbook").body().contains("coverage"));
 
             HttpResponse<String> bad = get(client, base, "/api/ledger?sort=bogus");
             assertEquals(400, bad.statusCode());

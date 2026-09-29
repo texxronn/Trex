@@ -40,4 +40,5 @@ export const api = {
   reflowPreview: (categories) => request('POST', '/api/reflow/preview', { categories }),
   categoriesYaml: () => request('GET', '/api/config/categories'),
   saveCategories: (categories) => request('PUT', '/api/config/categories', { categories }),
+  workbook: () => request('GET', '/api/workbook'),
 };

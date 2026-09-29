@@ -50,6 +50,7 @@ final class HubHttpApi {
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
         route(server, "/api/units", "GET", ex -> write(ex, 200, api.units()));
         route(server, "/api/reconcile", "GET", ex -> write(ex, 200, api.reconcile()));
+        route(server, "/api/workbook", "GET", ex -> write(ex, 200, api.workbook()));
         route(server, "/api/decisions", "POST", ex -> {
             try {
                 DecisionRequest request = Json.mapper().readValue(readBody(ex), DecisionRequest.class);

@@ -8,6 +8,7 @@ import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.TransferRules;
 import trex.v2.core.config.User;
+import trex.v2.core.workbook.RuleFixtures;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -79,6 +80,24 @@ public final class ConfigLoader {
         RuleSet ruleSet = RuleSet.compile(categoriesFile.getFileName().toString(),
             new RuleSet.File(declared, categories.rules()));
 
+        // The golden fixtures run on load: a rule regression fails here, not at row 12 000.
+        Path fixturesFile = configDir.resolve("categories.tests.yaml");
+        if (Files.exists(fixturesFile)) {
+            FixturesFile fixtures = Yaml.read(fixturesFile, FixturesFile.class);
+            List<RuleFixtures.Case> cases = (fixtures.tests() == null ? List.<FixtureEntry>of() : fixtures.tests())
+                .stream()
+                .map(e -> new RuleFixtures.Case(e.description(), e.amount() == null ? 0L : e.amount(),
+                    e.category(), e.accountRef()))
+                .toList();
+            List<RuleFixtures.Failure> failures = RuleFixtures.check(ruleSet, cases);
+            if (!failures.isEmpty()) {
+                RuleFixtures.Failure first = failures.getFirst();
+                throw new IllegalArgumentException(fixturesFile.getFileName() + ": " + failures.size()
+                    + " fixture(s) failed, e.g. \"" + first.description() + "\" expected "
+                    + first.expected() + " but got " + first.actual());
+            }
+        }
+
         List<Pattern> allowlist = transfers.allowlist() == null ? List.of()
             : transfers.allowlist().stream()
                 .map(s -> Pattern.compile(s, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE))
@@ -133,6 +152,11 @@ public final class ConfigLoader {
     public record UserEntry(String id, String name, boolean active, String cadence) {}
 
     public record RefdataFile(List<String> categories) {}
+
+    /** {@code categories.tests.yaml}: the golden fixtures (V2-PROPOSAL.md §10.4). */
+    public record FixturesFile(List<FixtureEntry> tests) {}
+
+    public record FixtureEntry(String description, Long amount, String category, String accountRef) {}
 
     public record TransfersFile(int windowDays, List<String> allowlist, Integer dupTolerance,
                                Integer amountTolerance, Integer holdWindowDays, Double restatementOverlap) {}

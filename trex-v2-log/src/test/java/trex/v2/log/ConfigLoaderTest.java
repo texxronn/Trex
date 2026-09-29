@@ -57,4 +57,41 @@ class ConfigLoaderTest {
         assertTrue(server.journalSource().isAbsolute());
         assertTrue(server.journalTarget().isAbsolute());
     }
+
+    @Test
+    void aFailingFixtureIsALoadError(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+            """);
+        Files.writeString(dir.resolve("users.yaml"), """
+            users:
+              - id: "ron"
+                name: "Ron"
+                active: true
+            """);
+        Files.writeString(dir.resolve("categories.yaml"), """
+            categories: [GROCERIES]
+            rules:
+              - category: GROCERIES
+                when:
+                  match: "COLES"
+            """);
+        Files.writeString(dir.resolve("transfers.yaml"), """
+            windowDays: 4
+            allowlist:
+              - 'Transfer'
+            """);
+        Files.writeString(dir.resolve("categories.tests.yaml"), """
+            tests:
+              - description: "COLES 1234"
+                amount: -1000
+                category: FOOD
+            """);
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ConfigLoader.load(dir));
+        assertTrue(error.getMessage().contains("fixture"), error.getMessage());
+    }
 }

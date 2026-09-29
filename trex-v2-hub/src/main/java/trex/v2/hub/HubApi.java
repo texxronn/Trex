@@ -12,6 +12,7 @@ import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.UnitJson;
+import trex.v2.core.workbook.Workbook;
 
 import java.util.List;
 
@@ -45,6 +46,8 @@ interface HubApi {
     java.util.Optional<String> categoriesYaml();
 
     DecisionOutcome saveCategories(String categoriesYaml);
+
+    Workbook.Report workbook();
 
     DecisionOutcome submitDecisions(DecisionRequest request);
 }

@@ -19,12 +19,14 @@ import trex.v2.core.derive.ReviewItem;
 import trex.v2.core.derive.StateHash;
 import trex.v2.core.derive.Unit;
 import trex.v2.core.derive.UserAckRow;
+import trex.v2.core.workbook.Workbook;
 import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ReflowPreview;
+import trex.v2.core.workbook.Workbook;
 import trex.v2.log.Yaml;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.HeadResponse;
@@ -349,8 +351,17 @@ public final class HubService implements HubApi, AutoCloseable {
             .collect(Collectors.toCollection(TreeSet::new));
     }
 
-    // ---- rule files (V2-PROPOSAL.md §7.4 point 6, §9.3) -------------------------------------
+    // ---- workbook (V2-PROPOSAL.md §10.4) ----------------------------------------------------
 
+    /** Lint, coverage and suggestions, computed from a fresh derivation at the current config. */
+    @Override
+    public Workbook.Report workbook() {
+        DeriveConfig c = refresher.config();
+        Derivation d = indexer.deriveWith(c, Instant.now(), Long.MAX_VALUE);
+        return Workbook.of(c, d);
+    }
+
+    // ---- rule files (V2-PROPOSAL.md §7.4 point 6, §9.3) -------------------------------------
     /** The current {@code categories.yaml} text, for the rule editor. */
     @Override
     public Optional<String> categoriesYaml() {
