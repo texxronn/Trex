@@ -13,7 +13,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-
 /**
  * The re-parse diff (V2-PROPOSAL.md §8.2). Re-reading stored evidence with a fixed parser produces
  * candidates; this diffs them against the facts previously read from the same evidence:
@@ -30,6 +29,44 @@ public final class Reparse {
     public enum Kind { MATCHED, SHIFTED, NEW, MISSING }
 
     public record Proposal(Kind kind, String externalId, String previousId, FactDraft candidate, String detail) {}
+
+    public record Minted(String id, int occ) {}
+
+    public record ApplyResult(int facts, int decisions) {}
+
+    /** Post the new facts and the SUPERSEDE/RETIRE decisions a re-parse implies. */
+    public static ApplyResult apply(IngestClient client, String parser, String evidenceId,
+                                    List<Proposal> proposals) {
+        List<FactDraft> toPost = proposals.stream()
+            .filter(p -> p.kind() == Kind.NEW || p.kind() == Kind.SHIFTED)
+            .map(p -> p.candidate().withEvidence(evidenceId, parser, java.time.Instant.now()))
+            .toList();
+        if (!toPost.isEmpty()) {
+            client.postFacts(toPost, true);
+        }
+        List<Map<String, Object>> decisions = new ArrayList<>();
+        for (Proposal p : proposals) {
+            if (p.kind() == Kind.SHIFTED) {
+                decisions.add(decision("SUPERSEDE", Map.of("fromId", p.previousId(), "toId", p.externalId(),
+                    "reason", "re-parse " + parser)));
+            } else if (p.kind() == Kind.MISSING) {
+                decisions.add(decision("RETIRE", Map.of("externalId", p.externalId(),
+                    "reason", "re-parse " + parser)));
+            }
+        }
+        if (!decisions.isEmpty()) {
+            client.postDecisions(decisions);
+        }
+        return new ApplyResult(toPost.size(), decisions.size());
+    }
+
+    private static Map<String, Object> decision(String action, Map<String, Object> payload) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("action", action);
+        out.put("actor", "system");
+        out.putAll(payload);
+        return out;
+    }
 
     private Reparse() {}
 
@@ -96,13 +133,18 @@ public final class Reparse {
 
     /** The candidate ids, minted with the sequencer's occ claim so a preview equals what would land. */
     public static List<String> mintIds(List<Fact> currentFacts, List<FactDraft> candidates) {
+        return mint(currentFacts, candidates).stream().map(Minted::id).toList();
+    }
+
+    /** The same, with the occ each candidate claims. */
+    public static List<Minted> mint(List<Fact> currentFacts, List<FactDraft> candidates) {
         Map<String, List<Fact>> byDay = new LinkedHashMap<>();
         for (Fact f : currentFacts) {
             byDay.computeIfAbsent(f.accountRef() + '\u0000' + f.date(), k -> new ArrayList<>()).add(f);
         }
         Map<String, Set<Integer>> used = new HashMap<>();
         Map<String, Set<Integer>> claimed = new HashMap<>();
-        List<String> ids = new ArrayList<>();
+        List<Minted> minted = new ArrayList<>();
         for (FactDraft d : candidates) {
             String receipt = d.receipt() == null || d.receipt().isBlank() ? null : d.receipt();
             int occ;
@@ -130,10 +172,11 @@ public final class Reparse {
                     u.add(occ);
                 }
             }
-            ids.add(Ids.externalId(d.accountRef(), d.date(), d.amount() == null ? 0 : d.amount(),
-                d.rawDescription(), receipt, occ));
+            String id = Ids.externalId(d.accountRef(), d.date(), d.amount() == null ? 0 : d.amount(),
+                d.rawDescription(), receipt, occ);
+            minted.add(new Minted(id, occ));
         }
-        return ids;
+        return minted;
     }
 
     private static Set<Integer> allOcc(List<Fact> facts) {

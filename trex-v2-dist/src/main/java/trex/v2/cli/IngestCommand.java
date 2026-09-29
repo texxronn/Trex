@@ -111,47 +111,15 @@ public final class IngestCommand implements Callable<Integer> {
     }
 
     private int applyReparse(SourceAdapter adapter, List<Reparse.Proposal> proposals) {
-        IngestClient client = new IngestClient(sequencerUrl);
-        List<FactDraft> toPost = proposals.stream()
-            .filter(p -> p.kind() == Reparse.Kind.NEW || p.kind() == Reparse.Kind.SHIFTED)
-            .map(p -> p.candidate().withEvidence(reparseEvidence, adapter.parser(), java.time.Instant.now()))
-            .toList();
-        if (!toPost.isEmpty()) {
-            try {
-                client.postFacts(toPost, true);
-            } catch (IngestClient.IngestException e) {
-                System.err.println("transport failure: " + e.getMessage());
-                return IngestRunner.TRANSPORT;
-            }
+        try {
+            Reparse.ApplyResult result = Reparse.apply(new IngestClient(sequencerUrl), adapter.parser(),
+                reparseEvidence, proposals);
+            System.out.printf("applied: %d fact(s), %d decision(s)%n", result.facts(), result.decisions());
+            return 0;
+        } catch (IngestClient.IngestException e) {
+            System.err.println("transport failure: " + e.getMessage());
+            return IngestRunner.TRANSPORT;
         }
-        List<Map<String, Object>> decisions = new ArrayList<>();
-        for (Reparse.Proposal p : proposals) {
-            if (p.kind() == Reparse.Kind.SHIFTED) {
-                decisions.add(decision("SUPERSEDE", Map.of("fromId", p.previousId(), "toId", p.externalId(),
-                    "reason", "re-parse " + adapter.parser())));
-            } else if (p.kind() == Reparse.Kind.MISSING) {
-                decisions.add(decision("RETIRE", Map.of("externalId", p.externalId(),
-                    "reason", "re-parse " + adapter.parser())));
-            }
-        }
-        if (!decisions.isEmpty()) {
-            try {
-                client.postDecisions(decisions);
-            } catch (IngestClient.IngestException e) {
-                System.err.println("transport failure: " + e.getMessage());
-                return IngestRunner.TRANSPORT;
-            }
-        }
-        System.out.printf("applied: %d fact(s), %d decision(s)%n", toPost.size(), decisions.size());
-        return 0;
-    }
-
-    private static Map<String, Object> decision(String action, Map<String, Object> payload) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("action", action);
-        out.put("actor", "system");
-        out.putAll(payload);
-        return out;
     }
 
     private static List<Fact> readJournalFacts(Path journal) {
