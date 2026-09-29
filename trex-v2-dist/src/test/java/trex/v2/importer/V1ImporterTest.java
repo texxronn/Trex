@@ -38,13 +38,39 @@ class V1ImporterTest {
     private static final Instant AT = Instant.parse("2026-09-29T08:00:00Z");
 
     @Test
+    void distinctContentRowsOnADayKeepTheirV1Ids(@TempDir Path dir) throws Exception {
+        // v1's occ is per identical content, so two different receipt-less rows on one day are each
+        // occ 0. Importing them must not re-mint their ids.
+        LocalDate day = LocalDate.of(2026, 9, 1);
+        String first = Ids.contentHash("ing-savings", day, -1000, "COLES 1234", 0);
+        String second = Ids.contentHash("ing-savings", day, -2000, "OTHER SHOP", 0);
+
+        Path v1 = dir.resolve("v1.jsonl");
+        List<ObjectNode> lines = List.of(
+            line(1, first, "ing-savings", day, -1000, 900, "COLES 1234", "WITHDRAWAL", "EXTERNAL", List.of()),
+            line(2, second, "ing-savings", day, -2000, 700, "OTHER SHOP", "WITHDRAWAL", "EXTERNAL", List.of()));
+        StringBuilder jsonl = new StringBuilder();
+        for (ObjectNode line : lines) {
+            jsonl.append(Json.mapper().writeValueAsString(line)).append('\n');
+        }
+        Files.writeString(v1, jsonl.toString());
+
+        try (Sequencer sequencer = new Sequencer(new JsonlJournal(dir.resolve("v2.jsonl")),
+                registry(), rules(), Clock.fixed(AT, ZoneOffset.UTC))) {
+            V1Importer.Report report = V1Importer.importJournal(v1, null, new DirectSink(sequencer));
+            assertTrue(report.identityMismatches().isEmpty(), report.identityMismatches().toString());
+            assertEquals(2, report.facts());
+        }
+    }
+
+    @Test
     void mapsAV1JournalWithoutLosingIdentity(@TempDir Path dir) throws Exception {
         LocalDate day = LocalDate.of(2026, 9, 1);
-        // occ is per (account, day), in source order: legA 0, external 1, dup 2 on ing-savings.
+        // occ is per identical content (v1's rule): distinct rows on a day are each occ 0.
         String legA = Ids.contentHash("ing-savings", day, -1000, "COLES 1234", 0);
         String legB = Ids.contentHash("ing-orange", day, 1000, "Transfer to Savings 4321", 0);
-        String external = Ids.contentHash("ing-savings", day, -2000, "PAYPAL THING", 1);
-        String dup = Ids.contentHash("ing-savings", day, -3000, "COLES 9999", 2);
+        String external = Ids.contentHash("ing-savings", day, -2000, "PAYPAL THING", 0);
+        String dup = Ids.contentHash("ing-savings", day, -3000, "COLES 9999", 0);
 
         Path v1 = dir.resolve("v1.jsonl");
         List<ObjectNode> lines = List.of(

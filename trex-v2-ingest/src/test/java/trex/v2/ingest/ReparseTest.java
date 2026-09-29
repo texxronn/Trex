@@ -64,7 +64,7 @@ class ReparseTest {
         List<Reparse.Proposal> proposals = Reparse.diff(List.of(fact), EVIDENCE,
             List.of(draft("COLES 1234", -1000), draft("BRAND NEW SHOP", -2000)));
         assertTrue(proposals.stream().anyMatch(p -> p.kind() == Reparse.Kind.NEW));
-        assertTrue(Reparse.mintIds(List.of(fact), List.of(draft("COLES 1234", -1000))).getFirst()
+        assertTrue(Reparse.mintIds(List.of(draft("COLES 1234", -1000))).getFirst()
             .equals(fact.externalId()), "the minted id matches the sequencer's");
     }
 }

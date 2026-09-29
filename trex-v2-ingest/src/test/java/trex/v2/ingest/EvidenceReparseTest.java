@@ -39,7 +39,7 @@ class EvidenceReparseTest {
         assertEquals(first, again, "same parser, same stored bytes, same drafts");
 
         // The facts the sequencer would have written, built from the minted ids and occs.
-        List<Reparse.Minted> minted = Reparse.mint(List.of(), first);
+        List<Reparse.Minted> minted = Reparse.mint(first);
         List<Fact> facts = new ArrayList<>();
         for (int i = 0; i < first.size(); i++) {
             FactDraft d = first.get(i);

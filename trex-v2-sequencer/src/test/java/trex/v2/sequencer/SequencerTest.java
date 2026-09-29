@@ -247,6 +247,22 @@ class SequencerTest {
     }
 
     @Test
+    void distinctContentRowsOnADayEachGetOccZeroLikeV1(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            BatchResponse resp = s.submitFacts(new FactBatch(false, List.of(
+                draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"),
+                draft("ing-savings", -2000, "OTHER SHOP", null, 500, "csv"))));
+            assertEquals(RowResult.APPENDED, resp.results().get(0).outcome());
+            assertEquals(RowResult.APPENDED, resp.results().get(1).outcome());
+            LocalDate day = LocalDate.of(2026, 9, 1);
+            assertEquals(trex.v2.core.Ids.contentHash("ing-savings", day, -1000, "COLES 1234", 0),
+                resp.results().get(0).externalId(), "distinct content rows are each occ 0, as v1");
+            assertEquals(trex.v2.core.Ids.contentHash("ing-savings", day, -2000, "OTHER SHOP", 0),
+                resp.results().get(1).externalId());
+        }
+    }
+
+    @Test
     void migrationActorNeedsNoUser(@TempDir Path dir) {
         try (Sequencer s = sequencer(dir)) {
             String id = s.submitFacts(new FactBatch(false,

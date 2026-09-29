@@ -77,7 +77,7 @@ public final class Reparse {
                 previous.put(f.externalId(), f);
             }
         }
-        List<String> mintedIds = mintIds(currentFacts, candidates);
+        List<String> mintedIds = mintIds(candidates);
         Map<String, List<Fact>> byAmount = new LinkedHashMap<>();
         previous.values().forEach(p -> byAmount.computeIfAbsent(rowKey(p), k -> new ArrayList<>()).add(p));
 
@@ -131,19 +131,14 @@ public final class Reparse {
         return null;
     }
 
-    /** The candidate ids, minted with the sequencer's occ claim so a preview equals what would land. */
-    public static List<String> mintIds(List<Fact> currentFacts, List<FactDraft> candidates) {
-        return mint(currentFacts, candidates).stream().map(Minted::id).toList();
+    /** The candidate ids, minted with the sequencer's occ rule so a preview equals what would land. */
+    public static List<String> mintIds(List<FactDraft> candidates) {
+        return mint(candidates).stream().map(Minted::id).toList();
     }
 
-    /** The same, with the occ each candidate claims. */
-    public static List<Minted> mint(List<Fact> currentFacts, List<FactDraft> candidates) {
-        Map<String, List<Fact>> byDay = new LinkedHashMap<>();
-        for (Fact f : currentFacts) {
-            byDay.computeIfAbsent(f.accountRef() + '\u0000' + f.date(), k -> new ArrayList<>()).add(f);
-        }
-        Map<String, Set<Integer>> used = new HashMap<>();
-        Map<String, Set<Integer>> claimed = new HashMap<>();
+    /** The same, with the occ each candidate claims (identical-content rows get 0, 1, 2). */
+    public static List<Minted> mint(List<FactDraft> candidates) {
+        Map<String, Integer> contentCounts = new HashMap<>();
         List<Minted> minted = new ArrayList<>();
         for (FactDraft d : candidates) {
             String receipt = d.receipt() == null || d.receipt().isBlank() ? null : d.receipt();
@@ -151,26 +146,10 @@ public final class Reparse {
             if (receipt != null) {
                 occ = 0;
             } else {
-                String day = d.accountRef() + '\u0000' + d.date();
-                Set<Integer> u = used.computeIfAbsent(day, k -> allOcc(byDay.get(k)));
-                Set<Integer> c = claimed.computeIfAbsent(day, k -> new TreeSet<>());
-                occ = -1;
-                for (Fact f : byDay.getOrDefault(day, List.of())) {
-                    if (!c.contains(f.occ()) && f.amount() == d.amount()
-                        && f.rawDescription().equals(d.rawDescription())) {
-                        c.add(f.occ());
-                        u.add(f.occ());
-                        occ = f.occ();
-                        break;
-                    }
-                }
-                if (occ < 0) {
-                    occ = 0;
-                    while (u.contains(occ)) {
-                        occ++;
-                    }
-                    u.add(occ);
-                }
+                String key = d.accountRef() + '\u0000' + d.date() + '\u0000' + d.amount() + '\u0000'
+                    + d.rawDescription();
+                occ = contentCounts.getOrDefault(key, 0);
+                contentCounts.put(key, occ + 1);
             }
             String id = Ids.externalId(d.accountRef(), d.date(), d.amount() == null ? 0 : d.amount(),
                 d.rawDescription(), receipt, occ);

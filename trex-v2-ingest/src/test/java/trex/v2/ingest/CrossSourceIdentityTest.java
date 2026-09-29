@@ -33,8 +33,8 @@ class CrossSourceIdentityTest {
 
         assertEquals(fromCsv.amount(), fromPdf.amount());
         assertEquals(fromCsv.rawDescription(), fromPdf.rawDescription());
-        assertEquals(Reparse.mintIds(List.of(), List.of(fromCsv)),
-            Reparse.mintIds(List.of(), List.of(fromPdf)),
+        assertEquals(Reparse.mintIds(List.of(fromCsv)),
+            Reparse.mintIds(List.of(fromPdf)),
             "the two sources mint one id for one row");
     }
 }

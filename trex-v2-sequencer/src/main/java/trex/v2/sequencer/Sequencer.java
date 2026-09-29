@@ -94,8 +94,7 @@ public final class Sequencer implements AutoCloseable {
             return new BatchResponse(handle(), BatchResponse.REJECTED, results);
         }
 
-        Map<String, Set<Integer>> used = new HashMap<>();
-        Map<String, Set<Integer>> claimed = new HashMap<>();
+        Map<String, Integer> contentCounts = new HashMap<>();
         Set<ObsKey> batchSeen = new HashSet<>();
         List<Fact> toAppend = new ArrayList<>();
         long next = state.headN;
@@ -107,7 +106,7 @@ public final class Sequencer implements AutoCloseable {
                 results.add(rejected(ref(i, d), errors[i]));
                 continue;
             }
-            int occ = assignOcc(d, used, claimed);
+            int occ = assignOcc(d, contentCounts);
             String receipt = normalized(d.receipt());
             String id = Ids.externalId(d.accountRef(), d.date(), d.amount(), d.rawDescription(), receipt, occ);
             ObsKey key = new ObsKey(id, d.accountRef(), d.date(), d.amount(), d.rawDescription(), receipt, occ,
@@ -141,28 +140,20 @@ public final class Sequencer implements AutoCloseable {
         return new BatchResponse(handle(), status, results);
     }
 
-    private int assignOcc(FactDraft d, Map<String, Set<Integer>> used, Map<String, Set<Integer>> claimed) {
-        // A receipt-keyed row is identified by its natural key; occ is carried as 0 and never
-        // participates in identity, so two identical natural-key rows in one batch collapse (§6.1).
+    /**
+     * The occurrence index (V2-PROPOSAL.md §6.1, v1's rule): a receipt-keyed row is identified by its
+     * natural key and carries {@code occ 0}; a content-hash row takes the count of earlier rows in
+     * this batch with the same {@code (account, day, amount, rawDescription)}. Distinct rows on a
+     * day are each {@code occ 0}; identical rows get {@code 0, 1, 2}. This is what keeps identity
+     * stable across a v1 import and a re-parse.
+     */
+    private static int assignOcc(FactDraft d, Map<String, Integer> contentCounts) {
         if (d.receipt() != null && !d.receipt().isBlank()) {
             return 0;
         }
-        String day = SequencerState.dayKey(d.accountRef(), d.date());
-        Set<Integer> u = used.computeIfAbsent(day, k -> state.usedOcc(d.accountRef(), d.date()));
-        Set<Integer> c = claimed.computeIfAbsent(day, k -> new HashSet<>());
-        for (Fact f : state.dayFacts(d.accountRef(), d.date())) {
-            if (!c.contains(f.occ()) && f.amount() == d.amount()
-                && f.rawDescription().equals(d.rawDescription())) {
-                c.add(f.occ());
-                u.add(f.occ());
-                return f.occ();
-            }
-        }
-        int occ = 0;
-        while (u.contains(occ)) {
-            occ++;
-        }
-        u.add(occ);
+        String key = d.accountRef() + '\u0000' + d.date() + '\u0000' + d.amount() + '\u0000' + d.rawDescription();
+        int occ = contentCounts.getOrDefault(key, 0);
+        contentCounts.put(key, occ + 1);
         return occ;
     }
 
