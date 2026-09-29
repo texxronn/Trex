@@ -1555,6 +1555,163 @@ Then, per question:
 - **Eyeball.** A `USER_ACK` is effective until its period hash moves or a later
   `USER_ACK` for the same `(user, period)` replaces it.
 
+### 9.9 The derivation, specified
+
+§9.1 defines the function, §9.8 fixes precedence and §15 fixes the guarantees; this is
+the text an implementer can build without a follow-up question. `derive()` is a pure
+function of `(facts, decisions, config, asOf)`, and its **only** output is the
+materialisation in §7.2 — no table is written that cannot be reproduced by running this
+again.
+
+#### A. The pipeline
+
+Eleven stages, run in order; each may read only earlier stages. P1–P4 are log-only and
+are the whole of `trex verify`'s rebuild.
+
+| # | Stage | Produces |
+|---|---|---|
+| P1 | **Replay.** Apply every line in `n` order to the mirror (§6.3): `fact` by `n`, `decision` by `n`. No interpretation. | `fact`, `decision` |
+| P2 | **Chain roots.** The supersession map's *roots* — every id that is not the `to` of a `SUPERSEDE` — computed before the map is final so a decision can resolve an id early. | `chain_root[]` |
+| P3 | **Registry.** Load `accounts.yaml` (`currency`, `balanceSource`, `settlementWindowDays`), `users.yaml`, `refdata.yaml`, `categories.yaml`, `transfers.yaml`; compute `configRevision`. A load failure is a startup error, not a derivation result. | `registry`, `config` |
+| P4 | **Effective decisions.** §9.8: apply `REVOKE`s in `n` order, then resolve every id through the supersession map. | `effective[]`, `ineffective[]` |
+| P5 | **Supersession.** Build `supersession` from the effective `SUPERSEDE`/`RETIRE` set; reject cycles and retired targets into `ineffective[]`. | `supersession`, `fact_resolved` |
+| P6 | **Current fact per chain.** For each chain root, the latest `posted` observation by `n`; chains whose root is retired or absent are excluded. | `txn_current` |
+| P7 | **Transfer shape and pairing.** §9.9.C. | leg states, `transfer` |
+| P8 | **Pending settlement and staleness.** §9.9.D. | `pending`, `AMBIGUOUS_SETTLEMENT` |
+| P9 | **Category.** §9.9.E. | `category_current`, `pin_current` |
+| P10 | **Review items.** §9.9.F — derived causes, minus effective `DISMISS`es. | `review_item` |
+| P11 | **Projection units and state hashes.** §9.9.G. | projectable units, `stateHash` inputs |
+
+#### B. Ordering, and the one ambiguity
+
+Processing is in `n` order throughout; two structures are order-sensitive and are
+resolved by construction, not by hop order:
+
+- **Supersession chains.** A chain is walked in `(n, from_id)` order, always toward the
+  current fact. `fact_resolved(from) = to` where `to` is the last non-retired id reachable
+  from `from`; a walk that revisits a node, or lands on a retired id, marks every decision
+  in the cycle ineffective.
+- **Pairing.** The matcher (§9.9.C) consumes legs in `(date, n)` order and emits at most
+  one contra per leg. Existing automatic matches are not re-derived on a later run when
+  nothing moved: the match is a pure function of the leg pool, and the pool is
+  deterministic in `n` order.
+
+#### C. Transfer shape and pairing
+
+Evaluation order, first match wins:
+
+1. **Effective decisions** for a leg — the latest effective `PAIR`, `UNPAIR` or
+   `MARK_EXTERNAL` naming it, resolved through supersession. `MARK_EXTERNAL` and
+   `UNPAIR` take the leg out of the pool; `PAIR` holds the pair only while it is the
+   latest effective decision for **both** legs.
+2. **Shape.** With no effective decision, a leg is *transfer-shaped* when
+   `clean(rawDescription)` matches any allowlist regex in `transfers.yaml`
+   (case-insensitive), or it shares a non-null `receipt` with a leg in another account.
+   Sign and account do not determine shape — they qualify a candidate.
+3. **Tiers.** The matcher runs `(date, n)` order over the pool of shaped, undecided
+   legs and takes the first tier that fires:
+   - **T1 — receipt.** Both legs share the same non-null `receipt`, are in different
+     accounts, have opposite signs and the same `currency` → `confidence: EXACT`,
+     `transfer_id` = `TRF-<receipt>`.
+   - **T2 — same-day.** `|amount|` equal, opposite signs, different accounts, same
+     `currency`, same `date`, and equal `merchantStem` after removing the transfer
+     allowlist vocabulary (so `Transfer to Savings 4321` matches `Transfer from Savings
+     4321`) → `confidence: HIGH`, `transfer_id` = `transferId(rootA, rootB)`.
+   - **T3 — windowed.** As T2 but the dates differ by no more than
+     `transfers.yaml windowDays`; the stem match is still required — `windowDays` widens
+     the date, never the text. → `confidence: HIGH`, `transfer_id` =
+     `transferId(rootA, rootB)`.
+   - **No match.** A transfer-shaped leg with no candidate → `HELD`. A leg that is not
+     transfer-shaped and is not matched → `EXTERNAL`.
+   - **More than one candidate** at the winning tier → the leg is `HELD` **and** an
+     `AMBIGUOUS_TRANSFER` item opens naming every candidate. HELD is what it is — on hold
+     waiting for a contra — and the item is the separate statement that there is more
+     than one; no pair is emitted either way. Resolved by `PAIR` or `MARK_EXTERNAL`, or
+     the candidates resolve themselves as they are decided.
+4. **Collapse.** A pair emits one `transfer` row; its legs are `MATCHED` and are never
+   projected (§11). A pair emitted from a decision carries `origin: decision` and the
+   decision's `n`; a pair from the matcher carries `origin: derived`.
+
+#### D. Pending settlement and staleness
+
+A `pending` fact is a **claim on a future posted row**, and settlement is resolved before
+pairing (a pending row never enters the pool; §9.7).
+
+- **Candidate.** A posted row on the same account whose `date` is within
+  `[pending.date, pending.date + settlementWindowDays]`, whose sign is opposite, whose
+  `|amount|` is equal (or within `transfers.yaml amountTolerance`, default 0), whose
+  `currency` matches, and whose `merchantStem` is equal to the pending row's.
+- **Exactly one candidate** → `settled_by` is that row; the pending observation becomes
+  `SETTLED`.
+- **Zero candidates** and `asOf < pending.date + settlementWindowDays`, where the
+  account's posted frontier has not passed the pending date → `OPEN`.
+- **Zero candidates** and the frontier has passed it (`> settlementWindowDays` since the
+  account's newest posted date) → `STALE`, and a `STALE_PENDING` item opens.
+- **Two or more candidates** → `AMBIGUOUS_SETTLEMENT`, every candidate named; the row
+  stays `OPEN` and a `SETTLE` can close it. Derivation never picks between them.
+
+The frontier is per account: the maximum `date` of that account's posted facts. It is a
+property of the log, so this is reproducible and needs no clock beyond `asOf`.
+
+#### E. Category
+
+For a current fact `f`, with `leg` = its pairing state from P6:
+
+1. `leg` is `MATCHED` (structural transfer) → `TRANSFER`, `origin: STRUCTURAL`; never a
+   pin, never a rule.
+2. The latest effective `PIN`/`UNPIN` naming the id wins: a `PIN` → its `category`,
+   `origin: PIN`, `rule_id` null; an `UNPIN` falls through.
+3. First rule in `categories.yaml` file order whose `when` tree matches
+   `clean(rawDescription)`, amount direction, account and `leg` → `origin: RULE`,
+   `rule_id` recorded; a firing rule with an undeclared or retired category name is a
+   load error, never a silent `UNCATEGORIZED`.
+4. Otherwise `UNCATEGORIZED`, `origin: NONE`.
+
+A `PIN` naming a structural transfer leg is refused at the hub (a pin that can never win
+is a lie, §9.3) and, if it reaches the log, is ineffective.
+
+#### F. Review items
+
+Each kind is a predicate over the current state; an item is open when its predicate holds
+and no effective `DISMISS` for that `(kind, subject)` post-dates the newest fact for the
+subject. Subjects are the ids in the chain (so a re-parse re-opens, §9.8).
+
+| Kind | Predicate |
+|---|---|
+| `POTENTIAL_DUP` | Two current facts on one account, same `date`, same `sign`, matching `merchantStem`, absolute amount within `transfers.yaml dupTolerance` (default 0), neither retired nor paired. |
+| `RESTATEMENT` | A current fact whose `(account, date, amount)` matches another current fact's, with the text similarity threshold (§8.4) satisfied and different ids. |
+| `AMBIGUOUS_TRANSFER` | From P7: more than one candidate at the winning tier. |
+| `AMBIGUOUS_SETTLEMENT` | From P8: more than one settlement candidate. |
+| `UNMATCHED_LEG` | A shaped leg that has been `HELD` past `transfers.yaml holdWindowDays` (default 30) measured on `asOf`. HELD itself never ages; only the *item* does. |
+| `STALE_PENDING` | From P8. |
+| `INEFFECTIVE_DECISION` | From P4/P5: a decision naming an unresolvable id, or a supersession cycle. |
+
+An item's `state_hash` is the hash of its `detail` payload, so the item survives a
+rebuild identically and the "changed since reviewed" check has something stable to
+compare (§9.5).
+
+#### G. Projection units and state hashes
+
+- **Unit.** A `transfer` row is one unit; a current posted fact whose pairing state is
+  `EXTERNAL` is one unit; an `ATTESTATION` is never a unit (§11). The unit id, kind and
+  category come from P7/P9.
+- **`stateHash(period)`.** Canonical, ordered serialisation of, for every unit current
+  at P11 whose date falls in the period: `unit_id`, `unit_kind`, `accountRef`, `date`,
+  `amount`, `currency`, `category`, `origin`, pairing state, pending state, `retired`,
+  `ineffective`. Excluded: any age or stale badge, any display field, `n` ordering noise,
+  `configRevision`, `deriveVersion`, `hashVersion`. The hash is of content only
+  (`hashVersion` stamps the algorithm; §9.5).
+- **Recomputing a period** is exactly `derive()` restricted to that period's units, which
+  is why `USER_ACK` invalidation is a comparison and not a second derivation.
+
+#### H. Complexity and the incremental contract
+
+A full derive is `O((f + d) log(f + d))` for P1–P4 (a `sort` plus linear folds) and
+`O(k log k)` within an account for P6–P7, where `k` is the size of the matching pool. An incremental refresh may reuse any
+stage's output whenever its inputs are unchanged; the only supported contract is that
+**a full re-derive at the same `asOf` produces the same tables**, and §15 asserts it.
+There is no partial-consistency promise: a rebuild replaces level 2 wholesale.
+
 ---
 
 ## 10. The blotter
