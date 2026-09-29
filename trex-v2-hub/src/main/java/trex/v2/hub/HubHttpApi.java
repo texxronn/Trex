@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -30,8 +31,9 @@ final class HubHttpApi {
 
     private HubHttpApi() {}
 
-    static HttpServer start(String host, int port, HubApi api) throws IOException {
+    static HttpServer start(String host, int port, HubApi api, HubEvents events) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
+        server.createContext("/api/events", ex -> streamEvents(ex, api, events));
         route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
         route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
         route(server, "/api/refdata", "GET", ex -> write(ex, 200, api.refdata()));
@@ -97,6 +99,53 @@ final class HubHttpApi {
 
     private interface Handler {
         void handle(HttpExchange ex) throws Exception;
+    }
+
+    /**
+     * Server-Sent Events (V2-PROPOSAL.md §7.4): a snapshot at the current instant, then a delta
+     * whenever the index moves. The subscriber is registered before the snapshot is read, so no
+     * change can fall between them.
+     */
+    private static void streamEvents(HttpExchange ex, HubApi api, HubEvents events) {
+        if (!"GET".equals(ex.getRequestMethod())) {
+            sendError(ex, 405, "method not allowed");
+            ex.close();
+            return;
+        }
+        try {
+            ex.getResponseHeaders().set("Content-Type", "text/event-stream");
+            ex.getResponseHeaders().set("Cache-Control", "no-cache");
+            ex.getResponseHeaders().set("Connection", "keep-alive");
+            ex.sendResponseHeaders(200, 0);
+        } catch (IOException e) {
+            ex.close();
+            return;
+        }
+        try (OutputStream out = ex.getResponseBody();
+             HubEvents.Subscription subscription = events.subscribe()) {
+            writeEvent(out, "snapshot", api.head());
+            while (events.isOpen()) {
+                java.util.Optional<HubEvents.Change> change = subscription.poll(Duration.ofSeconds(15));
+                if (change.isPresent()) {
+                    writeEvent(out, "delta", change.get());
+                } else {
+                    out.write(": ping\n\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                }
+            }
+        } catch (IOException e) {
+            log.debug("SSE client disconnected");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            ex.close();
+        }
+    }
+
+    private static void writeEvent(OutputStream out, String event, Object data) throws IOException {
+        out.write(("event: " + event + "\n").getBytes(StandardCharsets.UTF_8));
+        out.write(("data: " + Json.mapper().writeValueAsString(data) + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
     }
 
     private static void route(HttpServer server, String path, String method, Handler handler) {

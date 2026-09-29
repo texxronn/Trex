@@ -488,6 +488,17 @@ public final class Indexer implements AutoCloseable {
         return out;
     }
 
+    /** The highest {@code n} the index has mirrored (for the change feed). */
+    public synchronized long logHeadN() {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(
+                 "SELECT COALESCE(MAX(n), 0) FROM (SELECT n FROM fact UNION ALL SELECT n FROM decision)")) {
+            return rs.next() ? rs.getLong(1) : 0;
+        } catch (SQLException e) {
+            throw new IndexException("cannot read the log head from the index", e);
+        }
+    }
+
     /**
      * A hash of every derived table's rows, sorted, for the rebuild-equivalence test (§15.3) and
      * {@code trex verify}. Two indexes that derive the same answer share a fingerprint.

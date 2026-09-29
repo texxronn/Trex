@@ -75,17 +75,19 @@ public final class HubService implements HubApi, AutoCloseable {
     private final HubQueries reads;
     private final IndexRefresher refresher;
     private final SequencerClient sequencer;
+    private final HubEvents events;
     private final AtomicBoolean closed = new AtomicBoolean();
     private HttpServer server;
 
     private HubService(HubConfig config, IndexLock lock, Indexer indexer, HubQueries reads,
-                       IndexRefresher refresher, SequencerClient sequencer) {
+                       IndexRefresher refresher, SequencerClient sequencer, HubEvents events) {
         this.config = config;
         this.lock = lock;
         this.indexer = indexer;
         this.reads = reads;
         this.refresher = refresher;
         this.sequencer = sequencer;
+        this.events = events;
     }
 
     public static HubService start(HubConfig config) {
@@ -97,11 +99,12 @@ public final class HubService implements HubApi, AutoCloseable {
         try {
             indexer = Indexer.open(config.index(), loaded.config());
             reads = new HubQueries(config.index(), 4);
+            HubEvents events = new HubEvents();
             refresher = new IndexRefresher(config.journal(), config.configDir(), indexer,
-                loaded.config(), config.refreshDebounceMs());
+                loaded.config(), config.refreshDebounceMs(), events);
             SequencerClient sequencer = config.sequencerUrl() == null ? null : new SequencerClient(config.sequencerUrl());
-            HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer);
-            service.server = HubHttpApi.start(config.host(), config.port(), service);
+            HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events);
+            service.server = HubHttpApi.start(config.host(), config.port(), service, events);
             log.info("trex hub listening on {}:{}; journal {}; index {}",
                 config.host(), service.server.getAddress().getPort(), config.journal(), config.index());
             return service;
@@ -527,6 +530,7 @@ public final class HubService implements HubApi, AutoCloseable {
         }
         server.stop(0);
         refresher.close();
+        events.close();
         reads.close();
         indexer.close();
         lock.close();

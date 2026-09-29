@@ -39,17 +39,20 @@ final class IndexRefresher implements AutoCloseable {
     private final long debounceMs;
     private final WatchService watch;
     private final Thread worker;
+    private final HubEvents events;
 
     private volatile DeriveConfig config;
     private volatile boolean running = true;
 
-    IndexRefresher(Path journal, Path configDir, Indexer indexer, DeriveConfig initial, long debounceMs) {
+    IndexRefresher(Path journal, Path configDir, Indexer indexer, DeriveConfig initial, long debounceMs,
+                   HubEvents events) {
         this.journal = journal.toAbsolutePath();
         this.journalDir = this.journal.getParent();
         this.configDir = configDir.toAbsolutePath();
         this.indexer = indexer;
         this.config = initial;
         this.debounceMs = debounceMs;
+        this.events = events;
         try {
             this.watch = FileSystems.getDefault().newWatchService();
             journalDir.register(watch, StandardWatchEventKinds.ENTRY_CREATE,
@@ -138,16 +141,23 @@ final class IndexRefresher implements AutoCloseable {
             if (indexer.offset() > size) {
                 log.warn("journal shrank (offset {} > size {}); refolding from 0", indexer.offset(), size);
                 indexer.rebuild(journal, Instant.now());
+                publish();
                 return;
             }
             if (indexer.apply(journal, Instant.now())) {
                 log.debug("index refreshed ({})", why);
+                publish();
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (RuntimeException e) {
             log.error("index refresh failed ({})", why, e);
         }
+    }
+
+    private void publish() {
+        events.publish(new HubEvents.Change(indexer.logHeadN(), indexer.offset(),
+            config.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION));
     }
 
     @Override
