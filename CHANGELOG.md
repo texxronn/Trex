@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-29
+
 The v2 system per `V2-PROPOSAL.md`, built in the stage order of `V2-IMPLEMENTATION-PLAN.md`:
 `trex-v2-core`, `-log`, `-index`, `-sequencer`, `-hub`, `-egress`, `-ingest`, `-dist`.
 
