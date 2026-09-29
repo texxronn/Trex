@@ -305,3 +305,10 @@ td.desc { white-space: normal; max-width: 30rem; }
   margin: 0.7rem 0; font-size: 12px; color: var(--muted); }
 .dialog .field select { flex: 1 1 auto; max-width: 60%; }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+/* ---- Eyeball read / unread ---------------------------------------------- */
+
+.hint { font-size: 12px; margin: -0.2rem 0 0.6rem; }
+tbody tr.read td { opacity: .45; }
+tbody tr.unread td { font-weight: 500; }
+tbody tr.read:hover td { opacity: .75; }

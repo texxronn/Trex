@@ -1,10 +1,13 @@
-// Eyeball mode (V2-PROPOSAL.md §10.3): a bucketed blotter you walk at your own cadence. Nested
-// tabs choose the grain (Daily / Weekly / Monthly); within it, transactions are grouped by day and
-// each row can be categorised in place (a PIN, one row at a time, on purpose).
+// Eyeball mode (V2-PROPOSAL.md §10.3): the Blotter list, scoped to a period, with a read state.
+// The nested tabs pick the period grain (Daily / Weekly / Monthly). A transaction covered by the
+// acting user's USER_ACK is "read" and renders faded; the rest are unread and bright. "Mark read"
+// writes that USER_ACK. Each row can be re-categorised in place (a PIN).
+//
+// Open items and anomalies (the walk's other sections) are parked for now; the API still returns
+// them, and the UI will bring them back.
 
 import { api } from './api.js';
 import { openCategorize } from './categorize.js';
-import { decisions } from './decisions.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -14,29 +17,18 @@ let ctx;
 let categories = [];
 let grain = 'week';
 let period;
-let walk = null;
+let rows = [];
+let acks = [];
 let ack = null;
 
 let errorBar;
 let jumpInput;
 let periodLabel;
-let markerHost;
-let bodyHost;
+let stateChip;
+let tableHost;
 
 const GRAINS = ['day', 'week', 'month'];
 const GRAIN_LABEL = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
-
-const KIND_LABEL = {
-  BALANCE_CHAIN_BREAK: 'Balance chain break',
-  NEW_MERCHANT_STEM: 'New merchant',
-  AMOUNT_OUTLIER: 'Large amount',
-  DUPLICATE_LOOKING: 'Duplicate-looking',
-  RECURRING_MISSING: 'Recurring charge missing',
-  UNMATCHED_LEG: 'Transfer unmatched',
-  STALE_PENDING: 'Stale pending',
-  UNCATEGORIZED: 'Uncategorized',
-  ACCOUNT_SILENT: 'Account quiet',
-};
 
 export function mount(container, context) {
   host = container;
@@ -63,8 +55,8 @@ function render() {
     },
   });
   periodLabel = el('span', { class: 'period muted' });
-  markerHost = el('div');
-  bodyHost = el('div');
+  stateChip = el('span', {});
+  tableHost = el('div');
 
   host.append(errorBar,
     el('div', { class: 'toolbar' },
@@ -73,8 +65,11 @@ function render() {
       field('Jump', jumpInput),
       periodLabel,
       button('\u203a', () => step(1)),
-      el('button', { type: 'button', class: 'primary', onclick: closePeriod }, 'Close period')),
-    markerHost, bodyHost);
+      stateChip,
+      el('button', { type: 'button', class: 'primary', onclick: markRead }, 'Mark read')),
+    el('p', { class: 'muted hint' },
+      'Bright rows are unread; Mark read fades the period for you. Categorize pins a row.'),
+    tableHost);
 }
 
 function tab(g) {
@@ -95,14 +90,14 @@ function tab(g) {
 
 async function load() {
   try {
-    // The grain is the period walked; inside it, transactions group by day.
-    walk = await api.eyeball(period, ctx.user, { bucket: 'day' });
-    const acks = await api.acks();
-    ack = acks.find((a) => a.user === ctx.user && a.period === period) || null;
+    const walk = await api.eyeball(period, ctx.user, { bucket: 'day' });
+    rows = (walk.buckets || []).flatMap((b) => b.rows).sort(byDateThenN);
+    const all = await api.acks();
+    acks = all.filter((a) => a.user === ctx.user);
+    ack = acks.find((a) => a.period === period) || null;
     errorBar.hidden = true;
     renderHeading();
-    renderMarker();
-    renderBody();
+    renderTable();
   } catch (error) {
     showError(error);
   }
@@ -112,147 +107,54 @@ function renderHeading() {
   periodLabel.textContent = `${GRAIN_LABEL[grain]} · ${labelOf(period)}`;
   const b = boundsOf(period);
   if (b) jumpInput.value = isoDay(b.from);
+  clear(stateChip);
+  stateChip.append(ack
+    ? (ack.stale
+      ? el('span', { class: 'tag NONE' }, 'changed since read')
+      : el('span', { class: 'tag good' }, 'read'))
+    : el('span', { class: 'tag' }, 'unread'));
 }
 
-function renderMarker() {
-  clear(markerHost);
-  if (!ack) {
-    markerHost.append(el('p', { class: 'muted' }, `Not closed yet for ${ctx.user}.`));
+function renderTable() {
+  clear(tableHost);
+  if (!rows.length) {
+    tableHost.append(el('p', { class: 'muted' }, 'No transactions in this period.'));
     return;
   }
-  const state = ack.stale
-    ? el('span', { class: 'tag NONE' }, 'changed since reviewed')
-    : el('span', { class: 'tag good' }, 'green');
-  markerHost.append(el('p', {},
-    state, ' ',
-    `closed by ${ack.user} at n=${ack.throughN} on ${ack.ackedAt}`,
-    ack.stale ? el('button', { type: 'button', onclick: showMoved }, 'Moved\u2026') : null));
-}
-
-function renderBody() {
-  clear(bodyHost);
-  if (!walk) return;
-  const anomalies = walk.anomalies || [];
-  const openItems = walk.openItems || [];
-  const buckets = walk.buckets || [];
-  bodyHost.append(el('p', { class: 'muted' },
-    `${anomalies.length} anomal${anomalies.length === 1 ? 'y' : 'ies'} · `
-    + `${openItems.length} open item${openItems.length === 1 ? '' : 's'} · `
-    + `${buckets.length} day${buckets.length === 1 ? '' : 's'}`));
-  bodyHost.append(section('Open items', openItemsTable(openItems)));
-  bodyHost.append(section('Anomalies', anomaliesList(anomalies)));
-  bodyHost.append(section('Transactions', bucketsList(buckets)));
-}
-
-// ---- open items -------------------------------------------------------------------------------
-
-function openItemsTable(items) {
-  if (!items.length) return el('p', { class: 'muted' }, 'Nothing open in this period.');
-  const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'About'), el('th', {}, 'Detail'),
-    el('th', { class: 'amount' }, 'Stake'), el('th', { class: 'amount' }, 'Opened'), el('th', {}));
-  const body = items.map((item) => el('tr', {},
-    el('td', {}, el('span', { class: 'badge ' + item.kind }, KIND_LABEL[item.kind] || item.kind)),
-    el('td', { class: 'desc', title: item.subject }, item.subjectDescription || shortId(item.subject)),
-    el('td', { class: 'desc' }, item.detail || ''),
-    el('td', { class: 'amount' }, item.amountStake == null ? '' : money(item.amountStake)),
-    el('td', { class: 'amount muted' }, (item.openedAt || '').slice(0, 10)),
-    el('td', {}, button('Dismiss', () => submit(
-      decisions.dismiss(ctx, item.kind, [item.subject], 'dismissed in eyeball'))))));
-  return scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)));
-}
-
-// ---- anomalies --------------------------------------------------------------------------------
-
-function anomaliesList(anomalies) {
-  if (!anomalies.length) return el('p', { class: 'muted' }, 'No anomalies in this period.');
-  const byKind = new Map();
-  for (const a of anomalies) {
-    if (!byKind.has(a.kind)) byKind.set(a.kind, []);
-    byKind.get(a.kind).push(a);
-  }
-  const blocks = [];
-  for (const [kind, rows] of byKind) {
-    blocks.push(el('div', {},
-      el('h4', {}, `${KIND_LABEL[kind] || kind} (${rows.length})`),
-      scroll(el('table', {}, el('tbody', {}, ...rows.map(anomalyRow))))));
-  }
-  return el('div', {}, ...blocks);
-}
-
-function anomalyRow(a) {
-  return el('tr', {},
-    el('td', {}, a.date || ''),
-    el('td', {}, a.accountRef || ''),
-    el('td', { class: 'amount' }, a.amount == null ? '' : money(a.amount)),
-    el('td', { class: 'desc' }, a.detail || ''),
-    el('td', {}, linkTo(a)));
-}
-
-function linkTo(a) {
-  const params = {};
-  if (a.accountRef) params.account = a.accountRef;
-  if (a.kind === 'UNCATEGORIZED' && a.detail) params.q = a.detail;
-  if (!Object.keys(params).length) return null;
-  return el('a', { href: '#blotter?' + new URLSearchParams(params) }, 'open \u2192');
-}
-
-// ---- the buckets ------------------------------------------------------------------------------
-
-function bucketsList(buckets) {
-  if (!buckets.length) return el('p', { class: 'muted' }, 'No transactions in this period.');
-  return el('div', {}, ...buckets.map(bucketBlock));
-}
-
-function bucketBlock(b) {
-  const closing = Object.entries(b.closingBalances || {})
-    .map(([account, balance]) => `${account} ${money(balance)}`).join(' · ');
-  const head = el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Account'),
-    el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Description'),
+  // Exactly the Blotter's columns, plus a per-row action; no checkbox or batch bar.
+  const head = el('tr', {},
+    el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
+    el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'),
     el('th', {}, 'Category'), el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'),
     el('th', {}, ''));
-  const body = b.rows.map((row) => el('tr', { class: row.category === 'UNCATEGORIZED' ? 'bad' : '' },
-    el('td', {}, row.date),
-    el('td', {}, row.accountRef),
-    el('td', { class: 'amount' }, money(row.amount)),
-    el('td', { class: 'desc' }, row.rawDescription),
-    el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
-    el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
-    el('td', {}, row.n),
-    el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
-    el('td', {}, button('Categorize', () => openCategorize(ctx, row, categories, load)))));
-  return el('div', { class: 'bucket' },
-    el('h4', {}, `${b.key}  ·  ${b.from}${b.from === b.to ? '' : ' \u2013 ' + b.to}`
-      + `  ·  total ${money(b.total)}  ·  closing ${closing}`),
-    scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+  const body = rows.map((row) => {
+    const read = isRead(row.date);
+    return el('tr', { class: read ? 'read' : 'unread' },
+      el('td', {}, row.date),
+      el('td', {}, row.accountRef),
+      el('td', { class: 'amount' }, money(row.amount)),
+      el('td', { class: 'amount' }, money(row.balance)),
+      el('td', { class: 'desc' }, row.rawDescription),
+      el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
+      el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
+      el('td', {}, row.n),
+      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
+      el('td', {}, button('Categorize', () => openCategorize(ctx, row, categories, load))));
+  });
+  tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
-// ---- actions ----------------------------------------------------------------------------------
-
-async function submit(decision) {
-  try {
-    await api.decisions(ctx.n, [decision]);
-    toast('Recorded');
-  } catch (error) {
-    reportError(error);
-  }
-  await load();
+/** Read means the acting user has a USER_ACK whose period covers this row's date. */
+function isRead(dateIso) {
+  const d = parseIso(dateIso);
+  return acks.some((a) => covers(a.period, d));
 }
 
-async function closePeriod() {
+async function markRead() {
   try {
     await api.postAck({ user: ctx.user, period, comment: null });
-    toast(`Closed ${period} for ${ctx.user}`);
+    toast(`Marked ${period} read for ${ctx.user}`);
     await load();
-  } catch (error) {
-    reportError(error);
-  }
-}
-
-async function showMoved() {
-  if (!ack) return;
-  try {
-    const diff = await api.ackDiff(ack.user, ack.period);
-    toast(diff.moved.length ? 'Moved: ' + diff.moved.join(', ') : 'Nothing moved');
   } catch (error) {
     reportError(error);
   }
@@ -273,6 +175,10 @@ function step(direction) {
   load();
 }
 
+function byDateThenN(a, b) {
+  return a.date < b.date ? -1 : a.date > b.date ? 1 : a.n - b.n;
+}
+
 // ---- period keys and their date ranges --------------------------------------------------------
 
 function keyFor(date, g) {
@@ -281,19 +187,21 @@ function keyFor(date, g) {
   return isoWeek(date);
 }
 
-/** The inclusive UTC range a period key names, matching the hub's Period. */
+/** The inclusive UTC range a period key names, matching the hub's Period (day…year). */
 function boundsOf(key) {
   const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
   if (day) {
     const d = new Date(Date.UTC(+day[1], +day[2] - 1, +day[3]));
     return { from: d, to: d };
   }
-  const week = /^(\d{4})-W(\d{2})$/.exec(key);
-  if (week) {
-    const jan4 = new Date(Date.UTC(+week[1], 0, 4));
-    const wd = jan4.getUTCDay() || 7;
-    const from = new Date(jan4.getTime() - (wd - 1) * 86400000 + (+week[2] - 1) * 7 * 86400000);
-    return { from, to: new Date(from.getTime() + 6 * 86400000) };
+  const year = /^(\d{4})$/.exec(key);
+  if (year) {
+    return { from: new Date(Date.UTC(+year[1], 0, 1)), to: new Date(Date.UTC(+year[1], 11, 31)) };
+  }
+  const quarter = /^(\d{4})-Q([1-4])$/.exec(key);
+  if (quarter) {
+    const m = (+quarter[2] - 1) * 3;
+    return { from: new Date(Date.UTC(+quarter[1], m, 1)), to: new Date(Date.UTC(+quarter[1], m + 3, 0)) };
   }
   const month = /^(\d{4})-(\d{2})$/.exec(key);
   if (month) {
@@ -302,10 +210,21 @@ function boundsOf(key) {
       to: new Date(Date.UTC(+month[1], +month[2], 0)),
     };
   }
+  const week = /^(\d{4})-W(\d{2})$/.exec(key);
+  if (week) {
+    const jan4 = new Date(Date.UTC(+week[1], 0, 4));
+    const wd = jan4.getUTCDay() || 7;
+    const from = new Date(jan4.getTime() - (wd - 1) * 86400000 + (+week[2] - 1) * 7 * 86400000);
+    return { from, to: new Date(from.getTime() + 6 * 86400000) };
+  }
   return null;
 }
 
-/** A compact range label, e.g. 20260120-20260126. */
+function covers(key, date) {
+  const b = boundsOf(key);
+  return b !== null && date >= b.from && date <= b.to;
+}
+
 function labelOf(key) {
   const b = boundsOf(key);
   if (!b) return key;
@@ -341,15 +260,11 @@ function parseIso(value) {
 
 // ---- helpers ----------------------------------------------------------------------------------
 
-function section(title, content) {
-  return el('section', { class: 'mode-section' }, el('h3', {}, title), content);
-}
-
 function button(label, onClick) {
   return el('button', { type: 'button', onclick: onClick }, label);
 }
 
 function showError(error) {
-  errorBar.textContent = error.message || 'failed to load the walk';
+  errorBar.textContent = error.message || 'failed to load the period';
   errorBar.hidden = false;
 }
