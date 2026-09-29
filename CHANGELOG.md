@@ -7,7 +7,7 @@ v1 tree, which stays on disk as reference and is never imported by v2 code.
 The format is loosely [Keep a Changelog](https://keepachangelog.com/); v2 has not been released, so
 everything is under **Unreleased**.
 
-## [Unreleased] — v2 (0.1.0-SNAPSHOT)
+## [Unreleased]
 
 The v2 system per `V2-PROPOSAL.md`, built in the stage order of `V2-IMPLEMENTATION-PLAN.md`:
 `trex-v2-core`, `-log`, `-index`, `-sequencer`, `-hub`, `-egress`, `-ingest`, `-dist`.
