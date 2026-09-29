@@ -5,35 +5,452 @@
 # expected value, not a gap.
 #
 # The rules only, never pins: a pin is a decision and lives in the log, not in a fixture.
+#
+# Every rule in categories.yaml has at least one case, and the adversarial ones pin the subtleties
+# the rules were tuned for: word boundaries (\bfees?\b vs COFFEE, \bshell\b vs SHELLHARBOUR,
+# \brego\b vs GREGORY, \bATO\b vs GELATO), the excluded ATM owner fee, direction, and the
+# orderings where two rules would both match (COSTCO GAS vs WHOLESALE, AMAZON WEB SERVICES vs
+# AMAZON AU, UBER *TRIP vs UBER EATS, MORTGAGE INTEREST vs MORTGAGE REPAYMENT, INTEREST EARNED in
+# vs out, BREADTOP in FOOD(2) before GROCERIES(2), UDAYA RESTAURANT in DISCRETIONARY before
+# GROCERIES(2)). Descriptions are the raw bank text: match defaults to raw, verbatim.
 
 tests:
+  # --- SALARY (rule 1): in, salary/payroll/wages -------------------------------------------
   - description: "SALARY PAYROLL ACME PTY LTD"
     amount: 1000
     category: SALARY
+  - description: "ACME PTY LTD WAGES WEEKLY"
+    amount: 200000
+    category: SALARY
+  - description: "SALARY PAYROLL ACME PTY LTD"
+    amount: -1000
+    category: UNCATEGORIZED   # direction in; a salary-looking debit is not salary
+
+  # --- INTEREST_EARNED (rule 2) / INTEREST_PAID (rule 3) -----------------------------------
   - description: "INTEREST EARNED"
     amount: 500
     category: INTEREST_EARNED
+  - description: "DIVIDEND CBA 1234"
+    amount: 700
+    category: INTEREST_EARNED
+  - description: "INTEREST EARNED"
+    amount: -500
+    category: INTEREST_PAID    # out, so the bare word is the paid side
   - description: "PURCHASE INTEREST - RECEIPT 123"
     amount: -500
     category: INTEREST_PAID
+  - description: "DEBIT EXCESS INTEREST"
+    amount: -300
+    category: INTEREST_PAID
+  - description: "Interest charge \u2013 Revolving"
+    amount: -1200
+    category: INTEREST_PAID    # the en-dash form the banks write
+  - description: "MORTGAGE INTEREST CHARGE"
+    amount: -90000
+    category: INTEREST_PAID    # rule 3 wins before BILLS matches "mortgage"
+
+  # --- FEES (rule 4): \bfees?\b, but never an ATM owner fee ---------------------------------
   - description: "MONTHLY FEES"
     amount: -500
     category: FEES
+  - description: "ACCOUNT KEEPING FEE"
+    amount: -600
+    category: FEES
+  - description: "DISHONOUR FEE"
+    amount: -900
+    category: FEES
+  - description: "COFFEE CART, SYDNEY"
+    amount: -450
+    category: FOOD              # "COFFEE" contains "fee"; \bfees?\b must not fire
+  - description: "ATM OWNER FEE OF $0.00 WDL ATM"
+    amount: -20000
+    category: CASH_WITHDRAW    # the fee exclusion sends it to the withdrawal rule
+
+  # --- VISA_FEES (rule 5): never the bare word "visa" --------------------------------------
+  - description: "HOLIDAY VISA VFSGLOBAL"
+    amount: -3000
+    category: VISA_FEES
+  - description: "IMMI ACCOUNT PAYMENT"
+    amount: -1000
+    category: VISA_FEES
+  - description: "HOME AFFAIRS APPLICATION"
+    amount: -2000
+    category: VISA_FEES
+  - description: "VISA PURCHASE COLES 0234"
+    amount: -1500
+    category: GROCERIES         # a card row saying Visa is not a visa fee
+
+  # --- CASH_WITHDRAW (rule 6) --------------------------------------------------------------
+  - description: "ATM WDL 123 SMITH ST"
+    amount: -20000
+    category: CASH_WITHDRAW
+  - description: "CASH OUT ING"
+    amount: -10000
+    category: CASH_WITHDRAW
+  - description: "CASH WITHDRAWAL"
+    amount: -5000
+    category: CASH_WITHDRAW
+
+  # --- INSURANCE (rule 7) ------------------------------------------------------------------
+  - description: "NRMA INSURANCE"
+    amount: -8000
+    category: INSURANCE
+  - description: "MEDIBANK PRIVATE"
+    amount: -12000
+    category: INSURANCE
+  - description: "BUDGET DIRECT CAR INSURANCE"
+    amount: -4500
+    category: INSURANCE
+
+  # --- SUBSCRIPTIONS (rule 8) --------------------------------------------------------------
   - description: "NETFLIX.COM"
     amount: -2000
     category: SUBSCRIPTIONS
+  - description: "AMAZON WEB SERVICES    AWS.AMAZON.COM"
+    amount: -1500
+    category: SUBSCRIPTIONS     # hosting, not retail
+  - description: "ANTHROPIC PBC"
+    amount: -2000
+    category: SUBSCRIPTIONS
+  - description: "GOOGLE ONE"
+    amount: -300
+    category: SUBSCRIPTIONS
+  - description: "STAN ENTERTAINMENT"
+    amount: -1200
+    category: SUBSCRIPTIONS
+
+  # --- TRANSPORT (rule 9) ------------------------------------------------------------------
+  - description: "TFNSW OPAL"
+    amount: -500
+    category: TRANSPORT
+  - description: "LINKT TOLL"
+    amount: -800
+    category: TRANSPORT
+  - description: "UBER *TRIP"
+    amount: -1200
+    category: TRANSPORT
+  - description: "UBER EATS"
+    amount: -3000
+    category: FOOD              # only UBER *TRIP is transport
+
+  # --- FUEL (rule 10) ----------------------------------------------------------------------
+  - description: "AMPOL FOODARY"
+    amount: -5000
+    category: FUEL
+  - description: "COSTCO GAS 123"
+    amount: -5000
+    category: FUEL
+  - description: "7-ELEVEN FUEL"
+    amount: -4000
+    category: FUEL
+  - description: "COSTCO WHOLESALE 123"
+    amount: -15000
+    category: GROCERIES         # the weekly shop, not the bowser
+  - description: "SHELL COLES EXPRESS"
+    amount: -5000
+    category: FUEL              # \bshell\b fires before GROCERIES' "coles"
+  - description: "SHELLHARBOUR"
+    amount: -1000
+    category: UNCATEGORIZED     # a suburb, not the petrol brand; \bshell\b must not fire
+
+  # --- VEHICLE (rule 11) -------------------------------------------------------------------
+  - description: "BLUEGUM AUTO CARE"
+    amount: -12000
+    category: VEHICLE
+  - description: "BOB JANE TYRES"
+    amount: -9000
+    category: VEHICLE
+  - description: "CAR REGO PAYMENT"
+    amount: -5000
+    category: VEHICLE
+  - description: "GREGORY HILL"
+    amount: -1000
+    category: UNCATEGORIZED     # "rego" inside Gregory; \brego\b must not fire
+
+  # --- GROCERIES (rule 12): no direction, so a refund is still groceries --------------------
   - description: "WOOLWORTHS 1234"
     amount: -1000
     category: GROCERIES
-  - description: "UBER EATS"
-    amount: -3000
+  - description: "MINTO FRUIT MARKET"
+    amount: -2000
+    category: GROCERIES
+  - description: "COLES 0234 - VISA PURCHASE"
+    amount: -1500
+    category: GROCERIES
+  - description: "WOOLWORTHS REFUND"
+    amount: 500
+    category: GROCERIES         # the rule is direction-blind
+
+  # --- FOOD (rule 13) ----------------------------------------------------------------------
+  - description: "PICCOLO ME"
+    amount: -800
     category: FOOD
+  - description: "GONG CHA"
+    amount: -700
+    category: FOOD
+  - description: "CAKE MERCHANT"
+    amount: -1500
+    category: FOOD
+
+  # --- SCHOOL_FEES (rule 14) before CHILDCARE (rule 15) ------------------------------------
+  - description: "COM*HOLYFAMILYCATHO"
+    amount: -30000
+    category: SCHOOL_FEES
+  - description: "TUITION PAYMENT"
+    amount: -25000
+    category: SCHOOL_FEES
+  - description: "DIRECT DEBIT HOLY FAMILY OOSH"
+    amount: -8000
+    category: CHILDCARE        # the after-school care, not the school
+  - description: "FLEXISCHOOLS"
+    amount: -5000
+    category: CHILDCARE
+
+  # --- HEALTH_SUPPLIES (rule 16) / HEALTH (rule 17) ----------------------------------------
+  - description: "CHEMIST WAREHOUSE"
+    amount: -2000
+    category: HEALTH_SUPPLIES
+  - description: "PRICELINE PHARMACY"
+    amount: -1500
+    category: HEALTH_SUPPLIES
+  - description: "DENTAL CLINIC"
+    amount: -3000
+    category: HEALTH
+  - description: "SPECSAVERS"
+    amount: -5000
+    category: HEALTH
+  - description: "PATHOLOGY NSW"
+    amount: -1000
+    category: HEALTH
+
+  # --- SPORT_AND_LEISURE (rule 18) ---------------------------------------------------------
+  - description: "YMCA SYDNEY"
+    amount: -2000
+    category: SPORT_AND_LEISURE
+  - description: "MOUNT ANNAN LEISURE CENTRE"
+    amount: -1800
+    category: SPORT_AND_LEISURE
+  - description: "SQ *CAMPBELLTOWN INDOO"
+    amount: -2500
+    category: SPORT_AND_LEISURE
+
+  # --- HOME_IMPROVEMENT (rule 19) ----------------------------------------------------------
   - description: "BUNNINGS WAREHOUSE 812"
     amount: -5000
     category: HOME_IMPROVEMENT
+  - description: "MITRE 10"
+    amount: -3000
+    category: HOME_IMPROVEMENT
+
+  # --- SHOPPING (rule 20) ------------------------------------------------------------------
+  - description: "KMART 123"
+    amount: -2000
+    category: SHOPPING
+  - description: "ALIPAYAUSTR"
+    amount: -500
+    category: SHOPPING
+  - description: "AMAZON AU RETAIL   SYDNEY"
+    amount: -2500
+    category: SHOPPING          # retail Amazon, not AWS
+  - description: "BIG W"
+    amount: -1500
+    category: SHOPPING
+  - description: "TARGET 123"
+    amount: -1000
+    category: SHOPPING
+  - description: "TARGET PHARMACY"
+    amount: -1000
+    category: HEALTH_SUPPLIES   # "target [0-9]" needs the store number
+
+  # --- BILLS (rule 21): no direction -------------------------------------------------------
+  - description: "AGL SALES"
+    amount: -8000
+    category: BILLS
+  - description: "SYDNEY WATER"
+    amount: -6000
+    category: BILLS
+  - description: "MORTGAGE REPAYMENT"
+    amount: -200000
+    category: BILLS
+  - description: "INTERNET SERVICE"
+    amount: -7000
+    category: BILLS
+  - description: "AGL SALES REFUND"
+    amount: 200
+    category: BILLS             # the rule is direction-blind
+
+  # --- TAXES (rule 22): no direction, \bATO\b bounded --------------------------------------
   - description: "ATO PAYMENT"
     amount: -10000
     category: TAXES
+  - description: "AUSTRALIAN TAXATION OFFICE"
+    amount: -20000
+    category: TAXES
+  - description: "ATO REFUND"
+    amount: 500
+    category: TAXES             # the rule is direction-blind
+  - description: "GELATO"
+    amount: -500
+    category: UNCATEGORIZED     # "ATO" inside GELATO; \bATO\b must not fire
+
+  # --- SAVINGS (rule 23) -------------------------------------------------------------------
+  - description: "VANGUARD INVESTMENTS"
+    amount: -50000
+    category: SAVINGS
+  - description: "BETASHARES"
+    amount: -20000
+    category: SAVINGS
+  - description: "SUPERANNUATION FUND"
+    amount: -30000
+    category: SAVINGS
+
+  # --- DISCRETIONARY (rule 24) -------------------------------------------------------------
+  - description: "ROYAL PUB SYDNEY"
+    amount: -4000
+    category: DISCRETIONARY
+  - description: "CINEMA CITY"
+    amount: -3000
+    category: DISCRETIONARY
+  - description: "RSL CLUB"
+    amount: -2500
+    category: DISCRETIONARY
+  - description: "CATHOLIC CLUB"
+    amount: -2000
+    category: DISCRETIONARY
+  - description: "BOTTLE SHOP"
+    amount: -3500
+    category: DISCRETIONARY
+  - description: "UDAYA RESTAURANT"
+    amount: -5000
+    category: DISCRETIONARY   # rule 24 beats GROCERIES(2)'s "udaya"
+
+  # --- FOOD (rule 25) before GROCERIES (rule 26) -------------------------------------------
+  - description: "DOMINOS PIZZA"
+    amount: -2000
+    category: FOOD
+  - description: "BREADTOP"
+    amount: -1000
+    category: FOOD              # listed in both; FOOD(2) is earlier
+  - description: "RAJ BHAVAN"
+    amount: -3000
+    category: FOOD
+  - description: "UDAYA SUPERMARKET"
+    amount: -2500
+    category: GROCERIES
+  - description: "NILGIRIS"
+    amount: -1800
+    category: GROCERIES
+  - description: "QIANXI"
+    amount: -900
+    category: GROCERIES
+  - description: "BAKERS DELIGHT"
+    amount: -1200
+    category: GROCERIES
+
+  # --- SUBSCRIPTIONS (rule 27) -------------------------------------------------------------
+  - description: "UDEMY COURSE"
+    amount: -2000
+    category: SUBSCRIPTIONS
+  - description: "EBAY PLUS"
+    amount: -1000
+    category: SUBSCRIPTIONS
+  - description: "SEMRUSH"
+    amount: -9000
+    category: SUBSCRIPTIONS
+  - description: "EBAY AU PURCHASE"
+    amount: -500
+    category: SHOPPING          # eBay AU is retail, eBay Plus is the membership
+
+  # --- VEHICLE (rule 28) -------------------------------------------------------------------
+  - description: "SERVICE NSW"
+    amount: -5000
+    category: VEHICLE
+  - description: "SUPER CHEAP AUTO"
+    amount: -3000
+    category: VEHICLE
+  - description: "INFRNGMNT NOTICE"
+    amount: -1000
+    category: VEHICLE
+
+  # --- TAXES (rule 29) ---------------------------------------------------------------------
+  - description: "TAX STORE"
+    amount: -3000
+    category: TAXES
+  - description: "SMART TAX ADVISORS"
+    amount: -2000
+    category: TAXES
+
+  # --- SCHOOL_FEES (rule 30) ---------------------------------------------------------------
+  - description: "UNSW ENROLMENT"
+    amount: -15000
+    category: SCHOOL_FEES
+  - description: "SCHOLASTIC BOOK CLUB"
+    amount: -800
+    category: SCHOOL_FEES
+  - description: "SCAPE STUDENT ACCOMMODATION"
+    amount: -12000
+    category: SCHOOL_FEES
+
+  # --- SPORT_AND_LEISURE (rule 31) ---------------------------------------------------------
+  - description: "BOOKING.COM"
+    amount: -20000
+    category: SPORT_AND_LEISURE
+  - description: "JETSTAR"
+    amount: -15000
+    category: SPORT_AND_LEISURE
+  - description: "TARONGA ZOO"
+    amount: -8000
+    category: SPORT_AND_LEISURE
+  - description: "HOLIDAY PARK"
+    amount: -5000
+    category: SPORT_AND_LEISURE
+
+  # --- SHOPPING (rule 32) ------------------------------------------------------------------
+  - description: "JB HI-FI"
+    amount: -20000
+    category: SHOPPING
+  - description: "HARVEY NORMAN"
+    amount: -30000
+    category: SHOPPING
+  - description: "SHEIN"
+    amount: -3000
+    category: SHOPPING
+  - description: "REJECT SHOP"
+    amount: -1500
+    category: SHOPPING
+
+  # --- BILLS (rule 33) ---------------------------------------------------------------------
+  - description: "AGLENERGY PTY"
+    amount: -9000
+    category: BILLS
+  - description: "ORIGIN ENERGY"
+    amount: -8000
+    category: BILLS
+  - description: "TELSTRA BILL"
+    amount: -7000
+    category: BILLS
+
+  # --- HEALTH (rule 34) --------------------------------------------------------------------
+  - description: "NSWH PAYMENT"
+    amount: -5000
+    category: HEALTH
+  - description: "SWSLHD INVOICE"
+    amount: -3000
+    category: HEALTH
+
+  # --- nothing matched ---------------------------------------------------------------------
   - description: "ZZQX UNKNOWN VENDOR"
     amount: -100
     category: UNCATEGORIZED
+
+  # --- known rule collisions, pinned as-is -------------------------------------------------
+  # categories.yaml is the tuned contract (plan §1.2); these pin what it actually does, and they
+  # are the feedback loop if the rules are ever narrowed. Both are rules findings, not code
+  # defects: v2 executes the file exactly. FEES (\bfees?\b, rule 4) fires before SCHOOL_FEES
+  # (rules 14/30), so a description whose "fees" belongs to a school still lands in FEES.
+  - description: "SCHOOL FEES TERM 1"
+    amount: -25000
+    category: FEES
+  - description: "TUITION FEE"
+    amount: -25000
+    category: FEES
