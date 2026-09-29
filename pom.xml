@@ -24,6 +24,7 @@
     <module>trex-v2-sequencer</module>
     <module>trex-v2-hub</module>
     <module>trex-v2-egress</module>
+    <module>trex-v2-ingest</module>
     <module>trex-v2-dist</module>
   </modules>
 
@@ -107,6 +108,11 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-v2-egress</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-ingest</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
