@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+
 /**
  * The one JSON mapper for the v2 log and APIs (V2-PROPOSAL.md §6). Strict on the way in (an
  * unknown property is an error, nulls are never coerced into primitives) and deterministic on the
@@ -25,5 +28,14 @@ public final class Json {
 
     public static ObjectMapper mapper() {
         return MAPPER;
+    }
+
+    /** Parse one JSON value (used by the dev importer's v1-format reader). */
+    public static com.fasterxml.jackson.databind.JsonNode readTree(String json) {
+        try {
+            return MAPPER.readTree(json);
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot parse JSON", e);
+        }
     }
 }

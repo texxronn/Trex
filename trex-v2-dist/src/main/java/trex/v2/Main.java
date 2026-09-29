@@ -5,6 +5,7 @@ import picocli.CommandLine.Command;
 import trex.v2.cli.EgressCommand;
 import trex.v2.cli.ExportCommand;
 import trex.v2.cli.HubCommand;
+import trex.v2.cli.ImportCommand;
 import trex.v2.cli.IndexCommand;
 import trex.v2.cli.IngestCommand;
 import trex.v2.cli.ReflowCommand;
@@ -31,6 +32,7 @@ import java.util.concurrent.Callable;
         ReflowCommand.class,
         VerifyCommand.class,
         ExportCommand.class,
+        ImportCommand.class,
     })
 public final class Main implements Callable<Integer> {
 

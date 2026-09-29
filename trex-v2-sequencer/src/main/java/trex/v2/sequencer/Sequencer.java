@@ -249,10 +249,10 @@ public final class Sequencer implements AutoCloseable {
         Instant at = d.at() == null ? clock.instant() : d.at();
 
         return switch (action) {
-            case PAIR -> new Decision.Pair(n, requireFact(d.legA(), "legA"), requireFact(d.legB(), "legB"),
-                d.comment(), actor, user, at);
-            case UNPAIR -> new Decision.Unpair(n, requireFact(d.legA(), "legA"), requireFact(d.legB(), "legB"),
-                d.comment(), actor, user, at);
+            case PAIR -> new Decision.Pair(n, requireDistinct(d.legA(), d.legB(), "legA", "legB"),
+                requireFact(d.legB(), "legB"), d.comment(), actor, user, at);
+            case UNPAIR -> new Decision.Unpair(n, requireDistinct(d.legA(), d.legB(), "legA", "legB"),
+                requireFact(d.legB(), "legB"), d.comment(), actor, user, at);
             case MARK_EXTERNAL -> new Decision.MarkExternal(n, requireFact(d.externalId(), "externalId"),
                 d.comment(), actor, user, at);
             case SETTLE -> new Decision.Settle(n, requireFact(d.pendingId(), "pendingId"),
@@ -316,6 +316,15 @@ public final class Sequencer implements AutoCloseable {
             throw new IllegalArgumentException(name + " names an unknown fact '" + id + "'");
         }
         return id;
+    }
+
+    /** A pair names two distinct facts; A paired with itself is a structural fault, not a rule. */
+    private String requireDistinct(String a, String b, String nameA, String nameB) {
+        requireFact(a, nameA);
+        if (a.equals(b)) {
+            throw new IllegalArgumentException(nameA + " and " + nameB + " must be different facts");
+        }
+        return a;
     }
 
     private List<String> requireFacts(List<String> ids, String name) {

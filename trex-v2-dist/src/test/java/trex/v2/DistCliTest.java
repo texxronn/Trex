@@ -29,7 +29,7 @@ class DistCliTest {
     void listsEverySubcommand() {
         CommandLine cli = new CommandLine(new Main());
         assertTrue(cli.getSubcommands().keySet().containsAll(
-            List.of("sequencer", "hub", "index", "ingest", "egress", "reflow", "verify", "export")),
+            List.of("sequencer", "hub", "index", "ingest", "egress", "reflow", "verify", "export", "import")),
             "every role is a subcommand: " + cli.getSubcommands().keySet());
         assertTrue(cli.getSubcommands().get("egress").getSubcommands().keySet().containsAll(
             List.of("archive", "firefly")));

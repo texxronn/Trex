@@ -9,3 +9,5 @@ statements/
 *.statements.yaml
 # The runtime index lives outside the repo, but an accidental one at the root is not source.
 /index/
+# The private v1 journal used to seed the dev system is never committed (plan §1.3).
+deploy/dev/journal/
