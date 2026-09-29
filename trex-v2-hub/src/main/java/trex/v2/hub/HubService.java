@@ -46,6 +46,7 @@ import trex.v2.sequencer.api.DecisionDraft;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -346,6 +347,49 @@ public final class HubService implements HubApi, AutoCloseable {
     private static Set<String> reviewKeys(Derivation d) {
         return d.review().stream().map(r -> r.kind() + "|" + r.subject())
             .collect(Collectors.toCollection(TreeSet::new));
+    }
+
+    // ---- rule files (V2-PROPOSAL.md §7.4 point 6, §9.3) -------------------------------------
+
+    /** The current {@code categories.yaml} text, for the rule editor. */
+    @Override
+    public Optional<String> categoriesYaml() {
+        Path file = config.configDir().resolve("categories.yaml");
+        try {
+            return Files.exists(file) ? Optional.of(Files.readString(file)) : Optional.empty();
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Validate a candidate and write it atomically; the watcher then reloads and re-derives. Rule
+     * edits go through the hub, so a rule swap and an index write serialise behind the same lock.
+     */
+    @Override
+    public DecisionOutcome saveCategories(String categoriesYaml) {
+        if (categoriesYaml == null || categoriesYaml.isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("categories is required"));
+        }
+        try {
+            RuleSet.File parsed = Yaml.mapper().readValue(categoriesYaml, RuleSet.File.class);
+            RuleSet.compile("categories.yaml", parsed);
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return new DecisionOutcome(422, new ErrorResponse(
+                "candidate categories failed to parse: " + e.getOriginalMessage()));
+        } catch (IllegalArgumentException e) {
+            return new DecisionOutcome(422, new ErrorResponse(e.getMessage()));
+        }
+        Path file = config.configDir().resolve("categories.yaml");
+        try {
+            Path tmp = file.resolveSibling("categories.yaml.tmp");
+            Files.writeString(tmp, categoriesYaml);
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            return new DecisionOutcome(500, new ErrorResponse("cannot write " + file + ": " + e.getMessage()));
+        }
+        return new DecisionOutcome(200, Map.of("saved", true));
     }
 
     // ---- decision path (V2-PROPOSAL.md §6.6, §6.8) -----------------------------------------

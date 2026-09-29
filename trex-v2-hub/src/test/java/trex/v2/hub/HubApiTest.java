@@ -66,6 +66,14 @@ class HubApiTest {
             assertTrue(get(client, base, "/api/transfers").body().contains("\"confidence\":\"HIGH\""));
             assertTrue(get(client, base, "/api/reconcile").body().contains("\"accountRef\":\"ing-savings\""));
 
+            HttpResponse<String> root = get(client, base, "/");
+            assertEquals(200, root.statusCode());
+            assertTrue(root.body().contains("id=\"main\""));
+            HttpResponse<String> appJs = get(client, base, "/ui/js/app.js");
+            assertEquals(200, appJs.statusCode());
+            assertTrue(appJs.headers().firstValue("Content-Type").orElse("").contains("javascript"));
+            assertEquals(404, get(client, base, "/ui/does-not-exist.js").statusCode());
+
             HttpResponse<String> bad = get(client, base, "/api/ledger?sort=bogus");
             assertEquals(400, bad.statusCode());
         }

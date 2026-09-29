@@ -1,0 +1,182 @@
+// Blotter mode (V2-PROPOSAL.md §10.2): the current transactions, SQL-backed filters and paging,
+// with inline decisions. Selection drives the batch actions.
+
+import { api } from './api.js';
+import { decisions } from './decisions.js';
+import { el, clear, field } from './dom.js';
+import { money, shortId } from './format.js';
+import { reportError, toast } from './toast.js';
+
+let host;
+let ctx;
+let refdata;
+let errorBar;
+let tableHost;
+let pager;
+let pinSelect;
+
+const filters = {
+  account: '', category: '', leg: '', q: '', hasReview: false,
+  sort: 'date', order: 'desc', limit: 100, offset: 0,
+};
+let selected = new Set();
+let status = {};
+
+export function mount(container, context) {
+  host = container;
+  ctx = context;
+  refdata = context.refdata;
+  selected = new Set();
+  filters.offset = 0;
+  render();
+  load();
+  return { refresh: load };
+}
+
+function render() {
+  clear(host);
+  errorBar = el('div', { class: 'error', hidden: true });
+
+  pinSelect = el('select', { id: 'pinCategory' },
+    ...refdata.categories.map((c) => el('option', { value: c }, c)));
+
+  const toolbar = el('div', { class: 'toolbar' },
+    field('Account', select('account', ['', ...refdata.accounts.map((a) => a.ref)], filters.account,
+      (v) => set('account', v))),
+    field('Category', select('category', ['', ...refdata.categories, 'UNCATEGORIZED'], filters.category,
+      (v) => set('category', v))),
+    field('Leg', select('leg', ['', 'MATCHED', 'HELD', 'EXTERNAL'], filters.leg, (v) => set('leg', v))),
+    field('Text', el('input', {
+      type: 'search', value: filters.q,
+      oninput: debounce((e) => set('q', e.target.value, true), 250),
+    })),
+    el('label', {}, el('input', {
+      type: 'checkbox', checked: filters.hasReview,
+      onchange: (e) => set('hasReview', e.target.checked, true),
+    }), 'has review'),
+    field('Sort', select('sort', ['date', 'amount', 'category', 'account', 'n'], filters.sort,
+      (v) => set('sort', v))),
+    field('Order', select('order', ['desc', 'asc'], filters.order, (v) => set('order', v))),
+  );
+
+  const actions = el('div', { class: 'toolbar' },
+    pinSelect,
+    button('Pin', () => apply((ids) => decisions.pin(ctx, ids, pinSelect.value, 'pinned in blotter'))),
+    button('Mark external', () => apply((ids) => ids.length === 1
+      ? decisions.markExternal(ctx, ids[0], 'marked external in blotter') : null, 1)),
+    button('Pair', () => apply((ids) => ids.length === 2 ? decisions.pair(ctx, ids[0], ids[1], 'paired in blotter') : null, 2)),
+    button('Unpair', () => apply((ids) => ids.length === 2 ? decisions.unpair(ctx, ids[0], ids[1], 'unpaired in blotter') : null, 2)),
+  );
+
+  tableHost = el('div');
+  pager = el('div', { class: 'pager' });
+  host.append(errorBar, toolbar, actions, tableHost, pager);
+}
+
+async function load() {
+  try {
+    const params = {};
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== '' && v !== false && v !== null) params[k] = String(v);
+    }
+    status = await api.ledger(params);
+    renderRows();
+    renderPager();
+    errorBar.hidden = true;
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function renderRows() {
+  clear(tableHost);
+  const head = el('tr', {},
+    el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
+    el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
+    el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'));
+  const rows = (status.rows || []).map((row) => {
+    const checkbox = el('input', {
+      type: 'checkbox', checked: selected.has(row.externalId),
+      onchange: (e) => {
+        if (e.target.checked) selected.add(row.externalId); else selected.delete(row.externalId);
+      },
+    });
+    return el('tr', { class: row.hasReview ? 'bad' : '' },
+      el('td', {}, checkbox),
+      el('td', {}, row.date),
+      el('td', {}, row.accountRef),
+      el('td', { class: 'amount' }, money(row.amount)),
+      el('td', { class: 'amount' }, money(row.balance)),
+      el('td', { class: 'desc' }, row.rawDescription),
+      el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
+      el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
+      el('td', {}, row.n),
+      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
+  });
+  tableHost.append(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows)));
+}
+
+function renderPager() {
+  clear(pager);
+  const from = status.total === 0 ? 0 : filters.offset + 1;
+  const to = Math.min(filters.offset + filters.limit, status.total);
+  pager.append(
+    el('span', {}, `${from}–${to} of ${status.total}`),
+    button('Prev', () => { filters.offset = Math.max(0, filters.offset - filters.limit); load(); }),
+    button('Next', () => { filters.offset += filters.limit; load(); }),
+  );
+}
+
+function apply(build, required = 1) {
+  const ids = [...selected];
+  if (ids.length < required) {
+    toast(`Select at least ${required} row${required > 1 ? 's' : ''}`, 'bad');
+    return;
+  }
+  const decision = build(ids);
+  if (!decision) {
+    toast('Select exactly 2 rows', 'bad');
+    return;
+  }
+  submit([decision]);
+}
+
+async function submit(list) {
+  try {
+    await api.decisions(ctx.n, list);
+    selected = new Set();
+    toast('Recorded');
+    await load();
+  } catch (error) {
+    reportError(error);
+    await load();
+  }
+}
+
+function set(key, value, resetOffset = true) {
+  filters[key] = value;
+  if (resetOffset) filters.offset = 0;
+  load();
+}
+
+function showError(error) {
+  errorBar.textContent = error.message || 'failed to load';
+  errorBar.hidden = false;
+}
+
+function select(name, options, value, onChange) {
+  return el('select', { onchange: (e) => onChange(e.target.value) },
+    ...options.map((o) => el('option', { value: o, selected: o === value }, o === '' ? '—' : o)));
+}
+
+function button(label, onClick) {
+  return el('button', { type: 'button', onclick: onClick }, label);
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}

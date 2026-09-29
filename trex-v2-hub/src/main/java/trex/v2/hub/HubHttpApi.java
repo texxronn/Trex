@@ -12,6 +12,7 @@ import trex.v2.hub.api.ReflowRequest;
 import trex.v2.log.Json;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -80,6 +81,25 @@ final class HubHttpApi {
                 sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
             }
         });
+        Map<String, Handler> configCategories = new LinkedHashMap<>();
+        configCategories.put("GET", ex -> {
+            Optional<String> yaml = api.categoriesYaml();
+            if (yaml.isEmpty()) {
+                sendError(ex, 404, "no categories.yaml");
+            } else {
+                writeText(ex, 200, "text/yaml", yaml.get());
+            }
+        });
+        configCategories.put("PUT", ex -> {
+            try {
+                ReflowRequest request = Json.mapper().readValue(readBody(ex), ReflowRequest.class);
+                DecisionOutcome outcome = api.saveCategories(request.categories());
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
+        route(server, "/api/config/categories", configCategories);
         route(server, "/api/acks/diff", "GET", ex -> {
             String user = param(ex.getRequestURI().getQuery(), "user");
             String period = param(ex.getRequestURI().getQuery(), "period");
@@ -91,10 +111,71 @@ final class HubHttpApi {
             }
         });
 
-        server.createContext("/", ex -> sendError(ex, 404, "not found"));
+        server.createContext("/", ex -> serveStaticOrNotFound(ex));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
         return server;
+    }
+
+    /** Static UI assets under {@code /ui/}, the index at {@code /}; everything else is 404. */
+    private static void serveStaticOrNotFound(HttpExchange ex) {
+        try {
+            if (!"GET".equals(ex.getRequestMethod())) {
+                sendError(ex, 405, "method not allowed");
+                return;
+            }
+            String path = ex.getRequestURI().getPath();
+            if (path.equals("/") || path.equals("/index.html")) {
+                serveStatic(ex, "index.html");
+            } else if (path.startsWith("/ui/")) {
+                serveStatic(ex, path.substring("/ui/".length()));
+            } else {
+                sendError(ex, 404, "not found");
+            }
+        } catch (Exception e) {
+            log.error("500 static: unhandled failure", e);
+            sendError(ex, 500, "internal error: " + e.getMessage());
+        } finally {
+            ex.close();
+        }
+    }
+
+    private static void serveStatic(HttpExchange ex, String relative) throws IOException {
+        if (relative.contains("..") || relative.startsWith("/") || relative.isBlank()) {
+            sendError(ex, 404, "not found");
+            return;
+        }
+        try (InputStream in = HubHttpApi.class.getResourceAsStream("/trex/v2/hub/web/" + relative)) {
+            if (in == null) {
+                sendError(ex, 404, "not found");
+                return;
+            }
+            byte[] bytes = in.readAllBytes();
+            ex.getResponseHeaders().set("Content-Type", contentType(relative));
+            ex.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = ex.getResponseBody()) {
+                out.write(bytes);
+            }
+        }
+    }
+
+    private static String contentType(String path) {
+        if (path.endsWith(".html")) {
+            return "text/html; charset=utf-8";
+        }
+        if (path.endsWith(".js")) {
+            return "text/javascript; charset=utf-8";
+        }
+        if (path.endsWith(".css")) {
+            return "text/css; charset=utf-8";
+        }
+        if (path.endsWith(".json")) {
+            return "application/json";
+        }
+        if (path.endsWith(".svg")) {
+            return "image/svg+xml";
+        }
+        return "application/octet-stream";
     }
 
     private interface Handler {
@@ -200,6 +281,15 @@ final class HubHttpApi {
     private static void write(HttpExchange ex, int status, Object body) throws IOException {
         byte[] bytes = Json.mapper().writeValueAsBytes(body);
         ex.getResponseHeaders().set("Content-Type", "application/json");
+        ex.sendResponseHeaders(status, bytes.length);
+        try (OutputStream out = ex.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    private static void writeText(HttpExchange ex, int status, String type, String body) throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", type);
         ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream out = ex.getResponseBody()) {
             out.write(bytes);

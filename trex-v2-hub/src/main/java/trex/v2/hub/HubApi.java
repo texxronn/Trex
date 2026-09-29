@@ -42,5 +42,9 @@ interface HubApi {
 
     DecisionOutcome reflowPreview(String categoriesYaml);
 
+    java.util.Optional<String> categoriesYaml();
+
+    DecisionOutcome saveCategories(String categoriesYaml);
+
     DecisionOutcome submitDecisions(DecisionRequest request);
 }
