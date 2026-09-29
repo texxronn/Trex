@@ -8,7 +8,8 @@ silent, `docs/V2-PARITY.md` records it. This file is descriptive, not a second a
 drifts, the code and the proposal are the truth.
 
 v1 (`trex-core`, `trex-journal`, `trex-sequencer`, `trex-ingest`, `trex-egress`, `trex-ws`) is
-reference material: it builds, is never imported by v2 code, and is not migrated from.
+reference material: it is kept on disk and buildable with `-Pv1`, is never imported by v2 code, and
+is not migrated from.
 
 ---
 

@@ -73,7 +73,7 @@ mvn_jib() {
     [ "$#" -gt 0 ] && pl="-am -pl $(module_list "$@")"
     echo "trex-docker: daemon $DOCKER_HOST"
     # shellcheck disable=SC2086  # -pl/-am are deliberately unquoted (empty means all)
-    (cd "$REPO" && mvn -DskipTests package "-P$profile" $pl)
+    (cd "$REPO" && mvn -DskipTests package "-P$profile,v1" $pl)
 }
 
 compose() {

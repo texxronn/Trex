@@ -99,6 +99,8 @@ The v2 system per `V2-PROPOSAL.md`, built in the stage order of `V2-IMPLEMENTATI
 
 ### Notes
 
+- v2 is the default reactor; the v1 modules are out of it and build with `-Pv1`, so a normal
+  `mvn verify` builds only the system being built.
 - There is no migration (`V2-PROPOSAL.md` §16 is retired): the v1-format importer is a dev tool, and
   the v2 log starts at day 0.
 - The private journal and real statement files are never committed; the v2 end-to-end and the P0

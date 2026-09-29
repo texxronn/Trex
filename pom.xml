@@ -10,14 +10,7 @@
   <packaging>pom</packaging>
 
   <modules>
-    <module>trex-core</module>
-    <module>trex-journal</module>
-    <module>trex-sequencer</module>
-    <module>trex-ingest</module>
-    <module>trex-egress</module>
-    <module>trex-ws</module>
-    <!-- v2 modules (V2-PROPOSAL.md / V2-IMPLEMENTATION-PLAN.md). Side by side with
-         the v1 tree, which stays as reference and is never imported by v2 code. -->
+    <!-- v2 is the system being built; its modules are the default reactor. -->
     <module>trex-v2-core</module>
     <module>trex-v2-log</module>
     <module>trex-v2-index</module>
@@ -26,6 +19,9 @@
     <module>trex-v2-egress</module>
     <module>trex-v2-ingest</module>
     <module>trex-v2-dist</module>
+    <!-- v1 (trex-core … trex-ws) is reference material (AGENTS.md): kept on disk and
+         buildable, but out of the default reactor so a normal build skips it. Activate
+         the `v1` profile (-Pv1) to build both side by side. -->
   </modules>
 
   <properties>
@@ -282,9 +278,22 @@
   </build>
 
   <profiles>
-    <!-- mvn package -Pdocker        → build all four images into the Docker daemon
-         mvn package -Pdocker-push   → push all four to ${trex.image.prefix}
-         Both honour DOCKER_HOST; see deploy/bin/trex-docker.sh for Docker contexts. -->
+    <!-- mvn … -Pv1 → put the v1 reference modules back into the reactor. -->
+    <profile>
+      <id>v1</id>
+      <modules>
+        <module>trex-core</module>
+        <module>trex-journal</module>
+        <module>trex-sequencer</module>
+        <module>trex-ingest</module>
+        <module>trex-egress</module>
+        <module>trex-ws</module>
+      </modules>
+    </profile>
+    <!-- mvn package -Pdocker        → build the image(s) into the Docker daemon
+         mvn package -Pdocker-push   → push the v2 image to ${trex.image.prefix}
+         Both honour DOCKER_HOST; see deploy/bin/trex-docker.sh for Docker contexts.
+         v1 is out of the default reactor, so build its images with -Pv1 -Pdocker. -->
     <profile>
       <id>docker</id>
       <build>
