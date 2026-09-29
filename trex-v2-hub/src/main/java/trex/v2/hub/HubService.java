@@ -12,15 +12,20 @@ import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.User;
 import trex.v2.core.derive.Derivation;
+import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.Reconciliation;
+import trex.v2.core.derive.ReviewItem;
 import trex.v2.core.derive.StateHash;
 import trex.v2.core.derive.Unit;
 import trex.v2.core.derive.UserAckRow;
+import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
+import trex.v2.hub.api.ReflowPreview;
+import trex.v2.log.Yaml;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
@@ -271,6 +276,73 @@ public final class HubService implements HubApi, AutoCloseable {
             }
         }
         return out;
+    }
+
+    // ---- reflow preview (V2-PROPOSAL.md §9.3) -----------------------------------------------
+
+    /** Run {@code derive()} against a candidate rule set and return what would move. Writes nothing. */
+    @Override
+    public DecisionOutcome reflowPreview(String categoriesYaml) {
+        if (categoriesYaml == null || categoriesYaml.isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("categories is required"));
+        }
+        DeriveConfig current = refresher.config();
+        RuleSet candidate;
+        try {
+            RuleSet.File parsed = Yaml.mapper().readValue(categoriesYaml, RuleSet.File.class);
+            candidate = RuleSet.compile("candidate categories.yaml", parsed);
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return new DecisionOutcome(422, new ErrorResponse(
+                "candidate categories failed to parse: " + e.getOriginalMessage()));
+        } catch (IllegalArgumentException e) {
+            return new DecisionOutcome(422, new ErrorResponse(e.getMessage()));
+        }
+        DeriveConfig candidateConfig = new DeriveConfig(current.registry(), candidate,
+            current.transfers(), Hashes.sha256(categoriesYaml));
+
+        Instant now = Instant.now();
+        Derivation before = indexer.deriveWith(current, now, Long.MAX_VALUE);
+        Derivation after = indexer.deriveWith(candidateConfig, now, Long.MAX_VALUE);
+
+        Map<String, CategoryRow> b = categoriesById(before);
+        Map<String, CategoryRow> a = categoriesById(after);
+        Set<String> ids = new TreeSet<>(b.keySet());
+        ids.addAll(a.keySet());
+        List<ReflowPreview.MovedCategory> moved = new ArrayList<>();
+        for (String id : ids) {
+            String from = b.containsKey(id) ? b.get(id).category() : null;
+            String to = a.containsKey(id) ? a.get(id).category() : null;
+            if (!java.util.Objects.equals(from, to)) {
+                moved.add(new ReflowPreview.MovedCategory(id, from, to));
+            }
+        }
+        Set<String> beforeTransfers = before.transfers().stream()
+            .map(trex.v2.core.derive.TransferRow::transferId).collect(Collectors.toSet());
+        Set<String> afterTransfers = after.transfers().stream()
+            .map(trex.v2.core.derive.TransferRow::transferId).collect(Collectors.toSet());
+        int transfersAdded = (int) afterTransfers.stream().filter(t -> !beforeTransfers.contains(t)).count();
+        int transfersRemoved = (int) beforeTransfers.stream().filter(t -> !afterTransfers.contains(t)).count();
+        Set<String> beforeReview = reviewKeys(before);
+        Set<String> afterReview = reviewKeys(after);
+        int reviewOpened = (int) afterReview.stream().filter(r -> !beforeReview.contains(r)).count();
+        int reviewCleared = (int) beforeReview.stream().filter(r -> !afterReview.contains(r)).count();
+
+        return new DecisionOutcome(200, new ReflowPreview(current.configRevision(),
+            candidateConfig.configRevision(), moved.size(), moved, transfersAdded, transfersRemoved,
+            reviewOpened, reviewCleared));
+    }
+
+    private static Map<String, CategoryRow> categoriesById(Derivation d) {
+        Map<String, CategoryRow> out = new TreeMap<>();
+        for (CategoryRow c : d.categories()) {
+            out.put(c.externalId(), c);
+        }
+        return out;
+    }
+
+    private static Set<String> reviewKeys(Derivation d) {
+        return d.review().stream().map(r -> r.kind() + "|" + r.subject())
+            .collect(Collectors.toCollection(TreeSet::new));
     }
 
     // ---- decision path (V2-PROPOSAL.md §6.6, §6.8) -----------------------------------------

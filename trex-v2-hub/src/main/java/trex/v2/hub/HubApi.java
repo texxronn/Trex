@@ -40,5 +40,7 @@ interface HubApi {
 
     java.util.Optional<AckDiff> ackDiff(String user, String period);
 
+    DecisionOutcome reflowPreview(String categoriesYaml);
+
     DecisionOutcome submitDecisions(DecisionRequest request);
 }

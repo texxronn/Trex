@@ -8,6 +8,7 @@ import trex.v2.hub.api.AckDiff;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
+import trex.v2.hub.api.ReflowRequest;
 import trex.v2.log.Json;
 
 import java.io.IOException;
@@ -68,6 +69,15 @@ final class HubHttpApi {
             }
         });
         route(server, "/api/acks", acks);
+        route(server, "/api/reflow/preview", "POST", ex -> {
+            try {
+                ReflowRequest request = Json.mapper().readValue(readBody(ex), ReflowRequest.class);
+                DecisionOutcome outcome = api.reflowPreview(request.categories());
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
         route(server, "/api/acks/diff", "GET", ex -> {
             String user = param(ex.getRequestURI().getQuery(), "user");
             String period = param(ex.getRequestURI().getQuery(), "period");
