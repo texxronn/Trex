@@ -25,10 +25,16 @@ final class HubSql {
         "category", "t.category", "n", "t.n");
 
     static final String REVIEW_SELECT = """
-        SELECT subject, kind, detail, amount_stake, opened_at, state_hash
-        FROM review_item""";
+        SELECT r.subject, r.kind, r.detail, r.amount_stake, r.opened_at, r.state_hash,
+               x.raw_description
+        FROM review_item r
+        LEFT JOIN (
+            SELECT f.external_id, f.raw_description
+            FROM fact f
+            WHERE f.n = (SELECT MAX(g.n) FROM fact g WHERE g.external_id = f.external_id)
+        ) x ON x.external_id = r.subject""";
 
-    static final String REVIEW_ORDER = " ORDER BY kind, subject";
+    static final String REVIEW_ORDER = " ORDER BY r.kind, r.subject";
 
     static final String TRANSFERS_SELECT = """
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, matched_at

@@ -282,3 +282,26 @@ td.desc { white-space: normal; max-width: 30rem; }
   td.desc { max-width: none; }
   .toast { right: 0.6rem; bottom: 0.6rem; }
 }
+
+/* ---- nested tabs (Eyeball) ---------------------------------------------- */
+
+.tabs { display: inline-flex; gap: 0.15rem; padding: 0.1rem; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 999px; }
+.tab { background: transparent; border: 0; min-height: 0; padding: 0.2rem 0.7rem;
+  border-radius: 999px; color: var(--muted); cursor: pointer; font: inherit; }
+.tab:hover { color: var(--fg); }
+.tab.active { background: var(--accent); color: var(--accent-fg); }
+
+.period { font-variant-numeric: tabular-nums; }
+
+/* ---- categorize popup --------------------------------------------------- */
+
+.modal { position: fixed; inset: 0; z-index: 30; background: rgba(8, 10, 14, .5);
+  display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 0.9rem; width: min(420px, 100%); }
+.dialog h3 { margin: 0 0 0.3rem; font-size: 14px; }
+.dialog .field { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+  margin: 0.7rem 0; font-size: 12px; color: var(--muted); }
+.dialog .field select { flex: 1 1 auto; max-width: 60%; }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }

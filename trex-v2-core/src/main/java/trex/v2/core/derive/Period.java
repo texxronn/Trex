@@ -8,11 +8,12 @@ import java.util.regex.Pattern;
 
 /**
  * ISO-8601 period keys used by {@code USER_ACK} (V2-PROPOSAL.md §9.4): {@code 2026} (year),
- * {@code 2026-Q3} (quarter), {@code 2026-09} (month), {@code 2026-W39} (week). Any user may close
- * any grain; cadence suggests, it never gates.
+ * {@code 2026-Q3} (quarter), {@code 2026-09} (month), {@code 2026-W39} (week), {@code 2026-09-01}
+ * (day). Any user may close any grain; cadence suggests, it never gates.
  */
 public final class Period {
 
+    private static final Pattern DAY = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
     private static final Pattern YEAR = Pattern.compile("\\d{4}");
     private static final Pattern QUARTER = Pattern.compile("\\d{4}-Q[1-4]");
     private static final Pattern MONTH = Pattern.compile("\\d{4}-(?:0[1-9]|1[0-2])");
@@ -29,6 +30,14 @@ public final class Period {
 
     /** The inclusive date range a period key covers. The only place the grains are spelled out. */
     public static Range bounds(String period) {
+        if (DAY.matcher(period).matches()) {
+            try {
+                LocalDate day = LocalDate.parse(period);
+                return new Range(day, day);
+            } catch (java.time.format.DateTimeParseException e) {
+                throw unrecognised(period);
+            }
+        }
         if (YEAR.matcher(period).matches()) {
             int year = Integer.parseInt(period);
             return new Range(LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31));
@@ -53,8 +62,12 @@ public final class Period {
             LocalDate from = week1Monday.plusWeeks(week - 1L);
             return new Range(from, from.plusDays(6));
         }
-        throw new IllegalArgumentException("unrecognised period '" + period + "' "
-            + "(expected 2026, 2026-Q3, 2026-09 or 2026-W39)");
+        throw unrecognised(period);
+    }
+
+    private static IllegalArgumentException unrecognised(String period) {
+        return new IllegalArgumentException("unrecognised period '" + period + "' "
+            + "(expected 2026, 2026-Q3, 2026-09, 2026-W39 or 2026-09-01)");
     }
 
     public static boolean contains(String period, LocalDate date) {

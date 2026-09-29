@@ -199,7 +199,7 @@ public final class HubQueries implements AutoCloseable {
 
     public List<ReviewRow> review(String kind) {
         return read(conn -> {
-            String sql = HubSql.REVIEW_SELECT + (kind == null ? "" : " WHERE kind = ?") + HubSql.REVIEW_ORDER;
+            String sql = HubSql.REVIEW_SELECT + (kind == null ? "" : " WHERE r.kind = ?") + HubSql.REVIEW_ORDER;
             List<ReviewRow> rows = new ArrayList<>();
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 if (kind != null) {
@@ -208,8 +208,10 @@ public final class HubQueries implements AutoCloseable {
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         long stake = rs.getLong(4);
+                        String description = rs.getString(7);
                         rows.add(new ReviewRow(rs.getString(1), rs.getString(2), rs.getString(3),
-                            rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6)));
+                            rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6),
+                            description == null ? null : trex.v2.core.Clean.clean(description)));
                     }
                 }
             }

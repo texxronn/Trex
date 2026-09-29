@@ -67,7 +67,7 @@ function renderRows(rows) {
     const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
     return el('tr', {},
       el('td', {}, el('span', { class: 'badge ' + row.kind }, KIND_LABEL[row.kind] || row.kind)),
-      el('td', { class: 'muted', title: row.subject }, shortId(row.subject)),
+      el('td', { class: 'desc', title: row.subject }, row.subjectDescription || shortId(row.subject)),
       el('td', { class: 'desc' }, row.detail),
       el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
       el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),

@@ -29,6 +29,14 @@ class PeriodTest {
     }
 
     @Test
+    void dayIsASingleDayPeriod() {
+        assertEquals(new Period.Range(LocalDate.of(2026, 1, 20), LocalDate.of(2026, 1, 20)),
+            Period.bounds("2026-01-20"));
+        assertTrue(Period.contains("2026-01-20", LocalDate.of(2026, 1, 20)));
+        assertFalse(Period.contains("2026-01-20", LocalDate.of(2026, 1, 21)));
+    }
+
+    @Test
     void weekIsMondayThroughSundayAndCanStartInThePriorYear() {
         Period.Range w1 = Period.bounds("2026-W01");
         assertEquals(DayOfWeek.MONDAY, w1.from().getDayOfWeek());

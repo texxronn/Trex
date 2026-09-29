@@ -1,9 +1,9 @@
-// Eyeball mode (V2-PROPOSAL.md §10.3): the guided period walk. Open items, the anomaly checks and
-// the transactions bucketed by day, week or month. Each row is pinned one at a time on purpose —
-// the mechanics are quick (pick a category once, then one click per row) but the review itself is
-// meant to be done with your eyes on the transaction, so there is no bulk action.
+// Eyeball mode (V2-PROPOSAL.md §10.3): a bucketed blotter you walk at your own cadence. Nested
+// tabs choose the grain (Daily / Weekly / Monthly); within it, transactions are grouped by day and
+// each row can be categorised in place (a PIN, one row at a time, on purpose).
 
 import { api } from './api.js';
+import { openCategorize } from './categorize.js';
 import { decisions } from './decisions.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
@@ -12,16 +12,19 @@ import { reportError, toast } from './toast.js';
 let host;
 let ctx;
 let categories = [];
+let grain = 'week';
 let period;
-let bucket;
 let walk = null;
 let ack = null;
 
 let errorBar;
-let periodInput;
-let categorySelect;
+let jumpInput;
+let periodLabel;
 let markerHost;
 let bodyHost;
+
+const GRAINS = ['day', 'week', 'month'];
+const GRAIN_LABEL = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
 
 const KIND_LABEL = {
   BALANCE_CHAIN_BREAK: 'Balance chain break',
@@ -39,9 +42,9 @@ export function mount(container, context) {
   host = container;
   ctx = context;
   categories = (context.refdata && context.refdata.categories) || [];
+  grain = localStorage.getItem('trex.eyeball.grain') || 'week';
   const query = context.modeQuery || new URLSearchParams();
-  period = query.get('period') || currentPeriod();
-  bucket = localStorage.getItem('trex.eyeball.bucket') || 'week';
+  period = query.get('period') || keyFor(new Date(), grain);
   render();
   load();
   return { refresh: load };
@@ -50,51 +53,65 @@ export function mount(container, context) {
 function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
-  periodInput = el('input', {
-    type: 'text', placeholder: '2026-W39', value: period,
-    onkeydown: (e) => {
-      if (e.key === 'Enter') {
-        period = periodInput.value.trim();
+  jumpInput = el('input', {
+    type: 'date',
+    onchange: (e) => {
+      if (e.target.value) {
+        period = keyFor(parseIso(e.target.value), grain);
         load();
       }
     },
   });
-  categorySelect = el('select', {
-    id: 'pinCategory',
-    onchange: (e) => localStorage.setItem('trex.eyeball.pinCategory', e.target.value),
-  },
-    el('option', { value: '' }, '\u2014 pin as \u2014'),
-    ...categories.map((c) => el('option', { value: c }, c)));
-  categorySelect.value = localStorage.getItem('trex.eyeball.pinCategory') || '';
-
+  periodLabel = el('span', { class: 'period muted' });
   markerHost = el('div');
   bodyHost = el('div');
+
   host.append(errorBar,
     el('div', { class: 'toolbar' },
-      field('Period', periodInput),
-      button('\u2039 Prev', () => shift(-1)),
-      button('Next \u203a', () => shift(1)),
-      field('Bucket', select(['day', 'week', 'month'], bucket, (v) => {
-        bucket = v;
-        localStorage.setItem('trex.eyeball.bucket', v);
-        load();
-      })),
-      field('Pin as', categorySelect),
+      el('div', { class: 'tabs' }, ...GRAINS.map(tab)),
+      button('\u2039', () => step(-1)),
+      field('Jump', jumpInput),
+      periodLabel,
+      button('\u203a', () => step(1)),
       el('button', { type: 'button', class: 'primary', onclick: closePeriod }, 'Close period')),
     markerHost, bodyHost);
 }
 
+function tab(g) {
+  return el('button', {
+    type: 'button',
+    class: 'tab' + (g === grain ? ' active' : ''),
+    onclick: () => {
+      if (g === grain) return;
+      grain = g;
+      localStorage.setItem('trex.eyeball.grain', g);
+      const b = boundsOf(period);
+      if (b) period = keyFor(b.from, grain);
+      render();
+      load();
+    },
+  }, GRAIN_LABEL[g]);
+}
+
 async function load() {
   try {
-    walk = await api.eyeball(period, ctx.user, { bucket });
+    // The grain is the period walked; inside it, transactions group by day.
+    walk = await api.eyeball(period, ctx.user, { bucket: 'day' });
     const acks = await api.acks();
     ack = acks.find((a) => a.user === ctx.user && a.period === period) || null;
     errorBar.hidden = true;
+    renderHeading();
     renderMarker();
     renderBody();
   } catch (error) {
     showError(error);
   }
+}
+
+function renderHeading() {
+  periodLabel.textContent = `${GRAIN_LABEL[grain]} · ${labelOf(period)}`;
+  const b = boundsOf(period);
+  if (b) jumpInput.value = isoDay(b.from);
 }
 
 function renderMarker() {
@@ -121,7 +138,7 @@ function renderBody() {
   bodyHost.append(el('p', { class: 'muted' },
     `${anomalies.length} anomal${anomalies.length === 1 ? 'y' : 'ies'} · `
     + `${openItems.length} open item${openItems.length === 1 ? '' : 's'} · `
-    + `${buckets.length} ${walk.granularity} bucket${buckets.length === 1 ? '' : 's'}`));
+    + `${buckets.length} day${buckets.length === 1 ? '' : 's'}`));
   bodyHost.append(section('Open items', openItemsTable(openItems)));
   bodyHost.append(section('Anomalies', anomaliesList(anomalies)));
   bodyHost.append(section('Transactions', bucketsList(buckets)));
@@ -131,13 +148,14 @@ function renderBody() {
 
 function openItemsTable(items) {
   if (!items.length) return el('p', { class: 'muted' }, 'Nothing open in this period.');
-  const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'Subject'), el('th', {}, 'Detail'),
-    el('th', { class: 'amount' }, 'Stake'), el('th', {}, ''));
+  const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'About'), el('th', {}, 'Detail'),
+    el('th', { class: 'amount' }, 'Stake'), el('th', { class: 'amount' }, 'Opened'), el('th', {}));
   const body = items.map((item) => el('tr', {},
-    el('td', {}, item.kind),
-    el('td', { title: item.subject }, shortId(item.subject)),
+    el('td', {}, el('span', { class: 'badge ' + item.kind }, KIND_LABEL[item.kind] || item.kind)),
+    el('td', { class: 'desc', title: item.subject }, item.subjectDescription || shortId(item.subject)),
     el('td', { class: 'desc' }, item.detail || ''),
     el('td', { class: 'amount' }, item.amountStake == null ? '' : money(item.amountStake)),
+    el('td', { class: 'amount muted' }, (item.openedAt || '').slice(0, 10)),
     el('td', {}, button('Dismiss', () => submit(
       decisions.dismiss(ctx, item.kind, [item.subject], 'dismissed in eyeball'))))));
   return scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)));
@@ -188,7 +206,6 @@ function bucketsList(buckets) {
 function bucketBlock(b) {
   const closing = Object.entries(b.closingBalances || {})
     .map(([account, balance]) => `${account} ${money(balance)}`).join(' · ');
-  const span = b.from === b.to ? b.from : `${b.from} \u2013 ${b.to}`;
   const head = el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Account'),
     el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Description'),
     el('th', {}, 'Category'), el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'),
@@ -202,39 +219,26 @@ function bucketBlock(b) {
     el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
     el('td', {}, row.n),
     el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
-    el('td', {}, button('Pin', () => pinRow(row)))));
+    el('td', {}, button('Categorize', () => openCategorize(ctx, row, categories, load)))));
   return el('div', { class: 'bucket' },
-    el('h4', {}, `${b.key}  ·  ${span}  ·  total ${money(b.total)}  ·  closing ${closing}`),
+    el('h4', {}, `${b.key}  ·  ${b.from}${b.from === b.to ? '' : ' \u2013 ' + b.to}`
+      + `  ·  total ${money(b.total)}  ·  closing ${closing}`),
     scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 // ---- actions ----------------------------------------------------------------------------------
 
-/** One row, one decision — on purpose (see the file header). The brush category is chosen once. */
-function pinRow(row) {
-  const category = categorySelect.value;
-  if (!category) {
-    toast('Pick a category in "Pin as" first', 'bad');
-    return;
-  }
-  submit(decisions.pin(ctx, [row.externalId], category, 'pinned in eyeball'));
-}
-
 async function submit(decision) {
   try {
     await api.decisions(ctx.n, [decision]);
     toast('Recorded');
-    await load();
   } catch (error) {
     reportError(error);
-    await load();
   }
+  await load();
 }
 
 async function closePeriod() {
-  const value = periodInput.value.trim();
-  if (!value) return;
-  period = value;
   try {
     await api.postAck({ user: ctx.user, period, comment: null });
     toast(`Closed ${period} for ${ctx.user}`);
@@ -254,44 +258,63 @@ async function showMoved() {
   }
 }
 
-/** Prev/next moves a week for week buckets, a month for months, a day otherwise. */
-function shift(direction) {
-  const start = bucketStart(period) || new Date();
-  const moved = new Date(start.getTime());
-  if (bucket === 'month') {
-    moved.setUTCMonth(moved.getUTCMonth() + direction);
-  } else if (bucket === 'week') {
-    moved.setUTCDate(moved.getUTCDate() + direction * 7);
+function step(direction) {
+  const b = boundsOf(period);
+  if (!b) return;
+  const d = new Date(b.from.getTime());
+  if (grain === 'month') {
+    d.setUTCMonth(d.getUTCMonth() + direction);
+  } else if (grain === 'week') {
+    d.setUTCDate(d.getUTCDate() + 7 * direction);
   } else {
-    moved.setUTCDate(moved.getUTCDate() + direction);
+    d.setUTCDate(d.getUTCDate() + direction);
   }
-  period = bucket === 'month' ? monthKey(moved) : (bucket === 'week' ? isoWeek(moved) : isoDay(moved));
-  periodInput.value = period;
+  period = keyFor(d, grain);
   load();
 }
 
-// ---- helpers ----------------------------------------------------------------------------------
+// ---- period keys and their date ranges --------------------------------------------------------
 
-function section(title, content) {
-  return el('section', { class: 'mode-section' }, el('h3', {}, title), content);
+function keyFor(date, g) {
+  if (g === 'day') return isoDay(date);
+  if (g === 'month') return monthKey(date);
+  return isoWeek(date);
 }
 
-function button(label, onClick) {
-  return el('button', { type: 'button', onclick: onClick }, label);
+/** The inclusive UTC range a period key names, matching the hub's Period. */
+function boundsOf(key) {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (day) {
+    const d = new Date(Date.UTC(+day[1], +day[2] - 1, +day[3]));
+    return { from: d, to: d };
+  }
+  const week = /^(\d{4})-W(\d{2})$/.exec(key);
+  if (week) {
+    const jan4 = new Date(Date.UTC(+week[1], 0, 4));
+    const wd = jan4.getUTCDay() || 7;
+    const from = new Date(jan4.getTime() - (wd - 1) * 86400000 + (+week[2] - 1) * 7 * 86400000);
+    return { from, to: new Date(from.getTime() + 6 * 86400000) };
+  }
+  const month = /^(\d{4})-(\d{2})$/.exec(key);
+  if (month) {
+    return {
+      from: new Date(Date.UTC(+month[1], +month[2] - 1, 1)),
+      to: new Date(Date.UTC(+month[1], +month[2], 0)),
+    };
+  }
+  return null;
 }
 
-function select(options, value, onChange) {
-  return el('select', { onchange: (e) => onChange(e.target.value) },
-    ...options.map((o) => el('option', { value: o, selected: o === value }, o)));
+/** A compact range label, e.g. 20260120-20260126. */
+function labelOf(key) {
+  const b = boundsOf(key);
+  if (!b) return key;
+  return b.from.getTime() === b.to.getTime() ? compact(b.from) : `${compact(b.from)}-${compact(b.to)}`;
 }
 
-function showError(error) {
-  errorBar.textContent = error.message || 'failed to load the walk';
-  errorBar.hidden = false;
-}
-
-function currentPeriod() {
-  return isoWeek(new Date());
+function compact(d) {
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    + `${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 function isoDay(date) {
@@ -311,21 +334,22 @@ function isoWeek(date) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-/** The first day of a period key, for stepping forward and back. */
-function bucketStart(value) {
-  const week = /^(\d{4})-W(\d{2})$/.exec(value);
-  if (week) {
-    const jan4 = new Date(Date.UTC(Number(week[1]), 0, 4));
-    const day = jan4.getUTCDay() || 7;
-    return new Date(jan4.getTime() - (day - 1) * 86400000 + (Number(week[2]) - 1) * 7 * 86400000);
-  }
-  const month = /^(\d{4})-(\d{2})$/.exec(value);
-  if (month) {
-    return new Date(Date.UTC(Number(month[1]), Number(month[2]) - 1, 1));
-  }
-  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (day) {
-    return new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3])));
-  }
-  return null;
+function parseIso(value) {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+// ---- helpers ----------------------------------------------------------------------------------
+
+function section(title, content) {
+  return el('section', { class: 'mode-section' }, el('h3', {}, title), content);
+}
+
+function button(label, onClick) {
+  return el('button', { type: 'button', onclick: onClick }, label);
+}
+
+function showError(error) {
+  errorBar.textContent = error.message || 'failed to load the walk';
+  errorBar.hidden = false;
 }
