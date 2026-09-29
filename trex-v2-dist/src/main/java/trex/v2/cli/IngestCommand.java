@@ -43,7 +43,7 @@ public final class IngestCommand implements Callable<Integer> {
     @Option(names = "--sequencer-url", description = "The running sequencer base URL.")
     String sequencerUrl;
 
-    @Option(names = "--evidence", required = true, description = "The evidence store directory.")
+    @Option(names = "--evidence", description = "The evidence store directory (required unless --types).")
     Path evidenceDir;
 
     @Option(names = "--journal", description = "The journal file, for --reparse.")
@@ -69,6 +69,10 @@ public final class IngestCommand implements Callable<Integer> {
             return IngestRunner.USAGE;
         }
         SourceAdapter adapter = Adapters.byType(sourceType);
+        if (evidenceDir == null) {
+            System.err.println("--evidence is required to ingest");
+            return IngestRunner.USAGE;
+        }
         if (reparseEvidence != null) {
             return reparse(adapter);
         }

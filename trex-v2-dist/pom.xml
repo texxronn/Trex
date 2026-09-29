@@ -81,6 +81,26 @@
           </execution>
         </executions>
       </plugin>
+      <!-- One image, every role (V2-PROPOSAL.md §5.2, §14, §19): the same trex-v2.jar,
+           the role named by the command. jib's standard layout carries the dependency
+           jars too; the entrypoint runs trex.v2.Main, which dispatches the subcommand. -->
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <configuration>
+          <skip>false</skip>
+          <to>
+            <image>${trex.image.prefix}/trex-v2:${trex.image.tag}</image>
+          </to>
+          <container>
+            <mainClass>trex.v2.Main</mainClass>
+            <ports>
+              <port>8080</port>
+              <port>8090</port>
+            </ports>
+          </container>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 </project>

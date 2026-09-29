@@ -42,6 +42,20 @@ class DistCliTest {
     }
 
     @Test
+    void ingestTypesListsAdaptersWithoutEvidence() {
+        // --types must not require --evidence: it is how an operator discovers the source types.
+        java.io.PrintStream original = System.out;
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        try {
+            System.setOut(new java.io.PrintStream(buffer));
+            assertEquals(0, Main.commandLine().execute("ingest", "--types"));
+        } finally {
+            System.setOut(original);
+        }
+        assertTrue(buffer.toString().contains("ing-csv"), buffer.toString());
+    }
+
+    @Test
     void recoveryDrillStopHubWipeIndexRebuildVerify(@TempDir Path dir) throws Exception {
         Path configDir = dir.resolve("config");
         Files.createDirectories(configDir);

@@ -1,0 +1,32 @@
+[Unit]
+Description=trex v2 ingest %i (source type and account from /etc/trex/trex.env)
+Documentation=file:///opt/trex/README.md
+After=trex-sequencer.service
+Wants=trex-sequencer.service
+
+[Service]
+Type=oneshot
+# %i is the statement file. Set TREX_SOURCE_TYPE and TREX_ACCOUNT in trex.env.
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar ingest \
+  --source-type ${TREX_SOURCE_TYPE} \
+  --account ${TREX_ACCOUNT} \
+  --sequencer-url http://127.0.0.1:8080 \
+  --evidence /var/lib/trex/evidence \
+  %i
+StateDirectory=trex/evidence
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/trex/evidence
+User=trex
+Group=trex
+EnvironmentFile=-/etc/trex/trex.env
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes

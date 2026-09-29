@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly trex v2 archive mirror
+Documentation=file:///opt/trex/README.md
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

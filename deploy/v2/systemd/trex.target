@@ -1,0 +1,7 @@
+[Unit]
+Description=trex v2 (sequencer and hub)
+Documentation=file:///opt/trex/README.md
+Wants=trex-sequencer.service trex-hub.service
+
+[Install]
+WantedBy=multi-user.target

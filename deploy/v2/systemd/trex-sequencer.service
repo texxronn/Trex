@@ -1,0 +1,37 @@
+[Unit]
+Description=trex v2 sequencer (the only journal writer)
+Documentation=file:///opt/trex/README.md
+After=network.target
+PartOf=trex.target
+
+[Service]
+Type=simple
+# One artifact, role by subcommand (V2-PROPOSAL.md §5.2, §19). Host and port come from
+# sequencer.yaml; override them here if the defaults move.
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar sequencer \
+  --journal /var/lib/trex/journal/trex.jsonl \
+  --config /etc/trex
+StateDirectory=trex/journal
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/trex/journal
+# Give in-flight requests time to finish their fsync on stop.
+TimeoutStopSec=30
+User=trex
+Group=trex
+EnvironmentFile=-/etc/trex/trex.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+
+[Install]
+WantedBy=trex.target

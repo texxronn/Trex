@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly trex v2 Firefly plan
+Documentation=file:///opt/trex/README.md
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
