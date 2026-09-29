@@ -1,11 +1,17 @@
 # trex v2 — a refined v1
 
-**A rewrite proposal and a migration path.**
-Written 2026-09-29, against `SPEC.md` as it stands and the six-module tree that
-implements it. Revised the same day to close the open semantics: decisions are
-revocable (`REVOKE`), facts can be retired (`RETIRE`), settlements can be decided
-(`SETTLE`), `derive` takes an explicit `asOf`, and provenance uses `configRevision`
-alongside `deriveVersion` and `hashVersion`. §20 records every answer.
+> **Personal project, single operator, private.** Nothing here is a public contract.
+> The invariants are self-imposed because a ledger that silently loses a row is broken
+> regardless of who is reading — not because anyone else depends on these shapes. A
+> breaking change to the API, the config or the line format is a refactor, not a
+> versioning event; only identity (`externalId`) and the log's history are permanent.
+
+**A rewrite proposal.** Written 2026-09-29, against `SPEC.md` as it stands and the
+six-module tree that implements it. Revised the same day to close the open semantics:
+decisions are revocable (`REVOKE`), facts can be retired (`RETIRE`), settlements can be
+decided (`SETTLE`), `derive` takes an explicit `asOf`, and provenance uses
+`configRevision` alongside `deriveVersion` and `hashVersion`. §20 records every answer.
+The v1 tree is retained as reference only; there is no migration (§6.5).
 
 ---
 

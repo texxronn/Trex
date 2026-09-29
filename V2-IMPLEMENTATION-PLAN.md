@@ -1,9 +1,14 @@
 # V2-IMPLEMENTATION-PLAN.md
 
+> **Personal project, single operator, private.** The requirements here are
+> self-imposed. Decisions that are taste rather than correctness may be changed freely;
+> only the invariants in `CLAUDE.md` and `V2-PROPOSAL.md` are not to be bent.
+
 **How to build `V2-PROPOSAL.md`.** This is the build order, the module layout, the
 acceptance tests, the working rules and the fixtures. It is written to be executed by
 an agent (human or LLM) with no further design decisions: where a decision is still
-open it is listed in §12 and must be asked, not invented.
+open it is listed in §12 — and §12 distinguishes what must be asked before guessing
+from what a sensible default may settle.
 
 Read in this order: `CLAUDE.md` → `V2-PROPOSAL.md` (the spec) → this file. Where this
 file and the proposal disagree, the proposal wins.
@@ -442,25 +447,34 @@ From the proposal's §19, restated:
 
 ---
 
-## 12. Open decisions — ask, do not assume
+## 12. Open decisions
 
-1. **The dev fixture path.** Where the operator keeps the private journal, and
-   whether `seed.sh` reads v1-format lines (then imports) or a v2-format export the
-   operator produces. Recommended: `TREX_DEV_FIXTURE` or `deploy/dev/journal/`,
-   v1-format, imported by the P0 dev tool.
-2. **`merchantStem` definition** (P0): tokenisation and stripping rules, frozen before
-   two implementations exist. Read v1's `trex.category.Merchant.stem` and restate it in
-   the proposal.
-3. **The categoriser grammar** (P0): `deploy/config/categories.yaml` uses the SPEC §5.6
-   `when` tree. Implement that grammar; do not invent a new one.
-4. **Index schema privacy** (P0): confirm no migration tooling for the index even in
-   development — "delete and re-derive" only.
-5. **`settlementWindowDays` / `windowDays` / `dupTolerance` / `amountTolerance` /
-   `holdWindowDays` defaults** (P0): proposal defaults are 7 / 4 (already in config) /
-   0 / 0 / 30. Confirm initial values before the config loader freezes.
-6. **`users.yaml` identities** (P0): the real user ids and cadences — required for the
-   sequencer to accept any decision.
-7. **The importer's exact behaviour** (P0): when the private v1 journal has decisions
-   that v2 models differently (state transitions, `DISMISS_DUP`, TRANSFER lines), the
-   plan is §16's mapping; confirm it is acceptable to lose nothing that
-   `deploy/config/pins.yaml` does not already encode.
+**Must ask before guessing** — a wrong guess corrupts data or the log's meaning:
+
+1. **`users.yaml` identities** (P0): the real user ids and cadences — the sequencer
+   refuses a decision naming an unknown user, and the id is stamped into decisions
+   forever. Do not invent one.
+2. **The dev fixture path** (P0): where the private journal lives and in which format.
+   `TREX_DEV_FIXTURE` or `deploy/dev/journal/`, v1-format, imported by the P0 dev tool
+   — confirm before `seed.sh` is written, because everything acceptance-tested on real
+   history depends on it.
+3. **`merchantStem` definition** (P0): tokenisation and stripping rules, frozen before
+   two implementations exist and before the tuned rules are validated against it. Read
+   v1's `trex.category.Merchant.stem` and restate it in the proposal.
+4. **The importer's treatment of v1 decisions** (P0): the private journal's state
+   transitions, `DISMISS_DUP`s and TRANSFER lines map by §16's table. Confirm that
+   losing nothing beyond what `deploy/config/pins.yaml` already encodes is acceptable —
+   this decides what the imported history means.
+
+**Sensible default, change freely** — taste or tuning, not correctness:
+
+5. **The categoriser grammar** (P0): `deploy/config/categories.yaml` uses the SPEC §5.6
+   `when` tree. Implement that grammar; a new one would be a rewrite of the tuned rules.
+6. **Index schema privacy** (P0): the default is "delete and re-derive only" with no
+   migration tooling, even in development. Cheap to hold; cheap to break later if it
+   becomes annoying.
+7. **`settlementWindowDays` / `windowDays` / `dupTolerance` / `amountTolerance` /
+   `holdWindowDays` defaults** (P0): 7 / 4 (already in config) / 0 / 0 / 30. Start
+   there and tune against the dev fixture, as `windowDays` was tuned.
+8. **Module shape and cut-over details** (P0+): the in-place rebuild and the v1 tree's
+   fate are operator preferences, not invariants.
