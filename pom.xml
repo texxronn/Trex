@@ -16,6 +16,13 @@
     <module>trex-ingest</module>
     <module>trex-egress</module>
     <module>trex-ws</module>
+    <!-- v2 modules (V2-PROPOSAL.md / V2-IMPLEMENTATION-PLAN.md). Side by side with
+         the v1 tree, which stays as reference and is never imported by v2 code. -->
+    <module>trex-v2-core</module>
+    <module>trex-v2-log</module>
+    <module>trex-v2-index</module>
+    <module>trex-v2-sequencer</module>
+    <module>trex-v2-dist</module>
   </modules>
 
   <properties>
@@ -68,6 +75,26 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-ws</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-core</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-log</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-index</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-sequencer</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

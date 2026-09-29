@@ -7,3 +7,4 @@ run/
 *.local.yaml
 statements/
 *.statements.yaml
+index/
