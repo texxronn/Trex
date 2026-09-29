@@ -139,6 +139,20 @@ class DeriveTest {
     }
 
     @Test
+    void theMatcherRequiresEqualTransferStemUnlikeV1() {
+        // v1's Matcher paired same-day, equal-magnitude, opposite-sign shaped legs on amount and date
+        // alone. v2 (§9.9.C) additionally requires an equal transferStem after removing the transfer
+        // vocabulary. A deliberate divergence, pinned so it stays a choice rather than drift.
+        List<Fact> facts = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Transfer to Savings 4321", null, 0),
+            fact(2, "b", "ing-orange", LocalDate.of(2026, 9, 1), 1000, "Transfer from Other 9999", null, 0));
+        Derivation d = Derive.derive(facts, List.of(), config(), ASOF);
+        assertTrue(d.transfers().isEmpty(), "different merchant stems do not auto-pair in v2");
+        assertEquals(LegState.HELD, d.current("a").orElseThrow().leg());
+        assertEquals(LegState.HELD, d.current("b").orElseThrow().leg());
+    }
+
+    @Test
     void automaticMatcherPairsSameDayOppositeAmounts() {
         List<Fact> facts = List.of(
             fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Transfer to Savings 4321", null, 0),

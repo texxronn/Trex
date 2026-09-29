@@ -1638,6 +1638,12 @@ Evaluation order, first match wins:
    projected (§11). A pair emitted from a decision carries `origin: decision` and the
    decision's `n`; a pair from the matcher carries `origin: derived`.
 
+   > **Parity with v1.** v1's matcher paired on amount, sign, account, currency and date alone;
+   > here T2/T3 additionally require an equal `transferStem`, so v2 withholds some pairs v1 made.
+   > This is a deliberate change, pinned by
+   > `DeriveTest.theMatcherRequiresEqualTransferStemUnlikeV1`. Every equivalence and divergence
+   > between v2 and v1's curated behaviour is recorded in `docs/V2-PARITY.md`.
+
 #### D. Pending settlement and staleness
 
 A `pending` fact is a **claim on a future posted row**, and settlement is resolved before
