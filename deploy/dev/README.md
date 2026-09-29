@@ -138,3 +138,20 @@ seconds instead of minutes, heap 256m.
   compares the two and stops with both paths printed. To get a genuinely
   isolated instance, copy `deploy/dev/config` as well and point `journal.source`
   and `journal.target` at the new run directory.
+
+## v2 end to end on real statements
+
+`trex-v2-dist`'s `StatementsE2ETest` (tagged `fixture`) runs the whole v2 path over
+real exports — evidence store, `POST /facts` through a real sequencer, the index and
+`derive()` — into a temp journal, then prints per-file results, review items,
+categories, transfers and reconciliation. Nothing durable is written, and the
+statements are private and never committed.
+
+Sources resolve from `-Dtrex.e2e.manifest=<file>` / `$TREX_E2E_MANIFEST`, else
+`-Dtrex.statements.dir=<dir>` / `$TREX_STATEMENTS_DIR` (the default is
+`~/Downloads/Statements/Statements_CSV`, scanned by file name), else
+`deploy/dev/statements.local.yaml`. It is skipped with a reason when none is present,
+so `mvn verify` stays green on a fresh clone.
+
+    mvn -pl trex-v2-dist -am test -Dtest=StatementsE2ETest \
+        -Dtrex.statements.dir=~/Downloads/Statements/Statements_CSV

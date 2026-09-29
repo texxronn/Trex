@@ -253,4 +253,36 @@ class DeriveTest {
         assertEquals(1L, byKind.getOrDefault(trex.v2.core.derive.ReviewItem.POTENTIAL_DUP, 0L));
         assertEquals(1L, byKind.getOrDefault(trex.v2.core.derive.ReviewItem.RESTATEMENT, 0L));
     }
+
+    @Test
+    void identicalRowsOnADayAreOneDuplicateClusterWithUniqueKeys() {
+        List<Fact> facts = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -450, "COFFEE CART, SYDNEY", null, 0),
+            fact(2, "b", "ing-savings", LocalDate.of(2026, 9, 1), -450, "COFFEE CART, SYDNEY", null, 1),
+            fact(3, "c", "ing-savings", LocalDate.of(2026, 9, 1), -450, "COFFEE CART, SYDNEY", null, 2));
+        Derivation d = Derive.derive(facts, List.of(), config(), ASOF);
+
+        List<trex.v2.core.derive.ReviewItem> dups = d.review().stream()
+            .filter(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.POTENTIAL_DUP)).toList();
+        assertEquals(1, dups.size(), "one cluster, not one item per pair: " + d.review());
+        assertEquals("a", dups.getFirst().subject());
+        assertEquals("a,b,c", dups.getFirst().detail());
+
+        // review_item keys on (subject, kind); the derivation must never emit a duplicate key,
+        // or the index's insert fails with a primary-key violation.
+        long distinct = d.review().stream().map(r -> r.kind() + "|" + r.subject()).distinct().count();
+        assertEquals(d.review().size(), distinct, "duplicate review keys: " + d.review());
+    }
+
+    @Test
+    void aDismissNamingAnUnknownIdIsSurfacedAsIneffective() {
+        List<Fact> facts = List.of(fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0));
+        Decision.Dismiss typo = new Decision.Dismiss(2, trex.v2.core.derive.ReviewItem.POTENTIAL_DUP,
+            List.of("ghost"), "typo", Actor.USER, "ron", ASOF);
+        Derivation d = Derive.derive(facts, List.of(typo), config(), ASOF);
+        assertTrue(d.review().stream().anyMatch(r ->
+            r.kind().equals(trex.v2.core.derive.ReviewItem.INEFFECTIVE_DECISION) && r.subject().equals("2")),
+            d.review().toString());
+        assertTrue(d.ineffective().stream().anyMatch(x -> x.decisionN() == 2L));
+    }
 }

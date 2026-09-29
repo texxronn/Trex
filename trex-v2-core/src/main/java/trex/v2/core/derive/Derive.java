@@ -735,11 +735,16 @@ public final class Derive {
                 }
             }
 
-            // POTENTIAL_DUP and RESTATEMENT over current posted facts.
+            // POTENTIAL_DUP and RESTATEMENT over current posted facts. Both are pairwise relations,
+            // so take the connected components: one review item per cluster, keyed on (subject,
+            // kind), listing every member. Pairwise items would repeat a subject whenever three
+            // identical rows land on one day, which the derived table's primary key rejects.
             Map<String, CurrentFact> byId = currentById();
             List<CurrentFact> currentList = new ArrayList<>(byId.values());
             currentList.sort(Comparator.comparing((CurrentFact c) -> c.fact().accountRef())
                 .thenComparing(c -> c.fact().date()).thenComparingLong(c -> c.fact().n()));
+            int[] dupParent = components(currentList.size());
+            int[] restParent = components(currentList.size());
             for (int i = 0; i < currentList.size(); i++) {
                 for (int j = i + 1; j < currentList.size(); j++) {
                     CurrentFact a = currentList.get(i);
@@ -754,18 +759,18 @@ public final class Derive {
                         .equals(MerchantStem.stem(b.fact().rawDescription()));
                     long delta = Math.abs(a.fact().amount() - b.fact().amount());
                     if (sameSign && stemEqual && delta <= config.transfers().dupTolerance()) {
-                        add(items, newestFactBySubject, subject(a, b), ReviewItem.POTENTIAL_DUP,
-                            a.externalId() + "," + b.externalId(), a.fact());
+                        union(dupParent, i, j);
                     }
                     boolean sameAmount = a.fact().amount() == b.fact().amount();
                     boolean similar = MerchantStem.similar(a.fact().rawDescription(), b.fact().rawDescription(),
                         config.transfers().restatementOverlap());
                     if (sameAmount && similar) {
-                        add(items, newestFactBySubject, subject(a, b), ReviewItem.RESTATEMENT,
-                            a.externalId() + "," + b.externalId(), a.fact());
+                        union(restParent, i, j);
                     }
                 }
             }
+            addClusters(items, byId, currentList, dupParent, ReviewItem.POTENTIAL_DUP);
+            addClusters(items, byId, currentList, restParent, ReviewItem.RESTATEMENT);
 
             // UNMATCHED_LEG: a shaped HELD leg older than holdWindowDays, measured on asOf.
             for (CurrentFact c : byId.values()) {
@@ -780,15 +785,8 @@ public final class Derive {
                 }
             }
 
-            // INEFFECTIVE_DECISION (never DISMISS-able, §9.8).
-            for (IneffectiveDecision bad : ineffective) {
-                String subject = String.valueOf(bad.decisionN());
-                items.add(new ReviewItem(subject, ReviewItem.INEFFECTIVE_DECISION,
-                    bad.action() + ": " + bad.reason(), null, decisionAt(bad.decisionN()),
-                    Hashes.sha256(ReviewItem.INEFFECTIVE_DECISION + "|" + subject + "|" + bad.reason())));
-            }
-
-            // Effective DISMISS silences while no newer fact lands for the subject (§9.9.F).
+            // Effective DISMISS silences while no newer fact lands for the subject (§9.9.F). This
+            // runs before the ineffective items are emitted, because it can add one of its own.
             Map<String, Long> dismissN = new HashMap<>();
             for (Decision d : effective) {
                 if (d instanceof Decision.Dismiss dis) {
@@ -803,6 +801,15 @@ public final class Derive {
                         dismissN.merge(key, d.n(), Math::max);
                     }
                 }
+            }
+
+            // INEFFECTIVE_DECISION (never DISMISS-able, §9.8), emitted after DISMISS processing so
+            // a DISMISS that named an unknown id is surfaced too.
+            for (IneffectiveDecision bad : ineffective) {
+                String subject = String.valueOf(bad.decisionN());
+                items.add(new ReviewItem(subject, ReviewItem.INEFFECTIVE_DECISION,
+                    bad.action() + ": " + bad.reason(), null, decisionAt(bad.decisionN()),
+                    Hashes.sha256(ReviewItem.INEFFECTIVE_DECISION + "|" + subject + "|" + bad.reason())));
             }
             List<ReviewItem> kept = new ArrayList<>();
             for (ReviewItem item : items) {
@@ -821,14 +828,55 @@ public final class Derive {
             return kept;
         }
 
-        private void add(List<ReviewItem> items, Map<String, Long> newest, String subject, String kind,
-                         String detail, Fact fact) {
-            items.add(new ReviewItem(subject, kind, detail, Math.abs(fact.amount()), fact.ingestedAt(),
-                Hashes.sha256(kind + "|" + subject + "|" + detail)));
+        /** One review item per (subject, kind), listing every member id; the table keys on both. */
+        private void addGrouped(List<ReviewItem> items, Map<String, CurrentFact> byId, String subject,
+                                String kind, Set<String> members) {
+            CurrentFact self = byId.get(subject);
+            if (self == null) {
+                return;
+            }
+            String detail = String.join(",", members);
+            items.add(new ReviewItem(subject, kind, detail, Math.abs(self.fact().amount()),
+                self.fact().ingestedAt(), Hashes.sha256(kind + "|" + subject + "|" + detail)));
         }
 
-        private String subject(CurrentFact a, CurrentFact b) {
-            return a.externalId().compareTo(b.externalId()) <= 0 ? a.externalId() : b.externalId();
+        /** A disjoint-set forest over list indices; the root of a component is its smallest index. */
+        private static int[] components(int size) {
+            int[] parent = new int[size];
+            for (int i = 0; i < size; i++) {
+                parent[i] = i;
+            }
+            return parent;
+        }
+
+        private static int find(int[] parent, int x) {
+            while (parent[x] != x) {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            return x;
+        }
+
+        private static void union(int[] parent, int a, int b) {
+            int ra = find(parent, a);
+            int rb = find(parent, b);
+            if (ra != rb) {
+                parent[Math.max(ra, rb)] = Math.min(ra, rb);
+            }
+        }
+
+        /** One item per component of at least two: subject the smallest id, detail every member. */
+        private void addClusters(List<ReviewItem> items, Map<String, CurrentFact> byId,
+                                 List<CurrentFact> list, int[] parent, String kind) {
+            Map<Integer, TreeSet<String>> clusters = new TreeMap<>();
+            for (int i = 0; i < list.size(); i++) {
+                clusters.computeIfAbsent(find(parent, i), k -> new TreeSet<>()).add(list.get(i).externalId());
+            }
+            for (TreeSet<String> members : clusters.values()) {
+                if (members.size() >= 2) {
+                    addGrouped(items, byId, members.first(), kind, members);
+                }
+            }
         }
 
         private Instant decisionAt(long n) {
