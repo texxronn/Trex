@@ -42,7 +42,7 @@ tag reproduces the jar and image digest. To check by hand, build twice and compa
 
 ```sh
 deploy/bin/trex-release.sh prepare 0.2.0            # gate, bump, tag, build, next snapshot
-deploy/bin/trex-release.sh prepare 0.2.0 --image    # also push the image
+deploy/bin/trex-release.sh prepare 0.2.0 --image    # also build the image into the daemon
 deploy/bin/trex-release.sh prepare 0.2.0 --push     # also push the commit and the tag
 ```
 
@@ -55,8 +55,10 @@ deploy/bin/trex-release.sh prepare 0.2.0 --push     # also push the commit and t
 4. `mvn versions:set -DnewVersion=0.2.0` across every pom;
 5. commits `Release v0.2.0` and creates the annotated tag `v0.2.0`;
 6. builds the jar and writes `target/release/v0.2.0/SHA256SUMS`;
-7. with `--image`, runs `mvn -Pdocker-push -pl trex-v2-dist -am package` (honours
-   `TREX_IMAGE_PREFIX` / `TREX_IMAGE_TAG`);
+7. with `--image`, resolves the Docker context to `DOCKER_HOST` (jib ignores the context file) and
+   runs `mvn -Pdocker -DskipTests -pl trex-v2-dist -am package`, building the image straight into
+   that daemon — no registry needed. To push to a registry instead, use
+   `deploy/bin/trex-v2-docker.sh push` (honours `TREX_IMAGE_PREFIX` / `TREX_IMAGE_TAG`);
 8. bumps to the next development version (`0.2.1-SNAPSHOT`) and commits `Begin 0.2.1-SNAPSHOT`;
 9. with `--push`, pushes `HEAD` and the tag.
 

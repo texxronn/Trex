@@ -8,23 +8,47 @@ the arguments stay).
 ## Build the image
 
 ```sh
-mvn -pl trex-v2-dist -am package -Pdocker        # into the Docker daemon
+deploy/bin/trex-v2-docker.sh build                     # into the active context's daemon
+deploy/bin/trex-v2-docker.sh --context deploy build    # into the deploy machine's daemon
+TREX_IMAGE_PREFIX=registry.example/trex deploy/bin/trex-v2-docker.sh push
+```
+
+or the raw Maven:
+
+```sh
+mvn -pl trex-v2-dist -am package -Pdocker        # into the daemon at DOCKER_HOST
 mvn -pl trex-v2-dist -am package -Pdocker-push   # push to ${trex.image.prefix}
 ```
 
-The image is `${TREX_IMAGE_PREFIX:-trex}/trex-v2:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}`. jib's standard
-layout carries the self-contained `trex-v2.jar` plus the dependency jars; the entrypoint is
-`trex.v2.Main`, which dispatches the subcommand. The base image is pinned by digest in the root
-`pom.xml`.
+jib reaches the daemon through `DOCKER_HOST` and ignores Docker's context file, so
+`deploy/bin/trex-v2-docker.sh` resolves the selected context (`--context NAME`, `DOCKER_CONTEXT`,
+or the active one) to a `DOCKER_HOST` first. That is how the image lands directly on the deployment
+machine with no registry.
+
+The image is `${TREX_IMAGE_PREFIX:-trex}/trex-v2:${TREX_IMAGE_TAG:-<version>}`. jib's layout is the
+project's own classes in `/app/classes` plus the dependency jars in `/app/libs` — not a copied
+`trex-v2.jar`; the entrypoint is `java -cp @/app/jib-classpath-file trex.v2.Main`. The base image is
+pinned by digest in the root `pom.xml`.
 
 ## Compose
 
+The script resolves the same context and defaults the image tag to the project version, so the
+build and the stack always agree:
+
+```sh
+deploy/bin/trex-v2-docker.sh up -d                           # sequencer + hub, in the context
+deploy/bin/trex-v2-docker.sh ps
+deploy/bin/trex-v2-docker.sh logs -f hub
+deploy/bin/trex-v2-docker.sh down                            # add -v to discard the journal
+```
+
+or the raw compose (must target the same daemon and tag yourself):
+
 ```sh
 docker compose -f deploy/v2/compose.yml up -d                # sequencer + hub
-docker compose -f deploy/v2/compose.yml ps
-docker compose -f deploy/v2/compose.yml logs -f hub
 docker compose -f deploy/v2/compose.yml down                 # add -v to discard the journal
 ```
+
 
 Tool roles run once and exit, behind the `tools` profile:
 

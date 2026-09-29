@@ -9,7 +9,7 @@
 #
 # Flags for prepare:
 #   --skip-tests   skip the verify gate (you have run it already)
-#   --image        also build and push the container image
+#   --image        also build the container image into the selected Docker context
 #   --push         push the release commit, the follow-up commit and the tag
 #   --dry-run      print the steps; change nothing
 #
@@ -107,8 +107,16 @@ cmd_prepare() {
   fi
 
   if [ "$image" = 1 ]; then
-    say "build and push the image"
-    run "$MVN" -B -ntp -Pdocker-push -DskipTests -pl trex-v2-dist -am package
+    say "build the image into the daemon (Docker context)"
+    if [ "$dry" = 1 ]; then
+      echo "   [dry-run] resolve the Docker context; mvn -B -ntp -Pdocker -DskipTests -pl trex-v2-dist -am package"
+    else
+      # shellcheck source=deploy/bin/_trex-docker.sh
+      . "$here/_trex-docker.sh"
+      trex_resolve_docker_host || die "cannot resolve the Docker context (set DOCKER_CONTEXT or DOCKER_HOST)"
+      echo "   daemon: $DOCKER_HOST"
+      "$MVN" -B -ntp -Pdocker -DskipTests -pl trex-v2-dist -am package
+    fi
   fi
 
   local next="${version%.*}.$(( 10#${version##*.} + 1 ))-SNAPSHOT"
