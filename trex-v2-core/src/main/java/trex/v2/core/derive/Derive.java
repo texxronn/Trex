@@ -828,16 +828,48 @@ public final class Derive {
             return kept;
         }
 
-        /** One review item per (subject, kind), listing every member id; the table keys on both. */
+        /** One review item per (subject, kind): subject the smallest id, a readable detail. */
         private void addGrouped(List<ReviewItem> items, Map<String, CurrentFact> byId, String subject,
-                                String kind, Set<String> members) {
+                                String kind, List<String> members) {
             CurrentFact self = byId.get(subject);
             if (self == null) {
                 return;
             }
-            String detail = String.join(",", members);
+            String detail = detail(kind, byId, members);
             items.add(new ReviewItem(subject, kind, detail, Math.abs(self.fact().amount()),
                 self.fact().ingestedAt(), Hashes.sha256(kind + "|" + subject + "|" + detail)));
+        }
+
+        /**
+         * A human detail rather than an id list: a restatement is interesting because the text
+         * differs, a duplicate because the stem and amount repeat. The ids stay the subject and
+         * in the log; the review queue is read by a person.
+         */
+        private static String detail(String kind, Map<String, CurrentFact> byId, List<String> members) {
+            List<CurrentFact> facts = new ArrayList<>(members.size());
+            for (String id : members) {
+                CurrentFact c = byId.get(id);
+                if (c != null) {
+                    facts.add(c);
+                }
+            }
+            if (facts.isEmpty()) {
+                return String.join(",", members);
+            }
+            if (ReviewItem.RESTATEMENT.equals(kind)) {
+                LinkedHashSet<String> texts = new LinkedHashSet<>();
+                for (CurrentFact c : facts) {
+                    texts.add(trex.v2.core.Clean.clean(c.fact().rawDescription()));
+                }
+                return clip(String.join("  /  ", texts));
+            }
+            CurrentFact first = facts.getFirst();
+            return facts.size() + "\u00d7 " + MerchantStem.stem(first.fact().rawDescription())
+                + " on " + first.fact().date();
+        }
+
+        private static String clip(String text) {
+            return text.length() <= 140 ? text : text.substring(0, 139) + "\u2026";
         }
 
         /** A disjoint-set forest over list indices; the root of a component is its smallest index. */
@@ -874,7 +906,7 @@ public final class Derive {
             }
             for (TreeSet<String> members : clusters.values()) {
                 if (members.size() >= 2) {
-                    addGrouped(items, byId, members.first(), kind, members);
+                    addGrouped(items, byId, members.first(), kind, List.copyOf(members));
                 }
             }
         }

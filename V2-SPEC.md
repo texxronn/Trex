@@ -102,7 +102,7 @@ replay → effective decisions → supersession / chain resolution → current t
 state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/1"`, `hashVersion = "statehash/1"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/2"`, `hashVersion = "statehash/1"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Transfer pairing.** `PAIR` decisions win. The matcher tiers are T1 (shared receipt), T2 (same day)

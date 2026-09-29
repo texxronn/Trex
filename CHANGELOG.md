@@ -85,6 +85,8 @@ The v2 system per `V2-PROPOSAL.md`, built in the stage order of `V2-IMPLEMENTATI
 - `SCHOOL_FEES` now sits above `FEES`, so a school's "fees" is not read as a bank charge.
 - Rule gaps closed from a real statement run: council rates, singular `WAGE`, `UBER   *TRIP`
   spacing, `eg group`, `cwh`, `super ?cheap`, retail chains, takeaway chains, and CCS.
+- Review-item details are human-readable (`3× COFFEE CART, SYDNEY on 2026-09-01`, or the differing
+  text for a restatement) instead of a bare list of ids; `deriveVersion` moves to `derive/2`.
 
 ### Fixed
 

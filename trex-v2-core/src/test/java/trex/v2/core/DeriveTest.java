@@ -266,7 +266,7 @@ class DeriveTest {
             .filter(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.POTENTIAL_DUP)).toList();
         assertEquals(1, dups.size(), "one cluster, not one item per pair: " + d.review());
         assertEquals("a", dups.getFirst().subject());
-        assertEquals("a,b,c", dups.getFirst().detail());
+        assertEquals("3\u00d7 COFFEE CART, SYDNEY on 2026-09-01", dups.getFirst().detail());
 
         // review_item keys on (subject, kind); the derivation must never emit a duplicate key,
         // or the index's insert fails with a primary-key violation.
