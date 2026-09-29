@@ -22,6 +22,7 @@
     <module>trex-v2-log</module>
     <module>trex-v2-index</module>
     <module>trex-v2-sequencer</module>
+    <module>trex-v2-hub</module>
     <module>trex-v2-dist</module>
   </modules>
 
@@ -95,6 +96,11 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-v2-sequencer</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-hub</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

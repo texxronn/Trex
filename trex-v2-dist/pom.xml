@@ -35,6 +35,10 @@
       <artifactId>trex-v2-sequencer</artifactId>
     </dependency>
     <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-hub</artifactId>
+    </dependency>
+    <dependency>
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
     </dependency>
