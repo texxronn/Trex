@@ -689,9 +689,8 @@ Three line kinds, from three write endpoints (`POST /facts`, `POST /decisions`,
 `POST /ingest`), with the migration and re-parse tools using the same endpoints. This is
 the complete catalogue — anything absent is not in the journal.
 
-Every line below carries the envelope of §6 (`n, kind, v, atMs, env, source, target`),
-shown in full for the first example and elided afterwards; the older `v:2` / `ingestedAt`
-headers shown in these bodies are superseded by it.
+Every line below carries the envelope of §6 (`n, kind, v, atMs, env, source, target`) before
+its body.
 
 | # | Event | Producer | Line | Written when |
 |---|---|---|---|---|
