@@ -114,13 +114,23 @@ function accountRow(account) {
 }
 
 function bucket(ref, b) {
-  const title = `${b.key} · ${b.txns} txn${b.txns === 1 ? '' : 's'}`
+  const title = `${range(b.from, b.to)} · ${b.txns} txn${b.txns === 1 ? '' : 's'}`
     + (b.files && b.files.length ? '\nfrom ' + b.files.join(', ') : '');
   return el('a', {
     class: 'wk ' + b.state,
     title,
     href: '#blotter?' + new URLSearchParams({ account: ref, from: b.from, to: b.to }),
   });
+}
+
+/** A human date range: "3 Aug – 9 Aug 2026", with both years when the range crosses one. */
+function range(from, to) {
+  const a = new Date(from + 'T00:00:00');
+  const b = new Date(to + 'T00:00:00');
+  const md = (d) => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+  return a.getFullYear() === b.getFullYear()
+    ? `${md(a)} \u2013 ${md(b)} ${b.getFullYear()}`
+    : `${md(a)} ${a.getFullYear()} \u2013 ${md(b)} ${b.getFullYear()}`;
 }
 
 function rel(ms) {
