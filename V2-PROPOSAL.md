@@ -260,6 +260,7 @@ Read it as: **left of `derive` is truth; right of it is cache.**
 | `trex-ingest` | CLI | Adapters → evidence + facts; whole-file validation; day-atomic batching | Adds evidence and parser version |
 | `trex-hub` | service | Index ownership, blotter API + UI, rules writer, decision path (precheck + forward), SSE | Rename of v1's `trex-ws`; queries SQLite instead of folding in memory |
 | `trex-egress` | CLI | archive (mirror), firefly (converge) | sqlite mirror retires in favour of the index; firefly gains plan/apply/verify; hledger parked (rebuilt later, never a v2 input) |
+| `trex-runner` | service | On-demand job dispatcher: the loopback trigger API, the staged-file inbox, child runs of the existing subcommands | **New.** One more role on the one artifact; never writes the log and never touches the index |
 | `trex-dist` | packaging | Shades all modules into one `trex.jar` and builds the single image | **New.** Replaces v1's per-module shaded jars and four images; contains no code of its own |
 
 The boundary that matters stays: **only `trex-sequencer` writes the log; every other
@@ -287,7 +288,8 @@ Recommended for a single operator:
 | `trex sequencer` | always (systemd) | One writer, fsync per commit. ~small memory now: no fold. |
 | `trex hub` | always (systemd) | Indexer + API + UI. Safe to restart; index rebuilds from the log. |
 | `trex egress archive` | always or timer | Byte mirror + evidence copy. Second disk. |
-| `trex egress firefly` | timer for plan/verify; `--apply` on instruction | Batch, never a daemon (§11): nothing half-tuned is projected mid-edit. |
+| `trex egress firefly` | on demand via `trex runner`; `--apply` on instruction | Batch, never a daemon (§11): nothing half-tuned is projected mid-edit. |
+| `trex runner` | always (systemd) | On-demand jobs from the hub's Jobs view: `ingest` and `egress firefly`, plus the staged-file inbox. Dispatches the same one-shot batches; one worker; loopback only. |
 | `trex reflow --preview`, `trex verify` | on demand / after config edits | Pure reader operations; `verify` rebuilds into a scratch file to compare. |
 | `trex index --rebuild` | disaster recovery / schema change | Offline: takes the index lock; the hub must be stopped. |
 
@@ -300,13 +302,16 @@ different launch arguments:
 | Hub (index + API + UI) | `trex hub` | `--journal`, `--config`, `--sequencer-url`, ports; user per request |
 | Archive mirror | `trex egress archive` | `--journal`, `--archive` |
 | Firefly projection | `trex egress firefly` (`--plan` / `--apply` / `--verify`) | `--hub-url`, `--firefly-url`, `--accounts`; retry and seeding flags (§11.1) |
+| Job runner | `trex runner` | `--hub-url`, `--sequencer-url`, `--config`, `--statements`, `--staging`; loopback only |
 | Tools | `trex ingest`, `trex index`, `trex reflow`, `trex verify`, `trex export` | flags |
 
 Compose: one `image:` with a `command:` per service. systemd: one jar path and a
 different `ExecStart=` per unit. An upgrade is one artifact swap plus a restart of the
 units that changed.
 
-No Kafka, no queue, no scheduler framework. systemd timers are enough for one person.
+No Kafka, no queue, no scheduler framework. Jobs are dispatched on demand by `trex runner`
+(§5.5); a systemd timer remains optional for a genuinely periodic pass, such as the nightly
+archive mirror.
 
 ### 5.4 Disk layout
 
@@ -323,7 +328,28 @@ No Kafka, no queue, no scheduler framework. systemd timers are enough for one pe
   index/
     trex.sqlite       derived; safe to delete. Holds the index offset, projection
                       state and every review/ACK copy — no sidecar cursor files
+  staging/
+    …                 uploaded statements awaiting ingest (transient; evidence is
+                      the durable copy of the bytes, facts are the ledger)
 ```
+
+### 5.5 The trigger runner
+
+`trex runner` is the on-demand dispatcher. It exposes a small loopback HTTP API and a Jobs
+view in the hub UI (the **hub** proxies to it; the runner is never published). A job is an
+invocation of an existing subcommand — `ingest`, `egress firefly --plan/--verify/--apply` —
+never new logic: the runner starts the same process a person would, streams its output and
+records its exit code. It is a dispatcher, not a daemon in the §11 sense — it never polls,
+and the passes it starts are the same one-shot batches.
+
+It also owns the **staging inbox**: a statement uploaded through the browser (phone or
+desktop) lands as a file, is listed with its source type and account, and is ingested on a
+press (§12.5). Job runs are operational telemetry: they are never written to the log, and
+never to the index the hub owns. The runner keeps a bounded, in-memory run history; the
+durable record of an ingest is its evidence and its facts, and of a projection is Firefly
+plus `projection_state`. A file's "ingested" **tick** is derived from the log (its evidence
+id appears on facts), never stored — evidence is written *before* parsing, so ticking on
+evidence would mark a rejected file as done.
 
 ---
 
@@ -1838,7 +1864,9 @@ their v2 home.
 **It is a batch, not a daemon.** There is no polling and no service — an invocation is
 the gate. Half-tuned categories must not reach Firefly while you are mid-edit, and a
 background process would project a rule you wrote thirty seconds ago and were about to
-fix. `--plan` and `--verify` are timer-safe; `--apply` runs when you say so.
+fix. `--plan` and `--verify` are timer-safe; `--apply` runs when you say so. In v2 the pass
+is dispatched from the hub's Jobs view through `trex runner` (§5.5) — still a batch, started
+on instruction, never a daemon.
 
 **Not a log mirror.** A mirror copies journal lines; this projects **resolved units**,
 and the unit is where the expensive mistake lives:
@@ -2122,6 +2150,16 @@ natural key; a correction is a new fact plus `SUPERSEDE` or `RETIRE`, never an e
 (§8.2). The fact stays person-less like any other row; if attribution matters on a row,
 a `NOTE` decision carries it — decisions are where people are named (§6.6).
 
+### 12.5 The staging inbox
+
+A statement may arrive through the browser instead of the filesystem. `trex runner`'s
+staging area accepts an upload, lists it with a source type and account, and ingests it on
+the press of a button — the same adapter contract and the same batch as a CLI run, with the
+staged file as the input. Staging is a place a file waits, not a new source: the evidence
+store keeps the bytes and the log keeps the facts, so a staged copy is transient and may be
+cleared once its evidence id appears on facts. Evidence is never pruned — it is what makes a
+parser fix and a re-parse safe.
+
 ---
 
 ## 13. Decisions: append-only, never final
@@ -2164,12 +2202,15 @@ The system is a habit, not a program. Make the habit cheap:
 | On your own cadence (weekly is typical) | Eyeball mode → fix red → read the rows | Rows read for **you**; anomalies explained; categories improving |
 | Before a rule edit | `trex reflow --preview` | Diff reviewed, then save; read rows flag automatically if they moved |
 | Timer (plan) | `trex egress firefly --plan` / `--verify`; `--apply` on instruction | Firefly convergence known; nothing half-tuned projected |
+| On demand (Jobs view) | `trex runner`: `ingest`, `egress firefly --plan` / `--verify` / `--apply`; upload to the staging inbox | The same batches, started and watched from one page; `--apply` confirmed against a plan |
 | Nightly | `trex egress archive` + backup | Log + evidence on a second disk |
 | Monthly | `trex verify` | Framing, reconciliation, index equivalence (rebuild into a scratch file), evidence hashes, egress plan all green |
 
 **Deployment is one image.** The rhythms above are commands of the same artifact; only
 the sequencer mounts the journal read-write, and every other role gets it `:ro`. Compose
-and systemd differ only in the `command:`/`ExecStart=` line.
+and systemd differ only in the `command:`/`ExecStart=` line. Three roles run always: the
+sequencer, the hub, and `trex runner` — the last loopback-only, proxied by the hub for the
+Jobs view and the staging inbox.
 
 **Backups:** the only irreplaceable things are the log, the evidence store and the config
 (git). Back those up; the index, projection state and review queues are rebuildable.

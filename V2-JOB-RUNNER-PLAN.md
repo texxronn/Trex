@@ -5,7 +5,7 @@
 > disagree, the proposal wins — and the proposal must be edited for this change before
 > code lands (§13 below).
 
-**Status:** proposed (revision 2 — adds the ingest staging area); no code changes yet.
+**Status:** locked (revision 3 — decisions agreed, spec edited); implementation in progress.
 **Authority:** `V2-PROPOSAL.md` §1, §5.2, §5.3, §5.4, §7.4, §11, §12, §14, §19; `AGENTS.md`.
 **Supersedes (as the way jobs are scheduled):** the systemd timer drafts
 `deploy/v2/systemd/trex-egress-firefly.service` / `.timer`, and the §5.3 sentence
@@ -405,30 +405,29 @@ Per `AGENTS.md`, do not silently choose. Edit `V2-PROPOSAL.md` first:
 14. Cancel terminates a running job.
 15. With the runner stopped, the hub still serves every existing view (the proxy degrades).
 
-## 15. Open decisions
+## 15. Locked decisions
 
-1. **Runner placement** — separate `trex runner` service (recommended) vs embedded in the
-   hub process.
-2. **Run history** — in-memory bounded ring (recommended) vs a disposable runner file.
-3. **Concurrency** — single worker FIFO (recommended) vs refuse-if-busy vs parallel
-   read-only jobs.
-4. **Statement mapping** — new `statements.yaml` (recommended) vs pick adapter+account per
-   file in the UI.
-5. **`apply` gating** — runner flag, default off until hub auth (recommended) vs enabled on
-   the LAN now.
-6. **Hub↔runner auth** — shared token header (recommended) vs loopback-only trust.
-7. **Phase-1 scope** — `ingest` + `egress-firefly` only (recommended); archive/verify/
-   export/rebuild deferred.
-8. **Name/port** — `trex runner` on `127.0.0.1:8091` (recommended), or another.
-9. **Old artifacts** — delete the systemd egress timer drafts (recommended) vs keep them as
-   reference.
-10. **Staging ownership** — runner-owned with hub proxy (recommended) vs a shared volume the
-    hub writes directly.
-11. **Staging retention** — mark `done/` and keep (recommended, simple and reversible) vs
-    delete once evidence exists.
-12. **Upload limits** — size cap (suggest 50 MB), count, and extension allowlist (suggest
-    none — validate by content, not name) — confirm or adjust.
-13. **Tick source** — derive from the log (`fact.evidence_id`), hub-enriched (recommended), vs a
-    runner-side per-file outcome ledger.
-14. **Tick vs run outcome** — show the derived tick and the last run's exit code as separate
-    columns (recommended), or collapse them into one "cleanly ingested" mark.
+All recommendations below were accepted. The first is the architecture; the rest are the
+small choices the implementation depends on.
+
+1. **Runner placement** — a separate `trex runner` service (loopback), **not** embedded in
+   the hub.
+2. **Run history** — an in-memory bounded ring (last 50 runs, capped output); nothing
+   durable.
+3. **Concurrency** — a single worker, FIFO; read-only jobs are serialized too, for now.
+4. **Statement mapping** — a new git-tracked `/etc/trex/statements.yaml`; the UI may override.
+5. **`apply` gating** — a runner flag (`--allow-apply`), default **off**; enabled in the dev
+   stack for testing, and on the host only once the hub is fronted with auth.
+6. **Hub↔runner auth** — a shared token header (`TREX_RUNNER_TOKEN`).
+7. **Phase-1 scope** — `ingest` and `egress-firefly` only; archive/verify/export/rebuild
+   deferred.
+8. **Name/port** — `trex runner` on `127.0.0.1:8091`.
+9. **Old artifacts** — the systemd egress timer drafts are removed by this change.
+10. **Staging ownership** — runner-owned, with the hub proxying uploads.
+11. **Staging retention** — ingested files move to `staging/done/`; nothing is deleted by
+    default.
+12. **Upload limits** — 50 MB per file, 20 files staged; no extension allowlist (content is
+    validated by the adapters).
+13. **Tick source** — derived from the log (`fact.evidence_id`), hub-enriched.
+14. **Tick vs run outcome** — two separate columns: the derived tick and the last run's exit
+    code.
