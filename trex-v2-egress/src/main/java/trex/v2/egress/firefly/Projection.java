@@ -68,6 +68,12 @@ public final class Projection {
         Map<String, Object> body = new LinkedHashMap<>();
         // Firefly's own duplicate hash, under our dedup rather than instead of it. A rejection names
         // the existing group, which is how a lost projection state recovers without a search.
+        //
+        // It scans the existing transactions, so a first bulk apply slows as the table grows:
+        // measured on 6.7.3/SQLite, ~2.8/s over the first hundred falling to ~0.6/s past a
+        // thousand (1775 creates in one pass). The runner's 30-minute cap therefore interrupts a
+        // large first apply; that is safe, because every apply is idempotent (external_id, then
+        // this hash) and a re-plan shows only the remainder. Steady-state applies stay small.
         body.put("error_if_duplicate_hash", true);
         // trex is the single classifier: Firefly's rules must not fight the category we just set.
         body.put("apply_rules", false);

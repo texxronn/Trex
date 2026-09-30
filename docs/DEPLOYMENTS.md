@@ -110,6 +110,12 @@ done
 
 ### Gotchas already paid for
 
+- **The first full apply can outlast the runner's 30-minute cap.** Firefly's
+  `error_if_duplicate_hash` scans existing transactions, so a bulk apply slows as the table grows
+  (measured on 6.7.3/SQLite: ~2.8/s over the first hundred, ~0.6/s past a thousand). A first
+  full-history pass is served in chunks — the cap terminates the run (exit 143) and the next plan
+  shows only the remainder. Every apply is idempotent (`external_id`, then the duplicate hash), so
+  nothing double-posts; raise `--job-timeout-minutes` on the runner if one pass is preferred.
 - **`init` command must be a list of one.** Compose shell-splits a string `command`, so
   `entrypoint: ["/bin/sh","-ec"]` received only `mkdir` as its script; the fix is a one-element
   list so the whole script stays a single argument.
