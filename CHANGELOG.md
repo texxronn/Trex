@@ -9,6 +9,44 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **The trigger runner** (`trex runner`): an on-demand job dispatcher and staging inbox, loopback
+  only, proxied by the hub. Jobs are invocations of existing subcommands — `ingest`, `egress-firefly`
+  (plan/verify/apply), `journal-snapshot` — with a single FIFO worker, a bounded run history, SSE
+  output, and sync/async (`?sync=true&timeoutMs=`). The hub UI gains the **Jobs** mode: the staging
+  inbox with an upload drop-zone, per-file Type/Account and a derived *ingested* tick, the egress
+  buttons, a Snapshot-now button, the ingest history, and an ops strip (last plan/apply and
+  unprojected/drifted/orphaned).
+- **The uniform envelope** on every log line: `n, kind, v, atMs, env, source, target`, with
+  namespaced kinds (`trex.fact`, `trex.decision`, `trex.ingest`) and `v = 1`. `env` is the
+  sequencer's `TREX_ENV`; `source` is the writing process instance, declared in `sources.yaml` and
+  refused if unknown; `target` is `none`. A reader skips an unknown kind (`Unknown`) and refuses a
+  known kind at a higher `v`. This is a MAJOR line-format change.
+- **Ingest events** (`trex.ingest` `start`/`complete`): the stream is self-documenting; the index
+  derives `ingest_batch` (the markers paired) and `GET /api/ingests` exposes the history.
+- **The source archive**: ingest gzips the exact bytes to
+  `sources/<Y>/<M>/<D>/<HHMMSS>-<name>.gz` (`--source-archive`, `--source-name`).
+- **Journal snapshots**: `POST /maintenance/snapshot` writes a dated gzip copy of the log prefix to
+  `journal/trex-<ts>.jsonl.gz`; `trex snapshot`; the `journal-snapshot` runner job. A copy, never a
+  rotation.
+
+### Changed
+
+- **`--allow-apply` is opt-in**; the base compose leaves apply locked and the dev overlay unlocks
+  it. The UI gates Apply behind a fresh Plan and quotes that plan's counts.
+- The sequencer validates a batch's `source` against `sources.yaml` and stamps `env` from
+  `TREX_ENV`.
+- `logHeadN` counts every kind, so the status `n` includes ingest events.
+- `REVOKE`'s wire field is `revokes` (`target` moved to the envelope).
+- The index schema gained the envelope columns and `ingest_event`; an old-shaped index is dropped
+  and re-mirrored.
+
+### Fixed
+
+- The status `n` under-reported the log head once ingest events existed (`logHeadN` ignored them).
+- The hub's `/api/status` counts did not include `ingest_event`.
+
 ## [0.1.0] - 2026-09-29
 
 The v2 system per `V2-PROPOSAL.md`, built in the stage order of `V2-IMPLEMENTATION-PLAN.md`:

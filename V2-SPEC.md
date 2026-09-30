@@ -17,9 +17,11 @@ is not migrated from.
 
 1. **The log is the only truth.** Everything else — the index, review queues, projection state,
    ACKs — is disposable and reproducible by `trex index --rebuild`.
-2. **Facts and decisions only.** A fact is what a source said; a decision is what a person
-   concluded. The writer never interprets: no matching, no state, no category, no duplicate flag in
-   the sequencer.
+2. **Facts, decisions, and ingest events only.** A fact is what a source said; a decision is what a
+   person concluded; an ingest event is what an ingest did. The writer never interprets: no
+   matching, no category, no derived review flags. It does keep an identity/observation index (to
+   assign `occ` and dedup identical observations) and returns a `Duplicate`/`Flagged` row outcome —
+   bookkeeping, not semantics.
 3. **`derive()` is pure.** Same inputs (including `asOf`) → same output. No clock, no I/O, no
    environment, no unordered iteration.
 4. **Decisions win over derivation**, and every id resolves through the supersession map before a
@@ -38,10 +40,11 @@ is not migrated from.
 | `trex-v2-core` | library | model, identity, `Clean`, `MerchantStem`, `occ`, `derive()`, workbook, state hashes. Pure. |
 | `trex-v2-log` | library | framed writer/reader + recovery, line codec, evidence store, `Json`/`Yaml`, `ConfigLoader`. |
 | `trex-v2-index` | library | SQLite materialiser: log → level-1 mirror → derived tables; index lock; offset; rebuild. |
-| `trex-v2-sequencer` | service | the only writer: `POST /facts`, `POST /decisions`, `GET /head`, recovery, fsync. |
-| `trex-v2-hub` | service | index owner; blotter API + UI; decision precheck/forward; reflow; ACK; SSE. |
-| `trex-v2-ingest` | library/CLI | adapters → evidence + facts; whole-file validation; day batching; feeds; re-parse. |
+| `trex-v2-sequencer` | service | the only writer: `POST /facts`, `/decisions`, `/ingest`, `GET /head`, `POST /maintenance/snapshot`, recovery, fsync. |
+| `trex-v2-hub` | service | index owner; blotter API + UI; decision precheck/forward; reflow; ACK; SSE; proxy to the runner. |
+| `trex-v2-ingest` | library/CLI | adapters → evidence + facts + ingest events; source archive; whole-file validation; day batching; feeds; re-parse. |
 | `trex-v2-egress` | library/CLI | archive byte mirror; Firefly projection; export. |
+| `trex-v2-runner` | service | on-demand job dispatcher + staging inbox: a loopback trigger API, `ingest`/`egress-firefly`/`journal-snapshot`, sync/async. Never writes the log or the index. |
 | `trex-v2-dist` | packaging | one shaded `trex-v2.jar`; picocli subcommands select the role. No logic. |
 
 `trex-v2-hub` depends on `trex-v2-sequencer` for shared wire DTOs only (a type-only dependency).
@@ -50,18 +53,29 @@ is not migrated from.
 
 ## 3. The log
 
-- **Encoding.** Framed JSONL: one '`\n`'-terminated UTF-8 record per line, each
-  `{ "kind": "fact" | "decision", "v": …, … }`. A record is complete iff it ends in '`\n`' and
-  parses; a partial tail is left unread and a torn tail is truncated. One batch = one write + one
-  fsync.
-- **Facts** (`Fact`, wire `v = 2`): `n`, `externalId`, `accountRef`, `date`, `amount` (cents,
-  signed), `balance` (provenance only), `rawDescription` (verbatim), `receipt` (nullable), `occ`,
-  `observation` (`posted | pending`), `sourceType`, `provenance` (`BANK | AUTHORED`), `evidenceId`
-  (nullable), `parser`, `ingestedAt`.
-- **Decisions** (`Decision`): `n`, `action`, `actor` (`user | migrated | system`), `user` (nullable),
-  `at`, plus the action's fields. The complete action set is `PAIR`, `UNPAIR`, `MARK_EXTERNAL`,
-  `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `REVOKE`, `USER_ACK`, `USER_UNACK`,
-  `NOTE`.
+- **Encoding.** Framed JSONL: one '`\n`'-terminated UTF-8 record per line. Every line leads with
+  the **envelope** `{ n, kind, v, atMs, env, source, target }`, then `at` (a readable echo of
+  `atMs`) and the kind-specific body. `kind` is namespaced (`trex.fact` / `trex.decision` /
+  `trex.ingest`) and `v` is `1`. `atMs` is epoch millis (UTC) and the only time logic reads.
+  `env`/`source`/`target` are exactly 8 chars of `[A-Za-z0-9_ ]`, right-padded with spaces: `env` is
+  the sequencer's `TREX_ENV`; `source` is the writing process instance, declared in `sources.yaml`
+  and refused if unknown; `target` is `none` (eight spaces). A record is complete iff it ends in
+  '`\n`' and parses; a partial tail is left unread and a torn tail is truncated. One batch = one
+  write + one fsync.
+- **Facts** (`Fact`): `externalId`, `accountRef`, `date`, `amount` (cents, signed), `balance`
+  (provenance only), `rawDescription` (verbatim), `receipt` (nullable), `occ`, `observation`
+  (`posted | pending`), `sourceType`, `provenance` (`BANK | AUTHORED`), `evidenceId` (nullable),
+  `parser`. The time is the envelope's `atMs`.
+- **Decisions** (`Decision`): `action`, `actor` (`user | migrated | system`), `user` (nullable),
+  plus the action's fields; `at` is `envelope.atMs`. The complete action set is `PAIR`, `UNPAIR`,
+  `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `REVOKE`, `USER_ACK`,
+  `USER_UNACK`, `NOTE`. On the wire, `REVOKE`'s target is `revokes` — the envelope owns `target`.
+- **Ingest events** (`IngestEvent`): `phase` (`start | complete`) and `batch`; a `start` also carries
+  `evidence`/`file`/`account`/`sourceType`/`parser`, a `complete` the `appended`/`duplicate`/`flagged`
+  counts and a `status`. The facts sit strictly between the pair, so a batch's `n` range is the
+  markers themselves.
+- **Forward compatibility.** A well-formed line whose `kind` this build does not know is parsed as
+  `Unknown` and ignored; a known kind at a higher `v` is refused (never silently misread).
 - **Recovery.** A source journal may be materialised over a target at startup; the original is never
   written. A torn tail is truncated to the last complete line.
 
@@ -104,7 +118,7 @@ replay → effective decisions → supersession / chain resolution → current t
 state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/2"`, `hashVersion = "statehash/1"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/3"`, `hashVersion = "statehash/2"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Transfer pairing.** `PAIR` decisions win. The matcher tiers are T1 (shared receipt), T2 (same day)
@@ -124,10 +138,11 @@ by a derived counterpart, or `STALE` past the account's `settlementWindowDays`, 
 
 ## 7. The read model
 
-SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`); level 2 is derived
-and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current`, `transfer`, `pending`,
-`review_item`, `category_current`, `pin_current`, `ineffective_decision`, `unit`, `projection_state`,
-`user_ack`, `source_cursor`, `evidence`. Every table can be dropped; `trex index --rebuild`
+SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `ingest_event`); level
+2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current`, `transfer`,
+`pending`, `review_item`, `category_current`, `pin_current`, `ineffective_decision`, `unit`,
+`projection_state`, `user_ack`, `source_cursor`, `evidence`, and the `ingest_batch` view (the
+markers paired). Every table can be dropped; `trex index --rebuild`
 reproduces them. The hub holds one writer connection and a small read pool, with `query_only` reads.
 
 ---
@@ -136,11 +151,15 @@ reproduces them. The hub holds one writer connection and a small read pool, with
 
 | method | path | purpose |
 |---|---|---|
-| `POST` | `/facts` | append a batch of fact drafts; `allOrNone` optional; per-row outcome `Appended \| Duplicate \| Flagged \| Rejected`; batch outcome `APPENDED \| DUPLICATE \| REJECTED`. |
-| `POST` | `/decisions` | append a batch of decisions; reference/structure validation only. |
-| `GET` | `/head` | the current log head `n`. |
+| `POST` | `/facts` | append a batch of fact drafts (`allOrNone`, `source` required, `target?`); per-row outcome `Appended \| Duplicate \| Flagged \| Rejected`. |
+| `POST` | `/decisions` | append a batch of decisions (`source` required); reference/structure validation only. |
+| `POST` | `/ingest` | append one ingest event (`source` required); the writer stamps the envelope and assigns `n`. |
+| `GET` | `/head` | the current log head `n` and byte offset. |
+| `POST` | `/maintenance/snapshot` | write a dated gzip copy of the journal prefix to the archive; `?sync=false` runs it in the background. |
 
-Single-writer `FileLock`; the API is unauthenticated and binds loopback by default.
+Every batch carries `source` (exactly 8 chars, declared in `sources.yaml`); an unknown source is a
+`400`. The sequencer stamps `env` from `TREX_ENV`. Single-writer `FileLock`; the API is
+unauthenticated and binds loopback by default.
 
 ---
 
@@ -148,15 +167,17 @@ Single-writer `FileLock`; the API is unauthenticated and binds loopback by defau
 
 `/head`, `/api/status`, `/api/refdata`, `/api/ledger`, `/api/review`, `/api/transfers`, `/api/units`,
 `/api/reconcile`, `/api/opening`, `/api/workbook`, `/api/projection` (GET/POST), `/api/cursors`
-(GET/POST), `/api/decisions` (POST), `/api/acks` (GET/POST), `/api/eyeball`,
-`/api/reflow/preview` (POST), `/api/config/categories` (GET/PUT), and `/api/events` (SSE snapshot
-then deltas).
+(GET/POST), `/api/decisions` (POST), `/api/acks` (GET/POST), `/api/eyeball`, `/api/ingests`,
+`/api/reflow/preview` (POST), `/api/config/categories` (GET/PUT), `/api/jobs*` (proxied to the
+runner), and `/api/events` (SSE snapshot then deltas).
 
-The UI has four modes (§10): **Blotter** (SQL-backed filters, inline decisions, status strip),
-**Review** (the derived queue, one decision away from clear), **Eyeball** (§10.3 — open items, the
-nine anomaly checks with an explicit `asOf`, and transactions bucketed by day/week/month with a
-per-row `Ack`/`Unack` (a `USER_ACK`/`USER_UNACK`) and a per-row pin), and **Rules** (editor with
-blast-radius preview, lint, fixtures, coverage).
+The UI has five modes: **Blotter** (SQL-backed filters, inline decisions, status strip), **Review**
+(the derived queue, one decision away from clear), **Eyeball** (§10.3 — open items, the nine anomaly
+checks with an explicit `asOf`, and transactions bucketed by day/week/month with a per-row
+`Ack`/`Unack` and a per-row pin), **Rules** (editor with blast-radius preview, lint, fixtures,
+coverage), and **Jobs** (the trigger runner: the staging inbox, egress Plan/Verify/Apply, Snapshot
+journal, the ingest history, and the ops strip of staleness — last plan/apply and
+unprojected/drifted/orphaned unit counts).
 
 ---
 
@@ -171,6 +192,12 @@ blast-radius preview, lint, fixtures, coverage).
   plus `SUPERSEDE`/`RETIRE`.
 - **Feeds** carry a `source_cursor` (GET/POST `/api/cursors`).
 - **Pending** facts are recorded with `observation: pending` and resolved in `derive()`.
+- **Ingest events.** Each run appends `trex.ingest` `start` (after evidence) and `complete` (counts
+  and `status`), so the log is self-documenting; a bad-row file still emits the pair, and a transport
+  failure leaves the batch open.
+- **Source archive.** With `--source-archive` the exact bytes are gzipped to
+  `archive/sources/<Y>/<M>/<D>/<HHMMSS>-<name>.gz`; the runner supplies `--source-name` (the staged
+  file's original name).
 
 ---
 
@@ -192,16 +219,19 @@ blast-radius preview, lint, fixtures, coverage).
 `balanceSource`, `settlementWindowDays`), `users.yaml` (non-empty; id, name, active, cadence),
 `categories.yaml` (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures,
 run on load), `transfers.yaml` (window, tolerances, allowlist), `firefly.yaml` (account mapping),
-and an optional `refdata.yaml` overriding the declared category names. The rules are the tuned
-contract; a rebuild consumes them as-is.
+`sources.yaml` (the declared 8-char sources the sequencer accepts), `statements.yaml` (a filename →
+`sourceType`/account map for the runner's upload picker), and an optional `refdata.yaml` overriding
+the declared category names. The rules are the tuned contract; a rebuild consumes them as-is. The
+sequencer's environment is `TREX_ENV` (not a file); the archive location is `--archive` on the
+sequencer and runner.
 
 ---
 
 ## 13. CLI
 
-One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `index`, `ingest`,
-`egress archive`, `egress firefly`, `reflow`, `verify`, `export`, `import` (dev). Exit code `64` is
-`EX_USAGE`. No config is baked in.
+One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runner`, `index`,
+`ingest`, `egress archive`, `egress firefly`, `snapshot`, `reflow`, `verify`, `export`, `import`
+(dev). Exit code `64` is `EX_USAGE`. No config is baked in.
 
 ---
 
@@ -209,9 +239,16 @@ One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `inde
 
 - **Back up three things**: the journal, the evidence store, and the config (git). The index,
   projection state, review queues and ACK copies are rebuilt, never backed up.
+- **The archive** (`--archive`) holds the byte mirror (kept forever), dated **journal snapshots**
+  (`journal/trex-<ts>.jsonl.gz`, a consistent copy taken from the live log — never a rotation), and
+  the **source archive** (`sources/…`). Snapshots are pruned by an explicit `prune-archive`
+  (planned).
+- **Staging** (`trex runner`) is a transient inbox; evidence is the durable copy of the bytes.
+- **`--apply` is opt-in** (`--allow-apply` / `TREX_RUNNER_ALLOW_APPLY`); the base compose leaves it
+  locked, and the UI gates it behind a fresh Plan.
 - **Recovery drill**: `stop hub; rm index; trex index --rebuild; trex verify`, run on a schedule.
-- **One image** (`trex/trex-v2`), role by command; `deploy/v2/` carries compose, systemd units and
-  timers. The sequencer mounts the journal read-write; every other role reads it.
+- **One image** (`trex/trex-v2`), role by command; `deploy/v2/` carries compose and systemd units.
+  The sequencer mounts the journal read-write; every other role reads it.
 
 ---
 
@@ -235,4 +272,9 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 - `transferStem`, the restatement similarity, and the payment-noise word list (no v1 counterpart);
 - `occ` restated to v1's exact rule;
 - the hub↔sequencer type-only dependency;
+- the uniform envelope, namespaced kinds and `v = 1` (the pre-envelope v2 log was `v = 2` on facts
+  with no header — a MAJOR line-format change);
+- `trex.ingest` events and the derived `ingest_batch`, a third line kind;
+- `trex runner`, the Jobs UI, `trex snapshot`, and the archive layout (post-proposal);
+- `REVOKE`'s wire field renamed `target` → `revokes` (the envelope owns `target`);
 - migration (§16) is retired — there is no migration, and the importer is a dev tool.

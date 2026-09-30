@@ -53,3 +53,6 @@ identity, so tuning them is a reflow.
 - Pending settlement, `SETTLE`, `AMBIGUOUS_SETTLEMENT`, `STALE_PENDING` — v1 skipped pending rows
   entirely (`BwCsv` → `SkippedRow`), so there is no precedent; the sign is the same-sign reading of
   §12.3 (the adapters normalise the export's convention per file).
+- The uniform envelope, namespaced kinds and `trex.ingest` events, and `trex runner` (its Jobs view,
+  staging inbox and journal snapshots) are post-proposal additions with no v1 counterpart; the
+  envelope is a MAJOR line-format change (`V2-SPEC.md` §16).

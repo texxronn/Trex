@@ -105,10 +105,12 @@ one version to build, sign, scan and ship:
 ```
 trex sequencer                     # the writer (service)
 trex hub                           # index + blotter API + UI (service)
+trex runner                        # on-demand jobs + the staging inbox (service)
 trex ingest --source-type … FILE   # adapters
 trex index [--rebuild]             # materialize the read model; --rebuild is offline (hub stopped)
 trex reflow --preview              # show what a candidate rule set would change before saving
 trex egress archive|firefly…       # targets: the byte mirror and the Firefly projection
+trex snapshot --sequencer-url …    # a dated gzip journal copy in the archive
 trex verify                        # all invariants: framing, reconcile, index, evidence, egress plan
 trex export --format csv|json|sqlite  # the living truth, portable
 ```

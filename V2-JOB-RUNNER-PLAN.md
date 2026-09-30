@@ -5,7 +5,7 @@
 > disagree, the proposal wins — and the proposal must be edited for this change before
 > code lands (§13 below).
 
-**Status:** locked (revision 3 — decisions agreed, spec edited); implementation in progress.
+**Status:** implemented (revision 3); the runner, staging inbox, Jobs view and hub proxy are built and deployed to dev.
 **Authority:** `V2-PROPOSAL.md` §1, §5.2, §5.3, §5.4, §7.4, §11, §12, §14, §19; `AGENTS.md`.
 **Supersedes (as the way jobs are scheduled):** the systemd timer drafts
 `deploy/v2/systemd/trex-egress-firefly.service` / `.timer`, and the §5.3 sentence

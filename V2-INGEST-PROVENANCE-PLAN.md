@@ -5,7 +5,9 @@
 > proposal wins — and for this change the proposal is *deliberately amended* (§3), so read that
 > section before anything else.
 
-**Status:** stage 0 applied — `AGENTS.md` and `V2-PROPOSAL.md` are edited (§12); implementation not started.
+**Status:** stage 0 applied — `AGENTS.md` and `V2-PROPOSAL.md` are edited (§12). P1 (the envelope),
+P2 (ingest events), P3 (source archive) and P4 (journal snapshot) are implemented and deployed to
+dev; P5 (scheduler + prune) and P6 (docs + release) remain.
 **Authority:** `V2-PROPOSAL.md` §4, §5.4, §6, §7.2, §11, §12, §14; `AGENTS.md`; `RELEASE.md`.
 **Touches an invariant:** yes — the log gains a third line kind (§3). This is a **major** log-format
 change per `RELEASE.md` (`externalId` and the log's history remain permanent; readers must tolerate

@@ -72,7 +72,8 @@ Each role is one `command:` on the one image:
 | verify | `verify …` | framing, rebuild equivalence, status strip |
 | egress archive | `egress archive …` | byte mirror + evidence copy |
 | egress firefly | `egress firefly … --plan` | `--apply` on instruction only |
-| runner | `runner --config … --staging … --statements … --evidence …` | on-demand jobs + the staging inbox; loopback; the hub proxies it |
+| runner | `runner --config … --staging … --statements … --evidence … --archive …` | on-demand jobs + the staging inbox; loopback; the hub proxies it |
+| snapshot | `snapshot --sequencer-url http://127.0.0.1:8080` | a dated gzip copy of the journal in the archive (V2-PROPOSAL.md §12.6) |
 
 ## Local dev
 
