@@ -387,11 +387,11 @@ kind-specific body:
 | `source` | the writing process instance |
 | `target` | the destination stream/consumer; `none` in trex |
 
-`env`, `source` and `target` are `[A-Za-z0-9_]{1,8}` **right-padded with spaces to 8** and
-declared in registries (`env.yaml`, `sources.yaml`); `none` is eight spaces. They are
-padded, not trimmed — no consumer may `strip()` them. `at` is an **optional body field**
-(ISO-8601 UTC, millisecond) for readability only. `n`, `atMs` and `at` never enter a hash
-or `derive()`.
+`env`, `source` and `target` are `[A-Za-z0-9_]{1,8}` **right-padded with spaces to 8**; `env` is the
+sequencer's own environment (`TREX_ENV`), `source` is declared in `sources.yaml` and refused if
+unknown, and `target` is `none` (eight spaces) in trex. They are padded, not trimmed — no consumer
+may `strip()` them. `at` is an **optional body field** (ISO-8601 UTC, millisecond) for readability
+only. `n`, `atMs` and `at` never enter a hash or `derive()`.
 
 A reader **skips an unknown `kind`** (warn, do not fail) and **refuses a known kind at a
 higher `v`** (never silently misread); unknown fields are ignored, so an additive field is

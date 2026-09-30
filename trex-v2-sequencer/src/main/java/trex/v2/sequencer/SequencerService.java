@@ -50,10 +50,13 @@ public final class SequencerService implements AutoCloseable {
         try {
             Recovery.recover(source, target);
             JsonlJournal journal = new JsonlJournal(target);
-            Sequencer sequencer = new Sequencer(journal, loaded.registry(), loaded.config().categories(), clock);
+            java.util.Set<String> sources = SourceRegistry.load(configDir);
+            Sequencer sequencer = new Sequencer(journal, loaded.registry(), loaded.config().categories(), clock,
+                env(), sources.isEmpty() ? null : sources);
             HttpServer server = HttpApi.start(host, port, sequencer);
-            log.info("trex sequencer listening on {}:{}; journal {} (head n={})",
-                host, server.getAddress().getPort(), target, sequencer.headN());
+            log.info("trex sequencer listening on {}:{}; journal {} (head n={}); env [{}]; sources {}",
+                host, server.getAddress().getPort(), target, sequencer.headN(), env(),
+                sources.isEmpty() ? "(any)" : sources);
             if (!isLoopback(host)) {
                 log.warn("API has no authentication and is bound to {}; anyone who can reach it can "
                     + "append facts and decisions", host);
@@ -82,6 +85,16 @@ public final class SequencerService implements AutoCloseable {
         } catch (java.net.UnknownHostException e) {
             return false;
         }
+    }
+
+    /** The environment of this sequencer (§6): one log, one env; right-padded to 8. */
+    static String env() {
+        String raw = System.getenv("TREX_ENV");
+        String value = raw == null || raw.isBlank() ? "Dev1" : raw.trim();
+        if (value.length() > 8) {
+            throw new IllegalArgumentException("TREX_ENV must be at most 8 characters: " + value);
+        }
+        return value + " ".repeat(8 - value.length());
     }
 
     @Override

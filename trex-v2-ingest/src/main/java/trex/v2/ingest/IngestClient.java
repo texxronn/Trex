@@ -28,20 +28,26 @@ public final class IngestClient {
     public static final String FLAGGED = "Flagged";
     public static final String REJECTED = "Rejected";
 
-    private record FactBatch(boolean allOrNone, List<FactDraft> facts) {}
+    private record FactBatch(boolean allOrNone, String source, List<FactDraft> facts) {}
 
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final URI base;
+    private final String source;
 
     public IngestClient(String baseUrl) {
+        this(baseUrl, "ING_0001");
+    }
+
+    public IngestClient(String baseUrl, String source) {
         String trimmed = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.base = URI.create(trimmed);
+        this.source = source;
     }
 
     /** Post decisions (the re-parse apply path); 4xx and transport failures are terminal. */
     public void postDecisions(List<Map<String, Object>> decisions) {
         try {
-            byte[] json = Json.mapper().writeValueAsBytes(Map.of("decisions", decisions));
+            byte[] json = Json.mapper().writeValueAsBytes(Map.of("decisions", decisions, "source", source));
             HttpRequest request = HttpRequest.newBuilder(base.resolve("/decisions"))
                 .timeout(Duration.ofMinutes(2))
                 .header("Content-Type", "application/json")
@@ -62,7 +68,7 @@ public final class IngestClient {
 
     public BatchResponse postFacts(List<FactDraft> facts, boolean allOrNone) {
         try {
-            byte[] json = Json.mapper().writeValueAsBytes(new FactBatch(allOrNone, facts));
+            byte[] json = Json.mapper().writeValueAsBytes(new FactBatch(allOrNone, source, facts));
             HttpRequest request = HttpRequest.newBuilder(base.resolve("/facts"))
                 .timeout(Duration.ofMinutes(5))
                 .header("Content-Type", "application/json")

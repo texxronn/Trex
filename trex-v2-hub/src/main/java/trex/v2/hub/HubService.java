@@ -117,7 +117,8 @@ public final class HubService implements HubApi, AutoCloseable {
             HubEvents events = new HubEvents();
             refresher = new IndexRefresher(config.journal(), config.configDir(), indexer,
                 loaded.config(), config.refreshDebounceMs(), events, config.evidenceDir());
-            SequencerClient sequencer = config.sequencerUrl() == null ? null : new SequencerClient(config.sequencerUrl());
+            SequencerClient sequencer = config.sequencerUrl() == null ? null
+                : new SequencerClient(config.sequencerUrl(), hubSource());
             RunnerClient runner = config.runnerUrl() == null ? null : new RunnerClient(config.runnerUrl(), config.runnerToken());
             HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events, runner);
             service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner);
@@ -131,6 +132,16 @@ public final class HubService implements HubApi, AutoCloseable {
             closeQuietly(lock, indexer, reads, refresher);
             throw e;
         }
+    }
+
+    /** The hub's 8-char writing-process id (§6); {@code TREX_HUB_SOURCE} overrides {@code HUB_0001}. */
+    private static String hubSource() {
+        String raw = System.getenv("TREX_HUB_SOURCE");
+        String value = raw == null || raw.isBlank() ? "HUB_0001" : raw.trim();
+        if (value.length() != 8) {
+            throw new IllegalArgumentException("TREX_HUB_SOURCE must be exactly 8 characters: '" + value + "'");
+        }
+        return value;
     }
 
     private static void closeQuietly(IndexLock lock, Indexer indexer, HubQueries reads, IndexRefresher refresher) {

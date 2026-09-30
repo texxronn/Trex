@@ -55,24 +55,53 @@ public final class Sequencer implements AutoCloseable {
     private final Clock clock;
     private final SequencerState state;
     private final String env;
-    private final String source;
-    private final String target;
+    private final Set<String> allowedSources;   // null = allow any well-formed source
+
+    private static final String NONE_TARGET = "        ";
 
     public Sequencer(Journal journal, Registry registry, RuleSet categories, Clock clock) {
-        this(journal, registry, categories, clock, "DEV1    ", "SEQ_0001", "        ");
+        this(journal, registry, categories, clock, "Dev1    ", null);
     }
 
     public Sequencer(Journal journal, Registry registry, RuleSet categories, Clock clock,
-                     String env, String source, String target) {
+                     String env, Set<String> allowedSources) {
         this.journal = journal;
         this.registry = registry;
         this.categories = categories;
         this.clock = clock;
         this.env = env;
-        this.source = source;
-        this.target = target;
+        this.allowedSources = allowedSources;
         this.state = SequencerState.fold(journal.replayFrom(0));
         this.state.headOffset = journal.headOffset();
+    }
+
+    /** The writing process instance (§6): exactly 8 chars of {@code [A-Za-z0-9_]} and registered. */
+    private String source(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("source is required on a batch (§6)");
+        }
+        if (raw.length() != 8) {
+            throw new IllegalArgumentException("source must be exactly 8 characters: '" + raw + "'");
+        }
+        for (char c : raw.toCharArray()) {
+            if (!(Character.isLetterOrDigit(c) || c == '_')) {
+                throw new IllegalArgumentException("source has an illegal character: '" + c + "'");
+            }
+        }
+        if (allowedSources != null && !allowedSources.contains(raw)) {
+            throw new IllegalArgumentException("unknown source '" + raw + "'; register it in sources.yaml");
+        }
+        return raw;
+    }
+
+    private static String target(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return NONE_TARGET;
+        }
+        if (raw.length() != 8) {
+            throw new IllegalArgumentException("target must be exactly 8 characters: '" + raw + "'");
+        }
+        return raw;
     }
 
     public synchronized HeadResponse head() {
@@ -87,6 +116,8 @@ public final class Sequencer implements AutoCloseable {
     // ---- facts ------------------------------------------------------------------------------
 
     public synchronized BatchResponse submitFacts(FactBatch batch) {
+        String source = source(batch.source());
+        String target = target(batch.target());
         List<FactDraft> drafts = batch.facts() == null ? List.of() : batch.facts();
         List<RowResult> results = new ArrayList<>();
         String[] errors = new String[drafts.size()];
@@ -202,6 +233,8 @@ public final class Sequencer implements AutoCloseable {
     // ---- decisions --------------------------------------------------------------------------
 
     public synchronized BatchResponse submitDecisions(DecisionBatch batch) {
+        String source = source(batch.source());
+        String target = target(batch.target());
         List<DecisionDraft> drafts = batch.decisions() == null ? List.of() : batch.decisions();
         boolean allOrNone = Boolean.TRUE.equals(batch.allOrNone());
         List<RowResult> results = new ArrayList<>();
@@ -212,7 +245,7 @@ public final class Sequencer implements AutoCloseable {
         for (int i = 0; i < drafts.size(); i++) {
             DecisionDraft d = drafts.get(i);
             try {
-                Decision decision = buildDecision(next + 1, d);
+                Decision decision = buildDecision(next + 1, d, source, target);
                 toAppend.add(decision);
                 next++;
                 results.add(new RowResult(ref(i, d), RowResult.RESOLVED, null, decision.n(), null));
@@ -243,7 +276,7 @@ public final class Sequencer implements AutoCloseable {
         return new BatchResponse(handle(), status, results);
     }
 
-    private Decision buildDecision(long n, DecisionDraft d) {
+    private Decision buildDecision(long n, DecisionDraft d, String source, String target) {
         if (d == null) {
             throw new IllegalArgumentException("missing decision");
         }

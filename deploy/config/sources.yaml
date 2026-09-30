@@ -1,0 +1,12 @@
+# The declared sources (V2-PROPOSAL.md §6): the writing process instances the sequencer accepts.
+# Each is exactly 8 chars of [A-Za-z0-9_]; the sequencer refuses anything not listed here.
+#
+# A source is a *technical* process id, not the data source: several ingesters of the same
+# sourceType (ing-csv) would carry different sources (ING_0001, ING_0002). The env
+# (Dev1/Prod1) is the sequencer's own setting (TREX_ENV), not a per-line value.
+
+sources:
+  - ING_0001      # the statement ingester
+  - HUB_0001      # the hub (manual cash, decisions)
+  - RUN_0001      # the runner (jobs)
+  - SEQ_0001      # the sequencer itself, if a line is ever authored there

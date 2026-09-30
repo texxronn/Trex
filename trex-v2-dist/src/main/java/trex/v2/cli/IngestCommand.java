@@ -40,6 +40,10 @@ public final class IngestCommand implements Callable<Integer> {
     @Option(names = "--account", description = "The registry accountRef these rows belong to.")
     String account;
 
+    @Option(names = "--source", defaultValue = "ING_0001",
+        description = "The 8-char writing-process id stamped on the facts (V2-PROPOSAL.md §6).")
+    String source;
+
     @Option(names = "--sequencer-url", description = "The running sequencer base URL.")
     String sequencerUrl;
 

@@ -87,6 +87,9 @@ final class HttpApi {
             } catch (ZipException e) {
                 log.debug("400 {} {}: bad gzip", method, path);
                 sendError(ex, 400, "malformed gzip body");
+            } catch (IllegalArgumentException e) {
+                log.debug("400 {} {}: {}", method, path, e.getMessage());
+                sendError(ex, 400, e.getMessage());
             } catch (Exception e) {
                 log.error("500 {} {}: unhandled failure", method, path, e);
                 sendError(ex, 500, "internal error: " + e.getMessage());

@@ -20,17 +20,24 @@ final class SequencerClient {
 
     private final HttpClient client;
     private final URI base;
+    private final String source;
 
     SequencerClient(String url) {
+        this(url, "HUB_0001");
+    }
+
+    SequencerClient(String url, String source) {
         this.client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
         String trimmed = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
         this.base = URI.create(trimmed);
+        this.source = source;
     }
 
-    /** Forward a decision batch; a transport failure is {@link Unavailable}. */
+    /** Forward a decision batch, stamped with the hub's source (§6); a transport failure is {@link Unavailable}. */
     BatchResponse postDecisions(DecisionBatch batch) {
+        DecisionBatch stamped = new DecisionBatch(batch.allOrNone(), source, batch.target(), batch.decisions());
         try {
-            byte[] json = Json.mapper().writeValueAsBytes(batch);
+            byte[] json = Json.mapper().writeValueAsBytes(stamped);
             HttpRequest request = HttpRequest.newBuilder(base.resolve("/decisions"))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
