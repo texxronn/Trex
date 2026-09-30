@@ -13,7 +13,8 @@ ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar hub \
   --config /etc/trex \
   --index /var/lib/trex/index/trex.sqlite \
   --sequencer-url http://127.0.0.1:8080 \
-  --evidence /var/lib/trex/evidence
+  --evidence /var/lib/trex/evidence \
+  --runner-url http://127.0.0.1:8091
 StateDirectory=trex/index trex/evidence
 StateDirectoryMode=0750
 ReadWritePaths=/var/lib/trex/index /var/lib/trex/evidence /etc/trex

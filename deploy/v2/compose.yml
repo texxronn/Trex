@@ -40,6 +40,8 @@ configs:
     file: ../config/pins.yaml
   firefly.yaml:
     file: ../config/firefly.yaml
+  statements.yaml:
+    file: ../config/statements.yaml
 
 volumes:
   config:
@@ -47,6 +49,7 @@ volumes:
   index:
   evidence:
   archive:
+  staging:
 
 services:
   # Seed a writable config volume and the state directories, then hand them to uid 1000.
@@ -61,11 +64,11 @@ services:
     # argument. cp -n would also do, but this also creates the state directories.
     command:
       - >-
-        mkdir -p /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive;
-        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml; do
+        mkdir -p /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
+        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml statements.yaml; do
           if [ ! -e "/etc/trex/$$f" ]; then cp "/bootstrap/$$f" "/etc/trex/$$f"; fi;
         done;
-        chown -R 1000:1000 /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive
+        chown -R 1000:1000 /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE]
     configs:
@@ -76,12 +79,14 @@ services:
       - { source: transfers.yaml, target: /bootstrap/transfers.yaml }
       - { source: pins.yaml, target: /bootstrap/pins.yaml }
       - { source: firefly.yaml, target: /bootstrap/firefly.yaml }
+      - { source: statements.yaml, target: /bootstrap/statements.yaml }
     volumes:
       - config:/etc/trex
       - journal:/var/lib/trex/journal
       - index:/var/lib/trex/index
       - evidence:/var/lib/trex/evidence
       - archive:/var/lib/trex/archive
+      - staging:/var/lib/trex/staging
     restart: "no"
 
   # The only journal writer. It reads config read-only: it never edits the rules.
@@ -132,6 +137,11 @@ services:
       - http://sequencer:8080
       - --evidence
       - /var/lib/trex/evidence
+      - --runner-url
+      - http://runner:8091
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
     volumes:
       - config:/etc/trex
       - journal:/var/lib/trex/journal:ro
@@ -146,6 +156,52 @@ services:
         condition: service_completed_successfully
       sequencer:
         condition: service_healthy
+
+  # The on-demand job dispatcher and staging inbox (V2-PROPOSAL.md §5.5, §12.5). It binds the
+  # container's network so the hub can proxy it, but the port is NEVER published — reachable only
+  # inside the compose network. Jobs are the same subcommands a person would run; the runner never
+  # writes the log and never touches the index.
+  runner:
+    <<: [*trex, *hardening]
+    command:
+      - runner
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8091"
+      - --config
+      - /etc/trex
+      - --statements
+      - /statements
+      - --staging
+      - /var/lib/trex/staging
+      - --evidence
+      - /var/lib/trex/evidence
+      - --sequencer-url
+      - http://sequencer:8080
+      - --hub-url
+      - http://hub:8090
+      - --firefly-url
+      - ${TREX_FIREFLY_URL:?set TREX_FIREFLY_URL}
+      - --accounts
+      - /etc/trex/firefly.yaml
+      - --allow-apply
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+    volumes:
+      - config:/etc/trex:ro
+      - staging:/var/lib/trex/staging
+      - ${TREX_CSV_DIR:-./}:/statements:ro
+      - evidence:/var/lib/trex/evidence
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      sequencer:
+        condition: service_healthy
+      hub:
+        condition: service_started
 
   # ---- on-demand tools (profile "tools") --------------------------------------------------
 

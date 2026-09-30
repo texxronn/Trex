@@ -72,6 +72,7 @@ Each role is one `command:` on the one image:
 | verify | `verify …` | framing, rebuild equivalence, status strip |
 | egress archive | `egress archive …` | byte mirror + evidence copy |
 | egress firefly | `egress firefly … --plan` | `--apply` on instruction only |
+| runner | `runner --config … --staging … --statements … --evidence …` | on-demand jobs + the staging inbox; loopback; the hub proxies it |
 
 ## Local dev
 
@@ -99,13 +100,13 @@ and the jar at `/opt/trex/lib/trex-v2.jar`. Then:
 
 ```sh
 systemctl enable --now trex.target
-systemctl enable --now trex-egress-archive.timer trex-egress-firefly.timer
+systemctl enable --now trex-egress-archive.timer
 systemctl start 'trex-ingest@/data/statement.csv'
 ```
 
-`trex.target` brings up the sequencer and the hub. The timers run the archive mirror nightly and
-the Firefly plan hourly; `--apply` and `--verify` are manual. `trex.env` carries `JAVA_OPTS` and the
-per-run variables.
+`trex.target` brings up the sequencer, the hub and the runner. The archive mirror runs nightly on a
+timer; the Firefly pass and ingest run on demand from the hub's Jobs view through `trex runner`
+(V2-PROPOSAL.md §5.5). `trex.env` carries `JAVA_OPTS`, `TREX_FIREFLY_URL` and `FIREFLY_TOKEN`.
 
 ## Back up three things
 
