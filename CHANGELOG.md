@@ -35,6 +35,11 @@ everything is under **Unreleased**.
   period is a calendar cadence (the local wall time survives DST), a due job already running is
   skipped, and there is no catch-up. `GET /jobs` reports `nextRun`, runs carry a `trigger`, and the
   Jobs card shows the next snapshot.
+- **The Accounts mode** in the hub (`GET /api/accounts`): per-account earliest/latest, the newest
+  ingest, and a facts-derived coverage strip by week or month over a 3/6/12/24-month or all-time
+  window. A quiet bucket inside an account's range is a hole (check me); outside it is unanswered.
+  Read-only: the strip is recomputed from the current rows per request, and statement periods are
+  not recorded, so a hole never asserts "not imported".
 
 ### Changed
 

@@ -1885,6 +1885,7 @@ pretty reports); the blotter is for deciding things.
 | **Review** | "What needs a decision?" | Derived review items, ranked, batch actions — duplicates, restatements, ambiguous matches, stale pending |
 | **Eyeball** | "Have I read what I meant to?" | The period's rows with read/unread, anomalies, balance ribbon, per-user `USER_ACK` |
 | **Rules** | "Why is this categorised like that?" | Rule editor, blast radius, lint, fixtures |
+| **Accounts** | "Which periods are imported, and where are the holes?" | Per-account earliest/latest, last ingest, and a facts-derived weekly coverage strip |
 
 Everything else is a filter on one of these, and every mode cross-links to the others.
 
@@ -1954,6 +1955,17 @@ Keep v1's best feature — proposal with blast radius, computed placement, valid
   regex and its test against history; pins clustered into a proposed rule.
 - **Coverage:** share of rows and amount by origin (`RULE`/`PIN`/`NONE`), and trend over
   time — is the ruleset converging or accumulating pins?
+
+### 10.5 Accounts mode
+
+The import ledger: every account, its earliest and latest transaction, the file and time of
+its last ingest, and a strip of buckets (ISO weeks, Monday–Sunday, by default) over a chosen
+window. A bucket with rows is filled; a bucket with none inside the account's range is a
+**hole**; outside that range it is unanswered. Holes are derived from the current rows alone,
+because the log records no statement periods: a hole says "check me" — a statement may have
+been imported and simply had no activity — and never asserts "not imported". A bucket
+cross-links to the Blotter for that account and period. Marking a hole with a person's
+conclusion (received, no activity) would be a decision, not a property of this view.
 
 ---
 

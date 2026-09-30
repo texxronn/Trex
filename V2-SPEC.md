@@ -170,16 +170,18 @@ unauthenticated and binds loopback by default.
 `/head`, `/api/status`, `/api/refdata`, `/api/ledger`, `/api/review`, `/api/transfers`, `/api/units`,
 `/api/reconcile`, `/api/opening`, `/api/workbook`, `/api/projection` (GET/POST), `/api/cursors`
 (GET/POST), `/api/decisions` (POST), `/api/acks` (GET/POST), `/api/eyeball`, `/api/ingests`,
-`/api/reflow/preview` (POST), `/api/config/categories` (GET/PUT), `/api/jobs*` (proxied to the
-runner), and `/api/events` (SSE snapshot then deltas).
+`/api/accounts`, `/api/reflow/preview` (POST), `/api/config/categories` (GET/PUT), `/api/jobs*`
+(proxied to the runner), and `/api/events` (SSE snapshot then deltas).
 
-The UI has five modes: **Blotter** (SQL-backed filters, inline decisions, status strip), **Review**
+The UI has six modes: **Blotter** (SQL-backed filters, inline decisions, status strip), **Review**
 (the derived queue, one decision away from clear), **Eyeball** (§10.3 — open items, the nine anomaly
 checks with an explicit `asOf`, and transactions bucketed by day/week/month with a per-row
 `Ack`/`Unack` and a per-row pin), **Rules** (editor with blast-radius preview, lint, fixtures,
-coverage), and **Jobs** (the trigger runner: the staging inbox, egress Plan/Verify/Apply, Snapshot
-journal, the ingest history, and the ops strip of staleness — last plan/apply and
-unprojected/drifted/orphaned unit counts).
+coverage), **Accounts** (§10.5 — per-account earliest/latest, the newest ingest, and a facts-derived
+weekly strip; a quiet week inside the range is a hole to check, never "not imported"), and **Jobs**
+(the trigger runner: the staging inbox, egress Plan/Verify/Apply, Snapshot journal, the ingest
+history, and the ops strip of staleness — last plan/apply and unprojected/drifted/orphaned unit
+counts).
 
 ---
 
