@@ -331,6 +331,10 @@ archive mirror.
   staging/
     …                 uploaded statements awaiting ingest (transient; evidence is
                       the durable copy of the bytes, facts are the ledger)
+  archive/
+    archive.jsonl     the byte mirror (egress archive)
+    journal/          dated gzip journal snapshots — a consistent copy, never a rotation
+    sources/          dated, human-named gzip copies of ingested source files
 ```
 
 ### 5.5 The trigger runner
@@ -351,6 +355,14 @@ plus `projection_state`. A file's "ingested" **tick** is derived from the log (i
 id appears on facts), never stored — evidence is written *before* parsing, so ticking on
 evidence would mark a rejected file as done.
 
+The runner also **schedules**: an optional, intervals-only schedule triggers jobs such as
+the **journal snapshot** — `POST /maintenance/snapshot` on the sequencer writes a dated
+gzip copy of the log (`archive/journal/trex-<ts>.jsonl.gz`) and leaves the live journal
+untouched. Snapshots are **copies, never rotations**; the byte mirror is kept forever and
+snapshots are pruned by an explicit `prune-archive` job. A sync call waits up to a
+configurable timeout (10 s by default) and otherwise returns the run handle; async returns
+it immediately.
+
 ---
 
 ## 6. The log, v2
@@ -359,13 +371,39 @@ One file, `trex.jsonl`, still framed, still UTF-8, still one `n` per line, still
 fsync-per-batch. The line becomes a discriminated union on `kind`.
 
 Why one file rather than two: one writer, one offset, one fsync, one recovery path, and
-the order of "fact, then the decision about it" is preserved naturally. The two *kinds*
-are what matter, not the file count.
+the order of "fact, then the decision about it" is preserved naturally. The *kinds* are
+what matter, not the file count. There are three: `fact`, `decision`, and `ingest` (§6.7).
+
+**The envelope.** Every line carries the same header, written by the sequencer, before its
+kind-specific body:
+
+| field | meaning |
+|---|---|
+| `n` | sequence number; the cursor and the only ordering — global to the log, gapless |
+| `kind` | namespaced kind: `trex.fact` \| `trex.decision` \| `trex.ingest` |
+| `v` | the line-format version; **1** |
+| `atMs` | event time, epoch millis (UTC) — the only time logic reads |
+| `env` | the environment (`Dev1`, `Prod1`) |
+| `source` | the writing process instance |
+| `target` | the destination stream/consumer; `none` in trex |
+
+`env`, `source` and `target` are `[A-Za-z0-9_]{1,8}` **right-padded with spaces to 8** and
+declared in registries (`env.yaml`, `sources.yaml`); `none` is eight spaces. They are
+padded, not trimmed — no consumer may `strip()` them. `at` is an **optional body field**
+(ISO-8601 UTC, millisecond) for readability only. `n`, `atMs` and `at` never enter a hash
+or `derive()`.
+
+A reader **skips an unknown `kind`** (warn, do not fail) and **refuses a known kind at a
+higher `v`** (never silently misread); unknown fields are ignored, so an additive field is
+not a version bump. Never reuse a field name with a new meaning. This is a **MAJOR**
+log-format change (`RELEASE.md`): a v2 journal is transformed (§12.6) or re-ingested, not
+read in place.
 
 ### 6.1 Fact
 
 ```json
-{"n":8421,"kind":"fact","v":2,
+{"n":8421,"kind":"trex.fact","v":1,"atMs":1790725202000,
+ "env":"Dev1    ","source":"ING_0001","target":"        ",
  "externalId":"9e546cc0260ead1e",
  "accountRef":"ing-savings","date":"2026-09-24",
  "amount":-7599,"balance":399132,
@@ -373,7 +411,7 @@ are what matter, not the file count.
  "receipt":null,"occ":0,"observation":"posted",
  "sourceType":"ing-csv","provenance":"BANK",
  "evidenceId":"sha256:2f9c…","parser":"ing-csv/3",
- "ingestedAt":"2026-09-29T08:11:02Z"}
+ "at":"2026-09-29T08:11:02.000Z"}
 ```
 
 `observation` is the one field v1 did not have, and it exists because of pending
@@ -423,10 +461,11 @@ This is the one field where "derive again" must not move.
 ### 6.2 Decision
 
 ```json
-{"n":8425,"kind":"decision","action":"PAIR",
- "legA":"9e546cc0…","legB":"c3d41f…",
+{"n":8425,"kind":"trex.decision","v":1,"atMs":1790725860000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"PAIR","legA":"9e546cc0…","legB":"c3d41f…",
  "comment":"moved to savings","actor":"user","user":"ron",
- "at":"2026-09-29T08:31:00Z"}
+ "at":"2026-09-29T08:31:00.000Z"}
 ```
 
 The full action set — small on purpose:
@@ -559,7 +598,7 @@ exact. The rule in one line:
 
 Concretely, the key is the fact's stored content minus the operational metadata:
 `externalId`, `accountRef`, `date`, `amount`, `rawDescription`, `receipt`, `occ`,
-`balance`. `sourceType`, `provenance`, `evidenceId`, `parser`, `ingestedAt` and `n` are
+`balance`. `sourceType`, `provenance`, `evidenceId`, `parser`, `atMs` and `n` are
 excluded — otherwise a PDF import of a row already seen via CSV would look new, and a
 re-import would never match.
 
@@ -646,9 +685,13 @@ user switcher, the CLI takes `--user` where it matters — and the sequencer val
 
 ### 6.7 Every sequencer event, with an example
 
-Two line kinds, from two write endpoints (`POST /facts`, `POST /decisions`), with the
-migration and re-parse tools using the same endpoints. This is the complete catalogue —
-anything absent is not in the journal.
+Three line kinds, from three write endpoints (`POST /facts`, `POST /decisions`,
+`POST /ingest`), with the migration and re-parse tools using the same endpoints. This is
+the complete catalogue — anything absent is not in the journal.
+
+Every line below carries the envelope of §6 (`n, kind, v, atMs, env, source, target`),
+shown in full for the first example and elided afterwards; the older `v:2` / `ingestedAt`
+headers shown in these bodies are superseded by it.
 
 | # | Event | Producer | Line | Written when |
 |---|---|---|---|---|
@@ -669,19 +712,23 @@ anything absent is not in the journal.
 | 15 | `NOTE` | `POST /decisions` | `decision` | Annotate |
 | 16 | `PIN` | `POST /decisions` | `decision` | A person overrides a category |
 | 17 | `UNPIN` | `POST /decisions` | `decision` | A person returns a row to the rules |
+| 18 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
+| 19 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
 
 **Facts (1–4)**
 
 ```json
 // 1 · posted bank row
-{"n":8421,"kind":"fact","v":2,"externalId":"9e546cc0260ead1e",
+{"n":8421,"kind":"trex.fact","v":1,"atMs":1790725202000,
+ "env":"Dev1    ","source":"ING_0001","target":"        ",
+ "externalId":"9e546cc0260ead1e",
  "accountRef":"ing-savings","date":"2026-09-24",
  "amount":-7599,"balance":399132,
  "rawDescription":"VISA PURCHASE COLES 1234 SYDNEY",
  "receipt":null,"occ":0,"observation":"posted",
  "sourceType":"ing-csv","provenance":"BANK",
  "evidenceId":"sha256:2f9c…","parser":"ing-csv/3",
- "ingestedAt":"2026-09-29T08:11:02Z"}
+ "at":"2026-09-29T08:11:02.000Z"}
 ```
 
 ```json
@@ -1018,6 +1065,10 @@ time-relative statuses (stale badges, ages), and those never enter a `stateHash`
 
 ### 7.2 Schema sketch
 
+Every level-1 table carries the envelope (§6): `n`, `v`, `at_ms`, `env`, `source`,
+`target`, alongside its kind-specific body. The column lists below are indicative; `at` is
+the optional body time.
+
 ```sql
 -- level 1: the log mirrored
 CREATE TABLE fact (
@@ -1027,7 +1078,7 @@ CREATE TABLE fact (
   raw_description TEXT NOT NULL, receipt TEXT, occ INTEGER NOT NULL,
   observation TEXT NOT NULL,              -- posted | pending
   source_type TEXT NOT NULL, provenance TEXT NOT NULL,
-  evidence_id TEXT, parser TEXT, ingested_at TEXT NOT NULL
+  evidence_id TEXT, parser TEXT, at_ms INTEGER NOT NULL
 );
 CREATE INDEX fact_external ON fact(external_id);
 CREATE INDEX fact_account_date ON fact(account_ref, date);
@@ -1040,6 +1091,17 @@ CREATE TABLE decision (
   at TEXT NOT NULL
 );
 CREATE INDEX decision_action ON decision(action);
+
+-- level 1: the third kind, mirrored like the others (§6)
+CREATE TABLE ingest_event (
+  n INTEGER PRIMARY KEY,
+  phase TEXT NOT NULL,                    -- start | complete
+  batch TEXT NOT NULL,                    -- links the pair
+  evidence_id TEXT, file TEXT, account_ref TEXT, source_type TEXT, parser TEXT,
+  appended INTEGER, duplicate INTEGER, flagged INTEGER, status TEXT,
+  at_ms INTEGER NOT NULL
+);
+CREATE INDEX ingest_event_batch ON ingest_event(batch);
 
 -- level 2: derived. The effective decision set (REVOKEs applied, ids chain-resolved,
 -- §9.8) is materialised first; every table below is rebuilt from it.
@@ -1077,6 +1139,16 @@ CREATE TABLE pending (
   settled_by TEXT,                        -- external_id of the posted fact that settled it
   state TEXT NOT NULL                     -- OPEN | SETTLED | STALE
 );
+
+-- an ingest attempt: its markers paired, with the n range its facts sit in (§12.6)
+CREATE VIEW ingest_batch AS
+SELECT s.batch, s.file, s.evidence_id, s.account_ref,
+       s.n AS n_start, c.n AS n_end,
+       c.appended, c.duplicate, c.flagged, c.status,
+       s.at_ms AS started_ms, c.at_ms AS completed_ms
+FROM ingest_event s
+LEFT JOIN ingest_event c ON c.batch = s.batch AND c.phase = 'complete'
+WHERE s.phase = 'start';
 
 CREATE TABLE transfer (
   transfer_id TEXT PRIMARY KEY,           -- v1's minting rule over chain roots (§11)
@@ -2160,6 +2232,21 @@ store keeps the bytes and the log keeps the facts, so a staged copy is transient
 cleared once its evidence id appears on facts. Evidence is never pruned — it is what makes a
 parser fix and a re-parse safe.
 
+### 12.6 Ingest events and the source archive
+
+An ingest is **self-documenting on the stream**: the ingest client appends an `ingest`
+`start` event, then its facts, then an `ingest` `complete` event with counts and status
+(§6.7). Facts sit strictly between the two markers, so a batch's `n` range *is* the markers
+— no separate offset is stored. A file that fails validation still emits the pair
+(`status: bad_rows`, zero counts): the *attempt* is the audit. A crash between them leaves a
+dangling `start`, which is the truth, and reads as an incomplete batch.
+
+The **source file** is also archived: gzipped under a dated, human name to
+`archive/sources/<Y>/<M>/<D>/<HHMMSS>-<name>.gz`. The **ingest client** owns this — so a CLI
+ingest and a UI ingest behave alike, and the runner only supplies the archive location and
+the original name. It is per-attempt and not deduped: the arrival log is the point, and
+statements are small. Evidence remains the machine copy; the source archive is the human one.
+
 ---
 
 ## 13. Decisions: append-only, never final
@@ -2204,6 +2291,7 @@ The system is a habit, not a program. Make the habit cheap:
 | Timer (plan) | `trex egress firefly --plan` / `--verify`; `--apply` on instruction | Firefly convergence known; nothing half-tuned projected |
 | On demand (Jobs view) | `trex runner`: `ingest`, `egress firefly --plan` / `--verify` / `--apply`; upload to the staging inbox | The same batches, started and watched from one page; `--apply` confirmed against a plan |
 | Nightly | `trex egress archive` + backup | Log + evidence on a second disk |
+| Weekly | `trex runner` → journal snapshot + `prune-archive` | A dated gzip copy of the log; old snapshots pruned explicitly |
 | Monthly | `trex verify` | Framing, reconciliation, index equivalence (rebuild into a scratch file), evidence hashes, egress plan all green |
 
 **Deployment is one image.** The rhythms above are commands of the same artifact; only
@@ -2369,6 +2457,11 @@ still better than before.
 | **P4 — Convergence** | Firefly plan/apply/verify, drift taxonomy, projection state in the index | `--verify` green on a timer; a hand edit is reported, not clobbered | M |
 | **P5 — Evidence & feeds** | Evidence store, re-parse workflow, feed adapters, provisional pending observations | A parser fix flows through as a reviewed supersede; a feed and a statement agree on ids; nothing pending is lost | L |
 
+The envelope and the `ingest` kind (§6) are a **MAJOR** log-format change. Per `RELEASE.md`
+there is no migration: the dev journal is transformed (§12.6) and the host journal is
+re-ingested. Forward compatibility is now a hard requirement — every reader skips an unknown
+kind rather than refusing the line.
+
 P0 is deliberately first: it is additive, it de-risks the fold by proving the derivation
 in SQL, and it delivers the blotter improvement before any format decision is made.
 
@@ -2404,7 +2497,10 @@ State them so future you does not drift:
 - **No database as system of record.** The log stays the truth; the DB stays disposable.
 - **No per-role artifacts.** One jar, one image; the role is a command plus config, and
   the writer/reader split remains processes, not packages.
-- **No ORM, no Spring, no broker, no scheduler framework, no cloud.**
+- **No ORM, no Spring, no broker, no cloud.** No *general* scheduler framework — but
+  `trex runner` is a deliberately bounded job runner: ordered steps, manual and interval
+  triggers, sync/async, artifacts; no DAG, no conditions, no retries, no durable resume
+  (§5.5).
 - **No ML categorisation.** Rules are explainable, testable and free; revisit only if
   the ruleset demonstrably plateaus.
 - **No generic mutable blob** on facts or decisions (you rejected this once already;

@@ -26,9 +26,11 @@ log's history are permanent.
 
 - `derive()` is pure: same inputs, same output. `asOf` is an explicit input. No ambient
   clock, no I/O, no unordered iteration.
-- The log holds **facts** (what a source said) and **decisions** (what a person
-  concluded). Nothing else. The writer never interprets — no matching, no state, no
-  category, no duplicate flags in `trex-sequencer`.
+- The log holds **facts** (what a source said), **decisions** (what a person concluded),
+  and **ingest events** (what an ingest did). Nothing else. The writer never interprets —
+  no matching, no category, no derived review flags. It does keep an identity/observation
+  index (to assign `occ` and suppress identical re-observations) and emits a
+  `DUPLICATE`/`FLAGGED` row result; that is bookkeeping, not semantics.
 - Decisions win over derivation. Ids resolve through the supersession map before a
   decision is applied.
 - Nothing is deleted. Undo is an appended `REVOKE` or a family inverse.
