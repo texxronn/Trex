@@ -36,7 +36,7 @@ class PrivateFixtureTest {
     void seedingPreservesIdentityAndRebuilds(@TempDir Path dir) throws Exception {
         Path fixture = fixture();
         Assumptions.assumeTrue(fixture != null,
-            "no private journal at deploy/dev/journal/ or TREX_DEV_FIXTURE; skipping");
+            "no private v1 journal (TREX_DEV_FIXTURE, or ../TrexV1/deploy/dev/journal/journal.jsonl); skipping");
         Path configDir = configDir();
 
         ConfigLoader.Loaded loaded = ConfigLoader.load(configDir);
@@ -66,7 +66,7 @@ class PrivateFixtureTest {
             Path p = Path.of(override);
             return Files.isDirectory(p) ? p.resolve("journal.jsonl") : (Files.exists(p) ? p : null);
         }
-        Path p = Path.of("..", "deploy", "dev", "journal", "journal.jsonl");
+        Path p = Path.of("..", "..", "TrexV1", "deploy", "dev", "journal", "journal.jsonl");
         return Files.exists(p) ? p : null;
     }
 

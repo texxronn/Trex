@@ -26,8 +26,8 @@ version lives in the **root `pom.xml`** and in every module's `<parent>` referen
 
 ## The gate
 
-The release gate is the default reactor build — the v2 modules. v1 is out of the default reactor;
-add `-Pv1` to build both side by side:
+The release gate is the default reactor build — the v2 modules. v1 is archived in the sibling
+project `../TrexV1` and is no longer part of this repository:
 
 ```sh
 deploy/bin/trex-release.sh verify        # mvn -B -ntp verify

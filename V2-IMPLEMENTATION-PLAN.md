@@ -45,43 +45,38 @@ file and the proposal disagree, the proposal wins.
 
 ## 1. Repository layout
 
-Same repository, same Maven reactor. The new system is built **in place**: the module
-names in §2 are the existing names, rewritten. v1's tree is retained as the reference
-implementation until the operator says otherwise (§11.5).
+The v2 modules are `trex-v2-*`. v1 is archived in the sibling project **`../TrexV1`** and is
+never imported (AGENTS.md); its documents travel with it. The active tree:
 
 ```
 Trex/
-  pom.xml                     # reactor
+  pom.xml                     # reactor: the trex-v2-* modules
   AGENTS.md                   # instructions for agents (the active file)
   V2-PROPOSAL.md              # the specification
   V2-IMPLEMENTATION-PLAN.md   # this file
-  trex-core/ trex-journal/ trex-sequencer/ trex-ingest/ trex-ws/ trex-web/
-  trex-egress/                # v1 — reference only; not called by the new system
+  trex-v2-core/ trex-v2-log/ trex-v2-index/ trex-v2-sequencer/ trex-v2-hub/
+  trex-v2-egress/ trex-v2-ingest/ trex-v2-runner/ trex-v2-dist/
   deploy/
     config/                   # the tuned rules (§1.2) — commit, never rewrite by hand
-    dev/                      # dev harness; journal is operator-supplied (§1.3)
-  docs/
-    SPEC.md  DECISIONS.md  V1-CLAUDE.md   # v1 reference — keep, do not delete
-    v2-lifecycles.html
+    v2/                       # the v2 compose set, dev.sh and deployment config (§1.3)
+  docs/                       # V2-PARITY.md, RELEASE.md, lifecycles
 ```
 
 **Rules.**
 
-- The rebuilt modules keep their names and are replaced one stage at a time. Until a
-  module is rebuilt it is v1; after, it is v2. A commit that rebuilds a module says so.
-- The rebuilt `trex-core` is pure: no I/O, no clock, no Jackson annotations leaking
-  into decision logic. `trex-core` still contains the model, identity, `derive()` and
-  the categoriser — nothing else.
-- **No `v2/` subtree.** The tree is the target tree; only the code inside it changes.
+- The rebuilt modules are the `trex-v2-*` tree. A stage replaces behaviour inside them; the
+  module boundary is the code boundary, and `trex-v2-dist` shades them into one jar.
+- `trex-v2-core` is pure: no I/O, no clock, no Jackson annotations leaking into decision
+  logic. It contains the model, identity, `derive()` and the categoriser — nothing else.
+- v1 (`../TrexV1`) is read-only reference: read it, never import it, never edit it from here.
 
 ### 1.1 What v1 is for
 
-v1 is the executable record of behaviour the proposal describes but does not spell
-out: `clean`, the matcher tiers, the categoriser evaluator, the follower's
-exactly-once offset, the framing/recovery path. When rebuilding one of those, read the
-v1 implementation, restate the rule in the proposal (or in the module's javadoc), then
-implement it. Do not port v1 code mechanically — the proposal is the contract, and the
-data shapes have changed.
+v1 (in `../TrexV1`) is the executable record of behaviour the proposal describes but does not
+spell out: `clean`, the matcher tiers, the categoriser evaluator, the follower's exactly-once
+offset, the framing/recovery path. When rebuilding one of those, read the v1 implementation,
+restate the rule in the proposal (or in the module's javadoc), then implement it. Do not port
+v1 code mechanically — the proposal is the contract, and the data shapes have changed.
 
 ### 1.2 The rules are already tuned — do not rewrite them
 
@@ -104,26 +99,23 @@ The v2 config gains what the proposal adds and nothing else:
 
 ### 1.3 The dev fixture — operator-supplied, never committed
 
-The real journal is private and **is not in the repository**. Everything
-fixture-dependent must work without it.
+The real statements and journal are private and **are not in the repository**. Everything
+fixture-dependent must work without them.
 
-```
-deploy/dev/
-  journal/            # git-ignored. Operator places the private journal here.
-  config/             # the tuned rules (symlink or copy of deploy/config)
-  seed.sh             # import the journal into the running system and index it
-  reset.sh            # wipe run state and re-seed
-  samples/            # committed synthetic fixtures: CSVs, golden files, hand-built journals
-```
+The v2 dev harness is `deploy/v2/dev.sh` (`build`, `up`, `down`, `reset`, `ingest [DIR]`),
+backed by `deploy/v2/compose.yml` + `compose.dev.yml`. `ingest` defaults to
+`~/Downloads/Statements/Statements_CSV` and drives `deploy/v2/ingest-all.sh`.
 
-- **Location contract.** `TREX_DEV_FIXTURE` (a directory or a file) overrides
-  `deploy/dev/journal/`. `seed.sh` reads it and does the one-shot import (§3, P0).
-- **Tests.** Fixture-dependent tests carry `@Tag("fixture")` and are skipped with a
-  printed reason when no fixture is present. `mvn verify` is green on a fresh clone.
-  Committed synthetic fixtures cover the logic; the private journal covers "does the
-  real history behave".
-- **Never commit the journal, and never copy it into `target/`** where it can leak into
-  an artifact. `.gitignore` covers `deploy/dev/journal/`, `run/journal/`, `index/`.
+- **The fixture contract.** `-Dtrex.statements.dir=<dir>` (or `$TREX_STATEMENTS_DIR`), else
+  `~/Downloads/Statements/Statements_CSV`; an optional manifest via
+  `-Dtrex.e2e.manifest=<file>` (or `$TREX_E2E_MANIFEST`).
+- **Tests.** Fixture-dependent tests carry `@Tag("fixture")` and are skipped with a printed
+  reason when no fixture is present, so `mvn verify` is green on a fresh clone. Committed
+  synthetic fixtures (`deploy/v2/statements.yaml`, `trex-v2-*/src/test/resources`) cover the
+  logic; the private statements cover "does the real history behave".
+- **Never commit statements, journals or the index, and never copy them into `target/`**
+  where they can leak into an artifact. `.gitignore` covers `statements/`, `*.local.yaml`,
+  `*.statements.yaml`, `run/` and `index/`.
 
 ---
 
@@ -173,14 +165,14 @@ log is v2 from the first line.
    calling `derive()`; `trex index --rebuild` offline behind the index lock.
 6. `trex-dist`: shade everything into one `trex.jar`; picocli subcommands
    (`sequencer`, `hub`, `index`, `ingest`, `egress archive`, `egress firefly`).
-7. **One-shot importer** (`trex index --import-dev`, or `deploy/dev/seed.sh` calling
-   it): read a **v1-format journal file** and emit v2 facts + decisions through the
+7. **One-shot importer** (`trex index --import-dev`, or the dev harness calling it): read a **v1-format journal file** and emit v2 facts + decisions through the
    sequencer's API. This is a *dev tool*, not a migration path: it exists so the
    private journal can seed the new system, and it is the only v1-format reader in the
    tree. Mapping is §16's table, but the "latest line wins / drop derived fields" rule
    applies to a journal that is already the operator's history.
 8. `deploy/dev/`: `seed.sh`, `reset.sh`, the git-ignored `journal/` path, and the
-   committed `samples/`.
+   committed `samples/`. (Later rebuilt as `deploy/v2/dev.sh`; the v1-era harness is
+   archived in `../TrexV1`.)
 
 **Acceptance**
 
@@ -455,7 +447,7 @@ From the proposal's §19, restated:
    refuses a decision naming an unknown user, and the id is stamped into decisions
    forever. Do not invent one.
 2. **The dev fixture path** (P0): where the private journal lives and in which format.
-   `TREX_DEV_FIXTURE` or `deploy/dev/journal/`, v1-format, imported by the P0 dev tool
+   `TREX_DEV_FIXTURE` or the v1 dev harness's `journal/` (archived in `../TrexV1`), v1-format, imported by the P0 dev tool
    — confirm before `seed.sh` is written, because everything acceptance-tested on real
    history depends on it.
 3. **`merchantStem` definition** (P0): tokenisation and stripping rules, frozen before

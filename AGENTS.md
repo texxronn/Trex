@@ -5,9 +5,9 @@
 `V2-PROPOSAL.md` is the authoritative specification for the system being built.
 `V2-IMPLEMENTATION-PLAN.md` is the build order, the acceptance tests and the fixtures.
 `AGENTS.md` (this file) carries the invariants that never move.
-`docs/SPEC.md`, `docs/DECISIONS.md` and `docs/V1-CLAUDE.md` describe v1 and are
-**reference only** — read them, do not treat them as the target, and do not migrate from
-them.
+The v1 tree and its documents (`SPEC.md`, `DECISIONS.md`, `V1-CLAUDE.md`,
+`SPEC-REVIEW.md`) are archived in the sibling project `../TrexV1` — **reference only**:
+read them if useful, do not treat them as the target, and do not migrate from them.
 
 Do not invent or silently change architecture, invariants, identity rules, log
 semantics, state semantics, or API contracts.
@@ -46,7 +46,7 @@ log's history are permanent.
 - JDK-only unless the proposal explicitly permits a dependency
 - No frameworks unless specified; no Lombok, no Spring, no Kafka
 - No database in `trex-core`; keep it pure and deterministic
-- The v1 tree is reference material: do not modify it, do not import its classes
+- The v1 tree lives in `../TrexV1`: reference only, do not import its classes, do not edit it
 
 ## Development style
 

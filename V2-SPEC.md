@@ -7,9 +7,9 @@ the proposal differ, **the proposal wins**; where the difference is deliberate o
 silent, `docs/V2-PARITY.md` records it. This file is descriptive, not a second authority — if it
 drifts, the code and the proposal are the truth.
 
-v1 (`trex-core`, `trex-journal`, `trex-sequencer`, `trex-ingest`, `trex-egress`, `trex-ws`) is
-reference material: it is kept on disk and buildable with `-Pv1`, is never imported by v2 code, and
-is not migrated from.
+v1 is archived in the sibling project `../TrexV1` (`trex-core`, `trex-journal`, `trex-sequencer`,
+`trex-ingest`, `trex-egress`, `trex-ws`): reference only, never imported by v2 code, and not
+migrated from.
 
 ---
 

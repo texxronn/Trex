@@ -1,8 +1,8 @@
 # Changelog
 
 All notable changes to trex. This file starts at the v2 build; v1's history lives in git and in
-`docs/SPEC.md` / `docs/DECISIONS.md`, which are reference only. v2 is built side by side with the
-v1 tree, which stays on disk as reference and is never imported by v2 code.
+the archived sibling project `../TrexV1` (`SPEC.md` / `DECISIONS.md`), which is reference only and
+is never imported by v2 code.
 
 The format is loosely [Keep a Changelog](https://keepachangelog.com/); v2 has not been released, so
 everything is under **Unreleased**.
@@ -38,6 +38,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **v1 left the repository.** The six v1 modules (`trex-core`, `trex-journal`, `trex-sequencer`,
+  `trex-ingest`, `trex-egress`, `trex-ws`), their documents (`SPEC.md`, `DECISIONS.md`,
+  `V1-CLAUDE.md`, `notes/`, `SPEC-REVIEW.md`, the v1 README) and the v1 deployment set
+  (`compose.yml`, `deploy/compose`, `deploy/dev`, `deploy/systemd`, the v1 `deploy/bin` scripts)
+  are archived in the sibling project `../TrexV1`. The `v1` Maven profile and the root
+  `compose.yml` are gone; the shared `deploy/config` and all of `deploy/v2` stay.
 - **`--allow-apply` is opt-in**; the base compose leaves apply locked and the dev overlay unlocks
   it. The UI gates Apply behind a fresh Plan and quotes that plan's counts.
 - The sequencer validates a batch's `source` against `sources.yaml` and stamps `env` from

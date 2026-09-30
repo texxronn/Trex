@@ -1,4 +1,0 @@
-Date,Description,Credit,Debit,Balance
-05/07/2026,Valid row before the bad one,,-1.00,3660.00
-31/02/2026,Impossible date,,-2.00,3658.00
-05/07/2026,Valid row after the bad one,,-3.00,3655.00

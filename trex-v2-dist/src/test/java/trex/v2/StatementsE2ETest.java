@@ -54,10 +54,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code mvn verify} stays green on a fresh clone. Sources resolve in this order:
  * <ol>
  *   <li>{@code -Dtrex.e2e.manifest=<file>} or {@code $TREX_E2E_MANIFEST}: a manifest in the shape of
- *       {@code deploy/dev/statements.local.yaml};</li>
+ *       {@code deploy/v2/statements.local.yaml};</li>
  *   <li>{@code -Dtrex.statements.dir=<dir>} or {@code $TREX_STATEMENTS_DIR}, else
  *       {@code ~/Downloads/Statements/Statements_CSV}: a directory scanned by file name;</li>
- *   <li>{@code deploy/dev/statements.local.yaml} if present.</li>
+ *   <li>{@code deploy/v2/statements.local.yaml} if present.</li>
  * </ol>
  * The statements themselves are private and never committed. Config is {@code deploy/config}.
  *
@@ -268,7 +268,7 @@ class StatementsE2ETest {
         if (dir != null) {
             return scan(dir);
         }
-        Path local = Path.of("..", "deploy", "dev", "statements.local.yaml");
+        Path local = Path.of("..", "deploy", "v2", "statements.local.yaml");
         if (Files.exists(local)) {
             return fromManifest(local);
         }

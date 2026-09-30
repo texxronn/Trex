@@ -1,7 +1,0 @@
-[
-  {"candidateRef":"row-3","accountRef":"bw-credit-card","date":"2026-09-15","amount":-999,"rawDescription":"PAYPAL *NETFLIX AUS      4029357733   AU","balance":-118543,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"bw-csv","provenance":"BANK"},
-  {"candidateRef":"row-4","accountRef":"bw-credit-card","date":"2026-09-15","amount":-450,"rawDescription":"COFFEE HOUSE             SHELLHARBOUR NS","balance":-117544,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"bw-csv","provenance":"BANK"},
-  {"candidateRef":"row-5","accountRef":"bw-credit-card","date":"2026-09-15","amount":-450,"rawDescription":"COFFEE HOUSE             SHELLHARBOUR NS","balance":-117094,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"bw-csv","provenance":"BANK"},
-  {"candidateRef":"row-6","accountRef":"bw-credit-card","date":"2026-09-14","amount":686000,"rawDescription":"BILL PAYMENT RECEIVED FROM ING","balance":1090,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"bw-csv","provenance":"BANK"},
-  {"candidateRef":"row-7","accountRef":"bw-credit-card","date":"2026-09-13","amount":-3939,"rawDescription":"AMAZON AU MARKETPLACE    SYDNEY","balance":-115594,"receipt":null,"counterpartyBsb":null,"counterpartyAcct":null,"sourceType":"bw-csv","provenance":"BANK"}
-]

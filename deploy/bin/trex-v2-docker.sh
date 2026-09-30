@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # trex-v2-docker.sh — build/push the v2 image with jib, and drive the v2 compose stack,
-# through a Docker context. The v2 counterpart of trex-docker.sh.
+# through a Docker context. The v2 counterpart of the v1 trex-docker.sh (archived in ../TrexV1).
 #
 #   trex-v2-docker.sh build [--context NAME]   build the image into the selected daemon
 #   trex-v2-docker.sh push  [--context NAME]   build and push to ${TREX_IMAGE_PREFIX}

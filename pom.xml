@@ -20,9 +20,6 @@
     <module>trex-v2-ingest</module>
     <module>trex-v2-runner</module>
     <module>trex-v2-dist</module>
-    <!-- v1 (trex-core … trex-ws) is reference material (AGENTS.md): kept on disk and
-         buildable, but out of the default reactor so a normal build skips it. Activate
-         the `v1` profile (-Pv1) to build both side by side. -->
   </modules>
 
   <properties>
@@ -57,26 +54,6 @@
 
   <dependencyManagement>
     <dependencies>
-      <dependency>
-        <groupId>trex</groupId>
-        <artifactId>trex-core</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>trex</groupId>
-        <artifactId>trex-journal</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>trex</groupId>
-        <artifactId>trex-sequencer</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>trex</groupId>
-        <artifactId>trex-ws</artifactId>
-        <version>${project.version}</version>
-      </dependency>
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-v2-core</artifactId>
@@ -284,22 +261,9 @@
   </build>
 
   <profiles>
-    <!-- mvn … -Pv1 → put the v1 reference modules back into the reactor. -->
-    <profile>
-      <id>v1</id>
-      <modules>
-        <module>trex-core</module>
-        <module>trex-journal</module>
-        <module>trex-sequencer</module>
-        <module>trex-ingest</module>
-        <module>trex-egress</module>
-        <module>trex-ws</module>
-      </modules>
-    </profile>
     <!-- mvn package -Pdocker        → build the image(s) into the Docker daemon
          mvn package -Pdocker-push   → push the v2 image to ${trex.image.prefix}
-         Both honour DOCKER_HOST; see deploy/bin/trex-docker.sh for Docker contexts.
-         v1 is out of the default reactor, so build its images with -Pv1 -Pdocker. -->
+         Both honour DOCKER_HOST; see deploy/bin/trex-v2-docker.sh for Docker contexts. -->
     <profile>
       <id>docker</id>
       <build>

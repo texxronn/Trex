@@ -253,6 +253,10 @@ Read it as: **left of `derive` is truth; right of it is cache.**
 
 ### 5.2 Modules
 
+The built modules carry the `trex-v2-` prefix (`trex-v2-core`, `trex-v2-hub`, …); this table keeps
+the design's short names, and the "Changes from v1" column refers to the archived v1 tree in
+`../TrexV1`.
+
 | Module | Kind | Responsibility | Changes from v1 |
 |---|---|---|---|
 | `trex-core` | library | Records, identity (`Ids`), occ, the pure `derive()`; categorizer evaluator | Adds `Fact`, `Decision`, `derive()`; `CanonicalEvent` becomes `Fact`; state moves out of records |

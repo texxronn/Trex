@@ -1,9 +1,8 @@
 # trex v2 deployment
 
 One image, one jar, every role named by the command (V2-PROPOSAL.md §14, §19). This directory is
-the v2 deployment set; the v1 units in `deploy/systemd` and the root `compose.yml` are left as the
-reference deployment until the operator cuts over (§16 "Deployment change": the artifact swaps,
-the arguments stay).
+the v2 deployment set; the v1 units and the v1 `compose.yml` are archived in the sibling project
+`../TrexV1`.
 
 ## Build the image
 
