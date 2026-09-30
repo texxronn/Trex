@@ -50,7 +50,7 @@ function render() {
     uploadBar(),
     statusLine,
     stagingHost,
-    el('h3', {}, 'Egress'),
+    el('h3', {}, 'Jobs'),
     jobsHost,
     el('h3', {}, 'Run output'),
     outputHost,
@@ -127,6 +127,11 @@ function computeDrift(unitsResp, projectionResp) {
     if (!unitIds.has(row.unitId)) orphaned += 1;
   }
   return { units: units.length, projected: rows.length, unprojected, drifted, orphaned };
+}
+
+function lastRun(jobName) {
+  return runs.find((run) => run.job === jobName
+    && (run.state === 'SUCCEEDED' || run.state === 'FAILED'));
 }
 
 function lastRunOf(mode) {
@@ -264,29 +269,63 @@ async function runIngest() {
 
 function renderJobs() {
   clear(jobsHost);
-  const egress = jobs.find((job) => job.name === 'egress-firefly');
-  if (!egress) {
+  if (!jobs.length) {
     jobsHost.append(el('p', { class: 'muted' }, 'No job runner configured.'));
     return;
   }
-  const busy = egress.running;
-  const canApply = !busy && lastPlan != null && lastPlan.exit === 0;
-  const buttons = [
-    el('button', { class: 'primary', disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'plan' }) }, 'Plan'),
-    el('button', { disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'verify' }) }, 'Verify'),
-    el('button', { class: 'warn', disabled: !canApply, onclick: confirmApply,
-      title: canApply ? '' : 'Run Plan first' }, 'Apply'),
-  ];
-  if (busy && egress.activeRun) {
-    buttons.push(el('button', { class: 'ghost', onclick: () => cancel(egress.activeRun) }, 'Cancel'));
+  for (const job of jobs) {
+    jobsHost.append(el('div', { class: 'job-card' }, ...jobCard(job)));
   }
-  const status = lastPlan
-    ? el('div', { class: 'muted' }, 'planned: ' + planSummary(lastPlan))
-    : el('div', { class: 'muted' }, 'Apply is locked until you run a Plan.');
-  jobsHost.append(el('div', { class: 'job-card' },
-    el('div', { class: 'muted' }, egress.description),
-    status,
-    el('div', { class: 'toolbar' }, ...buttons)));
+}
+
+function jobCard(job) {
+  const busy = job.running;
+  const last = lastRun(job.name);
+  const nodes = [el('div', { class: 'muted' }, job.description)];
+
+  if (job.name === 'egress-firefly') {
+    const canApply = !busy && lastPlan != null && lastPlan.exit === 0;
+    nodes.push(lastPlan
+      ? el('div', { class: 'muted' }, 'planned: ' + planSummary(lastPlan))
+      : el('div', { class: 'muted' }, 'Apply is locked until you run a Plan.'));
+    const buttons = [
+      el('button', { class: 'primary', disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'plan' }) }, 'Plan'),
+      el('button', { disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'verify' }) }, 'Verify'),
+      el('button', { class: 'warn', disabled: !canApply, onclick: confirmApply, title: canApply ? '' : 'Run Plan first' }, 'Apply'),
+    ];
+    if (busy && job.activeRun) {
+      buttons.push(el('button', { class: 'ghost', onclick: () => cancel(job.activeRun) }, 'Cancel'));
+    }
+    nodes.push(el('div', { class: 'toolbar' }, ...buttons));
+    return nodes;
+  }
+
+  if (job.name === 'journal-snapshot') {
+    nodes.push(el('div', { class: 'muted' },
+      last ? `last snapshot: ${rel(last.finishedAt || last.queuedAt)} · exit ${last.exit}` : 'never run'));
+    const buttons = [el('button', { class: 'primary', disabled: busy, onclick: () => startRun(job.name, {}) },
+      'Snapshot now')];
+    if (busy && job.activeRun) {
+      buttons.push(el('button', { class: 'ghost', onclick: () => cancel(job.activeRun) }, 'Cancel'));
+    }
+    nodes.push(el('div', { class: 'toolbar' }, ...buttons));
+    return nodes;
+  }
+
+  if (job.name === 'ingest') {
+    // Ingest is driven by the staging inbox above, not a bare button (it needs the file list).
+    nodes.push(el('div', { class: 'muted' }, 'Use the staging inbox above.'));
+    return nodes;
+  }
+
+  // Generic: any job runs with no params.
+  const buttons = [el('button', { class: 'primary', disabled: busy, onclick: () => startRun(job.name, {}) },
+    job.title)];
+  if (busy && job.activeRun) {
+    buttons.push(el('button', { class: 'ghost', onclick: () => cancel(job.activeRun) }, 'Cancel'));
+  }
+  nodes.push(el('div', { class: 'toolbar' }, ...buttons));
+  return nodes;
 }
 
 function planSummary(plan) {
