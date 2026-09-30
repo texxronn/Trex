@@ -1,5 +1,8 @@
 package trex.v2.hub;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
@@ -14,6 +17,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +25,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executors;
 
 /**
@@ -33,9 +38,11 @@ final class HubHttpApi {
 
     private HubHttpApi() {}
 
-    static HttpServer start(String host, int port, HubApi api, HubEvents events) throws IOException {
+    static HttpServer start(String host, int port, HubApi api, HubEvents events, RunnerClient runner)
+            throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         server.createContext("/api/events", ex -> streamEvents(ex, api, events));
+        server.createContext("/api/jobs", ex -> jobs(ex, api, runner));
         route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
         route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
         route(server, "/api/refdata", "GET", ex -> write(ex, 200, api.refdata()));
@@ -332,6 +339,138 @@ final class HubHttpApi {
             }
         }
         return null;
+    }
+
+    // ---- job runner proxy (V2-PROPOSAL.md §5.5) ---------------------------------------------
+
+    /** The Jobs view and the staging inbox, proxied to the loopback runner; the hub stores nothing. */
+    private static void jobs(HttpExchange ex, HubApi api, RunnerClient runner) {
+        if (runner == null) {
+            sendError(ex, 503, "no job runner configured (start the hub with --runner-url)");
+            ex.close();
+            return;
+        }
+        try {
+            String path = ex.getRequestURI().getPath();
+            String method = ex.getRequestMethod();
+            String rest = path.length() > "/api/jobs".length() ? path.substring("/api/jobs".length()) : "";
+            if (rest.isEmpty() || rest.equals("/")) {
+                if (method.equals("GET")) {
+                    proxy(ex, runner.get("/jobs"));
+                } else {
+                    sendError(ex, 405, "method not allowed");
+                }
+                return;
+            }
+            if (rest.equals("/adapters") && method.equals("GET")) {
+                proxy(ex, runner.get("/adapters"));
+                return;
+            }
+            if (rest.equals("/staging")) {
+                if (method.equals("GET")) {
+                    proxyStaging(ex, api, runner);
+                } else if (method.equals("POST")) {
+                    String name = param(ex.getRequestURI().getRawQuery(), "name");
+                    String target = "/staging" + (name == null ? "" : "?name=" + urlEncode(name));
+                    proxy(ex, runner.postUpload(target, () -> ex.getRequestBody()));
+                } else {
+                    sendError(ex, 405, "method not allowed");
+                }
+                return;
+            }
+            if (rest.equals("/staging/clear") && method.equals("POST")) {
+                String name = param(ex.getRequestURI().getRawQuery(), "name");
+                String target = "/staging/clear" + (name == null ? "" : "?name=" + urlEncode(name));
+                proxy(ex, runner.postJson(target, new byte[0]));
+                return;
+            }
+            if (rest.equals("/runs") && method.equals("GET")) {
+                proxy(ex, runner.get("/jobs/runs"));
+                return;
+            }
+            if (rest.startsWith("/runs/")) {
+                String tail = rest.substring("/runs/".length());
+                String id = tail.contains("/") ? tail.substring(0, tail.indexOf('/')) : tail;
+                if (tail.equals(id) && method.equals("GET")) {
+                    proxy(ex, runner.get("/jobs/runs/" + id));
+                    return;
+                }
+                if (tail.equals(id + "/events") && method.equals("GET")) {
+                    proxyStream(ex, runner, "/jobs/runs/" + id + "/events");
+                    return;
+                }
+                if (tail.equals(id + "/cancel") && method.equals("POST")) {
+                    proxy(ex, runner.postJson("/jobs/runs/" + id + "/cancel", new byte[0]));
+                    return;
+                }
+            }
+            if (rest.endsWith("/runs") && method.equals("POST")) {
+                String job = rest.substring(1, rest.length() - "/runs".length());
+                if (job.isEmpty() || job.contains("/")) {
+                    sendError(ex, 404, "not found");
+                    return;
+                }
+                byte[] body = readBody(ex).getBytes(StandardCharsets.UTF_8);
+                proxy(ex, runner.postJson("/jobs/" + job + "/runs", body));
+                return;
+            }
+            sendError(ex, 404, "not found");
+        } catch (Exception e) {
+            log.error("job proxy failed", e);
+            sendError(ex, 502, "job runner unreachable: " + e.getMessage());
+        } finally {
+            ex.close();
+        }
+    }
+
+    private static void proxy(HttpExchange ex, RunnerClient.Resp resp) throws IOException {
+        ex.getResponseHeaders().set("Content-Type", resp.contentType());
+        ex.sendResponseHeaders(resp.status(), resp.body().length);
+        try (OutputStream out = ex.getResponseBody()) {
+            out.write(resp.body());
+        }
+    }
+
+    private static void proxyStream(HttpExchange ex, RunnerClient runner, String path)
+            throws IOException, InterruptedException {
+        HttpResponse<InputStream> upstream = runner.stream(path);
+        ex.getResponseHeaders().set("Content-Type",
+            upstream.headers().firstValue("Content-Type").orElse("text/event-stream"));
+        ex.getResponseHeaders().set("Cache-Control", "no-cache");
+        ex.sendResponseHeaders(upstream.statusCode(), 0);
+        try (InputStream in = upstream.body();
+             OutputStream out = ex.getResponseBody()) {
+            in.transferTo(out);
+        }
+    }
+
+    /** The runner's staging list, enriched with the tick derived from the log (facts' evidence ids). */
+    private static void proxyStaging(HttpExchange ex, HubApi api, RunnerClient runner) throws Exception {
+        RunnerClient.Resp resp = runner.get("/staging");
+        if (resp.status() != 200) {
+            proxy(ex, resp);
+            return;
+        }
+        Set<String> known = api.ingestedEvidenceIds();
+        JsonNode root = Json.mapper().readTree(resp.body());
+        if (root instanceof ArrayNode array) {
+            for (JsonNode node : array) {
+                if (node instanceof ObjectNode object) {
+                    String evidenceId = object.path("evidenceId").asText(null);
+                    object.put("ingested", evidenceId != null && known.contains(evidenceId));
+                }
+            }
+        }
+        byte[] bytes = Json.mapper().writeValueAsBytes(root);
+        ex.getResponseHeaders().set("Content-Type", "application/json");
+        ex.sendResponseHeaders(200, bytes.length);
+        try (OutputStream out = ex.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    private static String urlEncode(String value) {
+        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private static void write(HttpExchange ex, int status, Object body) throws IOException {

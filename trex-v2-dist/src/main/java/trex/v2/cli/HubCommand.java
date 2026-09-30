@@ -38,10 +38,19 @@ public final class HubCommand implements Callable<Integer> {
     @Option(names = "--evidence", description = "Evidence store to index (optional).")
     Path evidence;
 
+    @Option(names = "--runner-url",
+        description = "The loopback job runner base URL; without it the Jobs view is hidden.")
+    String runnerUrl;
+
+    @Option(names = "--runner-token",
+        description = "Shared secret presented to the runner (or TREX_RUNNER_TOKEN).")
+    String runnerToken;
+
     @Override
     public Integer call() throws Exception {
+        String token = runnerToken != null ? runnerToken : System.getenv("TREX_RUNNER_TOKEN");
         HubConfig hubConfig = new HubConfig(journal, index, config, host, port,
-            HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl, evidence);
+            HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl, evidence, runnerUrl, token);
         HubService service = HubService.start(hubConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-hub-shutdown"));
         System.out.println("trex hub listening on " + host + ":" + service.port()

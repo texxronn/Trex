@@ -66,4 +66,7 @@ interface HubApi {
     DecisionOutcome putCursors(CursorRequest request);
 
     DecisionOutcome submitDecisions(DecisionRequest request);
+
+    /** Evidence ids present on facts, so the Jobs view can tick the files already in. */
+    java.util.Set<String> ingestedEvidenceIds();
 }

@@ -88,11 +88,13 @@ public final class HubService implements HubApi, AutoCloseable {
     private final IndexRefresher refresher;
     private final SequencerClient sequencer;
     private final HubEvents events;
+    private final RunnerClient runner;
     private final AtomicBoolean closed = new AtomicBoolean();
     private HttpServer server;
 
     private HubService(HubConfig config, IndexLock lock, Indexer indexer, HubQueries reads,
-                       IndexRefresher refresher, SequencerClient sequencer, HubEvents events) {
+                       IndexRefresher refresher, SequencerClient sequencer, HubEvents events,
+                       RunnerClient runner) {
         this.config = config;
         this.lock = lock;
         this.indexer = indexer;
@@ -100,6 +102,7 @@ public final class HubService implements HubApi, AutoCloseable {
         this.refresher = refresher;
         this.sequencer = sequencer;
         this.events = events;
+        this.runner = runner;
     }
 
     public static HubService start(HubConfig config) {
@@ -115,8 +118,9 @@ public final class HubService implements HubApi, AutoCloseable {
             refresher = new IndexRefresher(config.journal(), config.configDir(), indexer,
                 loaded.config(), config.refreshDebounceMs(), events, config.evidenceDir());
             SequencerClient sequencer = config.sequencerUrl() == null ? null : new SequencerClient(config.sequencerUrl());
-            HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events);
-            service.server = HubHttpApi.start(config.host(), config.port(), service, events);
+            RunnerClient runner = config.runnerUrl() == null ? null : new RunnerClient(config.runnerUrl(), config.runnerToken());
+            HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events, runner);
+            service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner);
             log.info("trex hub listening on {}:{}; journal {}; index {}",
                 config.host(), service.server.getAddress().getPort(), config.journal(), config.index());
             return service;
@@ -395,6 +399,12 @@ public final class HubService implements HubApi, AutoCloseable {
         DeriveConfig c = refresher.config();
         Derivation d = indexer.deriveWith(c, Instant.now(), Long.MAX_VALUE);
         return Workbook.of(c, d);
+    }
+
+    /** The evidence ids already on facts, for the Jobs view's ingested tick (§5.5, §12.5). */
+    @Override
+    public Set<String> ingestedEvidenceIds() {
+        return reads.ingestedEvidenceIds();
     }
 
     // ---- rule files (V2-PROPOSAL.md §7.4 point 6, §9.3) -------------------------------------

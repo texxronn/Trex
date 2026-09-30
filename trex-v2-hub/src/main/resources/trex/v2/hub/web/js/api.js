@@ -46,4 +46,32 @@ export const api = {
   categoriesYaml: () => request('GET', '/api/config/categories'),
   saveCategories: (categories) => request('PUT', '/api/config/categories', { categories }),
   workbook: () => request('GET', '/api/workbook'),
+  jobs: () => request('GET', '/api/jobs'),
+  jobAdapters: () => request('GET', '/api/jobs/adapters'),
+  staging: () => request('GET', '/api/jobs/staging'),
+  jobRuns: () => request('GET', '/api/jobs/runs'),
+  runDetail: (id) => request('GET', '/api/jobs/runs/' + encodeURIComponent(id)),
+  runJob: (name, params) => request('POST', `/api/jobs/${encodeURIComponent(name)}/runs`, { params }),
+  cancelRun: (id) => request('POST', '/api/jobs/runs/' + encodeURIComponent(id) + '/cancel', {}),
+  clearStaged: (name) => request('POST', '/api/jobs/staging/clear?name=' + encodeURIComponent(name), {}),
 };
+
+/** Upload one file to the staging inbox, with progress. XHR, because fetch cannot report it. */
+export function uploadStaged(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/jobs/staging?name=' + encodeURIComponent(file.name));
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch { /* empty */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('upload failed'));
+    xhr.send(file);
+  });
+}

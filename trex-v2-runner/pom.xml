@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>trex</groupId>
+    <artifactId>trex</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>trex-v2-runner</artifactId>
+  <name>trex-v2-runner</name>
+  <description>
+    The on-demand job dispatcher (V2-PROPOSAL.md §5.5, §12.5): a loopback trigger API and a
+    staged-file inbox. A job is an invocation of an existing subcommand — the runner never
+    parses, derives or interprets, and never touches the log or the index.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-log</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-ingest</artifactId>
+    </dependency>
+  </dependencies>
+</project>

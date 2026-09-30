@@ -18,6 +18,7 @@
     <module>trex-v2-hub</module>
     <module>trex-v2-egress</module>
     <module>trex-v2-ingest</module>
+    <module>trex-v2-runner</module>
     <module>trex-v2-dist</module>
     <!-- v1 (trex-core … trex-ws) is reference material (AGENTS.md): kept on disk and
          buildable, but out of the default reactor so a normal build skips it. Activate
@@ -109,6 +110,11 @@
       <dependency>
         <groupId>trex</groupId>
         <artifactId>trex-v2-ingest</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>trex</groupId>
+        <artifactId>trex-v2-runner</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

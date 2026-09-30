@@ -9,8 +9,9 @@ import * as blotter from './blotter.js';
 import * as review from './review.js';
 import * as eyeball from './eyeball.js';
 import * as rules from './rules.js';
+import * as jobs from './jobs.js';
 
-const modes = { blotter, review, eyeball, rules };
+const modes = { blotter, review, eyeball, rules, jobs };
 
 const ctx = {
   n: 0,

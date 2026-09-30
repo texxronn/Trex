@@ -312,3 +312,19 @@ td.desc { white-space: normal; max-width: 30rem; }
 tbody tr.read td { opacity: .45; }
 tbody tr.unread td { font-weight: 500; }
 tbody tr.read:hover td { opacity: .75; }
+
+/* ---- Jobs / staging ----------------------------------------------------- */
+
+.drop-zone { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 0.8rem;
+  color: var(--muted); text-align: center; margin-bottom: 0.6rem; }
+.drop-zone.over { border-color: var(--accent); color: var(--fg); background: var(--accent-soft); }
+.drop-zone input[type="file"] { margin-left: 0.3rem; max-width: 100%; }
+.job-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.6rem 0.7rem;
+  background: var(--surface); margin-bottom: 0.6rem; }
+.job-card .toolbar { margin-top: 0.5rem; }
+.job-output { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.6rem; max-height: 320px; overflow: auto; font: 12px/1.35 var(--mono);
+  white-space: pre-wrap; word-break: break-word; margin: 0; }
+.tick { color: var(--good); font-size: 12px; white-space: nowrap; }
+button.warn { border-color: var(--warn); color: var(--warn); }
+button.warn:hover { background: var(--warn-soft); }

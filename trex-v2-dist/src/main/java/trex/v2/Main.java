@@ -9,6 +9,7 @@ import trex.v2.cli.ImportCommand;
 import trex.v2.cli.IndexCommand;
 import trex.v2.cli.IngestCommand;
 import trex.v2.cli.ReflowCommand;
+import trex.v2.cli.RunnerCommand;
 import trex.v2.cli.SequencerCommand;
 import trex.v2.cli.VerifyCommand;
 
@@ -32,6 +33,7 @@ import java.util.concurrent.Callable;
         IngestCommand.class,
         EgressCommand.class,
         ReflowCommand.class,
+        RunnerCommand.class,
         VerifyCommand.class,
         ExportCommand.class,
         ImportCommand.class,

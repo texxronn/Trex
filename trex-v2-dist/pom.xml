@@ -47,6 +47,10 @@
       <artifactId>trex-v2-ingest</artifactId>
     </dependency>
     <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-runner</artifactId>
+    </dependency>
+    <dependency>
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
     </dependency>

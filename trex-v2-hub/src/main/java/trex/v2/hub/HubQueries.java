@@ -104,6 +104,25 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /**
+     * The evidence ids that appear on facts — the derived "ingested" tick. Deliberately the log
+     * (facts), not the evidence store: evidence is written before parsing, so a rejected file would
+     * otherwise be marked done (V2-PROPOSAL.md §5.5, §12.5).
+     */
+    public java.util.Set<String> ingestedEvidenceIds() {
+        return read(conn -> {
+            java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(
+                     "SELECT DISTINCT evidence_id FROM fact WHERE evidence_id IS NOT NULL")) {
+                while (rs.next()) {
+                    ids.add(rs.getString(1));
+                }
+            }
+            return ids;
+        });
+    }
+
     /** Open review items by kind (open = derived and not dismissed). */
     public Map<String, Long> reviewByKind() {
         return read(conn -> {

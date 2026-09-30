@@ -4,22 +4,29 @@ import java.nio.file.Path;
 
 /**
  * What the hub needs to own an index (V2-PROPOSAL.md §7.4): the journal it follows, the index file
- * it writes, the config directory it watches, the bind address, the sequencer to forward to, and an
- * optional evidence store to index.
+ * it writes, the config directory it watches, the bind address, the sequencer to forward to, an
+ * optional evidence store to index, and the optional job runner to proxy (V2-PROPOSAL.md §5.5).
+ * Without a runner URL the Jobs view is hidden, exactly as the hub is read-only without a sequencer.
  */
 public record HubConfig(Path journal, Path index, Path configDir, String host, int port,
-                        long refreshDebounceMs, String sequencerUrl, Path evidenceDir) {
+                        long refreshDebounceMs, String sequencerUrl, Path evidenceDir,
+                        String runnerUrl, String runnerToken) {
 
     public static final long DEFAULT_DEBOUNCE_MS = 200;
 
     /** A read-only hub with no evidence store. */
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs) {
-        this(journal, index, configDir, host, port, refreshDebounceMs, null, null);
+        this(journal, index, configDir, host, port, refreshDebounceMs, null, null, null, null);
     }
 
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
                      String sequencerUrl) {
-        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, null);
+        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, null, null, null);
+    }
+
+    public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
+                     String sequencerUrl, Path evidenceDir) {
+        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, evidenceDir, null, null);
     }
 
     public HubConfig {
@@ -35,6 +42,10 @@ public record HubConfig(Path journal, Path index, Path configDir, String host, i
         if (sequencerUrl != null && !sequencerUrl.isBlank()
             && !(sequencerUrl.startsWith("http://") || sequencerUrl.startsWith("https://"))) {
             throw new IllegalArgumentException("sequencerUrl must be an http(s) URL");
+        }
+        if (runnerUrl != null && !runnerUrl.isBlank()
+            && !(runnerUrl.startsWith("http://") || runnerUrl.startsWith("https://"))) {
+            throw new IllegalArgumentException("runnerUrl must be an http(s) URL");
         }
     }
 }
