@@ -185,7 +185,6 @@ services:
       - ${TREX_FIREFLY_URL:?set TREX_FIREFLY_URL}
       - --accounts
       - /etc/trex/firefly.yaml
-      - --allow-apply
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
       FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}

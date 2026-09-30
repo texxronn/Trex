@@ -32,6 +32,7 @@ export const api = {
   review: (kind) => request('GET', '/api/review' + (kind ? '?' + new URLSearchParams({ kind }) : '')),
   transfers: () => request('GET', '/api/transfers'),
   units: () => request('GET', '/api/units'),
+  projection: () => request('GET', '/api/projection'),
   reconcile: () => request('GET', '/api/reconcile'),
   acks: () => request('GET', '/api/acks'),
   eyeball: (period, user, opts = {}) => request('GET', '/api/eyeball?' + new URLSearchParams({

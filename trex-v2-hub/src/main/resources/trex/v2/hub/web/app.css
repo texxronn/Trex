@@ -328,3 +328,12 @@ tbody tr.read:hover td { opacity: .75; }
 .tick { color: var(--good); font-size: 12px; white-space: nowrap; }
 button.warn { border-color: var(--warn); color: var(--warn); }
 button.warn:hover { background: var(--warn-soft); }
+
+/* ---- Jobs: ops / staleness strip ---------------------------------------- */
+
+.ops { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+  margin-bottom: 0.8rem; font-size: 12px; }
+.ops-chip b.good { color: var(--good); }
+.ops-chip b.bad { color: var(--bad); }
+.ops-chip b.muted { color: var(--muted); }

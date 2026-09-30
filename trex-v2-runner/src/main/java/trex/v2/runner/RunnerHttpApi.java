@@ -174,6 +174,7 @@ final class RunnerHttpApi {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", run.id());
         m.put("job", run.job());
+        m.put("params", run.params());
         m.put("state", run.state().name());
         m.put("queuedAt", run.queuedAt());
         m.put("startedAt", run.startedAt());

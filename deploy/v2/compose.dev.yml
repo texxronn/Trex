@@ -15,3 +15,12 @@ services:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m} -Dtrex.hub.webDir=/web
     volumes:
       - ${TREX_WEB_DIR:?set TREX_WEB_DIR to trex-v2-hub/src/main/resources/trex/v2/hub/web}:/web:ro
+
+  # Dev only: unlock the egress apply job. The base compose leaves it locked, so the host stays
+  # locked until the hub is fronted with auth.
+  runner:
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+      TREX_RUNNER_ALLOW_APPLY: "true"

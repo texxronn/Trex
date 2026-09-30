@@ -37,6 +37,9 @@ public final class RunnerService implements AutoCloseable {
                 config.host(), server.getAddress().getPort(), config.stagingDir(), jobs.keySet());
             if (!config.allowApply()) {
                 log.info("--apply is disabled (start with --allow-apply to unlock it)");
+            } else {
+                log.warn("--apply is ENABLED: anyone who can reach the hub on this origin can "
+                    + "project to Firefly; front the hub with auth before exposing it");
             }
             return new RunnerService(config, runner, server);
         } catch (IOException e) {

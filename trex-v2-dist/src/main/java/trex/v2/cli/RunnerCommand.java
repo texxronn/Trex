@@ -50,7 +50,8 @@ public final class RunnerCommand implements Callable<Integer> {
     @Option(names = "--token", description = "Shared secret the hub must present (or TREX_RUNNER_TOKEN).")
     String token;
 
-    @Option(names = "--allow-apply", description = "Unlock the egress apply job.")
+    @Option(names = "--allow-apply",
+        description = "Unlock the egress apply job (also TREX_RUNNER_ALLOW_APPLY=true).")
     boolean allowApply;
 
     @Option(names = "--job-timeout-minutes", defaultValue = "30", description = "Wall-clock cap per run.")
@@ -59,8 +60,10 @@ public final class RunnerCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         String secret = token != null ? token : System.getenv("TREX_RUNNER_TOKEN");
+        String applyEnv = System.getenv("TREX_RUNNER_ALLOW_APPLY");
+        boolean apply = allowApply || "true".equalsIgnoreCase(applyEnv == null ? "" : applyEnv.trim());
         RunnerConfig runnerConfig = new RunnerConfig(host, port, config, statements, staging, evidence,
-            sequencerUrl, hubUrl, fireflyUrl, accounts, secret, allowApply,
+            sequencerUrl, hubUrl, fireflyUrl, accounts, secret, apply,
             Duration.ofMinutes(jobTimeoutMinutes));
         RunnerService service = RunnerService.start(runnerConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-runner-shutdown"));

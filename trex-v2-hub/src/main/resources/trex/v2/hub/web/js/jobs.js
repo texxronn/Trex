@@ -12,10 +12,13 @@ let adapters = [];
 let staged = [];
 let jobs = [];
 let runs = [];
+let drift = null;
+let lastPlan = null; // in-session plan counts; Apply stays locked until one exists
 
 const selected = new Set();
 let stream = null;
 let outputHost;
+let opsHost;
 let stagingHost;
 let jobsHost;
 let historyHost;
@@ -32,12 +35,14 @@ export function mount(container, context) {
 
 function render() {
   clear(host);
+  opsHost = el('div', { class: 'ops' });
   stagingHost = el('div');
   jobsHost = el('div');
   historyHost = el('div');
   outputHost = el('pre', { class: 'job-output' });
   statusLine = el('div', { class: 'muted', hidden: true });
   host.append(
+    opsHost,
     el('h3', {}, 'Staging inbox'),
     uploadBar(),
     statusLine,
@@ -77,13 +82,78 @@ async function load() {
     staged = s || [];
     jobs = j || [];
     runs = r || [];
+    renderOps();
     renderStaging();
     renderJobs();
     renderHistory();
   } catch (error) {
     reportError(error);
   }
+  try {
+    const [u, p] = await Promise.all([api.units(), api.projection()]);
+    drift = computeDrift(u, p);
+  } catch {
+    drift = null;
+  }
+  renderOps();
 }
+
+// ---- staleness ----------------------------------------------------------------------------
+
+function computeDrift(unitsResp, projectionResp) {
+  const units = (unitsResp && unitsResp.units) || [];
+  const rows = (projectionResp && projectionResp.rows) || [];
+  const byId = new Map(rows.map((row) => [row.unitId, row.stateHash]));
+  const unitIds = new Set(units.map((unit) => unit.unitId));
+  let unprojected = 0;
+  let drifted = 0;
+  for (const unit of units) {
+    if (!byId.has(unit.unitId)) unprojected += 1;
+    else if (byId.get(unit.unitId) !== unit.unitHash) drifted += 1;
+  }
+  let orphaned = 0;
+  for (const row of rows) {
+    if (!unitIds.has(row.unitId)) orphaned += 1;
+  }
+  return { units: units.length, projected: rows.length, unprojected, drifted, orphaned };
+}
+
+function lastRunOf(mode) {
+  return runs.find((run) => run.job === 'egress-firefly' && run.params && run.params.mode === mode
+    && (run.state === 'SUCCEEDED' || run.state === 'FAILED'));
+}
+
+function renderOps() {
+  if (!opsHost) return;
+  clear(opsHost);
+  const plan = lastRunOf('plan');
+  const apply = lastRunOf('apply');
+  opsHost.append(
+    chip('last plan', plan ? `${rel(plan.finishedAt || plan.queuedAt)} · exit ${plan.exit}` : 'never',
+      plan && plan.exit === 0 ? 'good' : plan ? 'bad' : 'muted'),
+    chip('last apply', apply ? `${rel(apply.finishedAt || apply.queuedAt)} · exit ${apply.exit}` : 'never',
+      apply && apply.exit === 0 ? 'good' : apply ? 'bad' : 'muted'),
+    chip('unprojected', drift ? String(drift.unprojected) : '—', drift && drift.unprojected ? 'bad' : 'good'),
+    chip('drifted', drift ? String(drift.drifted) : '—', drift && drift.drifted ? 'bad' : 'good'),
+    chip('orphaned', drift ? String(drift.orphaned) : '—', drift && drift.orphaned ? 'bad' : 'good'),
+  );
+}
+
+function chip(label, value, cls) {
+  return el('span', { class: 'ops-chip' },
+    el('span', { class: 'muted' }, label + ' '), el('b', { class: cls }, value));
+}
+
+function rel(ms) {
+  if (!ms) return 'never';
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 90) return `${Math.round(s)}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)}m ago`;
+  if (s < 172800) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+
+// ---- staging ------------------------------------------------------------------------------
 
 async function upload(files) {
   if (!files || !files.length) return;
@@ -101,8 +171,6 @@ async function upload(files) {
   statusLine.hidden = true;
   await load();
 }
-
-// ---- staging ------------------------------------------------------------------------------
 
 function renderStaging() {
   clear(stagingHost);
@@ -191,21 +259,36 @@ function renderJobs() {
     return;
   }
   const busy = egress.running;
+  const canApply = !busy && lastPlan != null && lastPlan.exit === 0;
   const buttons = [
     el('button', { class: 'primary', disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'plan' }) }, 'Plan'),
     el('button', { disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'verify' }) }, 'Verify'),
-    el('button', { class: 'warn', disabled: busy, onclick: confirmApply }, 'Apply'),
+    el('button', { class: 'warn', disabled: !canApply, onclick: confirmApply,
+      title: canApply ? '' : 'Run Plan first' }, 'Apply'),
   ];
   if (busy && egress.activeRun) {
     buttons.push(el('button', { class: 'ghost', onclick: () => cancel(egress.activeRun) }, 'Cancel'));
   }
+  const status = lastPlan
+    ? el('div', { class: 'muted' }, 'planned: ' + planSummary(lastPlan))
+    : el('div', { class: 'muted' }, 'Apply is locked until you run a Plan.');
   jobsHost.append(el('div', { class: 'job-card' },
     el('div', { class: 'muted' }, egress.description),
+    status,
     el('div', { class: 'toolbar' }, ...buttons)));
 }
 
+function planSummary(plan) {
+  const c = plan.counts;
+  if (!c) return `exit ${plan.exit} (no diff line)`;
+  return `${c.creates} create · ${c.retags} retag · ${c.orphans} orphan · ${c.preserved} human-owned`;
+}
+
 async function confirmApply() {
-  if (!window.confirm('Apply the projection to Firefly? Run Plan first and read the diff.')) return;
+  if (!lastPlan || lastPlan.exit !== 0) return;
+  const message = `Apply the projection to Firefly?\n\nLast plan: ${planSummary(lastPlan)}.\n\n`
+    + 'Orphans are reported, not deleted (that needs --remove-orphans).';
+  if (!window.confirm(message)) return;
   await startRun('egress-firefly', { mode: 'apply' });
 }
 
@@ -223,12 +306,34 @@ async function startRun(name, params) {
   appendOutput(`== ${name} ${JSON.stringify(params)}`);
   try {
     const { runId } = await api.runJob(name, params);
-    await streamRun(runId);
+    const run = await streamRun(runId);
+    if (name === 'egress-firefly' && params.mode === 'plan') {
+      await capturePlan(runId);
+    }
+    if (name === 'egress-firefly' && params.mode === 'apply' && run.exit === 0) {
+      lastPlan = null; // consumed: Apply locks again until the next plan
+    }
   } catch (error) {
     reportError(error);
   } finally {
     await load();
   }
+}
+
+async function capturePlan(runId) {
+  try {
+    const detail = await api.runDetail(runId);
+    const line = [...(detail.output || [])].reverse().find((l) => l.startsWith('done:'));
+    lastPlan = { at: detail.finishedAt || Date.now(), exit: detail.exit, counts: parseDone(line) };
+  } catch {
+    lastPlan = null;
+  }
+}
+
+function parseDone(line) {
+  const m = /done:\s*(\d+) created,\s*(\d+) retagged,\s*(\d+) orphan\(s\),\s*(\d+) removed,\s*(\d+) of your edits preserved/
+    .exec(line || '');
+  return m ? { creates: +m[1], retags: +m[2], orphans: +m[3], removed: +m[4], preserved: +m[5] } : null;
 }
 
 function streamRun(runId) {
@@ -265,7 +370,7 @@ function renderHistory() {
     el('th', {}, 'Exit'), el('th', {}));
   const body = runs.slice(0, 20).map((run) => el('tr', {},
     el('td', { class: 'muted' }, new Date(run.queuedAt).toLocaleString()),
-    el('td', {}, run.job),
+    el('td', {}, run.job + (run.params && run.params.mode ? ' · ' + run.params.mode : '')),
     el('td', {}, el('span', { class: 'badge ' + run.state }, run.state)),
     el('td', {}, String(run.exit)),
     el('td', {}, el('button', { class: 'ghost', onclick: () => showRun(run.id) }, 'Output')),
