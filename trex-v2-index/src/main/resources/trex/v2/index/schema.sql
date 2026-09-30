@@ -43,6 +43,28 @@ CREATE TABLE IF NOT EXISTS decision (
 );
 CREATE INDEX IF NOT EXISTS decision_action ON decision(action);
 
+-- level 1: the third kind, mirrored like the others (V2-PROPOSAL.md §6, §12.6)
+CREATE TABLE IF NOT EXISTS ingest_event (
+  n           INTEGER PRIMARY KEY,
+  phase       TEXT NOT NULL,
+  batch       TEXT NOT NULL,
+  evidence_id TEXT,
+  file        TEXT,
+  account_ref TEXT,
+  source_type TEXT,
+  parser      TEXT,
+  appended    INTEGER,
+  duplicate   INTEGER,
+  flagged     INTEGER,
+  status      TEXT,
+  line_v      INTEGER NOT NULL,
+  at_ms       INTEGER NOT NULL,
+  env         TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  target      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ingest_event_batch ON ingest_event(batch);
+
 -- Level 2: derived. Rebuilt from level 1 + config + asOf.
 CREATE TABLE IF NOT EXISTS supersession (
   from_id    TEXT PRIMARY KEY,
@@ -107,6 +129,16 @@ CREATE TABLE IF NOT EXISTS pending (
   settled_by  TEXT,
   state       TEXT NOT NULL
 );
+
+-- an ingest attempt: its markers paired, with the n range its facts sit in (V2-PROPOSAL.md §12.6)
+CREATE VIEW IF NOT EXISTS ingest_batch AS
+SELECT s.batch, s.file, s.evidence_id, s.account_ref,
+       s.n AS n_start, c.n AS n_end,
+       c.appended, c.duplicate, c.flagged, c.status,
+       s.at_ms AS started_ms, c.at_ms AS completed_ms
+FROM ingest_event s
+LEFT JOIN ingest_event c ON c.batch = s.batch AND c.phase = 'complete'
+WHERE s.phase = 'start';
 
 CREATE TABLE IF NOT EXISTS review_item (
   subject      TEXT NOT NULL,

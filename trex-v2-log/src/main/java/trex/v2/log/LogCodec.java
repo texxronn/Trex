@@ -8,9 +8,11 @@ import trex.v2.core.Actor;
 import trex.v2.core.Decision;
 import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
+import trex.v2.core.IngestEvent;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.Unknown;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -58,6 +60,10 @@ public final class LogCodec {
             fact(f, o);
         } else if (line instanceof Decision d) {
             decision(d, o);
+        } else if (line instanceof IngestEvent ev) {
+            ingest(ev, o);
+        } else if (line instanceof Unknown) {
+            // envelope only; an unknown kind carries no body this build can write
         } else {
             throw new IllegalArgumentException("unsupported log line " + line.getClass());
         }
@@ -152,11 +158,25 @@ public final class LogCodec {
         }
     }
 
+    private static void ingest(IngestEvent e, ObjectNode o) {
+        o.put("phase", e.phase());
+        o.put("batch", e.batch());
+        putNullable(o, "evidence", e.evidence());
+        putNullable(o, "file", e.file());
+        putNullable(o, "account", e.accountRef());
+        putNullable(o, "sourceType", e.sourceType());
+        putNullable(o, "parser", e.parser());
+        putNullableInt(o, "appended", e.appended());
+        putNullableInt(o, "duplicate", e.duplicate());
+        putNullableInt(o, "flagged", e.flagged());
+        putNullable(o, "status", e.status());
+    }
+
     // ---- decode -----------------------------------------------------------------------------
 
     /** The namespaced kinds this codec understands. */
     public static boolean isKnownKind(String kind) {
-        return Fact.KIND.equals(kind) || Decision.KIND.equals(kind);
+        return Fact.KIND.equals(kind) || Decision.KIND.equals(kind) || IngestEvent.KIND.equals(kind);
     }
 
     public static LogLine parse(byte[] line) {
@@ -172,7 +192,9 @@ public final class LogCodec {
         return switch (kind) {
             case Fact.KIND -> decodeFact(node);
             case Decision.KIND -> decodeDecision(node);
-            default -> throw new JournalCorruptException("unknown log line kind '" + kind + "'", null);
+            case IngestEvent.KIND -> decodeIngest(node);
+            // A well-formed envelope with a kind this build does not know: forward-compatible.
+            default -> new Unknown(envelope(node));
         };
     }
 
@@ -223,6 +245,22 @@ public final class LogCodec {
         };
     }
 
+    private static IngestEvent decodeIngest(JsonNode n) {
+        return new IngestEvent(
+            envelope(n),
+            text(n, "phase"),
+            text(n, "batch"),
+            opt(n, "evidence"),
+            opt(n, "file"),
+            opt(n, "account"),
+            opt(n, "sourceType"),
+            opt(n, "parser"),
+            optInt(n, "appended"),
+            optInt(n, "duplicate"),
+            optInt(n, "flagged"),
+            opt(n, "status"));
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
     private static void putNullable(ObjectNode o, String field, String value) {
@@ -236,6 +274,19 @@ public final class LogCodec {
     private static void array(ObjectNode o, String field, List<String> values) {
         ArrayNode a = o.putArray(field);
         values.forEach(a::add);
+    }
+
+    private static void putNullableInt(ObjectNode o, String field, Integer value) {
+        if (value == null) {
+            o.putNull(field);
+        } else {
+            o.put(field, value.intValue());
+        }
+    }
+
+    private static Integer optInt(JsonNode n, String field) {
+        JsonNode v = n.get(field);
+        return v == null || v.isNull() ? null : v.asInt();
     }
 
     private static String text(JsonNode n, String field) {

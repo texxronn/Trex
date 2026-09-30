@@ -56,6 +56,15 @@ final class HttpApi {
                 write(ex, 400, new ErrorResponse("malformed /decisions body: " + e.getOriginalMessage()));
             }
         });
+        route(server, "/ingest", "POST", ex -> {
+            try {
+                trex.v2.sequencer.api.IngestBatch batch =
+                    Json.mapper().readValue(readBody(ex, maxBody), trex.v2.sequencer.api.IngestBatch.class);
+                write(ex, 200, sequencer.submitIngest(batch));
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                write(ex, 400, new ErrorResponse("malformed /ingest body: " + e.getOriginalMessage()));
+            }
+        });
         server.createContext("/", ex -> sendError(ex, 404, "not found"));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();

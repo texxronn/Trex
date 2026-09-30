@@ -4,10 +4,13 @@ import org.junit.jupiter.api.Test;
 import trex.v2.core.Action;
 import trex.v2.core.Actor;
 import trex.v2.core.Decision;
+import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
+import trex.v2.core.IngestEvent;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.Unknown;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -15,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -81,6 +85,30 @@ class LogCodecTest {
     @Test
     void unknownKindIsCorruption() {
         assertThrows(JournalCorruptException.class, () -> LogCodec.parse("{\"n\":1,\"kind\":\"wat\"}".getBytes()));
+    }
+
+    @Test
+    void anUnknownKindWithAValidEnvelopeIsUnknown() {
+        // Forward compatibility (§6): a well-formed line of a kind this build does not know is
+        // parsed as Unknown and ignored, never fatal.
+        String json = "{\"n\":7,\"kind\":\"future.thing\",\"v\":1,\"atMs\":1,"
+            + "\"env\":\"Dev1    \",\"source\":\"TST_0001\",\"target\":\"        \"}";
+        LogLine line = LogCodec.parse(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertInstanceOf(Unknown.class, line);
+        assertEquals("future.thing", line.kind());
+        assertFalse(LogCodec.isKnownKind(line.kind()));
+    }
+
+    @Test
+    void ingestEventsRoundTrip() {
+        IngestEvent start = new IngestEvent(Envelope.stamped(1, IngestEvent.KIND, AT), "start", "b1",
+            "sha256:x", "f.csv", "ing-savings", "ing-csv", "ing-csv/1", null, null, null, null);
+        IngestEvent complete = new IngestEvent(Envelope.stamped(2, IngestEvent.KIND, AT), "complete", "b1",
+            null, null, null, null, null, 2, 0, 0, "ok");
+        for (LogLine line : List.<LogLine>of(start, complete)) {
+            assertEquals(line, LogCodec.parse(LogCodec.encode(line)));
+        }
+        assertTrue(LogCodec.isKnownKind(IngestEvent.KIND));
     }
 
     @Test

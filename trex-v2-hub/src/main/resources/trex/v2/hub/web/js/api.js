@@ -47,6 +47,7 @@ export const api = {
   categoriesYaml: () => request('GET', '/api/config/categories'),
   saveCategories: (categories) => request('PUT', '/api/config/categories', { categories }),
   workbook: () => request('GET', '/api/workbook'),
+  ingests: () => request('GET', '/api/ingests'),
   jobs: () => request('GET', '/api/jobs'),
   jobAdapters: () => request('GET', '/api/jobs/adapters'),
   staging: () => request('GET', '/api/jobs/staging'),

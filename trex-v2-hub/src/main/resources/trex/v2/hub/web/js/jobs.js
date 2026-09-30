@@ -12,6 +12,7 @@ let adapters = [];
 let staged = [];
 let jobs = [];
 let runs = [];
+let ingests = [];
 let drift = null;
 let lastPlan = null; // in-session plan counts; Apply stays locked until one exists
 
@@ -21,6 +22,7 @@ let outputHost;
 let opsHost;
 let stagingHost;
 let jobsHost;
+let ingestHost;
 let historyHost;
 let statusLine;
 let ingestButton;
@@ -38,6 +40,7 @@ function render() {
   opsHost = el('div', { class: 'ops' });
   stagingHost = el('div');
   jobsHost = el('div');
+  ingestHost = el('div');
   historyHost = el('div');
   outputHost = el('pre', { class: 'job-output' });
   statusLine = el('div', { class: 'muted', hidden: true });
@@ -51,6 +54,8 @@ function render() {
     jobsHost,
     el('h3', {}, 'Run output'),
     outputHost,
+    el('h3', {}, 'Ingests'),
+    ingestHost,
     el('h3', {}, 'History'),
     historyHost,
   );
@@ -95,6 +100,12 @@ async function load() {
   } catch {
     drift = null;
   }
+  try {
+    ingests = (await api.ingests()).rows || [];
+  } catch {
+    ingests = [];
+  }
+  renderIngests();
   renderOps();
 }
 
@@ -359,6 +370,29 @@ function appendOutput(line) {
 }
 
 // ---- history ------------------------------------------------------------------------------
+
+function renderIngests() {
+  clear(ingestHost);
+  if (!ingests.length) {
+    ingestHost.append(el('p', { class: 'muted' }, 'No ingests recorded yet.'));
+    return;
+  }
+  const head = el('tr', {}, el('th', {}, 'File'), el('th', {}, 'Account'), el('th', {}, 'n range'),
+    el('th', {}, 'app/dup/flag'), el('th', {}, 'Status'), el('th', {}, 'When'));
+  const body = ingests.map((i) => el('tr', {},
+    el('td', { class: 'desc', title: i.evidenceId || '' }, i.file || '(unknown)'),
+    el('td', {}, i.accountRef || ''),
+    el('td', { class: 'muted' }, `${i.nStart}\u2013${i.nEnd}`),
+    el('td', {}, `${num(i.appended)}/${num(i.duplicate)}/${num(i.flagged)}`),
+    el('td', {}, el('span', { class: 'badge ' + (i.status === 'ok' ? '' : 'POTENTIAL_DUP') },
+      i.status || 'open')),
+    el('td', { class: 'muted' }, rel(i.completedMs || i.startedMs))));
+  ingestHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
+function num(value) {
+  return value === null || value === undefined ? '\u2014' : value;
+}
 
 function renderHistory() {
   clear(historyHost);

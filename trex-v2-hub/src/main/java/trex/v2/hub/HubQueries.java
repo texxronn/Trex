@@ -32,8 +32,8 @@ import java.util.concurrent.TimeUnit;
 public final class HubQueries implements AutoCloseable {
 
     private static final List<String> STATUS_TABLES = List.of(
-        "fact", "decision", "supersession", "chain_resolved", "txn_current", "transfer", "pending",
-        "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "evidence");
+        "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
+        "pending", "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "evidence");
 
     private final BlockingQueue<Connection> pool;
     private final int size;
@@ -86,7 +86,8 @@ public final class HubQueries implements AutoCloseable {
 
     /** The highest {@code n} the index has mirrored. */
     public long logHeadN() {
-        return scalarLong("SELECT COALESCE(MAX(n), 0) FROM (SELECT n FROM fact UNION ALL SELECT n FROM decision)", 0);
+        return scalarLong("SELECT COALESCE(MAX(n), 0) FROM (SELECT n FROM fact UNION ALL SELECT n FROM decision "
+            + "UNION ALL SELECT n FROM ingest_event)", 0);
     }
 
     /** The status strip's counts (V2-PROPOSAL.md §14). */
@@ -120,6 +121,28 @@ public final class HubQueries implements AutoCloseable {
                 }
             }
             return ids;
+        });
+    }
+
+    /** The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. */
+    public List<trex.v2.hub.api.IngestsResponse.IngestRow> ingests(int limit) {
+        return read(conn -> {
+            List<trex.v2.hub.api.IngestsResponse.IngestRow> out = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT batch, file, evidence_id, account_ref, n_start, n_end, appended, duplicate, flagged, "
+                    + "status, started_ms, completed_ms FROM ingest_batch ORDER BY n_start DESC LIMIT ?")) {
+                ps.setInt(1, limit);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new trex.v2.hub.api.IngestsResponse.IngestRow(
+                            rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                            rs.getLong(5), rs.getLong(6),
+                            (Integer) rs.getObject(7), (Integer) rs.getObject(8), (Integer) rs.getObject(9),
+                            rs.getString(10), rs.getLong(11), rs.getLong(12)));
+                    }
+                }
+            }
+            return out;
         });
     }
 

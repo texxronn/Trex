@@ -66,6 +66,30 @@ public final class IngestClient {
         }
     }
 
+    /** Emit one ingest event (V2-PROPOSAL.md §12.6); a transport failure is terminal, like /facts. */
+    public void postIngest(java.util.Map<String, Object> event) {
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>(event);
+        body.put("source", source);
+        try {
+            byte[] json = Json.mapper().writeValueAsBytes(body);
+            HttpRequest request = HttpRequest.newBuilder(base.resolve("/ingest"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(json))
+                .build();
+            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() / 100 != 2) {
+                throw new IngestException("sequencer answered HTTP " + response.statusCode() + " on /ingest: "
+                    + new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
+            }
+        } catch (IOException e) {
+            throw new IngestException("cannot reach the sequencer at " + base + ": " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IngestException("interrupted posting to " + base, e);
+        }
+    }
+
     public BatchResponse postFacts(List<FactDraft> facts, boolean allOrNone) {
         try {
             byte[] json = Json.mapper().writeValueAsBytes(new FactBatch(allOrNone, source, facts));

@@ -46,6 +46,7 @@ class IngestRunnerTest {
                 new IngestClient(sequencer.url()), quiet());
             assertEquals(IngestRunner.BAD_ROWS, exit);
             assertEquals(0, sequencer.calls);
+            assertEquals(2, sequencer.ingests, "start + complete, no facts");
         }
     }
 

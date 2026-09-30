@@ -5,6 +5,7 @@ import trex.v2.core.Actor;
 import trex.v2.core.Decision;
 import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
+import trex.v2.core.IngestEvent;
 import trex.v2.core.Ids;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
@@ -106,6 +107,23 @@ public final class Sequencer implements AutoCloseable {
 
     public synchronized HeadResponse head() {
         return new HeadResponse(state.headN, journal.headOffset());
+    }
+
+    /** Append one ingest event (V2-PROPOSAL.md §12.6): the writer stamps the envelope and assigns n. */
+    public synchronized HeadResponse submitIngest(trex.v2.sequencer.api.IngestBatch batch) {
+        String source = source(batch.source());
+        String target = target(batch.target());
+        if (batch.batch() == null || batch.batch().isBlank()) {
+            throw new IllegalArgumentException("batch is required on an ingest event");
+        }
+        IngestEvent event = new IngestEvent(
+            new Envelope(state.headN + 1, IngestEvent.KIND, Envelope.VERSION, clock.millis(), env, source, target),
+            batch.phase(), batch.batch(), batch.evidence(), batch.file(), batch.account(),
+            batch.sourceType(), batch.parser(), batch.appended(), batch.duplicate(), batch.flagged(),
+            batch.status());
+        journal.appendBatch(List.of(event));
+        state.headN++;
+        return head();
     }
 
     /** The number of log lines folded; for tests and diagnostics. */

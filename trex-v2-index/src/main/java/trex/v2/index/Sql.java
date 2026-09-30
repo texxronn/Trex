@@ -36,6 +36,9 @@ final class Sql {
 
     static final String INSERT_DECISION = "INSERT INTO decision(n, action, payload, actor, user_id, at) "
         + "VALUES(?,?,?,?,?,?)";
+    static final String INSERT_INGEST_EVENT = "INSERT INTO ingest_event(n, phase, batch, evidence_id, file, "
+        + "account_ref, source_type, parser, appended, duplicate, flagged, status, line_v, at_ms, env, source, target) "
+        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String SELECT_DECISIONS = "SELECT payload FROM decision ORDER BY n";
     static final String SELECT_DECISIONS_UPTO = "SELECT payload FROM decision WHERE n <= ? ORDER BY n";
 
@@ -47,8 +50,9 @@ final class Sql {
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
-        "fact", "decision", "supersession", "chain_resolved", "txn_current", "transfer", "pending",
-        "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "user_ack");
+        "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
+        "pending", "review_item", "category_current", "pin_current", "ineffective_decision", "unit",
+        "user_ack");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";

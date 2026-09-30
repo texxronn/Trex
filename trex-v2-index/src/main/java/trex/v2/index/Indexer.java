@@ -3,6 +3,7 @@ package trex.v2.index;
 import trex.v2.core.Decision;
 import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
+import trex.v2.core.IngestEvent;
 import trex.v2.core.Hashes;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
@@ -124,6 +125,7 @@ public final class Indexer implements AutoCloseable {
                 try (Statement st = conn.createStatement()) {
                     st.execute("DELETE FROM fact");
                     st.execute("DELETE FROM decision");
+                    st.execute("DELETE FROM ingest_event");
                     for (String table : Sql.DERIVED_TABLES) {
                         st.execute(Sql.deleteAll(table));
                     }
@@ -142,12 +144,15 @@ public final class Indexer implements AutoCloseable {
         inTransaction(() -> {
             try (PreparedStatement f = conn.prepareStatement(Sql.INSERT_FACT);
                  PreparedStatement d = conn.prepareStatement(Sql.INSERT_DECISION);
+                 PreparedStatement ie = conn.prepareStatement(Sql.INSERT_INGEST_EVENT);
                  PreparedStatement m = conn.prepareStatement(Sql.UPSERT_META)) {
                 for (LogLine line : read.lines()) {
                     if (line instanceof Fact fact) {
                         insertFact(f, fact);
                     } else if (line instanceof Decision decision) {
                         insertDecision(d, decision);
+                    } else if (line instanceof IngestEvent event) {
+                        insertIngest(ie, event);
                     }
                 }
                 m.setString(1, "log_offset");
@@ -188,6 +193,35 @@ public final class Indexer implements AutoCloseable {
         ps.setString(5, d.user());
         ps.setString(6, d.at().toString());
         ps.executeUpdate();
+    }
+
+    private static void insertIngest(PreparedStatement ps, IngestEvent e) throws SQLException {
+        ps.setLong(1, e.n());
+        ps.setString(2, e.phase());
+        ps.setString(3, e.batch());
+        ps.setString(4, e.evidence());
+        ps.setString(5, e.file());
+        ps.setString(6, e.accountRef());
+        ps.setString(7, e.sourceType());
+        ps.setString(8, e.parser());
+        setNullableInt(ps, 9, e.appended());
+        setNullableInt(ps, 10, e.duplicate());
+        setNullableInt(ps, 11, e.flagged());
+        ps.setString(12, e.status());
+        ps.setInt(13, e.envelope().v());
+        ps.setLong(14, e.envelope().atMs());
+        ps.setString(15, e.envelope().env());
+        ps.setString(16, e.envelope().source());
+        ps.setString(17, e.envelope().target());
+        ps.executeUpdate();
+    }
+
+    private static void setNullableInt(PreparedStatement ps, int index, Integer value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, java.sql.Types.INTEGER);
+        } else {
+            ps.setInt(index, value);
+        }
     }
 
     // ---- derivation -------------------------------------------------------------------------
@@ -616,7 +650,8 @@ public final class Indexer implements AutoCloseable {
     public synchronized long logHeadN() {
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery(
-                 "SELECT COALESCE(MAX(n), 0) FROM (SELECT n FROM fact UNION ALL SELECT n FROM decision)")) {
+                 "SELECT COALESCE(MAX(n), 0) FROM (SELECT n FROM fact UNION ALL SELECT n FROM decision "
+                     + "UNION ALL SELECT n FROM ingest_event)")) {
             return rs.next() ? rs.getLong(1) : 0;
         } catch (SQLException e) {
             throw new IndexException("cannot read the log head from the index", e);

@@ -25,6 +25,15 @@ public final class IngestRunner {
     public static int run(SourceAdapter adapter, byte[] content, String fileName, String accountRef,
                           EvidenceStore evidence, IngestClient client, PrintStream out) {
         String evidenceId = evidence.put(content);
+        // The stream is self-documenting (§12.6): a start, then the facts, then a complete. Facts sit
+        // strictly between the markers, so the batch's n range is the markers themselves.
+        String batchId = java.util.UUID.randomUUID().toString();
+        try {
+            client.postIngest(startEvent(batchId, evidenceId, fileName, accountRef, adapter));
+        } catch (IngestClient.IngestException e) {
+            out.println("transport failure: " + e.getMessage());
+            return TRANSPORT;
+        }
         Parsed parsed = adapter.parse(content, fileName, accountRef);
         if (!parsed.clean()) {
             out.println("rejected: " + parsed.bad().size() + " bad row(s); nothing sent");
@@ -32,6 +41,7 @@ public final class IngestRunner {
                 out.printf("  %s:%d  %s '%s': %s%n", bad.file(), bad.line(), bad.field(), bad.value(),
                     bad.reason());
             }
+            client.postIngest(completeEvent(batchId, "bad_rows", 0, 0, 0));
             return BAD_ROWS;
         }
         Instant now = Instant.now();
@@ -40,6 +50,7 @@ public final class IngestRunner {
             .toList();
         if (drafts.isEmpty()) {
             out.println("nothing to send (" + parsed.skipped().size() + " skipped)");
+            client.postIngest(completeEvent(batchId, "duplicate", 0, 0, 0));
             return OK;
         }
         int appended = 0;
@@ -50,6 +61,7 @@ public final class IngestRunner {
             try {
                 response = client.postFacts(batch.facts(), true);
             } catch (IngestClient.IngestException e) {
+                // A transport failure leaves the batch open (dangling start): the truth.
                 out.println("transport failure: " + e.getMessage());
                 return TRANSPORT;
             }
@@ -60,14 +72,42 @@ public final class IngestRunner {
                     case IngestClient.FLAGGED -> flagged++;
                     case IngestClient.REJECTED -> {
                         out.printf("rejected by the sequencer: %s (%s)%n", result.ref(), result.reason());
+                        client.postIngest(completeEvent(batchId, "rejected", appended, duplicate, flagged));
                         return REJECTED;
                     }
                     default -> { }
                 }
             }
         }
+        client.postIngest(completeEvent(batchId, "ok", appended, duplicate, flagged));
         out.printf("%s: %d appended, %d duplicate, %d flagged, evidence %s%n",
             accountRef, appended, duplicate, flagged, evidenceId);
         return OK;
+    }
+
+    private static java.util.Map<String, Object> startEvent(String batchId, String evidenceId,
+                                                            String fileName, String accountRef,
+                                                            SourceAdapter adapter) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("phase", "start");
+        m.put("batch", batchId);
+        m.put("evidence", evidenceId);
+        m.put("file", fileName);
+        m.put("account", accountRef);
+        m.put("sourceType", adapter.sourceType());
+        m.put("parser", adapter.parser());
+        return m;
+    }
+
+    private static java.util.Map<String, Object> completeEvent(String batchId, String status,
+                                                               int appended, int duplicate, int flagged) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("phase", "complete");
+        m.put("batch", batchId);
+        m.put("status", status);
+        m.put("appended", appended);
+        m.put("duplicate", duplicate);
+        m.put("flagged", flagged);
+        return m;
     }
 }

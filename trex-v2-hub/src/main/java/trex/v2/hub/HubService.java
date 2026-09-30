@@ -418,6 +418,12 @@ public final class HubService implements HubApi, AutoCloseable {
         return reads.ingestedEvidenceIds();
     }
 
+    /** The ingest history (§12.6). */
+    @Override
+    public trex.v2.hub.api.IngestsResponse ingests() {
+        return new trex.v2.hub.api.IngestsResponse(reads.ingests(50));
+    }
+
     // ---- rule files (V2-PROPOSAL.md §7.4 point 6, §9.3) -------------------------------------
     /** The current {@code categories.yaml} text, for the rule editor. */
     @Override

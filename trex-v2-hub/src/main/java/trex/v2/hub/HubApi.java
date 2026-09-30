@@ -69,4 +69,7 @@ interface HubApi {
 
     /** Evidence ids present on facts, so the Jobs view can tick the files already in. */
     java.util.Set<String> ingestedEvidenceIds();
+
+    /** The ingest history, paired from the log's markers (§12.6). */
+    trex.v2.hub.api.IngestsResponse ingests();
 }

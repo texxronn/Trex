@@ -26,6 +26,7 @@ public final class FakeSequencer implements AutoCloseable {
     public volatile int calls;
     public volatile int factsSeen;
     public volatile int decisionCalls;
+    public volatile int ingests;
     public final List<Map<String, Object>> decisions = new CopyOnWriteArrayList<>();
     private final String outcome;
 
@@ -51,6 +52,11 @@ public final class FakeSequencer implements AutoCloseable {
                 decisions.add((Map<String, Object>) d);
             }
             respond(exchange, 200, "{\"batchHandle\":\"h\",\"batchStatus\":\"COMMITTED\",\"results\":[]}");
+        });
+        server.createContext("/ingest", exchange -> {
+            ingests++;
+            body(exchange);
+            respond(exchange, 200, "{\"n\":1,\"offset\":1}");
         });
         server.start();
     }

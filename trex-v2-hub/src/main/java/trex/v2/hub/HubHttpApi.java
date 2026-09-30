@@ -60,6 +60,7 @@ final class HubHttpApi {
         route(server, "/api/reconcile", "GET", ex -> write(ex, 200, api.reconcile()));
         route(server, "/api/opening", "GET", ex -> write(ex, 200, api.opening()));
         route(server, "/api/workbook", "GET", ex -> write(ex, 200, api.workbook()));
+        route(server, "/api/ingests", "GET", ex -> write(ex, 200, api.ingests()));
         Map<String, Handler> projection = new LinkedHashMap<>();
         projection.put("GET", ex -> write(ex, 200, api.projection()));
         projection.put("POST", ex -> {
