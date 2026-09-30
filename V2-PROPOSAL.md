@@ -402,7 +402,7 @@ read in place.
 ### 6.1 Fact
 
 ```json
-{"n":8421,"kind":"trex.fact","v":1,"atMs":1790725202000,
+{"n":8421,"kind":"trex.fact","v":1,"atMs":1790669462000,
  "env":"Dev1    ","source":"ING_0001","target":"        ",
  "externalId":"9e546cc0260ead1e",
  "accountRef":"ing-savings","date":"2026-09-24",
@@ -461,7 +461,7 @@ This is the one field where "derive again" must not move.
 ### 6.2 Decision
 
 ```json
-{"n":8425,"kind":"trex.decision","v":1,"atMs":1790725860000,
+{"n":8425,"kind":"trex.decision","v":1,"atMs":1790670660000,
  "env":"Dev1    ","source":"HUB_0001","target":"        ",
  "action":"PAIR","legA":"9e546cc0…","legB":"c3d41f…",
  "comment":"moved to savings","actor":"user","user":"ron",
@@ -719,7 +719,7 @@ headers shown in these bodies are superseded by it.
 
 ```json
 // 1 · posted bank row
-{"n":8421,"kind":"trex.fact","v":1,"atMs":1790725202000,
+{"n":8421,"kind":"trex.fact","v":1,"atMs":1790669462000,
  "env":"Dev1    ","source":"ING_0001","target":"        ",
  "externalId":"9e546cc0260ead1e",
  "accountRef":"ing-savings","date":"2026-09-24",
@@ -733,164 +733,185 @@ headers shown in these bodies are superseded by it.
 
 ```json
 // 2 · pending authorisation — recorded and visible, never counted
-{"n":8422,"kind":"fact","v":2,"externalId":"c3d41f7a9b2e4061",
+{"n":8422,"kind":"trex.fact","v":1,"atMs":1790669560000,
+ "env":"Dev1    ","source":"ING_0001","target":"        ",
+ "externalId":"c3d41f7a9b2e4061",
  "accountRef":"bw-credit-card","date":"2026-09-28",
  "amount":-4995,"balance":0,
  "rawDescription":"AUTHORISATION ONLY  BP FUEL 1234",
  "receipt":null,"occ":0,"observation":"pending",
  "sourceType":"bw-csv","provenance":"BANK",
  "evidenceId":"sha256:77ab…","parser":"bw-csv/2",
- "ingestedAt":"2026-09-29T08:12:40Z"}
+ "at":"2026-09-29T08:12:40.000Z"}
 ```
 
 ```json
 // 3 · hand-entered cash purchase — the MAN- ref is the receipt, so identity is the natural key
-{"n":8423,"kind":"fact","v":2,"externalId":"a7e1c94d06f3b28a",
+{"n":8423,"kind":"trex.fact","v":1,"atMs":1790704931000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "externalId":"a7e1c94d06f3b28a",
  "accountRef":"cash-ron","date":"2026-09-28",
  "amount":-4000,"balance":0,
  "rawDescription":"Market stall - vegetables",
  "receipt":"MAN-01J8ZQ4K2W7C3M6T9VYB2F0NHA","occ":0,"observation":"posted",
  "sourceType":"manual","provenance":"AUTHORED",
  "evidenceId":null,"parser":"manual/1",
- "ingestedAt":"2026-09-29T18:02:11Z"}
+ "at":"2026-09-29T18:02:11.000Z"}
 ```
 
 ```json
 // 4 · cash attestation — a declared account plus amount 0 is derived as ATTESTATION
-{"n":8424,"kind":"fact","v":2,"externalId":"b2f0a6e18c4d7f39",
+{"n":8424,"kind":"trex.fact","v":1,"atMs":1790704982000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "externalId":"b2f0a6e18c4d7f39",
  "accountRef":"cash-ron","date":"2026-09-29",
  "amount":0,"balance":16000,
  "rawDescription":"Cash attestation",
  "receipt":"MAN-01J8ZR7P5X0D4Q8W3NZK6C1TBV","occ":0,"observation":"posted",
  "sourceType":"manual","provenance":"AUTHORED",
  "evidenceId":null,"parser":"manual/1",
- "ingestedAt":"2026-09-29T18:03:02Z"}
+ "at":"2026-09-29T18:03:02.000Z"}
 ```
 
-**Decisions (5–16).** All share the envelope: `n`, `kind:"decision"`, `action`, `actor`
-(`user | migrated | system`), `user` when a person acted, and `at`.
+**Decisions (5–17).** All share the envelope of §6 and the body fields `action`, `actor`
+(`user | migrated | system`), `user` when a person acted, and the optional `at`. `source` is
+the process that submitted the decision.
 
 ```json
 // 5 · PAIR
-{"n":8425,"kind":"decision","action":"PAIR",
- "legA":"9e546cc0260ead1e","legB":"c3d41f7a9b2e4061",
+{"n":8425,"kind":"trex.decision","v":1,"atMs":1790705400000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"PAIR","legA":"9e546cc0260ead1e","legB":"c3d41f7a9b2e4061",
  "comment":"moved to savings","actor":"user","user":"ron",
- "at":"2026-09-29T18:10:00Z"}
+ "at":"2026-09-29T18:10:00.000Z"}
 ```
 
 ```json
 // 6 · UNPAIR
-{"n":8426,"kind":"decision","action":"UNPAIR",
- "legA":"9e546cc0260ead1e","legB":"c3d41f7a9b2e4061",
+{"n":8426,"kind":"trex.decision","v":1,"atMs":1790705551000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"UNPAIR","legA":"9e546cc0260ead1e","legB":"c3d41f7a9b2e4061",
  "comment":"not a transfer — paid Sam for the tyres",
- "actor":"user","user":"priya","at":"2026-09-29T18:12:31Z"}
+ "actor":"user","user":"priya","at":"2026-09-29T18:12:31.000Z"}
 ```
 
 ```json
 // 7 · MARK_EXTERNAL
-{"n":8427,"kind":"decision","action":"MARK_EXTERNAL",
- "externalId":"9e546cc0260ead1e",
+{"n":8427,"kind":"trex.decision","v":1,"atMs":1790705582000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"MARK_EXTERNAL","externalId":"9e546cc0260ead1e",
  "comment":"ordinary payment to a person",
- "actor":"user","user":"priya","at":"2026-09-29T18:13:02Z"}
+ "actor":"user","user":"priya","at":"2026-09-29T18:13:02.000Z"}
 ```
 
 ```json
 // 8 · SETTLE — a person closes the pending lane with the row that settled it
-{"n":8428,"kind":"decision","action":"SETTLE",
- "pendingId":"c3d41f7a9b2e4061","postedId":"f0a1b2c3d4e5f607",
+{"n":8428,"kind":"trex.decision","v":1,"atMs":1790705660000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"SETTLE","pendingId":"c3d41f7a9b2e4061","postedId":"f0a1b2c3d4e5f607",
  "comment":"the authorisation became the fuel purchase",
- "actor":"user","user":"ron","at":"2026-09-29T18:14:20Z"}
+ "actor":"user","user":"ron","at":"2026-09-29T18:14:20.000Z"}
 ```
 
 ```json
 // 9 · DISMISS — one event can silence a cluster (a rebased statement)
-{"n":8429,"kind":"decision","action":"DISMISS",
- "item":"POTENTIAL_DUP","externalIds":["77ab04c1d9e3f802","18ce25aa0b7f4e91"],
+{"n":8429,"kind":"trex.decision","v":1,"atMs":1790705744000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"DISMISS","item":"POTENTIAL_DUP","externalIds":["77ab04c1d9e3f802","18ce25aa0b7f4e91"],
  "comment":"bank re-issued the statement with a new running balance",
- "actor":"user","user":"ron","at":"2026-09-29T18:15:44Z"}
+ "actor":"user","user":"ron","at":"2026-09-29T18:15:44.000Z"}
 ```
 
 ```json
 // 10 · SUPERSEDE — written by the re-parse tool, so the actor is system
-{"n":8430,"kind":"decision","action":"SUPERSEDE",
- "fromId":"9e546cc0260ead1e","toId":"4b81d0c9f27a6e34",
+{"n":8430,"kind":"trex.decision","v":1,"atMs":1790708400000,
+ "env":"Dev1    ","source":"ING_0001","target":"        ",
+ "action":"SUPERSEDE","fromId":"9e546cc0260ead1e","toId":"4b81d0c9f27a6e34",
  "reason":"cba-pdf/4 fixed continuation joining",
- "actor":"system","at":"2026-09-29T19:00:00Z"}
+ "actor":"system","at":"2026-09-29T19:00:00.000Z"}
 ```
 
 ```json
 // 11 · RETIRE — the re-parse no longer reads this row; it must not count
-{"n":8431,"kind":"decision","action":"RETIRE",
- "externalId":"a7e1c94d06f3b28a",
+{"n":8431,"kind":"trex.decision","v":1,"atMs":1790708430000,
+ "env":"Dev1    ","source":"ING_0001","target":"        ",
+ "action":"RETIRE","externalId":"a7e1c94d06f3b28a",
  "reason":"manual entry was a double-up; no replacement row",
- "actor":"system","at":"2026-09-29T19:00:30Z"}
+ "actor":"system","at":"2026-09-29T19:00:30.000Z"}
 ```
 
 ```json
 // 12 · REVOKE — undo an earlier decision by its n; nothing is deleted
-{"n":8432,"kind":"decision","action":"REVOKE",
- "target":8429,
+{"n":8432,"kind":"trex.decision","v":1,"atMs":1790708520000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"REVOKE","target":8429,
  "comment":"those were real duplicates after all",
- "actor":"user","user":"ron","at":"2026-09-29T19:02:00Z"}
+ "actor":"user","user":"ron","at":"2026-09-29T19:02:00.000Z"}
 ```
 
 ```json
 // 13 · USER_ACK — one line per user per row
-{"n":8433,"kind":"decision","action":"USER_ACK",
- "externalId":"9e546cc0260ead1e",
+{"n":8433,"kind":"trex.decision","v":1,"atMs":1790708650000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"USER_ACK","externalId":"9e546cc0260ead1e",
  "configRevision":"sha256:7c1a…","deriveVersion":"derive/2","hashVersion":"statehash/2",
  "stateHash":"sha256:6e21…","comment":null,
- "actor":"user","user":"ron","at":"2026-09-29T19:04:10Z"}
+ "actor":"user","user":"ron","at":"2026-09-29T19:04:10.000Z"}
 ```
 
 ```json
 // 14 · USER_UNACK — release this row for this user
-{"n":8434,"kind":"decision","action":"USER_UNACK",
- "externalId":"9e546cc0260ead1e","comment":"double-checking this one",
- "actor":"user","user":"ron","at":"2026-09-29T19:05:00Z"}
+{"n":8434,"kind":"trex.decision","v":1,"atMs":1790708700000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"USER_UNACK","externalId":"9e546cc0260ead1e","comment":"double-checking this one",
+ "actor":"user","user":"ron","at":"2026-09-29T19:05:00.000Z"}
 ```
 
 ```json
 // 15 · NOTE
-{"n":8435,"kind":"decision","action":"NOTE",
- "externalId":"9e546cc0260ead1e",
+{"n":8435,"kind":"trex.decision","v":1,"atMs":1790708880000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"NOTE","externalId":"9e546cc0260ead1e",
  "text":"reimbursed by work, not a personal expense",
- "actor":"user","user":"priya","at":"2026-09-29T19:08:00Z"}
+ "actor":"user","user":"priya","at":"2026-09-29T19:08:00.000Z"}
 ```
 
 ```json
 // 16 · PIN — one event can cover a cluster
-{"n":8436,"kind":"decision","action":"PIN",
- "externalIds":["9e546cc0260ead1e","c3d41f7a9b2e4061"],
+{"n":8436,"kind":"trex.decision","v":1,"atMs":1790709120000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"PIN","externalIds":["9e546cc0260ead1e","c3d41f7a9b2e4061"],
  "category":"TAXES","comment":"ATO instalment, not a bank fee",
- "actor":"user","user":"ron","at":"2026-09-29T19:12:00Z"}
+ "actor":"user","user":"ron","at":"2026-09-29T19:12:00.000Z"}
 ```
 
 ```json
 // 17 · UNPIN — back to the rules
-{"n":8437,"kind":"decision","action":"UNPIN",
- "externalIds":["9e546cc0260ead1e"],
+{"n":8437,"kind":"trex.decision","v":1,"atMs":1790709240000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"UNPIN","externalIds":["9e546cc0260ead1e"],
  "comment":"rule now covers this",
- "actor":"user","user":"priya","at":"2026-09-29T19:14:00Z"}
+ "actor":"user","user":"priya","at":"2026-09-29T19:14:00.000Z"}
 ```
 
 Migration writes the same decision shapes with `actor:"migrated"` — a `PAIR` for every
 transfer the v1 journal had resolved, a `MARK_EXTERNAL` for every leg it had marked,
 no `user` — so the migrated state is exactly what v1 had (§16).
 
-**What is deliberately not an event.** No batch header (a batch is a request, answered
-and logged, never a journal line); no state transitions (derived); no TRANSFER lines
-(derived); no control or watermark lines (removed in v1); no edits (a correction is a
-`SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never rewritten); no period review
-state (a period is only the view the Eyeball buckets rows by, never something to clear,
-§9.4). Category *rules* are not events — files are their home
+**What is deliberately not an event.** No request batch header — a `POST /facts` batch is a
+request, not a line (the *ingest workflow* around it emits `ingest` events, 18–19); no state
+transitions (derived); no TRANSFER lines (derived); no control or watermark lines (removed in
+v1); no edits (a correction is a `SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never
+rewritten); no period review state (a period is only the view the Eyeball buckets rows by,
+never something to clear, §9.4). Category *rules* are not events — files are their home
 — but a category *decision* is (`PIN`/`UNPIN`, 16–17).
 If it is not in the table above, the journal does not contain it.
 
 **Responses are not events either.** `POST /facts` answers
 `Appended | Duplicate | Flagged | Rejected`; `POST /decisions` answers
-`Resolved | Rejected`; both share `{ batchHandle, batchStatus }`. A response describes an
-*attempt*; the line describes what was actually recorded.
+`Resolved | Rejected`; both share `{ batchHandle, batchStatus }`; `POST /ingest` appends one
+event and answers `{ n }`. A response describes an *attempt*; the line describes what was
+actually recorded.
 
 ### 6.8 The lifecycles, explicitly
 
