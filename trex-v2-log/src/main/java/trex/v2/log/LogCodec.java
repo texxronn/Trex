@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import trex.v2.core.Action;
 import trex.v2.core.Actor;
 import trex.v2.core.Decision;
+import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
@@ -20,15 +21,13 @@ import java.util.List;
 /**
  * The wire format of a v2 log line (V2-PROPOSAL.md §6.1, §6.2, §6.7). Written by hand rather than
  * by Jackson's polymorphism so the field order is exactly the proposal's and the discriminator
- * ({@code kind}, {@code action}) sits where a human reading the log expects it.
+ * sits where a human reading the log expects it.
  *
- * <p>Facts write nulls ({@code "receipt":null}, {@code "evidenceId":null}); decisions omit
- * {@code user} for {@code system}/{@code migrated} and include {@code comment} (null when absent).
+ * <p>The header (§6) leads every line: {@code n, kind, v, atMs, env, source, target}, then {@code
+ * at} (a readable echo of {@code atMs}) and the kind-specific body. {@code kind} is namespaced
+ * ({@code trex.fact} / {@code trex.decision}); a reader skips an unknown kind (§6).
  */
 public final class LogCodec {
-
-    private static final String KIND_FACT = "fact";
-    private static final String KIND_DECISION = "decision";
 
     private LogCodec() {}
 
@@ -46,8 +45,15 @@ public final class LogCodec {
 
     public static ObjectNode toNode(LogLine line) {
         ObjectNode o = Json.mapper().createObjectNode();
-        o.put("n", line.n());
-        o.put("kind", line.kind());
+        Envelope e = line.envelope();
+        o.put("n", e.n());
+        o.put("kind", e.kind());
+        o.put("v", e.v());
+        o.put("atMs", e.atMs());
+        o.put("env", e.env());
+        o.put("source", e.source());
+        o.put("target", e.target());
+        o.put("at", e.instant().toString());   // readable echo; atMs is canonical
         if (line instanceof Fact f) {
             fact(f, o);
         } else if (line instanceof Decision d) {
@@ -59,7 +65,6 @@ public final class LogCodec {
     }
 
     private static void fact(Fact f, ObjectNode o) {
-        o.put("v", f.v());
         o.put("externalId", f.externalId());
         o.put("accountRef", f.accountRef());
         o.put("date", f.date().toString());
@@ -73,7 +78,6 @@ public final class LogCodec {
         o.put("provenance", f.provenance().wire());
         putNullable(o, "evidenceId", f.evidenceId());
         putNullable(o, "parser", f.parser());
-        o.put("ingestedAt", f.ingestedAt().toString());
     }
 
     private static void decision(Decision d, ObjectNode o) {
@@ -122,7 +126,7 @@ public final class LogCodec {
                 o.put("reason", r.reason());
             }
             case Decision.Revoke rv -> {
-                o.put("target", rv.target());
+                o.put("revokes", rv.target());   // not "target": that is the envelope's field
                 putNullable(o, "comment", rv.comment());
             }
             case Decision.UserAck ack -> {
@@ -146,10 +150,14 @@ public final class LogCodec {
         if (d.user() != null) {
             o.put("user", d.user());
         }
-        o.put("at", d.at().toString());
     }
 
     // ---- decode -----------------------------------------------------------------------------
+
+    /** The namespaced kinds this codec understands. */
+    public static boolean isKnownKind(String kind) {
+        return Fact.KIND.equals(kind) || Decision.KIND.equals(kind);
+    }
 
     public static LogLine parse(byte[] line) {
         try {
@@ -162,16 +170,20 @@ public final class LogCodec {
     public static LogLine decode(JsonNode node) {
         String kind = text(node, "kind");
         return switch (kind) {
-            case KIND_FACT -> decodeFact(node);
-            case KIND_DECISION -> decodeDecision(node);
+            case Fact.KIND -> decodeFact(node);
+            case Decision.KIND -> decodeDecision(node);
             default -> throw new JournalCorruptException("unknown log line kind '" + kind + "'", null);
         };
     }
 
+    private static Envelope envelope(JsonNode n) {
+        return new Envelope(lng(n, "n"), text(n, "kind"), intg(n, "v"), lng(n, "atMs"),
+            text(n, "env"), text(n, "source"), text(n, "target"));
+    }
+
     private static Fact decodeFact(JsonNode n) {
         return new Fact(
-            lng(n, "n"),
-            intg(n, "v"),
+            envelope(n),
             text(n, "externalId"),
             text(n, "accountRef"),
             LocalDate.parse(text(n, "date")),
@@ -184,33 +196,30 @@ public final class LogCodec {
             text(n, "sourceType"),
             Provenance.fromWire(text(n, "provenance")),
             opt(n, "evidenceId"),
-            opt(n, "parser"),
-            Instant.parse(text(n, "ingestedAt")));
+            opt(n, "parser"));
     }
 
     private static Decision decodeDecision(JsonNode n) {
-        long seq = lng(n, "n");
+        Envelope e = envelope(n);
         Action action = Action.fromWire(text(n, "action"));
         Actor actor = Actor.fromWire(text(n, "actor"));
         String user = opt(n, "user");
-        Instant at = Instant.parse(text(n, "at"));
         return switch (action) {
-            case PAIR -> new Decision.Pair(seq, text(n, "legA"), text(n, "legB"), opt(n, "comment"), actor, user, at);
-            case UNPAIR -> new Decision.Unpair(seq, text(n, "legA"), text(n, "legB"), opt(n, "comment"), actor, user, at);
-            case MARK_EXTERNAL -> new Decision.MarkExternal(seq, text(n, "externalId"), opt(n, "comment"), actor, user, at);
-            case SETTLE -> new Decision.Settle(seq, text(n, "pendingId"), text(n, "postedId"), opt(n, "comment"), actor, user, at);
-            case DISMISS -> new Decision.Dismiss(seq, text(n, "item"), list(n, "externalIds"), opt(n, "comment"), actor, user, at);
-            case PIN -> new Decision.Pin(seq, list(n, "externalIds"), text(n, "category"), opt(n, "comment"), actor, user, at);
-            case UNPIN -> new Decision.Unpin(seq, list(n, "externalIds"), opt(n, "comment"), actor, user, at);
-            case SUPERSEDE -> new Decision.Supersede(seq, text(n, "fromId"), text(n, "toId"), text(n, "reason"), actor, user, at);
-            case RETIRE -> new Decision.Retire(seq, text(n, "externalId"), text(n, "reason"), actor, user, at);
-            case REVOKE -> new Decision.Revoke(seq, lng(n, "target"), opt(n, "comment"), actor, user, at);
-            case USER_ACK -> new Decision.UserAck(seq, text(n, "externalId"),
+            case PAIR -> new Decision.Pair(e, text(n, "legA"), text(n, "legB"), opt(n, "comment"), actor, user);
+            case UNPAIR -> new Decision.Unpair(e, text(n, "legA"), text(n, "legB"), opt(n, "comment"), actor, user);
+            case MARK_EXTERNAL -> new Decision.MarkExternal(e, text(n, "externalId"), opt(n, "comment"), actor, user);
+            case SETTLE -> new Decision.Settle(e, text(n, "pendingId"), text(n, "postedId"), opt(n, "comment"), actor, user);
+            case DISMISS -> new Decision.Dismiss(e, text(n, "item"), list(n, "externalIds"), opt(n, "comment"), actor, user);
+            case PIN -> new Decision.Pin(e, list(n, "externalIds"), text(n, "category"), opt(n, "comment"), actor, user);
+            case UNPIN -> new Decision.Unpin(e, list(n, "externalIds"), opt(n, "comment"), actor, user);
+            case SUPERSEDE -> new Decision.Supersede(e, text(n, "fromId"), text(n, "toId"), text(n, "reason"), actor, user);
+            case RETIRE -> new Decision.Retire(e, text(n, "externalId"), text(n, "reason"), actor, user);
+            case REVOKE -> new Decision.Revoke(e, lng(n, "revokes"), opt(n, "comment"), actor, user);
+            case USER_ACK -> new Decision.UserAck(e, text(n, "externalId"),
                 text(n, "configRevision"), text(n, "deriveVersion"), text(n, "hashVersion"),
-                text(n, "stateHash"), opt(n, "comment"), actor, user, at);
-            case USER_UNACK -> new Decision.UserUnack(seq, text(n, "externalId"), opt(n, "comment"),
-                actor, user, at);
-            case NOTE -> new Decision.Note(seq, opt(n, "externalId"), text(n, "text"), actor, user, at);
+                text(n, "stateHash"), opt(n, "comment"), actor, user);
+            case USER_UNACK -> new Decision.UserUnack(e, text(n, "externalId"), opt(n, "comment"), actor, user);
+            case NOTE -> new Decision.Note(e, opt(n, "externalId"), text(n, "text"), actor, user);
         };
     }
 

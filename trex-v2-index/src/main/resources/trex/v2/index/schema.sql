@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS fact (
   provenance      TEXT NOT NULL,
   evidence_id     TEXT,
   parser          TEXT,
-  ingested_at     TEXT NOT NULL
+  line_v          INTEGER NOT NULL,
+  at_ms           INTEGER NOT NULL,
+  env             TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  target          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS fact_external ON fact(external_id);
 CREATE INDEX IF NOT EXISTS fact_account_date ON fact(account_ref, date);
@@ -67,7 +71,11 @@ CREATE TABLE IF NOT EXISTS txn_current (
   provenance      TEXT NOT NULL,
   evidence_id     TEXT,
   parser          TEXT,
-  ingested_at     TEXT NOT NULL,
+  line_v          INTEGER NOT NULL,
+  at_ms           INTEGER NOT NULL,
+  env             TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  target          TEXT NOT NULL,
   leg             TEXT NOT NULL,
   transfer_id     TEXT,
   category        TEXT NOT NULL,

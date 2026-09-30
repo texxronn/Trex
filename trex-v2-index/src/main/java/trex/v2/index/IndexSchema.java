@@ -26,6 +26,14 @@ final class IndexSchema {
                 st.execute("DROP TABLE user_ack");
                 clearDerivedMeta(st);
             }
+            // The mirror shape changed (the uniform envelope): drop the mirrored fact/decision and
+            // force a full re-mirror from the log. The mirror is disposable — the log is the truth.
+            if (hasTable(st, "fact") && hasColumn(st, "fact", "ingested_at")) {
+                st.execute("DROP TABLE fact");
+                st.execute("DROP TABLE decision");
+                st.execute("DROP TABLE IF EXISTS txn_current");
+                st.execute("DELETE FROM meta");
+            }
             for (String statement : statements(sql)) {
                 st.execute(statement);
             }

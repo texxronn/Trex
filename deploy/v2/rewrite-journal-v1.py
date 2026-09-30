@@ -93,6 +93,10 @@ def rewrite_line(rec: dict, env: str, fact_source: str, decision_source: str, ta
         for key, value in rec.items():
             if key in ("n", "kind", "at"):
                 continue
+            # The envelope owns `target`; a REVOKE's decision-n moves to `revokes` (§6, §6.7).
+            if key == "target" and rec.get("action") == "REVOKE":
+                out["revokes"] = value
+                continue
             out[key] = value
         return out
     if include_unknown:

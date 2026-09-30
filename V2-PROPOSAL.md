@@ -481,7 +481,7 @@ The full action set — small on purpose:
 | `UNPIN` | `externalIds`, `comment?` | Release those ids back to rule evaluation. |
 | `SUPERSEDE` | `fromId`, `toId`, `reason` | A re-parse or correction replaces one fact with another. |
 | `RETIRE` | `externalId`, `reason` | The fact no longer counts and has no replacement. |
-| `REVOKE` | `target`, `comment?` | Undo decision `n = target`; the general escape hatch. |
+| `REVOKE` | `revokes`, `comment?` | Undo decision `n = revokes`; the general escape hatch. |
 | `USER_ACK` | `externalId`, `stateHash`, `configRevision`, `deriveVersion`, `hashVersion`, `comment?` | "I have read this row; its derived content was X." One line per row per user; the `user` is on the line and other users' markers are untouched. |
 | `USER_UNACK` | `externalId`, `comment?` | Release that row's read marker for this user; the family inverse of `USER_ACK`. |
 | `NOTE` | `externalId?`, `text` | Free annotation; never identity, never logic. |
@@ -843,7 +843,7 @@ the process that submitted the decision.
 // 12 · REVOKE — undo an earlier decision by its n; nothing is deleted
 {"n":8432,"kind":"trex.decision","v":1,"atMs":1790708520000,
  "env":"Dev1    ","source":"HUB_0001","target":"        ",
- "action":"REVOKE","target":8429,
+ "action":"REVOKE","revokes":8429,
  "comment":"those were real duplicates after all",
  "actor":"user","user":"ron","at":"2026-09-29T19:02:00.000Z"}
 ```

@@ -260,11 +260,12 @@ public final class HubQueries implements AutoCloseable {
             try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.CURRENT_FACTS)) {
                 while (rs.next()) {
                     trex.v2.core.Fact fact = new trex.v2.core.Fact(
-                        rs.getLong(1), rs.getString(2), rs.getString(3), LocalDate.parse(rs.getString(4)),
+                        new trex.v2.core.Envelope(rs.getLong(1), trex.v2.core.Fact.KIND, rs.getInt(15),
+                            rs.getLong(16), rs.getString(17), rs.getString(18), rs.getString(19)),
+                        rs.getString(2), rs.getString(3), LocalDate.parse(rs.getString(4)),
                         rs.getLong(5), rs.getLong(6), rs.getString(7), rs.getString(8), rs.getInt(9),
                         trex.v2.core.Observation.fromWire(rs.getString(10)), rs.getString(11),
-                        trex.v2.core.Provenance.fromWire(rs.getString(12)), rs.getString(13), rs.getString(14),
-                        Instant.parse(rs.getString(15)));
+                        trex.v2.core.Provenance.fromWire(rs.getString(12)), rs.getString(13), rs.getString(14));
                     facts.put(fact.externalId(), fact);
                 }
             }
@@ -390,7 +391,8 @@ public final class HubQueries implements AutoCloseable {
             try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.CURRENT_FACTS)) {
                 while (rs.next()) {
                     rows.add(new trex.v2.core.Fact(
-                        rs.getLong(1),
+                        new trex.v2.core.Envelope(rs.getLong(1), trex.v2.core.Fact.KIND, rs.getInt(15),
+                            rs.getLong(16), rs.getString(17), rs.getString(18), rs.getString(19)),
                         rs.getString(2),
                         rs.getString(3),
                         LocalDate.parse(rs.getString(4)),
@@ -403,8 +405,7 @@ public final class HubQueries implements AutoCloseable {
                         rs.getString(11),
                         trex.v2.core.Provenance.fromWire(rs.getString(12)),
                         rs.getString(13),
-                        rs.getString(14),
-                        Instant.parse(rs.getString(15))));
+                        rs.getString(14)));
                 }
             }
             return rows;

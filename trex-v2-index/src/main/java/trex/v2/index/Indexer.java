@@ -1,6 +1,7 @@
 package trex.v2.index;
 
 import trex.v2.core.Decision;
+import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
 import trex.v2.core.Hashes;
 import trex.v2.core.LogLine;
@@ -171,7 +172,11 @@ public final class Indexer implements AutoCloseable {
         ps.setString(12, f.provenance().wire());
         ps.setString(13, f.evidenceId());
         ps.setString(14, f.parser());
-        ps.setString(15, f.ingestedAt().toString());
+        ps.setInt(15, f.envelope().v());
+        ps.setLong(16, f.envelope().atMs());
+        ps.setString(17, f.envelope().env());
+        ps.setString(18, f.envelope().source());
+        ps.setString(19, f.envelope().target());
         ps.executeUpdate();
     }
 
@@ -243,7 +248,11 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(i++, f.provenance().wire());
                 ps.setString(i++, f.evidenceId());
                 ps.setString(i++, f.parser());
-                ps.setString(i++, f.ingestedAt().toString());
+                ps.setInt(i++, f.envelope().v());
+                ps.setLong(i++, f.envelope().atMs());
+                ps.setString(i++, f.envelope().env());
+                ps.setString(i++, f.envelope().source());
+                ps.setString(i++, f.envelope().target());
                 ps.setString(i++, c.leg().name());
                 ps.setString(i++, c.transferId());
                 ps.setString(i++, c.category());
@@ -510,7 +519,8 @@ public final class Indexer implements AutoCloseable {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     out.add(new Fact(
-                        rs.getLong(1),
+                        new Envelope(rs.getLong(1), Fact.KIND, rs.getInt(15), rs.getLong(16),
+                            rs.getString(17), rs.getString(18), rs.getString(19)),
                         rs.getString(2),
                         rs.getString(3),
                         java.time.LocalDate.parse(rs.getString(4)),
@@ -523,8 +533,7 @@ public final class Indexer implements AutoCloseable {
                         rs.getString(11),
                         Provenance.fromWire(rs.getString(12)),
                         rs.getString(13),
-                        rs.getString(14),
-                        Instant.parse(rs.getString(15))));
+                        rs.getString(14)));
                 }
             }
         }
@@ -576,12 +585,13 @@ public final class Indexer implements AutoCloseable {
     public synchronized List<Fact> currentFacts() {
         List<Fact> out = new ArrayList<>();
         String sql = "SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
-            + "occ, observation, source_type, provenance, evidence_id, parser, ingested_at "
+            + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
             + "FROM txn_current ORDER BY n";
         try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
             while (rs.next()) {
                 out.add(new Fact(
-                    rs.getLong(1),
+                    new Envelope(rs.getLong(1), Fact.KIND, rs.getInt(15), rs.getLong(16),
+                        rs.getString(17), rs.getString(18), rs.getString(19)),
                     rs.getString(2),
                     rs.getString(3),
                     java.time.LocalDate.parse(rs.getString(4)),
@@ -594,8 +604,7 @@ public final class Indexer implements AutoCloseable {
                     rs.getString(11),
                     Provenance.fromWire(rs.getString(12)),
                     rs.getString(13),
-                    rs.getString(14),
-                    Instant.parse(rs.getString(15))));
+                    rs.getString(14)));
             }
         } catch (SQLException e) {
             throw new IndexException("cannot read txn_current", e);

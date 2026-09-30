@@ -3,6 +3,7 @@ package trex.v2.sequencer;
 import trex.v2.core.Action;
 import trex.v2.core.Actor;
 import trex.v2.core.Decision;
+import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
 import trex.v2.core.Ids;
 import trex.v2.core.Observation;
@@ -53,12 +54,23 @@ public final class Sequencer implements AutoCloseable {
     private final RuleSet categories;
     private final Clock clock;
     private final SequencerState state;
+    private final String env;
+    private final String source;
+    private final String target;
 
     public Sequencer(Journal journal, Registry registry, RuleSet categories, Clock clock) {
+        this(journal, registry, categories, clock, "DEV1    ", "SEQ_0001", "        ");
+    }
+
+    public Sequencer(Journal journal, Registry registry, RuleSet categories, Clock clock,
+                     String env, String source, String target) {
         this.journal = journal;
         this.registry = registry;
         this.categories = categories;
         this.clock = clock;
+        this.env = env;
+        this.source = source;
+        this.target = target;
         this.state = SequencerState.fold(journal.replayFrom(0));
         this.state.headOffset = journal.headOffset();
     }
@@ -116,13 +128,15 @@ public final class Sequencer implements AutoCloseable {
                 continue;
             }
             boolean known = state.latestById.containsKey(id);
-            Fact fact = new Fact(next + 1, id, d.accountRef(), d.date(), d.amount(), d.balance(),
+            long atMs = d.ingestedAt() == null ? clock.millis() : d.ingestedAt().toEpochMilli();
+            Fact fact = new Fact(
+                new Envelope(next + 1, Fact.KIND, Envelope.VERSION, atMs, env, source, target),
+                id, d.accountRef(), d.date(), d.amount(), d.balance(),
                 d.rawDescription(), receipt, occ,
                 d.observation() == null ? Observation.POSTED : d.observation(),
                 d.sourceType(),
                 d.provenance() == null ? Provenance.BANK : d.provenance(),
-                d.evidenceId(), d.parser(),
-                d.ingestedAt() == null ? clock.instant() : d.ingestedAt());
+                d.evidenceId(), d.parser());
             toAppend.add(fact);
             next++;
             wroteAny = true;
@@ -251,45 +265,47 @@ public final class Sequencer implements AutoCloseable {
             user = null;
         }
         Instant at = d.at() == null ? clock.instant() : d.at();
+        Envelope envelope = new Envelope(n, Decision.KIND, Envelope.VERSION, at.toEpochMilli(),
+            env, source, target);
 
         return switch (action) {
-            case PAIR -> new Decision.Pair(n, requireDistinct(d.legA(), d.legB(), "legA", "legB"),
-                requireFact(d.legB(), "legB"), d.comment(), actor, user, at);
-            case UNPAIR -> new Decision.Unpair(n, requireDistinct(d.legA(), d.legB(), "legA", "legB"),
-                requireFact(d.legB(), "legB"), d.comment(), actor, user, at);
-            case MARK_EXTERNAL -> new Decision.MarkExternal(n, requireFact(d.externalId(), "externalId"),
-                d.comment(), actor, user, at);
-            case SETTLE -> new Decision.Settle(n, requireFact(d.pendingId(), "pendingId"),
-                requireFact(d.postedId(), "postedId"), d.comment(), actor, user, at);
-            case DISMISS -> new Decision.Dismiss(n, requireItem(d.item()), requireFacts(d.externalIds(), "externalIds"),
-                d.comment(), actor, user, at);
-            case PIN -> new Decision.Pin(n, requireFacts(d.externalIds(), "externalIds"),
-                requireCategory(d.category()), d.comment(), actor, user, at);
-            case UNPIN -> new Decision.Unpin(n, requireFacts(d.externalIds(), "externalIds"),
-                d.comment(), actor, user, at);
+            case PAIR -> new Decision.Pair(envelope, requireDistinct(d.legA(), d.legB(), "legA", "legB"),
+                requireFact(d.legB(), "legB"), d.comment(), actor, user);
+            case UNPAIR -> new Decision.Unpair(envelope, requireDistinct(d.legA(), d.legB(), "legA", "legB"),
+                requireFact(d.legB(), "legB"), d.comment(), actor, user);
+            case MARK_EXTERNAL -> new Decision.MarkExternal(envelope, requireFact(d.externalId(), "externalId"),
+                d.comment(), actor, user);
+            case SETTLE -> new Decision.Settle(envelope, requireFact(d.pendingId(), "pendingId"),
+                requireFact(d.postedId(), "postedId"), d.comment(), actor, user);
+            case DISMISS -> new Decision.Dismiss(envelope, requireItem(d.item()), requireFacts(d.externalIds(), "externalIds"),
+                d.comment(), actor, user);
+            case PIN -> new Decision.Pin(envelope, requireFacts(d.externalIds(), "externalIds"),
+                requireCategory(d.category()), d.comment(), actor, user);
+            case UNPIN -> new Decision.Unpin(envelope, requireFacts(d.externalIds(), "externalIds"),
+                d.comment(), actor, user);
             case SUPERSEDE -> {
                 String from = requireFact(d.fromId(), "fromId");
                 String to = requireFact(d.toId(), "toId");
                 if (from.equals(to)) {
                     throw new IllegalArgumentException("SUPERSEDE cannot replace a fact with itself");
                 }
-                yield new Decision.Supersede(n, from, to, require(d.reason(), "reason"), actor, user, at);
+                yield new Decision.Supersede(envelope, from, to, require(d.reason(), "reason"), actor, user);
             }
-            case RETIRE -> new Decision.Retire(n, requireFact(d.externalId(), "externalId"),
-                require(d.reason(), "reason"), actor, user, at);
+            case RETIRE -> new Decision.Retire(envelope, requireFact(d.externalId(), "externalId"),
+                require(d.reason(), "reason"), actor, user);
             case REVOKE -> {
                 if (d.target() == null || !state.decisionNs.contains(d.target())) {
                     throw new IllegalArgumentException("REVOKE names a decision n that does not exist: " + d.target());
                 }
-                yield new Decision.Revoke(n, d.target(), d.comment(), actor, user, at);
+                yield new Decision.Revoke(envelope, d.target(), d.comment(), actor, user);
             }
-            case USER_ACK -> new Decision.UserAck(n, requireFact(d.externalId(), "externalId"),
+            case USER_ACK -> new Decision.UserAck(envelope, requireFact(d.externalId(), "externalId"),
                 require(d.configRevision(), "configRevision"), require(d.deriveVersion(), "deriveVersion"),
                 require(d.hashVersion(), "hashVersion"), require(d.stateHash(), "stateHash"),
-                d.comment(), actor, user, at);
-            case USER_UNACK -> new Decision.UserUnack(n, requireFact(d.externalId(), "externalId"),
-                d.comment(), actor, user, at);
-            case NOTE -> new Decision.Note(n, d.externalId(), require(d.text(), "text"), actor, user, at);
+                d.comment(), actor, user);
+            case USER_UNACK -> new Decision.UserUnack(envelope, requireFact(d.externalId(), "externalId"),
+                d.comment(), actor, user);
+            case NOTE -> new Decision.Note(envelope, d.externalId(), require(d.text(), "text"), actor, user);
         };
     }
 

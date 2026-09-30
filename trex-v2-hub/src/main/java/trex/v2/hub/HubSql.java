@@ -49,7 +49,8 @@ final class HubSql {
 
     static final String CURRENT_FACTS = """
         SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
-               observation, source_type, provenance, evidence_id, parser, ingested_at
+               observation, source_type, provenance, evidence_id, parser,
+               line_v, at_ms, env, source, target
         FROM txn_current ORDER BY n""";
 
     static final String PENDING_SELECT = """

@@ -33,7 +33,9 @@ class LogCodecTest {
     void factRoundTripsAndWritesNulls() {
         Fact f = fact();
         String json = LogCodec.encodeString(f);
-        assertTrue(json.contains("\"kind\":\"fact\""), json);
+        assertTrue(json.contains("\"kind\":\"trex.fact\""), json);
+        assertTrue(json.contains("\"atMs\":"), json);
+        assertTrue(json.contains("\"env\":\"DEV1    \""), json);
         assertTrue(json.contains("\"receipt\":null"), json);
         assertTrue(json.contains("\"evidenceId\":\"sha256:2f9c\""), json);
         assertEquals(f, LogCodec.parse(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -84,7 +86,7 @@ class LogCodecTest {
     @Test
     void missingRequiredFieldIsCorruption() {
         assertThrows(JournalCorruptException.class, () -> LogCodec.parse(
-            ("{\"n\":1,\"kind\":\"fact\",\"v\":2}").getBytes()));
+            ("{\"n\":1,\"kind\":\"trex.fact\",\"v\":1}").getBytes()));
     }
 
     @Test
