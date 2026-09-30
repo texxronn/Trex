@@ -412,7 +412,9 @@ final class HubHttpApi {
                     return;
                 }
                 byte[] body = readBody(ex).getBytes(StandardCharsets.UTF_8);
-                proxy(ex, runner.postJson("/jobs/" + job + "/runs", body));
+                String query = ex.getRequestURI().getRawQuery();
+                String target = "/jobs/" + job + "/runs" + (query == null || query.isBlank() ? "" : "?" + query);
+                proxy(ex, runner.postJson(target, body));
                 return;
             }
             sendError(ex, 404, "not found");

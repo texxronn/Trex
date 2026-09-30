@@ -24,7 +24,18 @@ public final class JobCatalogue {
         Map<String, JobSpec> jobs = new LinkedHashMap<>();
         jobs.put("egress-firefly", egressFirefly(config));
         jobs.put("ingest", ingest(config, statements, staging));
+        jobs.put("journal-snapshot", journalSnapshot(config));
         return jobs;
+    }
+
+    static JobSpec journalSnapshot(RunnerConfig config) {
+        return new JobSpec("journal-snapshot", "Snapshot journal",
+            "Write a dated gzip copy of the journal to the archive (V2-PROPOSAL.md §12.6).",
+            "read", List.of(), p -> {
+                require(config.sequencerUrl(), "--sequencer-url is not configured");
+                return List.of(new Step("snapshot",
+                    List.of("snapshot", "--sequencer-url", config.sequencerUrl())));
+            });
     }
 
     static JobSpec egressFirefly(RunnerConfig config) {

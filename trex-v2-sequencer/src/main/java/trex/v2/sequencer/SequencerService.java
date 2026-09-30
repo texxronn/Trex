@@ -24,27 +24,33 @@ public final class SequencerService implements AutoCloseable {
     private final JsonlJournal journal;
     private final Sequencer sequencer;
     private final HttpServer server;
+    private final Maintenance maintenance;
     private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
 
-    private SequencerService(JournalLock lock, JsonlJournal journal, Sequencer sequencer, HttpServer server) {
+    private SequencerService(JournalLock lock, JsonlJournal journal, Sequencer sequencer, HttpServer server,
+                             Maintenance maintenance) {
         this.lock = lock;
         this.journal = journal;
         this.sequencer = sequencer;
         this.server = server;
+        this.maintenance = maintenance;
     }
 
     /** Recover the journal, take the writer lock, load config and serve. Port 0 binds an ephemeral port. */
     public static SequencerService start(Path journalPath, Path configDir, String host, int port, Clock clock) {
-        return start(journalPath, journalPath, configDir, host, port, clock);
+        return start(journalPath, journalPath, configDir, host, port, clock, null);
+    }
+
+    public static SequencerService start(Path source, Path target, Path configDir, String host, int port, Clock clock) {
+        return start(source, target, configDir, host, port, clock, null);
     }
 
     /**
-     * Start against {@code target}, recovering from {@code source} (V2-PROPOSAL.md §6.4). When
-     * source and target differ, source is authoritative and is byte-copied over the target at
-     * startup, SHA-256 verified: the sequencer then writes to the copy and never mutates the
-     * original. This is how an alternative journal can be fed to the writer.
+     * Start against {@code target}, recovering from {@code source} (V2-PROPOSAL.md §6.4), with an
+     * optional archive for the maintenance snapshot (§12.6).
      */
-    public static SequencerService start(Path source, Path target, Path configDir, String host, int port, Clock clock) {
+    public static SequencerService start(Path source, Path target, Path configDir, String host, int port, Clock clock,
+                                         Path archive) {
         ConfigLoader.Loaded loaded = ConfigLoader.load(configDir);
         JournalLock lock = JournalLock.acquire(target);
         try {
@@ -53,15 +59,16 @@ public final class SequencerService implements AutoCloseable {
             java.util.Set<String> sources = SourceRegistry.load(configDir);
             Sequencer sequencer = new Sequencer(journal, loaded.registry(), loaded.config().categories(), clock,
                 env(), sources.isEmpty() ? null : sources);
-            HttpServer server = HttpApi.start(host, port, sequencer);
-            log.info("trex sequencer listening on {}:{}; journal {} (head n={}); env [{}]; sources {}",
+            Maintenance maintenance = new Maintenance(target, archive, sequencer);
+            HttpServer server = HttpApi.start(host, port, sequencer, maintenance);
+            log.info("trex sequencer listening on {}:{}; journal {} (head n={}); env [{}]; sources {}; archive {}",
                 host, server.getAddress().getPort(), target, sequencer.headN(), env(),
-                sources.isEmpty() ? "(any)" : sources);
+                sources.isEmpty() ? "(any)" : sources, archive == null ? "(none)" : archive);
             if (!isLoopback(host)) {
                 log.warn("API has no authentication and is bound to {}; anyone who can reach it can "
                     + "append facts and decisions", host);
             }
-            return new SequencerService(lock, journal, sequencer, server);
+            return new SequencerService(lock, journal, sequencer, server, maintenance);
         } catch (IOException e) {
             lock.close();
             throw new UncheckedIOException("cannot start the sequencer", e);
@@ -105,5 +112,8 @@ public final class SequencerService implements AutoCloseable {
         server.stop(0);
         journal.close();
         lock.close();
+        if (maintenance != null) {
+            maintenance.close();
+        }
     }
 }

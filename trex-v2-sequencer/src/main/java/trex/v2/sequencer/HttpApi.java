@@ -36,7 +36,8 @@ final class HttpApi {
 
     private HttpApi() {}
 
-    static HttpServer start(String host, int port, Sequencer sequencer) throws IOException {
+    static HttpServer start(String host, int port, Sequencer sequencer, Maintenance maintenance)
+            throws IOException {
         long maxBody = DEFAULT_MAX_BODY_BYTES;
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         route(server, "/head", "GET", ex -> write(ex, 200, sequencer.head()));
@@ -63,6 +64,19 @@ final class HttpApi {
                 write(ex, 200, sequencer.submitIngest(batch));
             } catch (com.fasterxml.jackson.core.JacksonException e) {
                 write(ex, 400, new ErrorResponse("malformed /ingest body: " + e.getOriginalMessage()));
+            }
+        });
+        route(server, "/maintenance/snapshot", "POST", ex -> {
+            if (maintenance == null || !maintenance.configured()) {
+                write(ex, 400, new ErrorResponse("no archive configured on the sequencer (--archive)"));
+                return;
+            }
+            boolean sync = !"false".equalsIgnoreCase(queryParam(ex, "sync"));
+            if (sync) {
+                write(ex, 200, maintenance.snapshot());
+            } else {
+                maintenance.snapshotAsync();
+                write(ex, 202, java.util.Map.of("status", "accepted"));
             }
         });
         server.createContext("/", ex -> sendError(ex, 404, "not found"));
@@ -155,6 +169,20 @@ final class HttpApi {
         } catch (IOException | RuntimeException e) {
             log.debug("could not send {} response; the response had started or the client is gone", status, e);
         }
+    }
+
+    private static String queryParam(HttpExchange ex, String key) {
+        String raw = ex.getRequestURI().getRawQuery();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        for (String pair : raw.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0 && pair.substring(0, eq).equals(key)) {
+                return java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+            }
+        }
+        return null;
     }
 
     private static boolean acceptsGzip(HttpExchange ex) {

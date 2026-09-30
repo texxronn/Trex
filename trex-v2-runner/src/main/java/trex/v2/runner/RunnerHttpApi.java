@@ -164,7 +164,21 @@ final class RunnerHttpApi {
             JsonNode root = body.isBlank() ? JsonNodeFactory.instance.objectNode() : Json.mapper().readTree(body);
             JsonNode params = root.path("params");
             RunRecord run = runner.submit(seg[0], params.isMissingNode() ? null : params);
-            writeJson(ex, 202, Map.of("runId", run.id(), "state", run.state().name()));
+            boolean sync = "true".equalsIgnoreCase(queryParam(ex, "sync"));
+            if (sync) {
+                long timeoutMs = parseLong(queryParam(ex, "timeoutMs"), 10_000L);
+                long deadline = System.currentTimeMillis() + timeoutMs;
+                while (!terminal(run.state()) && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(25);
+                }
+            }
+            if (terminal(run.state())) {
+                Map<String, Object> detail = summary(run);
+                detail.put("output", run.linesFrom(0));
+                writeJson(ex, 200, detail);
+            } else {
+                writeJson(ex, 202, Map.of("runId", run.id(), "state", run.state().name()));
+            }
             return;
         }
         sendError(ex, 404, "not found");
@@ -284,6 +298,17 @@ final class RunnerHttpApi {
             buffer.write(chunk, 0, n);
         }
         return buffer.toByteArray();
+    }
+
+    private static long parseLong(String value, long fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     private static String queryParam(HttpExchange ex, String key) {
