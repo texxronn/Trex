@@ -60,6 +60,7 @@ class JobCatalogueTest {
         List<String> argv = steps.get(0).argv();
         assertTrue(argv.contains("ing-csv"));
         assertTrue(argv.contains("ing-salary"));
+        assertTrue(argv.contains("--source-archive"), argv.toString());
         assertTrue(argv.get(argv.size() - 1).endsWith(staged.name()));
     }
 
@@ -82,7 +83,7 @@ class JobCatalogueTest {
 
     private static RunnerConfig config(Path dir, boolean allowApply) {
         return new RunnerConfig("127.0.0.1", 0, dir, dir.resolve("statements"),
-            dir.resolve("staging"), dir.resolve("evidence"),
+            dir.resolve("staging"), dir.resolve("evidence"), dir.resolve("archive"),
             "http://sequencer:8080", "http://hub:8090", "http://firefly:8081",
             dir.resolve("firefly.yaml"), null, allowApply, Duration.ofMinutes(10));
     }

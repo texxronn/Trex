@@ -44,6 +44,14 @@ public final class IngestCommand implements Callable<Integer> {
         description = "The 8-char writing-process id stamped on the facts (V2-PROPOSAL.md §6).")
     String source;
 
+    @Option(names = "--source-archive",
+        description = "Archive the source bytes here, gzipped under a dated name (§12.6).")
+    Path sourceArchive;
+
+    @Option(names = "--source-name",
+        description = "The original file name for the archive; defaults to the FILE's name.")
+    String sourceName;
+
     @Option(names = "--sequencer-url", description = "The running sequencer base URL.")
     String sequencerUrl;
 
@@ -86,7 +94,8 @@ public final class IngestCommand implements Callable<Integer> {
         }
         EvidenceStore evidence = new EvidenceStore(evidenceDir);
         return IngestRunner.run(adapter, Files.readAllBytes(file), file.getFileName().toString(),
-            account, evidence, new IngestClient(sequencerUrl), System.out);
+            account, sourceArchive, sourceName == null ? file.getFileName().toString() : sourceName,
+            evidence, new IngestClient(sequencerUrl, source), System.out);
     }
 
     private Integer reparse(SourceAdapter adapter) throws Exception {

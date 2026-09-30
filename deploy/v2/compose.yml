@@ -180,6 +180,8 @@ services:
       - /var/lib/trex/staging
       - --evidence
       - /var/lib/trex/evidence
+      - --archive
+      - /var/lib/trex/archive
       - --sequencer-url
       - http://sequencer:8080
       - --hub-url
@@ -197,6 +199,7 @@ services:
       - staging:/var/lib/trex/staging
       - ${TREX_CSV_DIR:-./}:/statements:ro
       - evidence:/var/lib/trex/evidence
+      - archive:/var/lib/trex/archive
     depends_on:
       init:
         condition: service_completed_successfully

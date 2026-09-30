@@ -82,6 +82,7 @@ services:
       - { source: pins.yaml, target: /bootstrap/pins.yaml }
       - { source: firefly.yaml, target: /bootstrap/firefly.yaml }
       - { source: statements.yaml, target: /bootstrap/statements.yaml }
+      - { source: sources.yaml, target: /bootstrap/sources.yaml }
     volumes:
       - config:/etc/trex
       - journal:/var/lib/trex/journal
@@ -179,6 +180,8 @@ services:
       - /var/lib/trex/staging
       - --evidence
       - /var/lib/trex/evidence
+      - --archive
+      - /var/lib/trex/archive
       - --sequencer-url
       - http://sequencer:8080
       - --hub-url

@@ -16,6 +16,7 @@ public record RunnerConfig(
     Path statementsDir,
     Path stagingDir,
     Path evidenceDir,
+    Path archive,
     String sequencerUrl,
     String hubUrl,
     String fireflyUrl,

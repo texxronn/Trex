@@ -3,6 +3,7 @@ package trex.v2.ingest;
 import trex.v2.log.EvidenceStore;
 
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
@@ -24,7 +25,22 @@ public final class IngestRunner {
 
     public static int run(SourceAdapter adapter, byte[] content, String fileName, String accountRef,
                           EvidenceStore evidence, IngestClient client, PrintStream out) {
+        return run(adapter, content, fileName, accountRef, null, fileName, evidence, client, out);
+    }
+
+    /**
+     * With a source archive (§12.6): the exact bytes are gzipped under a dated, human name before
+     * anything is sent. {@code sourceName} is the original name (a staged file's, not the generated
+     * one); null falls back to {@code fileName}.
+     */
+    public static int run(SourceAdapter adapter, byte[] content, String fileName, String accountRef,
+                          Path sourceArchive, String sourceName, EvidenceStore evidence, IngestClient client,
+                          PrintStream out) {
+        Instant now = Instant.now();
         String evidenceId = evidence.put(content);
+        if (sourceArchive != null) {
+            SourceArchive.write(sourceArchive, content, sourceName == null ? fileName : sourceName, now);
+        }
         // The stream is self-documenting (§12.6): a start, then the facts, then a complete. Facts sit
         // strictly between the markers, so the batch's n range is the markers themselves.
         String batchId = java.util.UUID.randomUUID().toString();
@@ -44,7 +60,6 @@ public final class IngestRunner {
             client.postIngest(completeEvent(batchId, "bad_rows", 0, 0, 0));
             return BAD_ROWS;
         }
-        Instant now = Instant.now();
         List<FactDraft> drafts = parsed.candidates().stream()
             .map(d -> d.withEvidence(evidenceId, adapter.parser(), now))
             .toList();

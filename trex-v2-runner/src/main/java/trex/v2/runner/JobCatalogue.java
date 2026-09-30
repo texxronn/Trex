@@ -132,12 +132,18 @@ public final class JobCatalogue {
         if (!Adapters.types().contains(sourceType)) {
             throw new IllegalArgumentException("unknown source type '" + sourceType + "'");
         }
-        List<String> argv = List.of("ingest",
+        List<String> argv = new ArrayList<>(List.of("ingest",
             "--source-type", sourceType,
             "--account", account,
             "--sequencer-url", config.sequencerUrl(),
-            "--evidence", config.evidenceDir().toString(),
-            path.toString());
+            "--evidence", config.evidenceDir().toString()));
+        if (config.archive() != null) {
+            argv.add("--source-archive");
+            argv.add(config.archive().toString());
+            argv.add("--source-name");
+            argv.add(mapName);
+        }
+        argv.add(path.toString());
         return new Step(mapName, argv);
     }
 
