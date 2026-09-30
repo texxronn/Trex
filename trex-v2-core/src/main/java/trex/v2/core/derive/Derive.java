@@ -351,7 +351,7 @@ public final class Derive {
                     if (pairingDecision.get(a) == d && pairingDecision.get(b) == d) {
                         Fact fa = byId.get(a).fact();
                         Fact fb = byId.get(b).fact();
-                        String tid = mintTransferId(fa, fb);
+                        String tid = uniqueTransferId(rows, mintTransferId(fa, fb), byId.get(a), byId.get(b));
                         rows.put(tid, new TransferRow(tid, a, b, Confidence.MANUAL, "decision", p.n(),
                             p.at()));
                         livePairLegs.add(a);
@@ -487,7 +487,7 @@ public final class Derive {
         private void pairT1(Map<String, TransferRow> rows, boolean[] paired, List<CurrentFact> eligible,
                             int i, int j, CurrentFact f) {
             CurrentFact g = eligible.get(j);
-            String tid = Ids.transferId(f.fact().receipt());
+            String tid = uniqueTransferId(rows, Ids.transferId(f.fact().receipt()), f, g);
             rows.put(tid, new TransferRow(tid, f.externalId(), g.externalId(), Confidence.EXACT, "derived",
                 null, laterIngested(f.fact(), g.fact())));
             paired[i] = true;
@@ -499,7 +499,7 @@ public final class Derive {
         private void pairT2(Map<String, TransferRow> rows, boolean[] paired, List<CurrentFact> eligible,
                             int i, int j, CurrentFact f, Confidence confidence) {
             CurrentFact g = eligible.get(j);
-            String tid = mintTransferId(f.fact(), g.fact());
+            String tid = uniqueTransferId(rows, mintTransferId(f.fact(), g.fact()), f, g);
             rows.put(tid, new TransferRow(tid, f.externalId(), g.externalId(), confidence, "derived",
                 null, laterIngested(f.fact(), g.fact())));
             paired[i] = true;
@@ -525,6 +525,25 @@ public final class Derive {
                 return Ids.transferId(a.receipt());
             }
             return Ids.transferId(a.externalId(), b.externalId());
+        }
+
+        /**
+         * A receipt is not unique across transfers (§8.3: that is why the date is in the natural
+         * key), so two pairs can want the same {@code TRF-<receipt>}. Overwriting would drop a
+         * transfer and silently unproject both its legs, so a taken id falls back to the
+         * order-independent leg hash. A second collision is a broken invariant, never a guess.
+         */
+        private String uniqueTransferId(Map<String, TransferRow> rows, String preferred, CurrentFact f,
+                                        CurrentFact g) {
+            if (!rows.containsKey(preferred)) {
+                return preferred;
+            }
+            String hashed = Ids.transferId(f.externalId(), g.externalId());
+            if (!rows.containsKey(hashed)) {
+                return hashed;
+            }
+            throw new IllegalStateException(
+                "duplicate transfer id " + hashed + " for legs " + f.externalId() + "/" + g.externalId());
         }
 
         private String currency(CurrentFact c) {
@@ -764,29 +783,40 @@ public final class Derive {
                 .thenComparing(c -> c.fact().date()).thenComparingLong(c -> c.fact().n()));
             int[] dupParent = components(currentList.size());
             int[] restParent = components(currentList.size());
-            for (int i = 0; i < currentList.size(); i++) {
-                for (int j = i + 1; j < currentList.size(); j++) {
-                    CurrentFact a = currentList.get(i);
-                    CurrentFact b = currentList.get(j);
-                    if (!a.fact().accountRef().equals(b.fact().accountRef())
-                        || !a.fact().date().equals(b.fact().date())
-                        || a.matched() || b.matched()) {
-                        continue;
-                    }
-                    boolean sameSign = (a.fact().amount() < 0) == (b.fact().amount() < 0);
-                    boolean stemEqual = MerchantStem.stem(a.fact().rawDescription())
-                        .equals(MerchantStem.stem(b.fact().rawDescription()));
-                    long delta = Math.abs(a.fact().amount() - b.fact().amount());
-                    if (sameSign && stemEqual && delta <= config.transfers().dupTolerance()) {
-                        union(dupParent, i, j);
-                    }
-                    boolean sameAmount = a.fact().amount() == b.fact().amount();
-                    boolean similar = MerchantStem.similar(a.fact().rawDescription(), b.fact().rawDescription(),
-                        config.transfers().restatementOverlap());
-                    if (sameAmount && similar) {
-                        union(restParent, i, j);
+            // Both predicates require the same (account, date) pair, and currentList is sorted by
+            // exactly that, so compare only inside each contiguous run. The cost becomes the size of
+            // a single day on one account, not every fact against every other.
+            for (int start = 0; start < currentList.size(); ) {
+                CurrentFact first = currentList.get(start);
+                int end = start + 1;
+                while (end < currentList.size()
+                    && currentList.get(end).fact().accountRef().equals(first.fact().accountRef())
+                    && currentList.get(end).fact().date().equals(first.fact().date())) {
+                    end++;
+                }
+                for (int i = start; i < end; i++) {
+                    for (int j = i + 1; j < end; j++) {
+                        CurrentFact a = currentList.get(i);
+                        CurrentFact b = currentList.get(j);
+                        if (a.matched() || b.matched()) {
+                            continue;
+                        }
+                        boolean sameSign = (a.fact().amount() < 0) == (b.fact().amount() < 0);
+                        boolean stemEqual = MerchantStem.stem(a.fact().rawDescription())
+                            .equals(MerchantStem.stem(b.fact().rawDescription()));
+                        long delta = Math.abs(a.fact().amount() - b.fact().amount());
+                        if (sameSign && stemEqual && delta <= config.transfers().dupTolerance()) {
+                            union(dupParent, i, j);
+                        }
+                        boolean sameAmount = a.fact().amount() == b.fact().amount();
+                        boolean similar = MerchantStem.similar(a.fact().rawDescription(), b.fact().rawDescription(),
+                            config.transfers().restatementOverlap());
+                        if (sameAmount && similar) {
+                            union(restParent, i, j);
+                        }
                     }
                 }
+                start = end;
             }
             addClusters(items, byId, currentList, dupParent, ReviewItem.POTENTIAL_DUP);
             addClusters(items, byId, currentList, restParent, ReviewItem.RESTATEMENT);

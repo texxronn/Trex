@@ -396,7 +396,9 @@ kind-specific body:
 sequencer's own environment (`TREX_ENV`), `source` is declared in `sources.yaml` and refused if
 unknown, and `target` is `none` (eight spaces) in trex. They are padded, not trimmed — no consumer
 may `strip()` them. `at` is an **optional body field** (ISO-8601 UTC, millisecond) for readability
-only. `n`, `atMs` and `at` never enter a hash or `derive()`.
+only. `n`, `atMs` and `at` never enter a hash or `derive()`. `atMs` echoes a client-supplied
+`ingestedAt` when the batch carries one, so it is **not monotonic in `n`**: nothing may order by it
+— order by `n`, and note that `DISMISS` already compares `n`.
 
 A reader **skips an unknown `kind`** (warn, do not fail) and **refuses a known kind at a
 higher `v`** (never silently misread); unknown fields are ignored, so an additive field is

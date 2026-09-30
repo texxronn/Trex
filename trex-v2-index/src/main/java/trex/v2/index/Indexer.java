@@ -83,6 +83,50 @@ public final class Indexer implements AutoCloseable {
         return Long.parseLong(meta("log_offset").orElse("0"));
     }
 
+    /**
+     * Whether the journal's prefix below the persisted offset no longer matches what was indexed —
+     * a <em>replaced</em> journal, not an appended one (V2-PROPOSAL.md §7.4). A shrink is already
+     * caught by the offset; this catches a same-or-larger file materialised from different bytes.
+     * The fingerprint is the last indexed line's bytes, so a replacement that reproduces that line
+     * is indistinguishable from an append and is accepted (the accepted limit).
+     */
+    public synchronized boolean journalPrefixReplaced(Path journal) {
+        long off = offset();
+        Optional<String> hash = meta("log_tail_hash");
+        Optional<String> len = meta("log_tail_len");
+        if (off == 0 || hash.isEmpty() || len.isEmpty()) {
+            return false;
+        }
+        int n;
+        try {
+            n = Integer.parseInt(len.get());
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        if (n <= 0 || off < n) {
+            return false;
+        }
+        try (java.nio.channels.FileChannel channel = java.nio.channels.FileChannel.open(journal,
+                java.nio.file.StandardOpenOption.READ)) {
+            if (channel.size() < off) {
+                return true;
+            }
+            java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(n);
+            channel.position(off - n);
+            while (buf.hasRemaining()) {
+                if (channel.read(buf) < 0) {
+                    return true;
+                }
+            }
+            buf.flip();
+            byte[] bytes = new byte[buf.remaining()];
+            buf.get(bytes);
+            return !Hashes.sha256(bytes).equals(hash.get());
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException("cannot verify the journal prefix", e);
+        }
+    }
+
     public synchronized Optional<String> meta(String key) {
         try (PreparedStatement ps = conn.prepareStatement(Sql.SELECT_META)) {
             ps.setString(1, key);
@@ -158,6 +202,14 @@ public final class Indexer implements AutoCloseable {
                 m.setString(1, "log_offset");
                 m.setString(2, String.valueOf(read.end()));
                 m.executeUpdate();
+                if (read.tailBytes() != null) {
+                    m.setString(1, "log_tail_hash");
+                    m.setString(2, Hashes.sha256(read.tailBytes()));
+                    m.executeUpdate();
+                    m.setString(1, "log_tail_len");
+                    m.setString(2, String.valueOf(read.tailBytes().length));
+                    m.executeUpdate();
+                }
             }
         });
     }
@@ -716,21 +768,26 @@ public final class Indexer implements AutoCloseable {
         }
     }
 
-    private record ReadResult(List<LogLine> lines, long end) {}
+    private record ReadResult(List<LogLine> lines, long end, byte[] tailBytes) {}
 
     private static ReadResult readFrom(Path journal, long offset) {
         List<LogLine> lines = new ArrayList<>();
         long end = offset;
+        byte[] tail = null;
         try (FramedReader reader = new FramedReader(journal, offset)) {
             FramedReader.Framed f;
             while ((f = reader.next()) != null) {
                 lines.add(f.line());
                 end = f.endOffset();
+                // Keep the trailing '\n' so the fingerprint is exactly [end - len, end).
+                byte[] raw = f.bytes();
+                tail = java.util.Arrays.copyOf(raw, raw.length + 1);
+                tail[raw.length] = '\n';
             }
         } catch (JournalCorruptException e) {
             throw e;
         }
-        return new ReadResult(lines, end);
+        return new ReadResult(lines, end, tail);
     }
 
     @Override

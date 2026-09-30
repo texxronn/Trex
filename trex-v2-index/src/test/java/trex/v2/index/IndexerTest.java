@@ -113,6 +113,25 @@ class IndexerTest {
     }
 
     @Test
+    void aReplacedJournalIsDetectedNotJustAShrink(@TempDir Path dir) throws Exception {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            assertTrue(indexer.apply(journal, ASOF));
+            assertFalse(indexer.journalPrefixReplaced(journal), "an appended journal is intact");
+
+            // The same bytes, one byte of the last line changed: a different file of the same size.
+            // The offset still lands inside it, so only the tail fingerprint can notice.
+            byte[] original = java.nio.file.Files.readAllBytes(journal);
+            byte[] replaced = original.clone();
+            replaced[replaced.length - 2] = (byte) (replaced[replaced.length - 2] ^ 0x20);
+            java.nio.file.Files.write(journal, replaced);
+
+            assertTrue(indexer.journalPrefixReplaced(journal));
+        }
+    }
+
+    @Test
     void indexLockRefusesASecondWriter(@TempDir Path dir) {
         Path db = dir.resolve("trex.sqlite");
         try (IndexLock first = IndexLock.acquire(db)) {

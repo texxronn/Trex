@@ -51,6 +51,13 @@ everything is under **Unreleased**.
 
 - The status `n` under-reported the log head once ingest events existed (`logHeadN` ignored them).
 - The hub's `/api/status` counts did not include `ingest_event`.
+- A receipt is not unique across transfers, so two derived or decided pairs that share one could
+  mint the same `TRF-<receipt>` and overwrite a transfer row, silently unprojecting both its legs;
+  a taken id now falls back to the order-independent leg hash.
+- The duplicate/restatement scan compared every current fact with every other (O(n²)); it now only
+  compares within each `(account, date)` run, which is the only place either predicate can hold.
+- The hub detected a replaced journal only when it shrank; it now also fingerprints the last indexed
+  line, so a same-or-larger file materialised from different bytes forces a refold.
 
 ## [0.1.0] - 2026-09-29
 

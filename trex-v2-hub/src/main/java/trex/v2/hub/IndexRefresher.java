@@ -141,8 +141,9 @@ final class IndexRefresher implements AutoCloseable {
                 return;
             }
             long size = Files.size(journal);
-            if (indexer.offset() > size) {
-                log.warn("journal shrank (offset {} > size {}); refolding from 0", indexer.offset(), size);
+            if (indexer.offset() > size || indexer.journalPrefixReplaced(journal)) {
+                log.warn("journal replaced or shrank (offset {}, size {}); refolding from 0",
+                    indexer.offset(), size);
                 indexer.rebuild(journal, Instant.now());
                 publish();
                 return;

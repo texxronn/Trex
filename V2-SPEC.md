@@ -56,7 +56,9 @@ is not migrated from.
 - **Encoding.** Framed JSONL: one '`\n`'-terminated UTF-8 record per line. Every line leads with
   the **envelope** `{ n, kind, v, atMs, env, source, target }`, then `at` (a readable echo of
   `atMs`) and the kind-specific body. `kind` is namespaced (`trex.fact` / `trex.decision` /
-  `trex.ingest`) and `v` is `1`. `atMs` is epoch millis (UTC) and the only time logic reads.
+  `trex.ingest`) and `v` is `1`. `atMs` is epoch millis (UTC) and the only time logic reads; it
+  echoes a client-supplied `ingestedAt` when present, so it is **not monotonic in `n`** — order by
+  `n`, never by `atMs`.
   `env`/`source`/`target` are exactly 8 chars of `[A-Za-z0-9_ ]`, right-padded with spaces: `env` is
   the sequencer's `TREX_ENV`; `source` is the writing process instance, declared in `sources.yaml`
   and refused if unknown; `target` is `none` (eight spaces). A record is complete iff it ends in

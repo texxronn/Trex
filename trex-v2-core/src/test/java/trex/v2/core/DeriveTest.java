@@ -14,6 +14,7 @@ import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.Derive;
 import trex.v2.core.derive.LegState;
+import trex.v2.core.derive.TransferRow;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -161,6 +162,27 @@ class DeriveTest {
         assertEquals(LegState.MATCHED, d.current("a").orElseThrow().leg());
         assertEquals(1, d.transfers().size());
         assertEquals(Confidence.HIGH, d.transfers().getFirst().confidence());
+    }
+
+    @Test
+    void twoPairsSharingAReceiptKeepDistinctTransfers() {
+        // A receipt is not unique across transfers (§8.3: that is why the date is in the natural
+        // key). Two decision pairs sharing one must each keep a distinct transfer row — the second
+        // id falls back to the leg hash rather than overwriting the first and dropping its money.
+        List<Fact> facts = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -500, "Transfer to Orange", "REC-9", 0),
+            fact(2, "b", "ing-orange", LocalDate.of(2026, 9, 1), 500, "Transfer from Savings", "REC-9", 0),
+            fact(3, "c", "ing-savings", LocalDate.of(2026, 9, 2), -700, "Transfer to Orange", "REC-9", 0),
+            fact(4, "d", "ing-orange", LocalDate.of(2026, 9, 2), 700, "Transfer from Savings", "REC-9", 0));
+        List<Decision> decisions = List.of(
+            new Decision.Pair(5, "a", "b", "one", Actor.USER, "ron", ASOF),
+            new Decision.Pair(6, "c", "d", "two", Actor.USER, "ron", ASOF));
+        Derivation d = Derive.derive(facts, decisions, config(), ASOF);
+        assertEquals(2, d.transfers().size(), "the second pair must not overwrite the first");
+        assertEquals(2, d.transfers().stream().map(TransferRow::transferId).distinct().count());
+        for (String id : List.of("a", "b", "c", "d")) {
+            assertEquals(LegState.MATCHED, d.current(id).orElseThrow().leg(), id);
+        }
     }
 
     @Test
