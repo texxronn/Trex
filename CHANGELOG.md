@@ -30,6 +30,11 @@ everything is under **Unreleased**.
 - **Journal snapshots**: `POST /maintenance/snapshot` writes a dated gzip copy of the log prefix to
   `journal/trex-<ts>.jsonl.gz`; `trex snapshot`; the `journal-snapshot` runner job. A copy, never a
   rotation.
+- **The runner's schedule** (`schedule.yaml`, empty by default): intervals with a phase — `every` +
+  `at` (a local `HH:MM`), plus `on` (one weekday) and `zone` for a weekly job; not cron. A day-sized
+  period is a calendar cadence (the local wall time survives DST), a due job already running is
+  skipped, and there is no catch-up. `GET /jobs` reports `nextRun`, runs carry a `trigger`, and the
+  Jobs card shows the next snapshot.
 
 ### Changed
 

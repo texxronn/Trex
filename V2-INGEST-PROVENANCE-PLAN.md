@@ -230,10 +230,13 @@ scheduler framework") and must be recorded there (§12).
 - **Sync/async on the job API**: `POST /jobs/{name}/runs?sync=true&timeoutMs=10000` returns the
   terminal `RunDetail` when it finishes in time, otherwise `202 {runId}` — the same response shape
   either way, so a caller always has a handle. Async (202 + SSE/poll) stays the default.
-- **Scheduler in the runner** (§2.5): RunnerConfig gains an optional schedule
-  (`schedule.yaml`: `[{job, params, every: "24h"}]`, or `at: "02:30"`), default **empty** (manual
-  only). One daemon timer thread; no framework. A sensible default for the host is a daily
-  `journal-snapshot`; nothing else is scheduled — `--apply` and ingest stay manual.
+- **Scheduler in the runner** (§2.5): an optional `schedule.yaml`, default **empty** (manual only).
+  Intervals only, with a phase: an entry is `job`, `params?`, `every` (`1h…24h`, `7d`) and `at`
+  (a local `HH:MM` phase), plus — only for `7d` — `on` (one weekday) and `zone` (default UTC); no
+  cron. A day-sized period is a calendar cadence (the local wall time survives DST); a due job
+  already running is skipped; there is no catch-up. One daemon timer thread; no framework. A
+  sensible default for the host is a daily `journal-snapshot`; nothing else is scheduled —
+  `--apply` and ingest stay manual.
 - Runner config gains `--archive <dir>` and `--sync-timeout` (default `10s`), passed down to
   `ingest --source-archive` and used by the sync wrappers.
 

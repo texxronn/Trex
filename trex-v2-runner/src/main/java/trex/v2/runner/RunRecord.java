@@ -23,6 +23,7 @@ public final class RunRecord {
     private final String job;
     private final JsonNode params;
     private final List<Step> steps;
+    private final String trigger;
     private final long queuedAt = System.currentTimeMillis();
     private final ArrayDeque<String> log = new ArrayDeque<>();
     private final Map<String, Integer> stepExits = new LinkedHashMap<>();
@@ -35,11 +36,12 @@ public final class RunRecord {
     private volatile Process process;
     private volatile boolean cancelRequested;
 
-    RunRecord(String id, String job, JsonNode params, List<Step> steps) {
+    RunRecord(String id, String job, JsonNode params, List<Step> steps, String trigger) {
         this.id = id;
         this.job = job;
         this.params = params;
         this.steps = List.copyOf(steps);
+        this.trigger = trigger;
     }
 
     public String id() {
@@ -48,6 +50,10 @@ public final class RunRecord {
 
     public String job() {
         return job;
+    }
+
+    public String trigger() {
+        return trigger;
     }
 
     public JsonNode params() {

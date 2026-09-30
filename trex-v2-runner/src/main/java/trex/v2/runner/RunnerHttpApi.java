@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,11 +36,12 @@ final class RunnerHttpApi {
     private RunnerHttpApi() {}
 
     static HttpServer start(RunnerConfig config, JobRunnerService runner, StagingStore staging,
-                            Map<String, JobSpec> jobs, StatementsMap statements) throws IOException {
+                            Map<String, JobSpec> jobs, StatementsMap statements, JobScheduler scheduler)
+            throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(config.host(), config.port()), 0);
         server.createContext("/", ex -> {
             try {
-                dispatch(ex, config, runner, staging, jobs, statements);
+                dispatch(ex, config, runner, staging, jobs, statements, scheduler);
             } catch (IllegalArgumentException e) {
                 sendError(ex, 400, e.getMessage());
             } catch (Exception e) {
@@ -55,7 +57,8 @@ final class RunnerHttpApi {
     }
 
     private static void dispatch(HttpExchange ex, RunnerConfig config, JobRunnerService runner,
-                                 StagingStore staging, Map<String, JobSpec> jobs, StatementsMap statements)
+                                 StagingStore staging, Map<String, JobSpec> jobs, StatementsMap statements,
+                                 JobScheduler scheduler)
             throws Exception {
         String path = ex.getRequestURI().getPath();
         String method = ex.getRequestMethod();
@@ -68,7 +71,7 @@ final class RunnerHttpApi {
             return;
         }
         if (path.equals("/jobs") && method.equals("GET")) {
-            listJobs(ex, runner, jobs);
+            listJobs(ex, runner, jobs, scheduler);
             return;
         }
         if (path.equals("/adapters") && method.equals("GET")) {
@@ -100,7 +103,8 @@ final class RunnerHttpApi {
 
     // ---- jobs -------------------------------------------------------------------------------
 
-    private static void listJobs(HttpExchange ex, JobRunnerService runner, Map<String, JobSpec> jobs)
+    private static void listJobs(HttpExchange ex, JobRunnerService runner, Map<String, JobSpec> jobs,
+                                 JobScheduler scheduler)
             throws IOException {
         List<Map<String, Object>> out = new ArrayList<>();
         for (JobSpec spec : jobs.values()) {
@@ -114,6 +118,8 @@ final class RunnerHttpApi {
             m.put("params", spec.params());
             m.put("running", active != null);
             m.put("activeRun", active == null ? null : active.id());
+            m.put("nextRun", scheduler == null ? null
+                : scheduler.nextRun(spec.name()).map(Instant::toEpochMilli).orElse(null));
             m.put("lastRun", last == null ? null : summary(last));
             out.add(m);
         }
@@ -188,6 +194,7 @@ final class RunnerHttpApi {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", run.id());
         m.put("job", run.job());
+        m.put("trigger", run.trigger());
         m.put("params", run.params());
         m.put("state", run.state().name());
         m.put("queuedAt", run.queuedAt());

@@ -357,13 +357,16 @@ plus `projection_state`. A file's "ingested" **tick** is derived from the log (i
 id appears on facts), never stored — evidence is written *before* parsing, so ticking on
 evidence would mark a rejected file as done.
 
-The runner also **schedules**: an optional, intervals-only schedule triggers jobs such as
-the **journal snapshot** — `POST /maintenance/snapshot` on the sequencer writes a dated
+The runner also **schedules**: an optional, intervals-only schedule triggers jobs such as the
+**journal snapshot** — `POST /maintenance/snapshot` on the sequencer writes a dated
 gzip copy of the log (`archive/journal/trex-<ts>.jsonl.gz`) and leaves the live journal
 untouched. Snapshots are **copies, never rotations**; the byte mirror is kept forever and
 snapshots are pruned by an explicit `prune-archive` job. A sync call waits up to a
 configurable timeout (10 s by default) and otherwise returns the run handle; async returns
-it immediately.
+it immediately. An entry is `job`, `params?`, `every` (`1h…24h`, `7d`) and `at` (a local
+`HH:MM` phase), plus — only for `7d` — `on` (one weekday) and `zone` (default UTC). It is a
+*phase*, not a cron expression; a day-sized period is a calendar cadence, so the local wall
+time survives a DST change, and a due job already running is skipped, never queued twice.
 
 ---
 

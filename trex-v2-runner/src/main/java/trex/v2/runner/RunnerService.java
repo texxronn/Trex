@@ -19,11 +19,13 @@ public final class RunnerService implements AutoCloseable {
     private final RunnerConfig config;
     private final JobRunnerService runner;
     private final HttpServer server;
+    private final JobScheduler scheduler;
 
-    private RunnerService(RunnerConfig config, JobRunnerService runner, HttpServer server) {
+    private RunnerService(RunnerConfig config, JobRunnerService runner, HttpServer server, JobScheduler scheduler) {
         this.config = config;
         this.runner = runner;
         this.server = server;
+        this.scheduler = scheduler;
     }
 
     public static RunnerService start(RunnerConfig config) {
@@ -31,8 +33,16 @@ public final class RunnerService implements AutoCloseable {
         StagingStore staging = new StagingStore(config.stagingDir());
         Map<String, JobSpec> jobs = JobCatalogue.of(config, statements, staging);
         JobRunnerService runner = new JobRunnerService(config, jobs, new ProcessCommandRunner());
+        java.util.List<Schedule.Entry> schedule = Schedule.load(config.configDir());
+        for (Schedule.Entry entry : schedule) {
+            if (!jobs.containsKey(entry.job())) {
+                runner.close();
+                throw new IllegalArgumentException("schedule.yaml names an unknown job: " + entry.job());
+            }
+        }
+        JobScheduler scheduler = schedule.isEmpty() ? null : new JobScheduler(schedule, runner);
         try {
-            HttpServer server = RunnerHttpApi.start(config, runner, staging, jobs, statements);
+            HttpServer server = RunnerHttpApi.start(config, runner, staging, jobs, statements, scheduler);
             log.info("trex runner listening on {}:{}; staging {}; jobs {}",
                 config.host(), server.getAddress().getPort(), config.stagingDir(), jobs.keySet());
             if (!config.allowApply()) {
@@ -41,7 +51,11 @@ public final class RunnerService implements AutoCloseable {
                 log.warn("--apply is ENABLED: anyone who can reach the hub on this origin can "
                     + "project to Firefly; front the hub with auth before exposing it");
             }
-            return new RunnerService(config, runner, server);
+            if (scheduler != null) {
+                log.info("scheduled jobs: {}", schedule.stream()
+                    .map(e -> e.job() + " every " + e.every()).toList());
+            }
+            return new RunnerService(config, runner, server, scheduler);
         } catch (IOException e) {
             runner.close();
             throw new UncheckedIOException("cannot start the runner", e);
@@ -58,6 +72,9 @@ public final class RunnerService implements AutoCloseable {
 
     @Override
     public void close() {
+        if (scheduler != null) {
+            scheduler.close();
+        }
         server.stop(0);
         runner.close();
     }

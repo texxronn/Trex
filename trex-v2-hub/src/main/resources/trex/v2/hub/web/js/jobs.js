@@ -169,6 +169,15 @@ function rel(ms) {
   return `${Math.round(s / 86400)}d ago`;
 }
 
+function relFuture(ms) {
+  if (!ms) return '\u2014';
+  const s = Math.max(0, (ms - Date.now()) / 1000);
+  if (s < 90) return `in ${Math.round(s)}s`;
+  if (s < 5400) return `in ${Math.round(s / 60)}m`;
+  if (s < 172800) return `in ${Math.round(s / 3600)}h`;
+  return `in ${Math.round(s / 86400)}d`;
+}
+
 // ---- staging ------------------------------------------------------------------------------
 
 async function upload(files) {
@@ -301,8 +310,9 @@ function jobCard(job) {
   }
 
   if (job.name === 'journal-snapshot') {
+    const next = job.nextRun ? ` · next: ${relFuture(job.nextRun)}` : '';
     nodes.push(el('div', { class: 'muted' },
-      last ? `last snapshot: ${rel(last.finishedAt || last.queuedAt)} · exit ${last.exit}` : 'never run'));
+      (last ? `last snapshot: ${rel(last.finishedAt || last.queuedAt)} · exit ${last.exit}` : 'never run') + next));
     const buttons = [el('button', { class: 'primary', disabled: busy, onclick: () => startRun(job.name, {}) },
       'Snapshot now')];
     if (busy && job.activeRun) {

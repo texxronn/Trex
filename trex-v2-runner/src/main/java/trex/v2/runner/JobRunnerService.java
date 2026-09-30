@@ -50,6 +50,11 @@ public final class JobRunnerService implements AutoCloseable {
 
     /** Build the steps now (so a bad request fails before it queues) and enqueue the run. */
     public RunRecord submit(String jobName, JsonNode params) {
+        return submit(jobName, params, "manual");
+    }
+
+    /** Build the steps now (so a bad request fails before it queues) and enqueue the run. */
+    public RunRecord submit(String jobName, JsonNode params, String trigger) {
         JobSpec spec = jobs.get(jobName);
         if (spec == null) {
             throw new IllegalArgumentException("unknown job: " + jobName);
@@ -59,7 +64,7 @@ public final class JobRunnerService implements AutoCloseable {
         if (steps.isEmpty()) {
             throw new IllegalArgumentException("no work to do");
         }
-        RunRecord run = new RunRecord(UUID.randomUUID().toString(), jobName, params, steps);
+        RunRecord run = new RunRecord(UUID.randomUUID().toString(), jobName, params, steps, trigger);
         synchronized (history) {
             history.addFirst(run);
             while (history.size() > HISTORY) {

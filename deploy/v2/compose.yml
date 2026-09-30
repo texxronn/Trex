@@ -44,6 +44,8 @@ configs:
     file: ../config/statements.yaml
   sources.yaml:
     file: ../config/sources.yaml
+  schedule.yaml:
+    file: ../config/schedule.yaml
 
 volumes:
   config:
@@ -67,7 +69,7 @@ services:
     command:
       - >-
         mkdir -p /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
-        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml statements.yaml sources.yaml; do
+        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml statements.yaml sources.yaml schedule.yaml; do
           if [ ! -e "/etc/trex/$$f" ]; then cp "/bootstrap/$$f" "/etc/trex/$$f"; fi;
         done;
         chown -R 1000:1000 /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging
@@ -83,6 +85,7 @@ services:
       - { source: firefly.yaml, target: /bootstrap/firefly.yaml }
       - { source: statements.yaml, target: /bootstrap/statements.yaml }
       - { source: sources.yaml, target: /bootstrap/sources.yaml }
+      - { source: schedule.yaml, target: /bootstrap/schedule.yaml }
     volumes:
       - config:/etc/trex
       - journal:/var/lib/trex/journal

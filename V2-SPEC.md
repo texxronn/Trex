@@ -263,7 +263,39 @@ run over real statement files.
 
 ---
 
-## 16. Deltas from the proposal
+## 16. The runner and its schedule
+
+`trex-v2-runner` is a loopback service the hub proxies. A **job** is an invocation of an existing
+subcommand — `ingest`, `egress-firefly`, `journal-snapshot` — never new logic: the runner starts the
+process, streams its output and records the exit code. One serialized worker, a bounded in-memory run
+history, and a **staging inbox** for uploads. `POST /jobs/{name}/runs` is async (`202 {runId}`) or,
+with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
+
+**The schedule** (`schedule.yaml`, empty by default) enqueues jobs through the same queue. It is
+intervals only, with a phase — no cron:
+
+```yaml
+jobs:
+  - job: journal-snapshot
+    every: 24h               # 1h,2h,3h,4h,6h,8h,12h,24h,7d
+    at: "02:30"              # local time of day — required (the phase)
+    on: Sun                  # weekly only; required for 7d, refused otherwise
+    zone: Australia/Sydney   # default UTC
+```
+
+- `at` pins the phase; `every` is the period. A period that is a whole number of days is a
+  **calendar** cadence (the local wall time is preserved across a DST change); a sub-day period is a
+  grid anchored at `at`, stepped by `every`.
+- DST: a non-existent local time shifts forward; an ambiguous one fires once.
+- A due job that is already active is **skipped**, not queued twice.
+- **No catch-up**: a slot missed while the runner was down is missed; the manual button covers it.
+- Job names are validated at load against the catalogue; a bad entry fails startup.
+
+Runs carry a `trigger` (`manual` | `schedule`), and `GET /jobs` reports each job's `nextRun`.
+
+---
+
+## 17. Deltas from the proposal
 
 Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 
