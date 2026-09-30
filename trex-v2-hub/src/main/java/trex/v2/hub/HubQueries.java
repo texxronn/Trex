@@ -146,6 +146,56 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    // ---- accounts overview (V2-PROPOSAL.md §10.1, §10.5) ---------------------------------------
+
+    /** All-time totals per account: first and last transaction date, and the count. */
+    public Map<String, AccountTotals> accountTotals() {
+        return read(conn -> {
+            Map<String, AccountTotals> out = new LinkedHashMap<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.ACCOUNT_TOTALS)) {
+                while (rs.next()) {
+                    out.put(rs.getString(1), new AccountTotals(LocalDate.parse(rs.getString(2)),
+                        LocalDate.parse(rs.getString(3)), rs.getLong(4)));
+                }
+            }
+            return out;
+        });
+    }
+
+    /** The current rows in a date window, each with the ingest file that owns it (nullable). */
+    public List<CoverageRow> coverage(LocalDate from, LocalDate to) {
+        return read(conn -> {
+            List<CoverageRow> out = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ACCOUNT_COVERAGE)) {
+                ps.setString(1, from.toString());
+                ps.setString(2, to.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new CoverageRow(rs.getString(1), LocalDate.parse(rs.getString(2)),
+                            rs.getString(3)));
+                    }
+                }
+            }
+            return out;
+        });
+    }
+
+    /** Every ingest batch oldest-first; the caller keeps the newest per account. */
+    public List<LastImport> lastImports() {
+        return read(conn -> {
+            List<LastImport> out = new ArrayList<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.ACCOUNT_LAST_IMPORTS)) {
+                while (rs.next()) {
+                    out.add(new LastImport(rs.getString(1), rs.getString(2), rs.getString(3),
+                        rs.getLong(4)));
+                }
+            }
+            return out;
+        });
+    }
+
     /** Open review items by kind (open = derived and not dismissed). */
     public Map<String, Long> reviewByKind() {
         return read(conn -> {
@@ -475,6 +525,17 @@ public final class HubQueries implements AutoCloseable {
             }
         });
     }
+
+    // ---- rows the accounts view reads ---------------------------------------------------------
+
+    /** All-time first/last/count for one account. */
+    record AccountTotals(LocalDate first, LocalDate last, long txns) {}
+
+    /** One current row in the coverage window, with the ingest file that owns it (nullable). */
+    record CoverageRow(String accountRef, LocalDate date, String file) {}
+
+    /** One ingest batch as the coverage view needs it. */
+    record LastImport(String accountRef, String file, String status, long startedMs) {}
 
     // ---- helpers ----------------------------------------------------------------------------
 

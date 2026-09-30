@@ -40,6 +40,28 @@ final class HubSql {
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, matched_at
         FROM transfer ORDER BY transfer_id""";
 
+    /** All-time first/last transaction date and the row count, one row per account. */
+    static final String ACCOUNT_TOTALS = """
+        SELECT account_ref, MIN(date), MAX(date), COUNT(*)
+        FROM txn_current GROUP BY account_ref""";
+
+    /**
+     * The window's current rows with the ingest file that owns each one (V2-PROPOSAL.md §10.5). A
+     * fact sits strictly between its batch's markers, so the range is exclusive; a manual cash fact
+     * matches no batch and gets a null file.
+     */
+    static final String ACCOUNT_COVERAGE = """
+        SELECT t.account_ref, t.date, b.file
+        FROM txn_current t
+        LEFT JOIN ingest_batch b
+          ON b.account_ref = t.account_ref AND t.n > b.n_start AND t.n < b.n_end
+        WHERE t.date >= ? AND t.date <= ?
+        ORDER BY t.account_ref, t.date""";
+
+    /** Every ingest batch, oldest first; the caller keeps the last row per account. */
+    static final String ACCOUNT_LAST_IMPORTS = """
+        SELECT account_ref, file, status, started_ms FROM ingest_batch ORDER BY started_ms""";
+
     static final String UNITS_SELECT = """
         SELECT unit_id, unit_kind, account_ref, date, amount, currency, category, origin, pairing,
                retired, ineffective

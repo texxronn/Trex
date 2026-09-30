@@ -2,6 +2,7 @@ package trex.v2.hub;
 
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
+import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
@@ -72,4 +73,7 @@ interface HubApi {
 
     /** The ingest history, paired from the log's markers (§12.6). */
     trex.v2.hub.api.IngestsResponse ingests();
+
+    /** The Accounts overview (§10.1, §10.5): per-account first/last and the coverage strip. */
+    AccountsResponse accounts(String window, String granularity, java.time.LocalDate asOf);
 }

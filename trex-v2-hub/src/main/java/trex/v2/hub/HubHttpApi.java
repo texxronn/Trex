@@ -61,6 +61,16 @@ final class HubHttpApi {
         route(server, "/api/opening", "GET", ex -> write(ex, 200, api.opening()));
         route(server, "/api/workbook", "GET", ex -> write(ex, 200, api.workbook()));
         route(server, "/api/ingests", "GET", ex -> write(ex, 200, api.ingests()));
+        route(server, "/api/accounts", "GET", ex -> {
+            try {
+                String query = ex.getRequestURI().getQuery();
+                String asOf = param(query, "asOf");
+                write(ex, 200, api.accounts(param(query, "window"), param(query, "granularity"),
+                    asOf == null ? null : java.time.LocalDate.parse(asOf)));
+            } catch (IllegalArgumentException e) {
+                sendError(ex, 400, e.getMessage());
+            }
+        });
         Map<String, Handler> projection = new LinkedHashMap<>();
         projection.put("GET", ex -> write(ex, 200, api.projection()));
         projection.put("POST", ex -> {

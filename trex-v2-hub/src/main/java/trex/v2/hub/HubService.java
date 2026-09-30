@@ -22,6 +22,7 @@ import trex.v2.core.workbook.Workbook;
 import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
+import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.CursorRequest;
 import trex.v2.hub.api.CursorResponse;
 import trex.v2.hub.api.DecisionRequest;
@@ -56,7 +57,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,6 +84,9 @@ public final class HubService implements HubApi, AutoCloseable {
 
     /** A walk is one period; this is a guard against an unbounded scan, not a page size. */
     private static final int MAX_WALK_ROWS = 100_000;
+
+    /** The Accounts window choices: months back, or {@code all} for every fact on record. */
+    private static final Set<String> ACCOUNT_WINDOWS = Set.of("3m", "6m", "12m", "24m", "all");
 
     private final HubConfig config;
     private final IndexLock lock;
@@ -422,6 +429,105 @@ public final class HubService implements HubApi, AutoCloseable {
     @Override
     public trex.v2.hub.api.IngestsResponse ingests() {
         return new trex.v2.hub.api.IngestsResponse(reads.ingests(50));
+    }
+
+    // ---- accounts overview (V2-PROPOSAL.md §10.1, §10.5) -------------------------------------
+
+    /**
+     * Per-account earliest/latest and the facts-derived coverage strip. Writes nothing: the strip
+     * is recomputed from the current rows on every request, and a hole means only "no rows here",
+     * never "not imported" — the log records no statement periods.
+     */
+    @Override
+    public AccountsResponse accounts(String window, String granularity, LocalDate asOf) {
+        String win = window == null || window.isBlank() ? "12m" : window;
+        if (!ACCOUNT_WINDOWS.contains(win)) {
+            throw new IllegalArgumentException(
+                "window must be one of 3m, 6m, 12m, 24m or all, not '" + win + "'");
+        }
+        String grain = granularity == null || granularity.isBlank() ? "week" : granularity;
+        if (!Set.of("week", "month").contains(grain)) {
+            throw new IllegalArgumentException("granularity must be week or month, not '" + grain + "'");
+        }
+        boolean week = "week".equals(grain);
+        LocalDate today = asOf == null ? LocalDate.now() : asOf;
+        Map<String, HubQueries.AccountTotals> totals = reads.accountTotals();
+
+        LocalDate rawFrom = "all".equals(win)
+            ? totals.values().stream().map(HubQueries.AccountTotals::first).min(LocalDate::compareTo)
+                .orElse(today.minusMonths(12))
+            : today.minusMonths(Long.parseLong(win.substring(0, win.length() - 1)));
+        LocalDate from = week ? mondayOnOrBefore(rawFrom) : rawFrom.withDayOfMonth(1);
+        LocalDate to = week
+            ? mondayOnOrBefore(today).plusDays(6)
+            : today.withDayOfMonth(1).plusMonths(1).minusDays(1);
+
+        // One pass over the window: per bucket, the row count and the file(s) that appended them.
+        Map<String, Long> counts = new HashMap<>();
+        Map<String, List<String>> files = new HashMap<>();
+        for (HubQueries.CoverageRow row : reads.coverage(from, to)) {
+            String key = row.accountRef() + "|" + bucketKey(row.date(), grain);
+            counts.merge(key, 1L, Long::sum);
+            if (row.file() != null) {
+                List<String> names = files.computeIfAbsent(key, k -> new ArrayList<>());
+                if (!names.contains(row.file())) {
+                    names.add(row.file());
+                }
+            }
+        }
+        Map<String, HubQueries.LastImport> imports = new LinkedHashMap<>();
+        for (HubQueries.LastImport imp : reads.lastImports()) {
+            imports.put(imp.accountRef(), imp);
+        }
+
+        List<AccountsResponse.AccountCoverage> accounts = new ArrayList<>();
+        for (Account account : refresher.config().registry().accounts().values()) {
+            HubQueries.AccountTotals total = totals.get(account.ref());
+            String firstKey = total == null ? null : bucketKey(total.first(), grain);
+            String lastKey = total == null ? null : bucketKey(total.last(), grain);
+            List<AccountsResponse.Bucket> buckets = new ArrayList<>();
+            long txnsInWindow = 0;
+            long holes = 0;
+            for (LocalDate d = from; !d.isAfter(to); d = week ? d.plusWeeks(1) : d.plusMonths(1)) {
+                String key = bucketKey(d, grain);
+                long count = counts.getOrDefault(account.ref() + "|" + key, 0L);
+                txnsInWindow += count;
+                String state;
+                if (total == null) {
+                    state = "none";
+                } else if (key.compareTo(firstKey) < 0) {
+                    state = "before";
+                } else if (key.compareTo(lastKey) > 0) {
+                    state = "after";
+                } else if (count > 0) {
+                    state = "facts";
+                } else {
+                    state = "hole";
+                    holes++;
+                }
+                LocalDate bucketTo = week ? d.plusDays(6) : d.withDayOfMonth(d.lengthOfMonth());
+                buckets.add(new AccountsResponse.Bucket(key, d, bucketTo, count, state,
+                    files.getOrDefault(account.ref() + "|" + key, List.of())));
+            }
+            HubQueries.LastImport imp = imports.get(account.ref());
+            accounts.add(new AccountsResponse.AccountCoverage(account.ref(), account.currency(),
+                account.balanceSource().wire(), total == null ? null : total.first(),
+                total == null ? null : total.last(), total == null ? 0 : total.txns(),
+                txnsInWindow, holes,
+                imp == null ? null : new AccountsResponse.Import(imp.file(), imp.status(), imp.startedMs()),
+                buckets));
+        }
+        return new AccountsResponse(win, grain, from, to, accounts);
+    }
+
+    /** The ISO week key for a date, or the calendar month ({@code 2026-09}) at month grain. */
+    private static String bucketKey(LocalDate date, String granularity) {
+        return "month".equals(granularity) ? YearMonth.from(date).toString() : Period.weekKey(date);
+    }
+
+    /** The Monday of the ISO week containing the date. */
+    private static LocalDate mondayOnOrBefore(LocalDate date) {
+        return date.minusDays(date.getDayOfWeek().getValue() - 1L);
     }
 
     // ---- rule files (V2-PROPOSAL.md §7.4 point 6, §9.3) -------------------------------------

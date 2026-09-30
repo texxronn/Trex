@@ -337,3 +337,16 @@ button.warn:hover { background: var(--warn-soft); }
 .ops-chip b.good { color: var(--good); }
 .ops-chip b.bad { color: var(--bad); }
 .ops-chip b.muted { color: var(--muted); }
+
+/* ---- Accounts: coverage strip ------------------------------------------- */
+
+.acct-summary .holes { color: var(--bad); font-weight: 600; }
+.weeks { display: flex; gap: 2px; align-items: center; }
+.wk { display: inline-block; width: 11px; min-width: 11px; height: 16px; border-radius: 3px;
+  border: 1px solid var(--line-strong); background: var(--surface); }
+.wk.facts { background: var(--good-soft); border-color: var(--good); }
+.wk.hole { background: var(--bad-soft); border-color: var(--bad); }
+.wk.before, .wk.after, .wk.none { background: transparent; border-style: dashed; opacity: .45; }
+.wk:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.legend { display: inline-flex; align-items: center; gap: 0.25rem; }
+.legend .wk { width: 12px; min-width: 12px; height: 12px; }

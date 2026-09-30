@@ -48,6 +48,7 @@ export const api = {
   saveCategories: (categories) => request('PUT', '/api/config/categories', { categories }),
   workbook: () => request('GET', '/api/workbook'),
   ingests: () => request('GET', '/api/ingests'),
+  accounts: (params = {}) => request('GET', '/api/accounts?' + new URLSearchParams(params)),
   jobs: () => request('GET', '/api/jobs'),
   jobAdapters: () => request('GET', '/api/jobs/adapters'),
   staging: () => request('GET', '/api/jobs/staging'),
