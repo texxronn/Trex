@@ -5,22 +5,23 @@ Day-0 / dev only. This is a mechanical FORMAT TRANSLATION, not a semantic edit: 
 means exactly what it meant, only its shape changes.
 
   old fact      {"n":1,"kind":"fact","v":2,...,"ingestedAt":"<iso>"}
-  new fact      {"n":1,"kind":"fact","v":1,"atMs":<ms>,"source":"ING_0001","target":"        ",
-                 "at":"<iso ms>",...,"externalId":...}
+  new fact      {"n":1,"kind":"trex.fact","v":1,"atMs":<ms>,"env":"Dev1    ","source":"ING_0001",
+                 "target":"        ","at":"<iso ms>",...,"externalId":...}
   old decision  {"n":1858,"kind":"decision","action":"USER_ACK",...,"at":"<iso>"}
-  new decision  {"n":1858,"kind":"decision","v":1,"atMs":<ms>,"source":"HUB_0001","target":"        ",
-                 "at":"<iso ms>","action":"USER_ACK",...}
+  new decision  {"n":1858,"kind":"trex.decision","v":1,"atMs":<ms>,"env":"Dev1    ",
+                 "source":"HUB_0001","target":"        ","at":"<iso ms>","action":"USER_ACK",...}
+
+Header fields come first, in order: n, kind, v, atMs, env, source, target. `kind` is namespaced
+and mandatory (`trex.`). `env`, `source`, `target` are `[A-Za-z0-9_]{1,8}` right-padded with
+spaces to exactly 8 — so `none`/empty target is 8 spaces.
 
 Writes to <journal>.v1 and never touches the input. It does NOT swap the file: the running
 codec must speak v1 first (today it requires v:2 / ingestedAt / at and rejects unknown kinds),
 so swap in by hand when the format change has landed.
 
 Usage:
-  rewrite-journal-v1.py JOURNAL [--fact-source ING_0001] [--decision-source HUB_0001]
-                                [--target '        '] [--include-unknown]
-
-If an unknown `kind` is met (e.g. an `ingest` event already present) the line is refused unless
---include-unknown is given, in which case it is passed through with the envelope added.
+  rewrite-journal-v1.py JOURNAL [--env Dev1] [--fact-source ING_0001]
+                                [--decision-source HUB_0001] [--target ''] [--include-unknown]
 """
 from __future__ import annotations
 
@@ -31,8 +32,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-NONE_TARGET = "        "  # exactly 8 spaces
 V = 1
+NAMESPACE = "trex"
+CODE_RE = re.compile(r"[A-Za-z0-9_]{1,8}")
+NONE_TARGET = ""  # becomes 8 spaces once padded
+
+
+def pad(code: str) -> str:
+    """Right-pad a logical code with spaces to exactly 8 characters."""
+    return code + " " * (8 - len(code))
 
 
 def to_millis(iso: str) -> int:
@@ -50,23 +58,28 @@ def iso_millis(ms: int) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms % 1000:03d}Z"
 
 
-def envelope(rec: dict, at_ms: int, source: str, target: str) -> dict:
+def namespaced(kind: str) -> str:
+    return kind if "." in kind else f"{NAMESPACE}.{kind}"
+
+
+def envelope(rec: dict, at_ms: int, env: str, source: str, target: str) -> dict:
     return {
         "n": rec["n"],
-        "kind": rec["kind"],
+        "kind": namespaced(rec["kind"]),
         "v": V,
         "atMs": at_ms,
+        "env": env,
         "source": source,
         "target": target,
     }
 
 
-def rewrite_line(rec: dict, fact_source: str, decision_source: str, target: str,
+def rewrite_line(rec: dict, env: str, fact_source: str, decision_source: str, target: str,
                  include_unknown: bool) -> dict | None:
     kind = rec.get("kind")
     if kind == "fact":
         at_ms = to_millis(rec["ingestedAt"])
-        out = envelope(rec, at_ms, fact_source, target)
+        out = envelope(rec, at_ms, env, fact_source, target)
         out["at"] = iso_millis(at_ms)
         for key, value in rec.items():
             if key in ("n", "kind", "v", "ingestedAt"):
@@ -75,7 +88,7 @@ def rewrite_line(rec: dict, fact_source: str, decision_source: str, target: str,
         return out
     if kind == "decision":
         at_ms = to_millis(rec["at"])
-        out = envelope(rec, at_ms, decision_source, target)
+        out = envelope(rec, at_ms, env, decision_source, target)
         out["at"] = iso_millis(at_ms)
         for key, value in rec.items():
             if key in ("n", "kind", "at"):
@@ -84,9 +97,9 @@ def rewrite_line(rec: dict, fact_source: str, decision_source: str, target: str,
         return out
     if include_unknown:
         at_ms = to_millis(rec.get("at", rec.get("ingestedAt", "1970-01-01T00:00:00Z")))
-        out = envelope(rec, at_ms, fact_source, target)
+        out = envelope(rec, at_ms, env, fact_source, target)
         for key, value in rec.items():
-            if key in ("n", "kind", "at", "ingestedAt"):
+            if key in ("n", "kind", "v", "at", "ingestedAt"):
                 continue
             out[key] = value
         return out
@@ -96,21 +109,26 @@ def rewrite_line(rec: dict, fact_source: str, decision_source: str, target: str,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("journal", type=Path)
+    ap.add_argument("--env", default="Dev1")
     ap.add_argument("--fact-source", default="ING_0001")
     ap.add_argument("--decision-source", default="HUB_0001")
     ap.add_argument("--target", default=NONE_TARGET)
     ap.add_argument("--include-unknown", action="store_true")
     args = ap.parse_args()
 
-    for name, value in (("fact-source", args.fact_source),
+    for name, value in (("env", args.env), ("fact-source", args.fact_source),
                         ("decision-source", args.decision_source)):
-        if not re.fullmatch(r"[A-Za-z0-9_]{8}", value):
-            print(f"error: {name}={value!r} must be exactly 8 chars of [A-Za-z0-9_]", file=sys.stderr)
+        if not CODE_RE.fullmatch(value):
+            print(f"error: {name}={value!r} must be 1..8 chars of [A-Za-z0-9_]", file=sys.stderr)
             return 2
-    if args.target != NONE_TARGET and not re.fullmatch(r"[A-Za-z0-9_]{8}", args.target):
-        print(f"error: target should be exactly 8 chars of [A-Za-z0-9_] or the 8-space none sentinel",
-              file=sys.stderr)
+    if args.target != "" and not CODE_RE.fullmatch(args.target):
+        print("error: target must be empty or 1..8 chars of [A-Za-z0-9_]", file=sys.stderr)
         return 2
+
+    env = pad(args.env)
+    fact_source = pad(args.fact_source)
+    decision_source = pad(args.decision_source)
+    target = pad(args.target)
 
     out_path = args.journal.with_suffix(args.journal.suffix + ".v1")
     facts = decisions = unknown = 0
@@ -129,8 +147,7 @@ def main() -> int:
             if n != prev_n + 1:
                 gaps.append(f"n {prev_n} -> {n}")
             prev_n = n
-            new = rewrite_line(rec, args.fact_source, args.decision_source, args.target,
-                               args.include_unknown)
+            new = rewrite_line(rec, env, fact_source, decision_source, target, args.include_unknown)
             if new is None:
                 unknown += 1
                 print(f"error: line {lineno}: unknown kind {rec.get('kind')!r} (use --include-unknown)",
@@ -146,7 +163,7 @@ def main() -> int:
     print(f"  lines: {facts + decisions + unknown}  facts: {facts}  decisions: {decisions}"
           + (f"  unknown: {unknown}" if unknown else ""))
     print(f"  n: 1..{prev_n}" + (f"  GAPS: {', '.join(gaps)}" if gaps else "  (contiguous)"))
-    print("  input untouched; swap in by hand once the codec speaks v1")
+    print(f"  env={env!r} source={fact_source!r} target={target!r}  (input untouched)")
     return 0
 
 

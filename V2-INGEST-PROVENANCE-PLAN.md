@@ -39,6 +39,32 @@ sequencer.
    (§9.1): ordered steps, manual and interval triggers, sync/async, artifacts. The name is
    kept deliberately — it is the industry word for the process that executes jobs/workflows
    (GitHub Actions runner, GitLab Runner), not an undersell.
+8. **A uniform envelope** on every line, **header fields first**: `n, kind, v, atMs, env, source,
+   target` (§4.1). `atMs` is epoch millis (UTC by definition) and is the only time logic may read;
+   `at` (ISO-8601 UTC, millisecond) stays an **optional body field for readability**, never used in
+   logic — so the timezone question disappears. `v` is a single line-format version, **reset to 1**.
+   `kind` is **namespaced and mandatory** (`trex.fact`, `trex.decision`, `trex.ingest`). The dev
+   journal is transformed to match (§12); decisions gain the version they never had.
+9. **`env`, `source`, `target`** are each `[A-Za-z0-9_]{1,8}`, **right-padded with spaces to exactly
+   8**. `env` is the environment (`Dev1`, `Prod1`; mandatory), `source` the writing process instance
+   (mandatory — several ingesters of the same `sourceType` have different `source`s), `target` the
+   destination stream/consumer (optional; empty ⇒ 8 spaces). Declared in a registry and validated by
+   the sequencer. Case is significant; uppercase is the convention. The little-endian
+   `source`+`target` composite is **not used here**. **Space-padding is the deliberately fragile
+   choice** (§14): it makes `none` sort lowest, and it means *every* short code carries trailing
+   whitespace that a plain YAML scalar, a CSV field or a `trim()` would eat.
+10. **Weekly full journal snapshots**, independent so any can be deleted, plus the mirror kept
+    forever and an explicit `prune-archive` job driven by a keep-N config (§8, §11).
+11. **One sequencer, one log, one global `n`.** A sequencer never serves multiple event streams;
+    scale is more sequencer instances, each with its own log and its own `n` (the `env` field
+    distinguishes them). `target` stays an annotation on a single log, never a partition key, and
+    there is **no stream id in the envelope**.
+12. **The sequencer stays trex-aware.** Identity (`externalId`), `occ`, whole-observation dedup,
+    registry/referential validation and the fold state all remain in `trex-sequencer`. The
+    generic-core + application-SPI split is a **separate project** (with the externalized log);
+    only the envelope (§4.1) is made generic now. The `AGENTS.md` "no state / no duplicate flags"
+    invariant is **narrowed**: no *semantic* state (matching, category, derived review flags); the
+    writer keeps only its identity/observation index (§12, §14).
 
 ## 3. The invariant amendment (do this first)
 
@@ -57,7 +83,53 @@ Proposed replacement:
 `V2-PROPOSAL.md` §6 must gain the same wording; §4's "log as truth" and §6's "two line kinds"
 paragraphs are corrected in the same edit. This is a **major** version bump.
 
-## 4. The `ingest` line kind
+## 4. The uniform envelope, and the `ingest` kind
+
+### 4.1 The envelope
+
+Every line carries the same header, written by the sequencer (it owns `n` and stamps the time):
+
+| field | meaning |
+|---|---|
+| `n` | sequence number; the cursor and the only ordering |
+| `kind` | namespaced kind: `trex.fact` \| `trex.decision` \| `trex.ingest` |
+| `v` | the line-format version; **1** for the uniform frame |
+| `atMs` | event time, epoch millis (UTC) — the only time logic reads |
+| `env` | the environment; 8 chars (`Dev1    `) |
+| `source` | the writing process instance; 8 chars (mandatory) |
+| `target` | the destination stream/consumer; 8 chars (`none` = 8 spaces) |
+
+```
+{"n":1892,"kind":"trex.fact","v":1,"atMs":1780000000123,"env":"Dev1    ","source":"ING_0001",
+ "target":"        ","at":"2026-09-30T10:31:00.123Z","externalId":...}
+```
+
+- **`v`** answers one question: *can this reader parse this line?* Any shape change bumps it;
+  additive optional fields do not. Reader policy (§13): unknown `kind` → skip + warn; known `kind`
+  with a higher `v` → **refuse**; unknown fields → ignore; never reuse a field name.
+- **`source`** is the *writing process instance*, a technical id — not the origin of the data.
+  Orthogonal to `sourceType` (the data source/format), `parser` (adapter+version) and `provenance`
+  (BANK/AUTHORED). A **`sources` registry** (config) maps the 8-char code to a human label, and the
+  sequencer refuses an unregistered code — so a typo cannot invent a source. Several ingesters of
+  the same `sourceType` carry different `source`s (e.g. `ING_0001`, `ING_0002`).
+- **`target`** is the destination stream/consumer; `none` is **exactly 8 spaces** (`"        "`),
+  which sorts below every code. It is deliberately fragile: the sentinel must never be carried
+  through anything that trims whitespace (a plain YAML scalar, an HTTP header, an unquoted shell
+  var), and **no code may `trim()`/`strip()` a `source`/`target`**. A JSON string and a SQLite
+  `TEXT` column preserve it; `verify` asserts it is exactly 8 spaces.
+- Character rules: `[A-Za-z0-9_]`, 1..8 chars, **right-padded with spaces to 8** at the storage
+  boundary. Case is significant (`ING_0001` ≠ `ing_0001`); uppercase is the convention.
+- Header fields are written **first and in a fixed order** (`n, kind, v, atMs, env, source,
+  target`), then the body. `kind` is namespaced: the registry keys on the full string; a reader
+  skips an unknown namespace and refuses a *known* kind at a higher `v`.
+- **`atMs` is authoritative; `at` is decoration.** Logic reads only `atMs` (epoch millis, TZ-free);
+  the optional body `at` is ISO-8601 UTC (`Z`) purely so a human reading `tail` sees a date, and is
+  never parsed for decisions, hashing or ordering.
+- **The little-endian `source`+`target` composite is not used in trex** (§2.9); the fields are
+  carried for a future routable log, whose byte order is decided there.
+- **Determinism**: `n`, `at` and `atMs` never enter `stateHash` or `derive()`; order is always `n`.
+
+### 4.2 The `ingest` kind
 
 ```json
 {"v":1,"kind":"ingest","n":1892,"phase":"start","batch":"ING-9f3c…",
@@ -182,6 +254,8 @@ scheduler framework") and must be recorded there (§12).
 - `AGENTS.md`: the invariant bullet in §3 above.
 - `V2-PROPOSAL.md`:
   - §4/§6: "two line kinds" → three, with the `ingest` kind and its shape;
+  - §6: the uniform envelope (`n, kind, v, atMs, env, source, target`), the mandatory namespaced
+    `kind`, and the `env`/`sources` registries;
   - §6.7 (every sequencer event): add `start`/`complete` rows;
   - §5.4: the archive subdirs and the source archive;
   - §7.2: `ingest_event` + `ingest_batch`;
@@ -190,7 +264,12 @@ scheduler framework") and must be recorded there (§12).
   - §14: the runner scheduler and the snapshot rhythm;
   - §19: reverse "no scheduler framework" to admit the **bounded** job runner (§9.1);
   - §17/`RELEASE.md`: the major bump and forward-compatibility note.
-- `AGENTS.md`: the invariant bullet in §3, and the §19 anti-goal reversal above.
+- **Dev journal transform** (one-off, dev only): rewrite the existing journal to the uniform
+  envelope — add `v:1`, `atMs` (from the old `ingestedAt`/`at`), `source`/`target` defaults; drop
+  the per-body version. A byte-level *format translation* of a disposable replica (§2.8); the host
+  path is a fresh journal plus re-ingest, not a rewrite of the live log.
+- `AGENTS.md`: the invariant bullet in §3, the narrowing of "the writer never interprets — no
+  state, no duplicate flags" to the semantic senses (§2.12), and the §19 anti-goal reversal above.
 - `V2-SPEC.md`: as-built, after the code lands.
 
 ## 13. Acceptance tests
@@ -210,6 +289,12 @@ scheduler framework") and must be recorded there (§12).
 8. The runner's schedule fires the daily snapshot; with no schedule, nothing fires.
 9. **Forward-compatibility**: a reader that knows only `fact`/`decision` ignores `ingest` lines
    (checked against the v1-shaped reader path).
+10. Every line carries the header first, in order: `n, kind, v, atMs, env, source, target`; `kind` is
+    namespaced (`trex.fact`); `v` is `1`; `env`/`source`/`target` are right-padded to exactly 8 and
+    registered — an unregistered `source`, or a value over 8 chars, is refused at write. The `none`
+    target round-trips as exactly 8 spaces through the log, the index and any export (no trimming).
+    Logic reads `atMs`, never the optional body `at`. A known kind with a higher `v` is refused; an
+    unknown namespace or kind is skipped per the reader policy.
 
 ## 14. Risks and open points
 
@@ -218,4 +303,17 @@ scheduler framework") and must be recorded there (§12).
   unknown kinds rather than reject the line.
 - **Scope creep guard**: the scheduler is intervals only, no cron expressions; the snapshot is a
   copy only, no rotation; no pre-ingest snapshot.
+- **The fixed-8 `source`/`target` is a bet on the routable product**: in JSON and in SQLite/in-memory
+  maps it buys nothing on its own; the payoff is a 16-char `source||target` routing key. Bounded as
+  *fields only* — the externalized, routable log remains a separate project (§1), and this change
+  must not grow multi-stream, routing or producer auth.
+- **`env`/`source`/`target` are right-padded with spaces**, so *every* short code carries trailing
+  whitespace, not just `none`. Ordinary tooling mangles it: quoted JSON and a SQLite `TEXT` column
+  are safe, but a plain YAML scalar, an HTTP header, a CSV field or an unquoted shell var is not.
+  Rule: never trim, always quote, assert the padded length in `verify`, and normalise in one place.
+  If it proves brittle, the fallback is `_`-padding (fixed width, survives everything, but loses the
+  sort-low property) or requiring exactly 8 characters.
+- **The writer is trex-aware**: `Sequencer.java` mints identity, assigns `occ`, dedups whole
+  observations and validates against config — none of that is generic. The externalized core is a
+  separate project; the envelope work must not imply otherwise.
 - **Version**: this is a MAJOR bump; the tag is cut only when the spec edits and code are green.
