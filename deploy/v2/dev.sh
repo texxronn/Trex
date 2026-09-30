@@ -23,7 +23,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 
 export TREX_WEB_DIR="$repo/trex-v2-hub/src/main/resources/trex/v2/hub/web"
-export TREX_FIREFLY_URL="${TREX_FIREFLY_URL:-http://127.0.0.1:8081}"
+# The dev Firefly III (a local container, published on the host). A container reaches it through the
+# host gateway; the API token comes from ~/.config/trex/firefly.env and is never committed.
+if [ -z "${FIREFLY_TOKEN:-}" ] && [ -f "$HOME/.config/trex/firefly.env" ]; then
+    set -a; . "$HOME/.config/trex/firefly.env"; set +a
+fi
+export TREX_FIREFLY_URL="${TREX_FIREFLY_URL:-http://host.docker.internal:8083}"
 export TREX_IMAGE_TAG="${TREX_IMAGE_TAG:-$(sed -n 's|^  <version>\(.*\)</version>|\1|p' "$repo/pom.xml" | head -1)}"
 
 compose=(docker compose -f "$repo/deploy/v2/compose.yml" -f "$repo/deploy/v2/compose.dev.yml")
