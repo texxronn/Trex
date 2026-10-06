@@ -54,7 +54,8 @@ accounts:
     currency: "AUD"
     balanceSource: statement
 
-  # CommBank SmartAccess (cba-csv). Header-less export, amounts already signed, no receipts.
+  # CommBank SmartAccess. The standard export is the Transaction Summary PDF (cba-pdf); no row
+  # carries a receipt, so identity is the content hash (§2.4).
   - ref: "cba-smartaccess"
     currency: "AUD"
     balanceSource: statement

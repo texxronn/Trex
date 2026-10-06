@@ -5,12 +5,12 @@
 # `match` is an exact file name or a simple * / ? glob, case-insensitive; the first rule wins.
 
 files:
-  - { match: "Salary_Account.csv",               sourceType: ing-csv, account: ing-salary }
-  - { match: "Loan_Offset.csv",                  sourceType: ing-csv, account: ing-loan-offset }
-  - { match: "Mortgage_Simplifier.csv",          sourceType: ing-csv, account: ing-mortgage-simplifier }
-  - { match: "Variable_Rate.csv",                sourceType: ing-csv, account: ing-variable-rate }
-  - { match: "Orange_Everyday.csv",              sourceType: ing-csv, account: ing-orange }
-  - { match: "ING_Credit_Card.csv",              sourceType: ing-csv, account: ing-credit-card }
-  - { match: "Bankwest_Transactions_full.csv",   sourceType: bw-csv,  account: bw-credit-card }
-  - { match: "CBA_SmartAccess.csv",              sourceType: cba-csv, account: cba-smartaccess }
-  - { match: "CBA_NetSaver_TransactionSummary.pdf", sourceType: cba-pdf, account: cba-netsaver }
+  - { match: "ING_Salary_Account.csv",                 sourceType: ing-csv, account: ing-salary }
+  - { match: "ING_Loan_Offset_Account.csv",            sourceType: ing-csv, account: ing-loan-offset }
+  - { match: "ING_Mortgate_Simplifier.csv",            sourceType: ing-csv, account: ing-mortgage-simplifier }
+  - { match: "ING_Variable_Rate.csv",                  sourceType: ing-csv, account: ing-variable-rate }
+  - { match: "ING_Orange_Everyday.csv",                sourceType: ing-csv, account: ing-orange }
+  - { match: "ING_One_LowRate_Credit.csv",             sourceType: ing-csv, account: ing-credit-card }
+  - { match: "BW_20240101_20261001.csv",               sourceType: bw-csv,  account: bw-credit-card }
+  - { match: "CBA_SmartAccess_20241002_20261002.pdf",  sourceType: cba-pdf, account: cba-smartaccess }
+  - { match: "CBA_Netbank_Saver_20241002_20261002.pdf", sourceType: cba-pdf, account: cba-netsaver }

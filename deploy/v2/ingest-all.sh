@@ -31,12 +31,12 @@ ing() { # sourceType account filename
         --evidence /var/lib/trex/evidence "/data/$3")
 }
 
-ing ing-csv ing-salary              Salary_Account.csv
-ing ing-csv ing-loan-offset         Loan_Offset.csv
-ing ing-csv ing-mortgage-simplifier Mortgage_Simplifier.csv
-ing ing-csv ing-variable-rate       Variable_Rate.csv
-ing ing-csv ing-orange              Orange_Everyday.csv
-ing ing-csv ing-credit-card         ING_Credit_Card.csv
-ing bw-csv  bw-credit-card          Bankwest_Transactions_full.csv
-ing cba-csv cba-smartaccess         CBA_SmartAccess.csv
-ing cba-pdf cba-netsaver            CBA_NetSaver_TransactionSummary.pdf
+ing ing-csv ing-salary              ING_Salary_Account.csv
+ing ing-csv ing-loan-offset         ING_Loan_Offset_Account.csv
+ing ing-csv ing-mortgage-simplifier ING_Mortgate_Simplifier.csv
+ing ing-csv ing-variable-rate       ING_Variable_Rate.csv
+ing ing-csv ing-orange              ING_Orange_Everyday.csv
+ing ing-csv ing-credit-card         ING_One_LowRate_Credit.csv
+ing bw-csv  bw-credit-card          BW_20240101_20261001.csv
+ing cba-pdf cba-smartaccess         CBA_SmartAccess_20241002_20261002.pdf
+ing cba-pdf cba-netsaver            CBA_Netbank_Saver_20241002_20261002.pdf
