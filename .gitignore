@@ -5,6 +5,7 @@ run/
 
 # Real statements and the manifests that point at them never belong in git.
 *.local.yaml
+*.local.html
 statements/
 *.statements.yaml
 # The runtime index lives outside the repo, but an accidental one at the root is not source.
