@@ -151,7 +151,7 @@ public final class ConfigLoader {
                             + ": rule '" + rule.match() + "' has no reason");
                     }
                     String action = rule.action() == null ? "" : rule.action().trim().toUpperCase(Locale.ROOT);
-                    if (!action.equals("MARK_NOOP")) {
+                    if (!action.equals(trex.v2.core.Action.MARK_NOOP.name())) {
                         throw new IllegalArgumentException(file.getFileName() + ": rule '" + rule.match()
                             + "' has unknown action '" + rule.action() + "' (only MARK_NOOP for now)");
                     }

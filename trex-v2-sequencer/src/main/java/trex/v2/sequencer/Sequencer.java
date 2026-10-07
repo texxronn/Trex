@@ -344,6 +344,10 @@ public final class Sequencer implements AutoCloseable {
             }
             case RETIRE -> new Decision.Retire(envelope, requireFact(d.externalId(), "externalId"),
                 require(d.reason(), "reason"), actor, user);
+            case MARK_NOOP -> new Decision.MarkNoop(envelope, requireFact(d.externalId(), "externalId"),
+                require(d.reason(), "reason"), actor, user);
+            case UNMARK_NOOP -> new Decision.UnmarkNoop(envelope, requireFact(d.externalId(), "externalId"),
+                d.comment(), actor, user);
             case REVOKE -> {
                 if (d.target() == null || !state.decisionNs.contains(d.target())) {
                     throw new IllegalArgumentException("REVOKE names a decision n that does not exist: " + d.target());

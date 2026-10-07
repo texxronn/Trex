@@ -95,4 +95,45 @@ class ProfileRoleTest {
             List.of(), config(profiles), ASOF);
         assertEquals(Role.TRANSACTION, d.current("x").orElseThrow().role());
     }
+
+    @Test
+    void aDecisionWinsOverTheProfileInEitherDirection() {
+        Profiles profiles = new Profiles(List.of(new Profiles.Rule("ing-variable-rate",
+            Pattern.compile("fee", Pattern.CASE_INSENSITIVE), "reference")));
+
+        // The profile noops the row; a later UNMARK restores the posting.
+        Derivation restored = Derive.derive(List.of(feeIn()), List.of(
+            new Decision.UnmarkNoop(2, "fee", "the charge was real", Actor.USER, "ron", ASOF)),
+            config(profiles), ASOF);
+        assertEquals(Role.TRANSACTION, restored.current("fee").orElseThrow().role());
+
+        // No profile; a MARK_NOOP decision classifies the row.
+        Derivation nooped = Derive.derive(List.of(feeIn()), List.of(
+            new Decision.MarkNoop(2, "fee", "reference", Actor.USER, "ron", ASOF)),
+            config(Profiles.empty()), ASOF);
+        assertEquals(Role.NOOP, nooped.current("fee").orElseThrow().role());
+    }
+
+    @Test
+    void theLatestRoleDecisionWins() {
+        Derivation d = Derive.derive(List.of(feeIn()), List.of(
+            new Decision.UnmarkNoop(2, "fee", null, Actor.USER, "ron", ASOF),
+            new Decision.MarkNoop(3, "fee", "reference", Actor.USER, "ron", ASOF)),
+            config(Profiles.empty()), ASOF);
+        assertEquals(Role.NOOP, d.current("fee").orElseThrow().role());
+    }
+
+    @Test
+    void aNoopDecisionNamingAnUnknownIdIsIneffective() {
+        Derivation d = Derive.derive(List.of(feeIn()), List.of(
+            new Decision.MarkNoop(2, "ghost", "reference", Actor.USER, "ron", ASOF)),
+            config(Profiles.empty()), ASOF);
+        assertTrue(d.ineffective().stream()
+            .anyMatch(i -> i.action().equals(Action.MARK_NOOP.wire())));
+    }
+
+    private static Fact feeIn() {
+        return fact(1, "fee", "ing-variable-rate", LocalDate.of(2023, 2, 9), -29900,
+            "Orange Advantage annual fee - Receipt No 900068");
+    }
 }

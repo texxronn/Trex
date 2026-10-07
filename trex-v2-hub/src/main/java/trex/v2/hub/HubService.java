@@ -657,6 +657,12 @@ public final class HubService implements HubApi, AutoCloseable {
             case UNPIN -> checkIds(d.externalIds(), "externalIds");
             case SUPERSEDE -> twoFacts(d.fromId(), d.toId(), "fromId", "toId");
             case RETIRE -> oneFact(d.externalId(), "externalId");
+            case MARK_NOOP -> {
+                String e = oneFact(d.externalId(), "externalId");
+                yield e != null ? e : (d.reason() == null || d.reason().isBlank()
+                    ? "reason is required" : null);
+            }
+            case UNMARK_NOOP -> oneFact(d.externalId(), "externalId");
             case REVOKE -> {
                 if (d.target() == null) {
                     yield "target is required";

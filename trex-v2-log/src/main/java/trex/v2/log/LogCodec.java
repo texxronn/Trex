@@ -131,6 +131,14 @@ public final class LogCodec {
                 o.put("externalId", r.externalId());
                 o.put("reason", r.reason());
             }
+            case Decision.MarkNoop m -> {
+                o.put("externalId", m.externalId());
+                o.put("reason", m.reason());
+            }
+            case Decision.UnmarkNoop u -> {
+                o.put("externalId", u.externalId());
+                putNullable(o, "comment", u.comment());
+            }
             case Decision.Revoke rv -> {
                 o.put("revokes", rv.target());   // not "target": that is the envelope's field
                 putNullable(o, "comment", rv.comment());
@@ -236,6 +244,8 @@ public final class LogCodec {
             case UNPIN -> new Decision.Unpin(e, list(n, "externalIds"), opt(n, "comment"), actor, user);
             case SUPERSEDE -> new Decision.Supersede(e, text(n, "fromId"), text(n, "toId"), text(n, "reason"), actor, user);
             case RETIRE -> new Decision.Retire(e, text(n, "externalId"), text(n, "reason"), actor, user);
+            case MARK_NOOP -> new Decision.MarkNoop(e, text(n, "externalId"), text(n, "reason"), actor, user);
+            case UNMARK_NOOP -> new Decision.UnmarkNoop(e, text(n, "externalId"), opt(n, "comment"), actor, user);
             case REVOKE -> new Decision.Revoke(e, lng(n, "revokes"), opt(n, "comment"), actor, user);
             case USER_ACK -> new Decision.UserAck(e, text(n, "externalId"),
                 text(n, "configRevision"), text(n, "deriveVersion"), text(n, "hashVersion"),

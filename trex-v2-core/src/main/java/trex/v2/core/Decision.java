@@ -23,7 +23,8 @@ import java.util.Objects;
 public sealed interface Decision extends LogLine
     permits Decision.Pair, Decision.Unpair, Decision.MarkExternal, Decision.Settle,
             Decision.Dismiss, Decision.Pin, Decision.Unpin, Decision.Supersede,
-            Decision.Retire, Decision.Revoke, Decision.UserAck, Decision.UserUnack, Decision.Note {
+            Decision.Retire, Decision.MarkNoop, Decision.UnmarkNoop, Decision.Revoke,
+            Decision.UserAck, Decision.UserUnack, Decision.Note {
 
     /** The namespaced wire kind. */
     String KIND = "trex.decision";
@@ -224,6 +225,49 @@ public sealed interface Decision extends LogLine
         @Override
         public Action action() {
             return Action.RETIRE;
+        }
+    }
+
+    /**
+     * Recorded, but not a posting of this account: no chain edge, no unit, no transfer leg, no sum
+     * (V2-PROPOSAL.md §6.9). A classification, never a correction — {@code RETIRE} stays reserved
+     * for a source claim that must not count at all.
+     */
+    record MarkNoop(Envelope envelope, String externalId, String reason, Actor actor, String user)
+        implements Decision {
+        public MarkNoop {
+            Envelope.require(envelope);
+            require(externalId, "externalId");
+            require(reason, "reason");
+            require(actor, "actor");
+        }
+
+        public MarkNoop(long n, String externalId, String reason, Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), externalId, reason, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.MARK_NOOP;
+        }
+    }
+
+    /** Return the row to its profile's default; the family inverse of {@code MARK_NOOP}. */
+    record UnmarkNoop(Envelope envelope, String externalId, String comment, Actor actor, String user)
+        implements Decision {
+        public UnmarkNoop {
+            Envelope.require(envelope);
+            require(externalId, "externalId");
+            require(actor, "actor");
+        }
+
+        public UnmarkNoop(long n, String externalId, String comment, Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), externalId, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.UNMARK_NOOP;
         }
     }
 

@@ -14,6 +14,8 @@ public enum Action {
     UNPIN,
     SUPERSEDE,
     RETIRE,
+    MARK_NOOP,
+    UNMARK_NOOP,
     REVOKE,
     USER_ACK,
     USER_UNACK,

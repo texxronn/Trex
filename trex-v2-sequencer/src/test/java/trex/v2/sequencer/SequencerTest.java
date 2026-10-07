@@ -93,6 +93,7 @@ class SequencerTest {
         D comment(String v) { comment = v; return this; }
         D legs(String a, String b) { legA = a; legB = b; return this; }
         D externalId(String v) { externalId = v; return this; }
+        D reason(String v) { reason = v; return this; }
         D ids(List<String> v) { externalIds = v; return this; }
         D category(String v) { category = v; return this; }
         D target(Long v) { target = v; return this; }
@@ -227,6 +228,27 @@ class SequencerTest {
                 new D("MARK_EXTERNAL", "user").user("ron").at(AT).comment("ordinary").externalId(id).build())));
             assertEquals(RowResult.RESOLVED, decision.results().getFirst().outcome());
             assertEquals(2L, decision.results().getFirst().n(), "facts and decisions share the n sequence");
+        }
+    }
+
+    @Test
+    void noopDecisionsNeedAKnownFactAndAReason(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            String id = s.submitFacts(new FactBatch(false,
+                List.of(draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"))))
+                .results().getFirst().externalId();
+            assertEquals(RowResult.REJECTED, s.submitDecisions(new DecisionBatch(List.of(
+                new D("MARK_NOOP", "user").user("ron").at(AT).externalId(id).build())))
+                .results().getFirst().outcome(), "a noop needs its reason");
+            assertEquals(RowResult.REJECTED, s.submitDecisions(new DecisionBatch(List.of(
+                new D("MARK_NOOP", "user").user("ron").at(AT).externalId("ghost").reason("why").build())))
+                .results().getFirst().outcome(), "an unknown fact is structural");
+            assertEquals(RowResult.RESOLVED, s.submitDecisions(new DecisionBatch(List.of(
+                new D("MARK_NOOP", "user").user("ron").at(AT).externalId(id).reason("reference").build())))
+                .results().getFirst().outcome());
+            assertEquals(RowResult.RESOLVED, s.submitDecisions(new DecisionBatch(List.of(
+                new D("UNMARK_NOOP", "user").user("ron").at(AT).externalId(id).comment("real").build())))
+                .results().getFirst().outcome());
         }
     }
 

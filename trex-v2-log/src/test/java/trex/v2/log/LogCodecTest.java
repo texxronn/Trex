@@ -57,6 +57,8 @@ class LogCodecTest {
             new Decision.Unpin(7, List.of("a"), null, Actor.USER, "mel", AT),
             new Decision.Supersede(8, "from", "to", "parser fix", Actor.SYSTEM, null, AT),
             new Decision.Retire(9, "x", "double up", Actor.SYSTEM, null, AT),
+            new Decision.MarkNoop(14, "x", "reference line", Actor.USER, "ron", AT),
+            new Decision.UnmarkNoop(15, "x", "it was real", Actor.USER, "ron", AT),
             new Decision.Revoke(10, 5, "real after all", Actor.USER, "ron", AT),
             new Decision.UserAck(11, "9e546cc0260ead1e", "sha256:cfg", "derive/3", "statehash/2",
                 "sha256:st", null, Actor.USER, "ron", AT),

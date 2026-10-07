@@ -64,6 +64,7 @@ public final class Derive {
 
         List<Decision> effective;
         List<CurrentFact> current = List.of();
+        Map<String, Role> roleOverrides = new HashMap<>();
         Map<String, LegState> legState = new HashMap<>();
         Map<String, String> transferIdByLeg = new HashMap<>();
         List<TransferRow> transfers = List.of();
@@ -85,6 +86,7 @@ public final class Derive {
         Derivation run() {
             effective = effectiveDecisions();
             buildSupersession();
+            collectRoleOverrides();
 
             Map<String, CurrentFact> currentMap = currentFacts();
             pairing(new ArrayList<>(currentMap.values()));
@@ -288,10 +290,42 @@ public final class Derive {
         }
 
         /**
-         * The row's role (V2-PROPOSAL.md §6.9): an account profile rule classifies a non-posting;
-         * a later {@code MARK_NOOP}/{@code UNMARK_NOOP} decision wins over the profile.
+         * The latest effective {@code MARK_NOOP}/{@code UNMARK_NOOP} per resolved id (V2-PROPOSAL.md
+         * §6.9). {@code effective} is n-ordered, so a later decision overwrites an earlier one; a
+         * decision naming an unknown id is ineffective and surfaces as such.
+         */
+        private void collectRoleOverrides() {
+            for (Decision d : effective) {
+                String raw;
+                Role role;
+                if (d instanceof Decision.MarkNoop m) {
+                    raw = m.externalId();
+                    role = Role.NOOP;
+                } else if (d instanceof Decision.UnmarkNoop u) {
+                    raw = u.externalId();
+                    role = Role.TRANSACTION;
+                } else {
+                    continue;
+                }
+                String id = resolve(raw);
+                if (id == null) {
+                    ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                        d.action().wire() + " names an unknown id " + raw));
+                    continue;
+                }
+                roleOverrides.put(id, role);
+            }
+        }
+
+        /**
+         * The row's role: an account profile rule classifies a non-posting, and a decision wins
+         * over the profile in either direction (V2-PROPOSAL.md §6.9).
          */
         private Role roleFor(Fact f) {
+            Role override = roleOverrides.get(f.externalId());
+            if (override != null) {
+                return override;
+            }
             return config.profiles().isNoop(f.accountRef(), f.rawDescription()) ? Role.NOOP : Role.TRANSACTION;
         }
 
