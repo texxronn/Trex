@@ -63,3 +63,6 @@ log's history are permanent.
 - Keep the tree buildable after each commit.
 - Never rewrite published history.
 - Never commit the private dev journal, `run/`, or the index.
+- **Never fast-forward or push directly to `master`.** Land work through a GitHub pull request and
+  merge it on GitHub. The local `master` is then updated by fetching that merge, not by advancing
+  the branch tip locally.
