@@ -62,7 +62,8 @@ class DeriveTest {
 
     private static DeriveConfig config() {
         return new DeriveConfig(registry(), rules(),
-            TransferRules.defaults(List.of("Internal Transfer", "Transfer")), "sha256:cfg1");
+            TransferRules.defaults(List.of("Internal Transfer", "Transfer")),
+            trex.v2.core.config.Profiles.empty(), "sha256:cfg1");
     }
 
     private static Fact fact(long n, String id, String account, LocalDate date, long amount,

@@ -33,7 +33,7 @@ class PendingTest {
             new Registry(Map.of("ing-savings", new Account("ing-savings", "AUD", BalanceSource.STATEMENT, 7)),
                 Map.of("ron", new User("ron", "Ron", true, "weekly"))),
             RuleSet.compile("t.yaml", new RuleSet.File(List.of("FUEL"), List.of())),
-            TransferRules.defaults(List.of("Transfer")), "sha256:cfg");
+            TransferRules.defaults(List.of("Transfer")), trex.v2.core.config.Profiles.empty(), "sha256:cfg");
     }
 
     private static Fact fact(long n, String id, long amount, String raw, Observation observation, LocalDate date) {

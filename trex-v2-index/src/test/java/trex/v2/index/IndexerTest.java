@@ -52,7 +52,7 @@ class IndexerTest {
             List.of(new RuleSet.RuleEntry("GROCERIES", null, new RuleSet.WhenEntry(null, null, null, null,
                 "COLES", "raw", null, null, null, null)))));
         return new DeriveConfig(registry, rules,
-            TransferRules.defaults(List.of("Transfer")), "sha256:cfg");
+            TransferRules.defaults(List.of("Transfer")), trex.v2.core.config.Profiles.empty(), "sha256:cfg");
     }
 
     private static Fact fact(long n, String id, String account, LocalDate date, long amount, String raw) {

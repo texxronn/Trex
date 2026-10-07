@@ -280,16 +280,26 @@ public final class Derive {
                 }
                 Fact f = latestById.get(id);
                 if (f.observation() == Observation.POSTED) {
-                    out.put(id, new CurrentFact(f, LegState.EXTERNAL, null, null, CategoryOrigin.NONE, null,
-                        null));
+                    out.put(id, new CurrentFact(f, roleFor(f), LegState.EXTERNAL, null, null,
+                        CategoryOrigin.NONE, null, null));
                 }
             }
             return out;
         }
 
+        /**
+         * The row's role (V2-PROPOSAL.md §6.9): an account profile rule classifies a non-posting;
+         * a later {@code MARK_NOOP}/{@code UNMARK_NOOP} decision wins over the profile.
+         */
+        private Role roleFor(Fact f) {
+            return config.profiles().isNoop(f.accountRef(), f.rawDescription()) ? Role.NOOP : Role.TRANSACTION;
+        }
+
         // ---- P7: transfer shape and pairing -------------------------------------------------
 
-        private void pairing(List<CurrentFact> currentFacts) {
+        private void pairing(List<CurrentFact> all) {
+            // A noop row is not a posting: it never shapes, pairs or holds (§6.9).
+            List<CurrentFact> currentFacts = all.stream().filter(c -> c.role() != Role.NOOP).toList();
             Map<String, CurrentFact> byId = new HashMap<>();
             for (CurrentFact c : currentFacts) {
                 byId.put(c.externalId(), c);
@@ -576,7 +586,7 @@ public final class Derive {
 
         private Map<String, CurrentFact> applyPairing(Map<String, CurrentFact> currentMap) {
             Map<String, CurrentFact> out = new LinkedHashMap<>();
-            currentMap.forEach((id, c) -> out.put(id, new CurrentFact(c.fact(),
+            currentMap.forEach((id, c) -> out.put(id, new CurrentFact(c.fact(), c.role(),
                 legState.getOrDefault(id, LegState.EXTERNAL), transferIdByLeg.get(id), null,
                 CategoryOrigin.NONE, null, null)));
             return out;
@@ -668,8 +678,8 @@ public final class Derive {
             if (row == null) {
                 return c;
             }
-            return new CurrentFact(c.fact(), c.leg(), c.transferId(), row.category(), row.origin(),
-                row.ruleId(), c.stateHash());
+            return new CurrentFact(c.fact(), c.role(), c.leg(), c.transferId(), row.category(),
+                row.origin(), row.ruleId(), c.stateHash());
         }
 
         /** Fill in the row's content hash, once its category and pairing are final (§9.4). */
@@ -981,7 +991,7 @@ public final class Derive {
                     RuleSet.TRANSFER, CategoryOrigin.STRUCTURAL, LegState.MATCHED, false, false));
             }
             for (CurrentFact c : current) {
-                if (c.leg() != LegState.EXTERNAL || attestation(c.fact())) {
+                if (c.role() == Role.NOOP || c.leg() != LegState.EXTERNAL || attestation(c.fact())) {
                     continue;
                 }
                 out.add(new Unit(c.externalId(), Unit.KIND_EXTERNAL, c.fact().accountRef(), c.fact().date(),

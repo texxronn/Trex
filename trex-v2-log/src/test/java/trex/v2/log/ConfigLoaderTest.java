@@ -41,6 +41,10 @@ class ConfigLoaderTest {
         assertTrue(config.categories().isDeclared("GROCERIES"));
         assertFalse(config.categories().isDeclared(RuleSet.TRANSFER));
         assertTrue(config.categories().rules().size() > 20);
+        assertTrue(config.profiles().isNoop("ing-variable-rate",
+            "Orange Advantage annual fee - Receipt No 900068"));
+        assertFalse(config.profiles().isNoop("ing-mortgage-simplifier",
+            "Orange Advantage annual fee - Receipt No 900068"));
     }
 
     @Test
@@ -93,5 +97,63 @@ class ConfigLoaderTest {
         IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
             IllegalArgumentException.class, () -> ConfigLoader.load(dir));
         assertTrue(error.getMessage().contains("fixture"), error.getMessage());
+    }
+
+    @Test
+    void anUnknownProfileAccountIsALoadError(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        Files.writeString(dir.resolve("profiles.yaml"), """
+            profiles:
+              no-such-account:
+                rules:
+                  - match: 'fee'
+                    action: MARK_NOOP
+                    reason: 'why'
+            """);
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ConfigLoader.load(dir));
+        assertTrue(error.getMessage().contains("unknown account"), error.getMessage());
+    }
+
+    @Test
+    void aProfileRuleWithoutAReasonIsALoadError(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        Files.writeString(dir.resolve("profiles.yaml"), """
+            profiles:
+              ing-savings:
+                rules:
+                  - match: 'fee'
+                    action: MARK_NOOP
+            """);
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ConfigLoader.load(dir));
+        assertTrue(error.getMessage().contains("reason"), error.getMessage());
+    }
+
+    private static void writeBaseConfig(Path dir) throws Exception {
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+            """);
+        Files.writeString(dir.resolve("users.yaml"), """
+            users:
+              - id: "ron"
+                name: "Ron"
+                active: true
+            """);
+        Files.writeString(dir.resolve("categories.yaml"), """
+            categories: [GROCERIES]
+            rules:
+              - category: GROCERIES
+                when:
+                  match: "COLES"
+            """);
+        Files.writeString(dir.resolve("transfers.yaml"), """
+            windowDays: 4
+            allowlist:
+              - 'Transfer'
+            """);
     }
 }

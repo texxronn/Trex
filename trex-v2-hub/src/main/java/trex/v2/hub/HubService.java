@@ -362,7 +362,7 @@ public final class HubService implements HubApi, AutoCloseable {
             return new DecisionOutcome(422, new ErrorResponse(e.getMessage()));
         }
         DeriveConfig candidateConfig = new DeriveConfig(current.registry(), candidate,
-            current.transfers(), Hashes.sha256(categoriesYaml));
+            current.transfers(), current.profiles(), Hashes.sha256(categoriesYaml));
 
         Instant now = Instant.now();
         Derivation before = indexer.deriveWith(current, now, Long.MAX_VALUE);

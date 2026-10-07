@@ -4,6 +4,7 @@ import trex.v2.core.Hashes;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
+import trex.v2.core.config.Profiles;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.TransferRules;
@@ -19,8 +20,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * Reads the derive inputs from a config directory (V2-PROPOSAL.md §9.9 P3, plan §1.2): the account
@@ -47,6 +50,7 @@ public final class ConfigLoader {
         Path categoriesFile = configDir.resolve("categories.yaml");
         Path transfersFile = configDir.resolve("transfers.yaml");
         Path refdataFile = configDir.resolve("refdata.yaml");
+        Path profilesFile = configDir.resolve("profiles.yaml");
 
         AccountsFile accounts = Yaml.read(accountsFile, AccountsFile.class);
         UsersFile users = Yaml.read(usersFile, UsersFile.class);
@@ -71,6 +75,7 @@ public final class ConfigLoader {
             }
         }
         Registry registry = new Registry(accountMap, userMap);
+        Profiles profiles = loadProfiles(profilesFile, accountMap);
 
         List<String> declared = categories.categories();
         if (Files.exists(refdataFile)) {
@@ -110,9 +115,58 @@ public final class ConfigLoader {
             transfers.restatementOverlap() == null ? TransferRules.DEFAULT_RESTATEMENT_OVERLAP : transfers.restatementOverlap(),
             allowlist);
 
-        String configRevision = configRevision(configDir, accountsFile, categoriesFile, transfersFile, refdataFile);
-        DeriveConfig config = new DeriveConfig(registry, ruleSet, transferRules, configRevision);
+        String configRevision = configRevision(configDir, accountsFile, categoriesFile, transfersFile, refdataFile,
+            profilesFile);
+        DeriveConfig config = new DeriveConfig(registry, ruleSet, transferRules, profiles, configRevision);
         return new Loaded(registry, config);
+    }
+
+    /**
+     * {@code profiles.yaml}: account-scoped noop rules (V2-PROPOSAL.md §6.9). An unknown account,
+     * an unknown action or a rule without a reason is a startup error — a rule that excludes a row
+     * from the ledger has to say what the row is instead.
+     */
+    private static Profiles loadProfiles(Path file, Map<String, Account> accounts) {
+        if (!Files.exists(file)) {
+            return Profiles.empty();
+        }
+        ProfilesFile parsed = Yaml.read(file, ProfilesFile.class);
+        List<Profiles.Rule> rules = new ArrayList<>();
+        if (parsed.profiles() != null) {
+            for (Map.Entry<String, ProfileEntry> entry : parsed.profiles().entrySet()) {
+                String accountRef = entry.getKey();
+                if (!Profiles.ANY_ACCOUNT.equals(accountRef) && !accounts.containsKey(accountRef)) {
+                    throw new IllegalArgumentException(file.getFileName()
+                        + ": profile names unknown account '" + accountRef + "'");
+                }
+                List<ProfileRule> declared = entry.getValue() == null || entry.getValue().rules() == null
+                    ? List.of() : entry.getValue().rules();
+                for (ProfileRule rule : declared) {
+                    if (rule.match() == null || rule.match().isBlank()) {
+                        throw new IllegalArgumentException(file.getFileName()
+                            + ": a rule under '" + accountRef + "' has no match");
+                    }
+                    if (rule.reason() == null || rule.reason().isBlank()) {
+                        throw new IllegalArgumentException(file.getFileName()
+                            + ": rule '" + rule.match() + "' has no reason");
+                    }
+                    String action = rule.action() == null ? "" : rule.action().trim().toUpperCase(Locale.ROOT);
+                    if (!action.equals("MARK_NOOP")) {
+                        throw new IllegalArgumentException(file.getFileName() + ": rule '" + rule.match()
+                            + "' has unknown action '" + rule.action() + "' (only MARK_NOOP for now)");
+                    }
+                    try {
+                        rules.add(new Profiles.Rule(accountRef,
+                            Pattern.compile(rule.match(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE),
+                            rule.reason()));
+                    } catch (PatternSyntaxException e) {
+                        throw new IllegalArgumentException(file.getFileName() + ": rule '" + rule.match()
+                            + "' is not a valid pattern: " + e.getDescription());
+                    }
+                }
+            }
+        }
+        return new Profiles(rules);
     }
 
     /**
@@ -160,6 +214,13 @@ public final class ConfigLoader {
 
     public record TransfersFile(int windowDays, List<String> allowlist, Integer dupTolerance,
                                Integer amountTolerance, Integer holdWindowDays, Double restatementOverlap) {}
+
+    /** {@code profiles.yaml}: account-scoped role rules (V2-PROPOSAL.md §6.9). */
+    public record ProfilesFile(Map<String, ProfileEntry> profiles) {}
+
+    public record ProfileEntry(List<ProfileRule> rules) {}
+
+    public record ProfileRule(String match, String action, String reason) {}
 
     // ---- the sequencer service file (v1's sequencer.yaml) -----------------------------------
 

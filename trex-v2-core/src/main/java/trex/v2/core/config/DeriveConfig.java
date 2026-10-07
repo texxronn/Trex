@@ -9,17 +9,20 @@ package trex.v2.core.config;
  * transfers, accounts). The loader computes it; this record only carries it.
  */
 public record DeriveConfig(Registry registry, RuleSet categories, TransferRules transfers,
-                           String configRevision) {
+                           Profiles profiles, String configRevision) {
 
     /** Stamps the derivation; bump when derive's semantics change (a silent reflow, §9.5). */
-    public static final String DERIVE_VERSION = "derive/3";
+    public static final String DERIVE_VERSION = "derive/4";
 
     /** Stamps the state-hash algorithm; old hashes are incomparable across a bump (§9.4). */
-    public static final String HASH_VERSION = "statehash/2";
+    public static final String HASH_VERSION = "statehash/3";
 
     public DeriveConfig {
         if (configRevision == null || configRevision.isBlank()) {
             throw new IllegalArgumentException("configRevision is required");
+        }
+        if (profiles == null) {
+            throw new IllegalArgumentException("profiles are required (use Profiles.empty())");
         }
     }
 }
