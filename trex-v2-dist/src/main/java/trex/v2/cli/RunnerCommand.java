@@ -38,6 +38,9 @@ public final class RunnerCommand implements Callable<Integer> {
     @Option(names = "--archive", description = "The archive root; ingest archives sources beneath it (§12.6).")
     Path archive;
 
+    @Option(names = "--journal", description = "The journal file, read-only, for the stream export job (§14.1).")
+    Path journal;
+
     @Option(names = "--sequencer-url", description = "The sequencer base URL (for ingest).")
     String sequencerUrl;
 
@@ -66,7 +69,7 @@ public final class RunnerCommand implements Callable<Integer> {
         String applyEnv = System.getenv("TREX_RUNNER_ALLOW_APPLY");
         boolean apply = allowApply || "true".equalsIgnoreCase(applyEnv == null ? "" : applyEnv.trim());
         RunnerConfig runnerConfig = new RunnerConfig(host, port, config, statements, staging, evidence,
-            archive, sequencerUrl, hubUrl, fireflyUrl, accounts, secret, apply,
+            archive, journal, sequencerUrl, hubUrl, fireflyUrl, accounts, secret, apply,
             Duration.ofMinutes(jobTimeoutMinutes));
         RunnerService service = RunnerService.start(runnerConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-runner-shutdown"));

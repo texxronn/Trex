@@ -25,7 +25,55 @@ public final class JobCatalogue {
         jobs.put("egress-firefly", egressFirefly(config));
         jobs.put("ingest", ingest(config, statements, staging));
         jobs.put("journal-snapshot", journalSnapshot(config));
+        jobs.put("stream", stream(config, staging));
         return jobs;
+    }
+
+    static JobSpec stream(RunnerConfig config, StagingStore staging) {
+        List<JobParam> params = List.of(
+            JobParam.choice("mode", List.of("export", "ingest"), "export writes a stream; ingest appends one"),
+            JobParam.of("file", "string", false, "ingest: the stream file in staging"),
+            JobParam.of("out", "string", false, "export: the .jsonl.gz to write in staging"),
+            JobParam.of("env", "string", false, "ingest: re-stamp every line's env"));
+        return new JobSpec("stream", "Stream export/ingest",
+            "Promote the log as a stream (V2-PROPOSAL.md §14.1).", "write", params, p -> {
+                String mode = p.path("mode").asText("export");
+                if ("export".equals(mode)) {
+                    if (config.journal() == null) {
+                        throw new IllegalArgumentException("--journal is not configured");
+                    }
+                    String out = text(p, "out");
+                    if (out == null) {
+                        throw new IllegalArgumentException("export needs an out file name");
+                    }
+                    return List.of(new Step("stream export", List.of("stream", "export",
+                        "--journal", config.journal().toString(),
+                        "--config", config.configDir().toString(),
+                        "--out", resolveInside(config.stagingDir(), out).toString())));
+                }
+                require(config.sequencerUrl(), "--sequencer-url is not configured");
+                String file = text(p, "file");
+                if (file == null) {
+                    throw new IllegalArgumentException("ingest needs a file name");
+                }
+                Path source;
+                try {
+                    source = staging.resolve(file);
+                } catch (IOException | IllegalArgumentException e) {
+                    throw new IllegalArgumentException(e.getMessage());
+                }
+                List<String> argv = new ArrayList<>(List.of("stream", "ingest",
+                    "--file", source.toString(),
+                    "--config", config.configDir().toString(),
+                    "--sequencer-url", config.sequencerUrl(),
+                    "--evidence", config.evidenceDir().toString()));
+                String env = text(p, "env");
+                if (env != null) {
+                    argv.add("--env");
+                    argv.add(env);
+                }
+                return List.of(new Step("stream ingest", argv));
+            });
     }
 
     static JobSpec journalSnapshot(RunnerConfig config) {

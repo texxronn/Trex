@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JobSchedulerTest {
 
     private static RunnerConfig config(Path dir) {
-        return new RunnerConfig("127.0.0.1", 0, dir, dir, dir, dir, dir, "http://seq", "http://hub",
+        return new RunnerConfig("127.0.0.1", 0, dir, dir, dir, dir, dir, null, "http://seq", "http://hub",
             "http://ff", dir.resolve("firefly.yaml"), null, true, Duration.ofMinutes(10));
     }
 

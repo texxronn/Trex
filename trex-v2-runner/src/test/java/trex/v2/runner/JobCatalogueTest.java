@@ -84,6 +84,7 @@ class JobCatalogueTest {
     private static RunnerConfig config(Path dir, boolean allowApply) {
         return new RunnerConfig("127.0.0.1", 0, dir, dir.resolve("statements"),
             dir.resolve("staging"), dir.resolve("evidence"), dir.resolve("archive"),
+            dir.resolve("journal.jsonl"),
             "http://sequencer:8080", "http://hub:8090", "http://firefly:8081",
             dir.resolve("firefly.yaml"), null, allowApply, Duration.ofMinutes(10));
     }

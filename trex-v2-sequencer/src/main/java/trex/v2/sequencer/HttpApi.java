@@ -15,6 +15,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executors;
 import java.util.zip.GZIPInputStream;
@@ -65,6 +67,16 @@ final class HttpApi {
             } catch (com.fasterxml.jackson.core.JacksonException e) {
                 write(ex, 400, new ErrorResponse("malformed /ingest body: " + e.getOriginalMessage()));
             }
+        });
+        route(server, "/stream", "POST", ex -> {
+            String body = readBody(ex, maxBody);
+            List<String> lines = new ArrayList<>();
+            for (String line : body.split("\n")) {
+                if (!line.isBlank()) {
+                    lines.add(line);
+                }
+            }
+            write(ex, 200, sequencer.submitStream(lines));
         });
         route(server, "/maintenance/snapshot", "POST", ex -> {
             if (maintenance == null || !maintenance.configured()) {

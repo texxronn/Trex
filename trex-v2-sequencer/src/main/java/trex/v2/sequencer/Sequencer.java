@@ -7,12 +7,15 @@ import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
 import trex.v2.core.IngestEvent;
 import trex.v2.core.Ids;
+import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.Unknown;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.derive.ReviewItem;
 import trex.v2.log.Journal;
+import trex.v2.log.LogCodec;
 import trex.v2.sequencer.api.BatchResponse;
 import trex.v2.sequencer.api.DecisionBatch;
 import trex.v2.sequencer.api.DecisionDraft;
@@ -20,6 +23,7 @@ import trex.v2.sequencer.api.FactBatch;
 import trex.v2.sequencer.api.FactDraft;
 import trex.v2.sequencer.api.HeadResponse;
 import trex.v2.sequencer.api.RowResult;
+import trex.v2.sequencer.api.StreamResponse;
 import trex.v2.sequencer.SequencerState.ObsKey;
 
 import java.time.Clock;
@@ -129,6 +133,140 @@ public final class Sequencer implements AutoCloseable {
     /** The number of log lines folded; for tests and diagnostics. */
     public synchronized long headN() {
         return state.headN;
+    }
+
+    // ---- stream (§14.1) ---------------------------------------------------------------------
+
+    /**
+     * Append a validated stream: raw JSONL lines land verbatim, in {@code n} order, starting at the
+     * current head + 1. Each line is re-validated as it lands — a known kind, a well-formed
+     * envelope, a known {@code accountRef}, and decision cross-references resolvable in the prefix.
+     * A bad line stops the ingest at that line; the prefix already landed and is reported.
+     */
+    public synchronized StreamResponse submitStream(List<String> rawLines) {
+        long expected = state.headN + 1;
+        Set<String> knownFacts = new HashSet<>(state.latestById.keySet());
+        Set<Long> knownDecisions = new HashSet<>(state.decisionNs);
+        List<LogLine> toAppend = new ArrayList<>();
+        Long stoppedAt = null;
+        String error = null;
+        for (int i = 0; i < rawLines.size(); i++) {
+            long n = expected + i;
+            LogLine line;
+            try {
+                line = LogCodec.parse(rawLines.get(i).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (RuntimeException e) {
+                error = "line n=" + n + ": unparseable (" + e.getMessage() + ")";
+                stoppedAt = n;
+                break;
+            }
+            String problem = validateStreamLine(line, n, knownFacts, knownDecisions);
+            if (problem != null) {
+                error = problem;
+                stoppedAt = n;
+                break;
+            }
+            toAppend.add(line);
+            if (line instanceof Fact f) {
+                knownFacts.add(f.externalId());
+            } else if (line instanceof Decision d) {
+                knownDecisions.add(d.n());
+            }
+        }
+        if (!toAppend.isEmpty()) {
+            journal.appendBatch(new ArrayList<>(toAppend));
+            for (LogLine line : toAppend) {
+                if (line instanceof Fact f) {
+                    state.observe(f);
+                } else if (line instanceof Decision d) {
+                    state.decisionNs.add(d.n());
+                }
+            }
+            state.headN = expected - 1 + toAppend.size();
+        }
+        return new StreamResponse(toAppend.size(), state.headN, stoppedAt, error);
+    }
+
+    private String validateStreamLine(LogLine line, long n, Set<String> knownFacts,
+                                      Set<Long> knownDecisions) {
+        if (line instanceof Unknown) {
+            return "line n=" + n + ": unknown kind '" + line.kind() + "'";
+        }
+        if (line.n() != n) {
+            return "line n=" + line.n() + " breaks contiguity; expected n=" + n;
+        }
+        try {
+            source(line.envelope().source());
+        } catch (IllegalArgumentException e) {
+            return "line n=" + n + ": " + e.getMessage();
+        }
+        if (line instanceof Fact f) {
+            if (registry.findAccount(f.accountRef()).isEmpty()) {
+                return "line n=" + n + ": unknown accountRef '" + f.accountRef() + "'";
+            }
+            if (f.externalId() == null || f.externalId().isBlank()) {
+                return "line n=" + n + ": externalId is required";
+            }
+        } else if (line instanceof Decision d) {
+            return decisionRefs(d, n, knownFacts, knownDecisions);
+        }
+        return null;
+    }
+
+    private String decisionRefs(Decision d, long n, Set<String> knownFacts, Set<Long> knownDecisions) {
+        List<String> refs = new ArrayList<>();
+        if (d instanceof Decision.Pair p) {
+            refs.add(p.legA());
+            refs.add(p.legB());
+        } else if (d instanceof Decision.Unpair u) {
+            refs.add(u.legA());
+            refs.add(u.legB());
+        } else if (d instanceof Decision.MarkExternal m) {
+            refs.add(m.externalId());
+        } else if (d instanceof Decision.Settle s) {
+            refs.add(s.pendingId());
+            refs.add(s.postedId());
+        } else if (d instanceof Decision.Dismiss dis) {
+            if (ReviewItem.BALANCE_BREAK.equals(dis.item())) {
+                for (String id : dis.externalIds()) {
+                    if (registry.findAccount(id).isEmpty()) {
+                        return "line n=" + n + ": DISMISS names unknown account '" + id + "'";
+                    }
+                }
+                return null;
+            }
+            refs.addAll(dis.externalIds());
+        } else if (d instanceof Decision.Pin pin) {
+            refs.addAll(pin.externalIds());
+        } else if (d instanceof Decision.Unpin up) {
+            refs.addAll(up.externalIds());
+        } else if (d instanceof Decision.Supersede s) {
+            refs.add(s.fromId());
+            refs.add(s.toId());
+        } else if (d instanceof Decision.Retire r) {
+            refs.add(r.externalId());
+        } else if (d instanceof Decision.MarkNoop m) {
+            refs.add(m.externalId());
+        } else if (d instanceof Decision.UnmarkNoop u) {
+            refs.add(u.externalId());
+        } else if (d instanceof Decision.UserAck a) {
+            refs.add(a.externalId());
+        } else if (d instanceof Decision.UserUnack u) {
+            refs.add(u.externalId());
+        } else if (d instanceof Decision.Note note) {
+            refs.add(note.externalId());
+        } else if (d instanceof Decision.Revoke rv) {
+            if (!knownDecisions.contains(rv.target())) {
+                return "line n=" + n + ": REVOKE names unknown decision n=" + rv.target();
+            }
+            return null;
+        }
+        for (String ref : refs) {
+            if (ref != null && !ref.isBlank() && !knownFacts.contains(ref)) {
+                return "line n=" + n + ": names an unknown fact '" + ref + "'";
+            }
+        }
+        return null;
     }
 
     // ---- facts ------------------------------------------------------------------------------
