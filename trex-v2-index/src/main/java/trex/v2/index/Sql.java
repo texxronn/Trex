@@ -59,8 +59,8 @@ final class Sql {
     static final String INSERT_CHAIN_RESOLVED = "INSERT INTO chain_resolved(id, current_id) VALUES(?,?)";
     static final String INSERT_TXN_CURRENT = "INSERT INTO txn_current(external_id, n, account_ref, date, amount, "
         + "balance, raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, "
-        + "line_v, at_ms, env, source, target, leg, transfer_id, category, category_origin, rule_id, state_hash) "
-        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        + "line_v, at_ms, env, source, target, role, leg, transfer_id, category, category_origin, rule_id, state_hash) "
+        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_TRANSFER = "INSERT INTO transfer(transfer_id, from_leg, to_leg, confidence, origin, "
         + "decision_n, matched_at) VALUES(?,?,?,?,?,?,?)";
     static final String INSERT_PENDING = "INSERT INTO pending(external_id, fact_n, account_ref, date, amount, "

@@ -339,6 +339,7 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(i++, f.envelope().env());
                 ps.setString(i++, f.envelope().source());
                 ps.setString(i++, f.envelope().target());
+                ps.setString(i++, c.role().wire());
                 ps.setString(i++, c.leg().name());
                 ps.setString(i++, c.transferId());
                 ps.setString(i++, c.category());

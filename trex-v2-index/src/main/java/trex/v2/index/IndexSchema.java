@@ -26,6 +26,13 @@ final class IndexSchema {
                 st.execute("DROP TABLE user_ack");
                 clearDerivedMeta(st);
             }
+            // txn_current gained a derived role (§6.9). The column is NOT NULL, so migration drops and
+            // recreates the table (schema.sql carries the new shape) rather than adding a default; the
+            // derived tables are disposable and the next apply re-derives with roles.
+            if (hasTable(st, "txn_current") && !hasColumn(st, "txn_current", "role")) {
+                st.execute("DROP TABLE txn_current");
+                clearDerivedMeta(st);
+            }
             // The mirror shape changed (the uniform envelope): drop the mirrored fact/decision and
             // force a full re-mirror from the log. The mirror is disposable — the log is the truth.
             if (hasTable(st, "fact") && hasColumn(st, "fact", "ingested_at")) {

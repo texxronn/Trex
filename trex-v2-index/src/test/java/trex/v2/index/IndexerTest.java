@@ -83,6 +83,26 @@ class IndexerTest {
             assertEquals(1, count(db, "transfer"));
             assertEquals(1, count(db, "pin_current"));
             assertEquals("GROCERIES", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
+            assertEquals("transaction", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
+        }
+    }
+
+    @Test
+    void anAccountProfileIsWrittenAsTheRowRoleAndSurvivesARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        DeriveConfig withProfile = new DeriveConfig(config().registry(), config().categories(),
+            config().transfers(), new trex.v2.core.config.Profiles(List.of(
+                new trex.v2.core.config.Profiles.Rule("ing-savings",
+                    java.util.regex.Pattern.compile("COLES", java.util.regex.Pattern.CASE_INSENSITIVE),
+                    "reference"))),
+            "sha256:cfg");
+        try (Indexer indexer = Indexer.open(db, withProfile)) {
+            indexer.apply(journal, ASOF);
+            assertEquals("noop", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
+            assertEquals("transaction", string(db, "SELECT role FROM txn_current WHERE external_id='b'"));
+            indexer.rebuild(journal, ASOF);
+            assertEquals("noop", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
         }
     }
 

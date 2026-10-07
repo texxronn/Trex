@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS txn_current (
   env             TEXT NOT NULL,
   source          TEXT NOT NULL,
   target          TEXT NOT NULL,
+  role            TEXT NOT NULL,
   leg             TEXT NOT NULL,
   transfer_id     TEXT,
   category        TEXT NOT NULL,
