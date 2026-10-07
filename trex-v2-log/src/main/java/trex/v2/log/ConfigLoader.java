@@ -1,6 +1,7 @@
 package trex.v2.log;
 
 import trex.v2.core.Hashes;
+import trex.v2.core.Rail;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
@@ -103,17 +104,15 @@ public final class ConfigLoader {
             }
         }
 
-        List<Pattern> allowlist = transfers.allowlist() == null ? List.of()
-            : transfers.allowlist().stream()
-                .map(s -> Pattern.compile(s, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE))
-                .toList();
+        Map<String, List<TransferRules.TransferPattern>> patterns = loadTransferPatterns(transfersFile, transfers,
+            accountMap);
         TransferRules transferRules = new TransferRules(
             transfers.windowDays(),
             transfers.dupTolerance() == null ? TransferRules.DEFAULT_DUP_TOLERANCE : transfers.dupTolerance(),
             transfers.amountTolerance() == null ? TransferRules.DEFAULT_AMOUNT_TOLERANCE : transfers.amountTolerance(),
             transfers.holdWindowDays() == null ? TransferRules.DEFAULT_HOLD_WINDOW_DAYS : transfers.holdWindowDays(),
             transfers.restatementOverlap() == null ? TransferRules.DEFAULT_RESTATEMENT_OVERLAP : transfers.restatementOverlap(),
-            allowlist);
+            patterns);
 
         String configRevision = configRevision(configDir, accountsFile, categoriesFile, transfersFile, refdataFile,
             profilesFile);
@@ -170,6 +169,56 @@ public final class ConfigLoader {
     }
 
     /**
+     * {@code transfers.yaml} transfer vocabulary (V2-PROPOSAL.md §9.9.C): per-account ordered
+     * patterns plus a {@code default} list; the account's own entries are tried first, then the
+     * default. An unknown account, a missing match or an unknown rail is a startup error. The
+     * legacy top-level {@code allowlist} is accepted and mapped to default {@code BANK_TRANSFER}
+     * patterns that shape.
+     */
+    private static Map<String, List<TransferRules.TransferPattern>> loadTransferPatterns(
+            Path file, TransfersFile transfers, Map<String, Account> accounts) {
+        Map<String, List<TransferRules.TransferPattern>> out = new LinkedHashMap<>();
+        if (transfers.transferPatterns() != null) {
+            for (Map.Entry<String, List<TransferPatternEntry>> entry : transfers.transferPatterns().entrySet()) {
+                String accountRef = entry.getKey();
+                if (!TransferRules.ANY_ACCOUNT.equals(accountRef) && !accounts.containsKey(accountRef)) {
+                    throw new IllegalArgumentException(file.getFileName()
+                        + ": transfer pattern names unknown account '" + accountRef + "'");
+                }
+                List<TransferRules.TransferPattern> list = new ArrayList<>();
+                List<TransferPatternEntry> declared = entry.getValue() == null ? List.of() : entry.getValue();
+                for (TransferPatternEntry e : declared) {
+                    if (e.match() == null || e.match().isBlank()) {
+                        throw new IllegalArgumentException(file.getFileName() + ": a transfer pattern under '"
+                            + accountRef + "' has no match");
+                    }
+                    Rail rail = e.rail() == null || e.rail().isBlank()
+                        ? Rail.BANK_TRANSFER : Rail.fromWire(e.rail());
+                    boolean shape = e.shape() == null || e.shape();
+                    try {
+                        list.add(new TransferRules.TransferPattern(e.match(),
+                            Pattern.compile(e.match(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE),
+                            rail, shape));
+                    } catch (PatternSyntaxException ex) {
+                        throw new IllegalArgumentException(file.getFileName() + ": pattern '" + e.match()
+                            + "' is not a valid regex: " + ex.getDescription());
+                    }
+                }
+                out.put(accountRef, list);
+            }
+        } else if (transfers.allowlist() != null) {
+            List<TransferRules.TransferPattern> list = new ArrayList<>();
+            for (String match : transfers.allowlist()) {
+                list.add(new TransferRules.TransferPattern(match,
+                    Pattern.compile(match, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE),
+                    Rail.BANK_TRANSFER, true));
+            }
+            out.put(TransferRules.ANY_ACCOUNT, list);
+        }
+        return out;
+    }
+
+    /**
      * Hash every file that can move derived state (§9.3). Sorted, name-prefixed and length-free
      * because the separators make the concatenation unambiguous.
      */
@@ -213,7 +262,11 @@ public final class ConfigLoader {
     public record FixtureEntry(String description, Long amount, String category, String accountRef) {}
 
     public record TransfersFile(int windowDays, List<String> allowlist, Integer dupTolerance,
-                               Integer amountTolerance, Integer holdWindowDays, Double restatementOverlap) {}
+                               Integer amountTolerance, Integer holdWindowDays, Double restatementOverlap,
+                               Map<String, List<TransferPatternEntry>> transferPatterns) {}
+
+    /** {@code transferPatterns}: one ordered pattern — a match, a rail method and whether it shapes. */
+    public record TransferPatternEntry(String match, String rail, Boolean shape) {}
 
     /** {@code profiles.yaml}: account-scoped role rules (V2-PROPOSAL.md §6.9). */
     public record ProfilesFile(Map<String, ProfileEntry> profiles) {}

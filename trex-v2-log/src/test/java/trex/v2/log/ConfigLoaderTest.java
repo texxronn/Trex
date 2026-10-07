@@ -37,7 +37,7 @@ class ConfigLoaderTest {
         assertTrue(config.configRevision().startsWith("sha256:"));
         assertEquals(4, config.transfers().windowDays());
         assertEquals(30, config.transfers().holdWindowDays());
-        assertFalse(config.transfers().allowlist().isEmpty());
+        assertFalse(config.transfers().effective("ing-savings").isEmpty());
         assertTrue(config.categories().isDeclared("GROCERIES"));
         assertFalse(config.categories().isDeclared(RuleSet.TRANSFER));
         assertTrue(config.categories().rules().size() > 20);

@@ -1,59 +1,92 @@
-# Transfer matching rules — SPEC.md §3.4, §6.
-# A row is "transfer-shaped" when its raw description matches any allowlist regex
-# (case-insensitive, Java regex syntax; single-quoted strings avoid escaping).
-# Transfer-shaped rows without a matching contra leg are HELD for the resolver.
+# Transfer matching rules — V2-PROPOSAL.md §9.9.C.
+#
+# The vocabulary is `transferPatterns`: per-account ordered lists plus a `default` list. A leg is
+# judged only by the account it sits in — its own entries first, then `default` — and the FIRST
+# match wins. The match decides both whether the leg shapes (enters the matching pool) and its
+# rail method. A pattern with `shape: false` is rail-only: tagged with its rail, never pooled, so
+# it can never open an UNMATCHED_LEG. Rails: OSKO | PAYID | BPAY | BANK_TRANSFER; the direction
+# (IN/OUT) is the sign of the amount, never declared.
+#
+# The ordering is the point: "Osko to self" is a transfer, "Osko to anyone else" is an expense;
+# paying our own BankWest card is a transfer, any other BPAY biller is an expense.
 
-# Maximum days between the two legs of an amount/date (T3) match. Required.
-#
-# Raised from 3 to 4 before the history backfill. The number matters more than it
-# looks: a leg that misses its partner is HELD, and the only repair is a manual
-# CONFIRM_TRANSFER, which is a FINAL decision (SPEC §3.5). Re-ingesting does not
-# retry — a re-delivered candidate with the same balance is dropped as a duplicate
-# (§3.3 step 5), so each row attempts matching exactly once, at first ingest.
-#
-# Widening is the cheap direction. The matcher never guesses: more than one
-# candidate in the window yields AmbiguousTransfer and a REVIEW item showing both
-# sides (§3.4), so a wider window buys review items, not wrong matches — and a
-# review where you pick between two candidates beats an orphan leg you have to
-# hunt for.
-#
-# Evidence for the value: every transfer matched so far pairs at a gap of 0 days,
-# but that is 30 internal transfers between accounts at the same bank. The case
-# this has to cover is a BPAY card payment, where the paying bank and the card
-# date the same movement differently — and there is exactly one of those matched
-# today, so 0 is a sample, not a rule.
+# Maximum days between the two legs of a windowed (T3) amount/date match. Required.
+# A leg that misses its partner is HELD; widening the window buys review items, not wrong
+# matches, because a tie goes to AMBIGUOUS_TRANSFER for a human.
 windowDays: 4
 
-allowlist:
-  - 'Internal Transfer'
-  - 'To my account'
-  - 'From my account'
-  - 'Fast Transfer'
-  # Internal CommBank transfers only — the account form, never a person's name.
+transferPatterns:
+  # Bare rails: tags only. A bare rail is not a movement we can recognise as ours, so it never
+  # enters the pool — but it still carries its method for the Blotter (PAYID · IN, OSKO · OUT).
   #
-  # The broad form 'Transfer (to|from)' was wrong, and wrong in the expensive direction.
-  # CommBank writes both of these, and only the first is an internal movement:
-  #     "Transfer from xx2435 CommBank app house expenses"      <- own account
-  #     "Transfer To Vazhel A John CommBank App Piano Lessons"  <- a payment to a person
-  # Both matched, so the second was HELD waiting for a contra leg that can never exist.
-  # Measured over 21 matching rows: 7 genuinely internal, 14 payments to people worth
-  # $5,784 stuck forever — piano lessons, the tax agent, family.
-  #
-  # Those 14 are now ordinary expenses and can be categorised. Narrowing only affects
-  # FUTURE ingests: matching happens once, at first ingest (§3.3 step 5), so rows already
-  # HELD stay HELD and need decisions. Hence doing this before the history backfill.
-  - 'Transfer (to|from) xx\d'
-  - 'Osko'
-  - 'PayID'
-  # Credit-card payments from another of your own accounts. Transfer-shaped so they land in
-  # HELD for review rather than reading as income: a card payment moves your own money, and
-  # +$122k of it looked like an inflow before this line existed. The contra leg only pairs
-  # once the paying account is ingested too.
-  - 'Bill Payment Received'
-  # The paying side of the same thing, as ING writes it: "BANKWEST CREDIT CARD 5229… - BPAY
-  # Bill Payment - Receipt 52936 To BANKWEST CREDIT CARD 5229…". Deliberately the biller name
-  # rather than 'BPAY Bill Payment', which would make every utility BPAY transfer-shaped and
-  # leave it HELD forever waiting for a contra leg that does not exist.
-  # These two legs pair on T3 (amount and date), never T1: ING gives its row a receipt and
-  # BankWest has none, so there is no shared receipt to match on.
-  - 'Bankwest Credit Card'
+  # The inbound self Osko is the one default pattern that shapes: a credit from our own name is
+  # a transfer waiting for its paying side. It must precede the bare Osko tag below.
+  default:
+    - { match: 'MR ROHAN JOSEPH MACHADO.*Osko Payment', rail: OSKO }
+    - { match: 'Osko Payment', rail: OSKO, shape: false }
+    - { match: 'BPAY',         rail: BPAY, shape: false }
+    - { match: 'PayID',        rail: PAYID, shape: false }
+
+  # The ING self vocabulary, repeated per ING account: a self Osko shapes; a BPAY to our own
+  # BankWest card shapes; every other ING movement is BANK_TRANSFER. A non-self Osko or BPAY
+  # matches none of these and falls through to the rail-only default tags.
+  ing-savings:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+  ing-orange:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+  ing-salary:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+  ing-credit-card:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+  ing-loan-offset:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+  ing-mortgage-simplifier:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+  ing-variable-rate:
+    - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
+    - { match: 'To my account',                     rail: BANK_TRANSFER }
+    - { match: 'From my account',                   rail: BANK_TRANSFER }
+    - { match: '^Rohan Machado - Osko Payment to',  rail: OSKO }
+    - { match: 'Bankwest Auto Pay',                 rail: BPAY }
+    - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
+
+  # CommBank writes its own internal transfers with the account form, never a person's name.
+  cba-smartaccess:
+    - { match: 'Fast Transfer',        rail: BANK_TRANSFER }
+    - { match: 'Transfer from xx\d+',  rail: BANK_TRANSFER }
+  cba-netsaver:
+    - { match: 'Transfer to xx\d+',    rail: BANK_TRANSFER }
+
+  # BankWest receives the card payment; it is the contra of an ING BPAY to our own card.
+  bw-credit-card:
+    - { match: 'Bill Payment Received', rail: BPAY }

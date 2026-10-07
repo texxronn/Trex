@@ -338,7 +338,7 @@ public final class Derive {
             for (CurrentFact c : currentFacts) {
                 byId.put(c.externalId(), c);
             }
-            Set<String> shapedReceipts = receiptsSharedAcrossAccounts(currentFacts);
+            Set<String> shapedReceipts = receiptsWithCounterpart(currentFacts);
 
             // Effective pairing decisions, resolved, latest per leg.
             Map<String, Decision> pairingDecision = new HashMap<>();
@@ -595,24 +595,55 @@ public final class Derive {
             return account.currency();
         }
 
-        private Set<String> receiptsSharedAcrossAccounts(List<CurrentFact> currentFacts) {
-            Map<String, Set<String>> receipts = new TreeMap<>();
+        /**
+         * The receipts that shape a leg: a non-null receipt shared with a leg in another account
+         * that is a <b>plausible counterpart</b> — opposite sign, equal {@code |amount|}, the same
+         * currency and dates within {@code windowDays} (§9.9.C.2). Receipt numbers are not globally
+         * unique (the same ING receipt recurs across accounts and years), so a collision must not
+         * shape two unrelated rows.
+         */
+        private Set<String> receiptsWithCounterpart(List<CurrentFact> currentFacts) {
+            Map<String, List<Fact>> byReceipt = new TreeMap<>();
             for (CurrentFact c : currentFacts) {
-                if (c.fact().receipt() != null && !c.fact().receipt().isBlank()) {
-                    receipts.computeIfAbsent(c.fact().receipt(), k -> new TreeSet<>()).add(c.fact().accountRef());
+                String r = c.fact().receipt();
+                if (r != null && !r.isBlank()) {
+                    byReceipt.computeIfAbsent(r, k -> new ArrayList<>()).add(c.fact());
                 }
             }
-            Set<String> shared = new HashSet<>();
-            receipts.forEach((receipt, accounts) -> {
-                if (accounts.size() > 1) {
-                    shared.add(receipt);
+            Set<String> shaped = new HashSet<>();
+            byReceipt.forEach((receipt, group) -> {
+                if (hasPlausibleCounterpart(group)) {
+                    shaped.add(receipt);
                 }
             });
-            return shared;
+            return shaped;
+        }
+
+        private boolean hasPlausibleCounterpart(List<Fact> group) {
+            int window = config.transfers().windowDays();
+            for (int i = 0; i < group.size(); i++) {
+                for (int j = i + 1; j < group.size(); j++) {
+                    Fact a = group.get(i);
+                    Fact b = group.get(j);
+                    if (a.accountRef().equals(b.accountRef())
+                        || !oppositeSign(a.amount(), b.amount())
+                        || Math.abs(a.amount()) != Math.abs(b.amount())
+                        || !currencyOf(a).equals(currencyOf(b))
+                        || Math.abs(ChronoUnit.DAYS.between(a.date(), b.date())) > window) {
+                        continue;
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private String currencyOf(Fact f) {
+            return config.registry().account(f.accountRef()).currency();
         }
 
         private boolean isShaped(Fact f, Set<String> shapedReceipts) {
-            if (config.transfers().isTransferShaped(f.rawDescription())) {
+            if (config.transfers().isTransferShaped(f.accountRef(), f.rawDescription())) {
                 return true;
             }
             return f.receipt() != null && shapedReceipts.contains(f.receipt());
