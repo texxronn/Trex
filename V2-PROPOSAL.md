@@ -2591,6 +2591,17 @@ with the offending decision named. A dry run checks every foreign key against th
 first. Facts and ingest events are never replayed this way: they come from the statements
 and the evidence store, so the prod log documents its own ingest.
 
+**A decision is a point in time, and order is meaning.** The export is a consistent
+snapshot: it reads a prefix of the journal (to the last complete line), records the facts
+head and counts in the manifest, and warns if the log moved while it read. Every decision
+carries `factsBefore` — the number of facts that preceded it — and replay enforces it: a
+decision is posted only once the target holds at least that many facts, in source decision
+order. No decision can land before the transactions it refers to, and the fact/decision
+interleaving that `DISMISS` semantics depend on ("it speaks for what it saw") survives the
+trip. Because replay skips decisions already identical on the target, promotion is
+incremental: review more in dev, export again, replay again — the second run posts only the
+new conclusions.
+
 **Deployment is one image.** The rhythms above are commands of the same artifact; only
 the sequencer mounts the journal read-write, and every other role gets it `:ro`. Compose
 and systemd differ only in the `command:`/`ExecStart=` line. Three roles run always: the

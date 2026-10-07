@@ -106,14 +106,18 @@ dev's). Pin one release and one config for both sides first.
    the only copy. See *Back up* below.
 2. **Review to done in dev**, then export the decisions:
    `trex decisions export --journal <dev journal> --out decisions.jsonl`, or the runner's
-   `decisions` job with `mode=export`. Treat the file as private: comments can quote descriptions.
+   `decisions` job with `mode=export`. The export is a snapshot of the log at its current head;
+   if review continues later, export again — replay is incremental and posts only new decisions.
+   Treat the file as private: comments can quote descriptions.
 3. **Deploy the same image and config** to the host, and on cutover reset to day 0
    (`docker compose down -v && docker compose up -d`).
 4. **Re-seed** from the private statement store (*Seeding and testing* above).
-5. **Replay** the decisions on the host:
+5. **Replay** the decisions on the host, after the facts are in:
    `trex decisions replay --file decisions.jsonl --sequencer-url http://127.0.0.1:8080 --dry-run`,
    then again without `--dry-run` (or the runner's `decisions` job, `mode=replay`). Identity
-   resolves 1:1 because both logs were built from the same statements; `REVOKE`s are remapped.
+   resolves 1:1 because both logs were built from the same statements; `REVOKE`s are remapped,
+   and a decision whose `factsBefore` watermark exceeds the target's facts is refused — no
+   decision can land before its transactions.
 6. **Verify**: `/api/status` counts match dev apart from ingest events, `reconcile` is
    identical, the review queue matches, `trex verify` is green.
 7. **Project** when ready: `egress firefly --plan` → review → `--apply` (locked without

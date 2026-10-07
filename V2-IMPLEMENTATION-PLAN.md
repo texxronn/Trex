@@ -364,19 +364,24 @@ facts for the missing history.
 
 ### P8 — Decision export and replay (§14.1)
 
-**Work**: `trex decisions export` (a v2 journal → neutral JSONL plus a manifest: facts head,
-config revision, counts) and `trex decisions replay` (ordered posting; skip-if-identical;
+**Work**: `trex decisions export` (a consistent journal prefix → neutral JSONL, each decision
+carrying its `factsBefore` watermark, plus a manifest: facts head, counts, config revision)
+and `trex decisions replay` (source-order posting gated on the watermark; skip-if-identical;
 `REVOKE` `n`-remapping; fail-fast naming the offending decision; `--dry-run` foreign-key
-check); the `decisions` runner job (`mode = export | replay`) in the JobCatalogue and the
-Jobs view; export files treated as private, since comments may quote descriptions.
+check; incremental re-export); the `decisions` runner job (`mode = export | replay`) in the
+JobCatalogue and the Jobs view; export files treated as private, since comments may quote
+descriptions.
 
 **Acceptance**: round-trip on a fixture — seed two sequencers from the same statements,
 export the first's decisions, replay onto the second, and the derived state (legs, transfer
 pairs, categories, `user_ack`, roles) is identical; a `REVOKE` remaps to the new target `n`;
-replaying the same file again skips every decision as already-identical; a decision naming
-an unknown `externalId` fails with that decision named and nothing after it posted; a config
-revision mismatch is reported from the manifest before any post; `trex verify` is green on
-the target afterwards.
+replaying the same file again skips every decision as already-identical; a decision whose
+`factsBefore` exceeds the target's fact count is refused with that decision named (and
+`--force` is the explicit override); a `DISMISS` followed by a newer fact re-opens
+identically on the target, proving the interleaving survived; a second export after further
+review replays only the new decisions; a decision naming an unknown `externalId` fails with
+that decision named and nothing after it posted; a config revision mismatch is reported from
+the manifest before any post; `trex verify` is green on the target afterwards.
 
 **Out of scope** replaying facts or ingest events, cross-parser migration, and scheduling
 replay automatically.
