@@ -302,6 +302,28 @@ formalism if unsettled, parse-time profile parameters, and any line-format chang
 
 ---
 
+### P6 — Transfer patterns, the pool, and attribution (§9.9.C)
+
+**Work**: per-account `transferPatterns` in `transfers.yaml` (a `default` list plus
+account extensions, each entry carrying a `kind`); the pre-filter applied per account;
+the pool ladder (receipt → same-day unique → windowed unique → ambiguous); retirement of
+the stem tier and `transferStem` from the matching path; `kind` attribution on the
+derived transfer; the pattern edit preview (legs potted / pairs made); the pot surfacing
+in the leg-resolution view. No log or line-format change; a derive-only reflow.
+
+**Acceptance**: on the private fixture, the measured families resolve — Osko↔CBA (45),
+BPAY↔BankWest (26), CBA internal (11) — and the ties behave: two $2,000 Oskos on
+consecutive days pair same-day, the $600 case pairs BankWest with the same-day BPAY and
+leaves the later Osko `HELD`. `AMBIGUOUS_TRANSFER` appears only where a tie survives
+same-day preference. Held legs fall from 518 to ~348; no unshaped row can ever pair; a
+pattern edit reflows without re-ingest; `trex index --rebuild` reproduces every pairing
+and `kind`; `trex verify` green; `docs/V2-PARITY.md` updated for the retired stem tier.
+
+**Out of scope** the one-sided policy (NAB, pre-history card payments), the
+pattern-discovery suggestion loop, and any change to receipts or pending settlement.
+
+---
+
 ## 4. Coding standards for v2
 
 - **Java 25**, records and sealed interfaces; exhaustive `switch` over sealed types.

@@ -1856,39 +1856,78 @@ Evaluation order, first match wins:
    `MARK_EXTERNAL` naming it, resolved through supersession. `MARK_EXTERNAL` and
    `UNPAIR` take the leg out of the pool; `PAIR` holds the pair only while it is the
    latest effective decision for **both** legs.
-2. **Shape.** With no effective decision, a leg is *transfer-shaped* when
-   `clean(rawDescription)` matches any allowlist regex in `transfers.yaml`
-   (case-insensitive), or it shares a non-null `receipt` with a leg in another account.
-   Sign and account do not determine shape — they qualify a candidate.
-3. **Tiers.** The matcher runs `(date, n)` order over the pool of shaped, undecided
-   legs and takes the first tier that fires:
+2. **Shape (the pre-filter).** With no effective decision, a leg is *transfer-shaped*
+   when `clean(rawDescription)` matches a pattern declared **for its own account** in
+   `transfers.yaml` (case-insensitive), or it shares a non-null `receipt` with a leg in
+   another account. Patterns are account-scoped: each institution writes its own
+   vocabulary (`Osko`, `Fast Transfer`, `Transfer to xx\d+`, `Bill Payment Received`),
+   and a leg is judged only by the list of the account it sits in. Sign and account do
+   not determine shape — they qualify a candidate. Only shaped legs enter the pool; the
+   pre-filter is what keeps ordinary rows out of it, whatever the amount/date coincidence.
+3. **Pool and ladder.** The matcher runs `(date, n)` order over the pool of shaped,
+   undecided legs and takes the first tier that fires:
    - **T1 — receipt.** Both legs share the same non-null `receipt`, are in different
      accounts, have opposite signs and the same `currency` → `confidence: EXACT`,
      `transfer_id` = `TRF-<receipt>`.
-   - **T2 — same-day.** `|amount|` equal, opposite signs, different accounts, same
-     `currency`, same `date`, and equal `merchantStem` after removing the transfer
-     allowlist vocabulary (so `Transfer to Savings 4321` matches `Transfer from Savings
-     4321`) → `confidence: HIGH`, `transfer_id` = `transferId(rootA, rootB)`.
-   - **T3 — windowed.** As T2 but the dates differ by no more than
-     `transfers.yaml windowDays`; the stem match is still required — `windowDays` widens
-     the date, never the text. → `confidence: HIGH`, `transfer_id` =
-     `transferId(rootA, rootB)`.
+   - **T2 — same-day unique.** `|amount|` equal, opposite signs, different accounts, same
+     `currency`, same `date`, and the candidate is unique *and* has no other same-day
+     suitor → `confidence: HIGH`, `transfer_id` = `transferId(rootA, rootB)`.
+   - **T3 — windowed unique.** As T2 but the dates differ by no more than
+     `transfers.yaml windowDays`, with exactly one candidate in the window → `confidence:
+     HIGH`, `transfer_id` = `transferId(rootA, rootB)`. The window widens the date; the
+     matcher never compares text across accounts.
    - **No match.** A transfer-shaped leg with no candidate → `HELD`. A leg that is not
      transfer-shaped and is not matched → `EXTERNAL`.
    - **More than one candidate** at the winning tier → the leg is `HELD` **and** an
-     `AMBIGUOUS_TRANSFER` item opens naming every candidate. HELD is what it is — on hold
-     waiting for a contra — and the item is the separate statement that there is more
-     than one; no pair is emitted either way. Resolved by `PAIR` or `MARK_EXTERNAL`, or
-     the candidates resolve themselves as they are decided.
-4. **Collapse.** A pair emits one `transfer` row; its legs are `MATCHED` and are never
+     `AMBIGUOUS_TRANSFER` item opens naming every candidate (same-day ones highlighted).
+     HELD is what it is — on hold waiting for a contra — and the item is the separate
+     statement that there is more than one; no pair is emitted either way. Resolved by
+     `PAIR` or `MARK_EXTERNAL`, or the candidates resolve themselves as they are decided.
+4. **Attribution.** Every pattern declares a `kind` — `OSKO`, `BPAY` or `BANK_TRANSFER` —
+   and the emitted transfer records the most specific kind of its two shaped sides
+   (`OSKO` > `BPAY` > `BANK_TRANSFER`), so the Blotter can say *why* a pair exists and
+   later analysis can group transfers by rail. A receipt pair records the kind of its
+   shaped side, or `BANK_TRANSFER` when neither side carries one.
+5. **Collapse.** A pair emits one `transfer` row; its legs are `MATCHED` and are never
    projected (§11). A pair emitted from a decision carries `origin: decision` and the
    decision's `n`; a pair from the matcher carries `origin: derived`.
 
-   > **Parity with v1.** v1's matcher paired on amount, sign, account, currency and date alone;
-   > here T2/T3 additionally require an equal `transferStem`, so v2 withholds some pairs v1 made.
-   > This is a deliberate change, pinned by
-   > `DeriveTest.theMatcherRequiresEqualTransferStemUnlikeV1`. Every equivalence and divergence
-   > between v2 and v1's curated behaviour is recorded in `docs/V2-PARITY.md`.
+   The config is the vocabulary plus the ladder, and nothing else:
+
+   ```yaml
+   # transfers.yaml
+   windowDays: 4          # T3
+   holdWindowDays: 30     # UNMATCHED_LEG
+   transferPatterns:
+     default:
+       - { match: 'Internal Transfer', kind: BANK_TRANSFER }
+       - { match: 'To my account',     kind: BANK_TRANSFER }
+       - { match: 'From my account',   kind: BANK_TRANSFER }
+       - { match: 'Osko',              kind: OSKO }
+     ing-orange:
+       - { match: 'Bankwest Auto Pay',          kind: BPAY }
+       - { match: 'BANKWEST CREDIT CARD.*BPAY', kind: BPAY }
+     cba-smartaccess:
+       - { match: 'Fast Transfer',       kind: BANK_TRANSFER }
+       - { match: 'Transfer from xx\d+', kind: BANK_TRANSFER }
+     cba-netsaver:
+       - { match: 'Transfer to xx\d+', kind: BANK_TRANSFER }
+     bw-credit-card:
+       - { match: 'Bill Payment Received', kind: BPAY }
+   ```
+
+   An account's effective list is the `default` list plus its own entries; an account
+   with no entry still shapes by the default rails and by receipts. Saving a change runs
+   the same preview contract as a rule edit: it shows the legs the change would pot and
+   the pairs it would make, before anything moves.
+
+   > **Parity with v1.** v1 paired on amount, sign, account, currency and date alone, and
+   > that is what the pool does — with two differences that make it safe rather than
+   > lucky: the pre-filter keeps ordinary rows out of the pool entirely, and a tie goes to
+   > `AMBIGUOUS_TRANSFER` for a human, never to an arbitrary pick. The stem tier (`T2/T3`
+   > requiring equal `transferStem`) is retired; `MerchantStem.transferStem` leaves the
+   > matching path. Equivalences and divergences with v1 stay recorded in
+   > `docs/V2-PARITY.md`.
 
 #### D. Pending settlement and staleness
 
