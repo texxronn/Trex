@@ -292,10 +292,12 @@ change: roles are derived, and the decision catalogue addition is spec-only unti
 **Acceptance**: on the private fixture, the four `ing-variable-rate` annual-fee rows
 resolve as a fork. `MARK_NOOP` on the leaf side → reconciled at the account's true
 closing balance, with four named exclusions; on the load-bearing side → a different fork
-remains (the preview was honest). A profile rule and a decision agree, and the decision
-wins both ways; `UNMARK_NOOP`/`REVOKE` restores the prior state; `trex index --rebuild`
-reproduces every role; a `noop` row is absent from the projection and a previously
-posted one is reported as an orphan, never deleted. `trex verify` stays green.
+remains (the preview was honest). The four matching `OA Annual Fee` charges on
+`ing-loan-offset` remain counted and categorized `FEES` (verified: the real charge lives
+there; the loan line is the reference). A profile rule and a decision agree, and the
+decision wins both ways; `UNMARK_NOOP`/`REVOKE` restores the prior state; `trex index
+--rebuild` reproduces every role; a `noop` row is absent from the projection and a
+previously posted one is reported as an orphan, never deleted. `trex verify` stays green.
 
 **Out of scope** the writer-side provisional flag (deferred, §6.9), the keep-both
 formalism if unsettled, parse-time profile parameters, and any line-format change.
@@ -334,8 +336,9 @@ the rail-only PayID rows); no unshaped row can ever pair; a pattern edit reflows
 re-ingest; `trex index --rebuild` reproduces every pairing and `rail`; `trex verify`
 green; `docs/V2-PARITY.md` updated for the retired stem tier.
 
-**Out of scope** the one-sided policy (NAB, pre-history card payments), the
-pattern-discovery suggestion loop, and any change to receipts or pending settlement.
+**Out of scope** the residual one-sided policy (true externals), the pattern-discovery
+suggestion loop, rails as Firefly tags (deferred with the Firefly mapping), and any change
+to receipts or pending settlement.
 
 ---
 
@@ -343,19 +346,16 @@ pattern-discovery suggestion loop, and any change to receipts or pending settlem
 
 **Work**: `balanceSource: clearing` with `closingBalance` / `closedAt`; the backwards-computed
 opening in `Opening` and a `CLEARING` reconcile status; the `clearing:` pattern action and its
-direct pairing (one real leg + an account side in the transfer/unit shape); egress provisioning
-of the clearing Firefly account with the computed opening and a verify check; the Accounts and
-reconcile rendering of the computed opening. No log or line-format change — a clearing account
-holds no facts.
+direct pairing (one real leg + an account side in the transfer/unit shape); the Accounts and
+reconcile rendering of the computed opening. Firefly provisioning and rail tags are deferred
+with the Firefly mapping. No log or line-format change — a clearing account holds no facts.
 
 **Acceptance**: register `westpac-card`, `nab-fixed` and `nab-offset` with closing 0. The 86
 Westpac legs, 40 fixed legs and 33 offset legs pair as clearing transfers — carrying rails and
 correct direction, leaving the review queue, neither side a unit of its own — and each account's
 derived balance lands on 0: Westpac computed opening −$78,092.02, NAB fixed −$31,800.00, NAB
-offset −$174,200.00. Reconcile reports `CLEARING`, never `BROKEN`. The egress plan posts the
-transfers and provisions the openings so Firefly's balances land on 0, and `verify` is green.
-Removing a `clearing:` line and ingesting real statements re-pairs against the real legs with no
-leftover synthetic side.
+offset −$174,200.00. Reconcile reports `CLEARING`, never `BROKEN`. Removing a `clearing:` line
+and ingesting real statements re-pairs against the real legs with no leftover synthetic side.
 
 **Out of scope** interest vs principal splitting without statements, and any attempt to invent
 facts for the missing history.
