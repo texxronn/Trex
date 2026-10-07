@@ -1,0 +1,28 @@
+# Local dev overlay — the trex host's stack, on this machine, with the UI served from the
+# working tree so a CSS/JS edit is a reload rather than an image rebuild.
+#
+#   deploy/v2/dev.sh up          # wraps the two -f flags and the env below
+#
+# or by hand:
+#   TREX_WEB_DIR=$PWD/trex-v2-hub/src/main/resources/trex/v2/hub/web \
+#   docker compose -f deploy/v2/compose.yml -f deploy/v2/compose.dev.yml up -d
+#
+# Java changes still need `deploy/bin/trex-v2-docker.sh build` (the hub's classes live in the
+# image). Overrides here are additive: the base volumes are kept, /web is added.
+services:
+  hub:
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m} -Dtrex.hub.webDir=/web
+    volumes:
+      - ${TREX_WEB_DIR:?set TREX_WEB_DIR to trex-v2-hub/src/main/resources/trex/v2/hub/web}:/web:ro
+
+  # Dev only: unlock the egress apply job, and reach a Firefly III published on the host. The base
+  # compose leaves apply locked, so the host stays locked until the hub is fronted with auth.
+  runner:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+      TREX_RUNNER_ALLOW_APPLY: "true"

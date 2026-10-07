@@ -1,0 +1,95 @@
+# Account registry — SPEC.md §6. One entry per bank account.
+#   ref              registry key used by trex-ingest (--account) and on every journal line
+#   currency         AUD | USD | INR (stamped onto events; no conversion)
+# An unknown accountRef is always rejected; accounts are never auto-created.
+#
+# No Firefly fields here: how a ref maps to a Firefly account lives in firefly.yaml,
+# which only the egress reads (SPEC.md §5.8).
+#
+# The ref is part of identity for receipt-keyed rows (nk|accountRef|receipt, §2.4), so
+# renaming one re-mints every id in that account. Choose the name before the first ingest.
+#
+# Register BOTH sides of an internal transfer. ING gives the two legs the same receipt, so
+# the T1 matcher pairs them automatically (§3.4) — but only if the contra account is also
+# ingested; otherwise the leg sits HELD waiting for a leg that never arrives.
+
+accounts:
+  - ref: "ing-savings"
+    currency: "AUD"
+    balanceSource: statement
+  # Orange Everyday.
+  - ref: "ing-orange"
+    currency: "AUD"
+    balanceSource: statement
+  - ref: "ing-salary"
+    currency: "AUD"
+    balanceSource: statement
+
+  # Credit card. A liability: purchases are debits, card payments are credits, and the
+  # balance column is the amount owing — provenance only, never transaction semantics (§0.1).
+  - ref: "ing-credit-card"
+    currency: "AUD"
+    balanceSource: statement
+
+  # Loans. The offset is an asset; the two loan accounts are liabilities. A repayment is a
+  # TRANSFER (offset → loan), not an expense: it moves money between accounts you own, so
+  # booking it as spending would double-count it against the falling loan balance. The real
+  # cost is the interest the loan account charges, which has no contra leg and stays EXTERNAL.
+  # ING gives both legs of the repayment the same receipt, so T1 pairs them (§3.4) — which is
+  # why all three must be registered, and why the loan side need not be transfer-shaped.
+  - ref: "ing-loan-offset"
+    currency: "AUD"
+    balanceSource: statement
+  - ref: "ing-mortgage-simplifier"
+    currency: "AUD"
+    balanceSource: statement
+  - ref: "ing-variable-rate"
+    currency: "AUD"
+    balanceSource: statement
+
+  # BankWest credit card (bw-csv). Debits are positive in that export and no row carries a
+  # receipt, so every transaction takes content-hash identity (§2.4) — which is why a day must
+  # never be split across calls for this account (§4 day-atomic batching).
+  - ref: "bw-credit-card"
+    currency: "AUD"
+    balanceSource: statement
+
+  # CommBank SmartAccess. The standard export is the Transaction Summary PDF (cba-pdf); no row
+  # carries a receipt, so identity is the content hash (§2.4).
+  - ref: "cba-smartaccess"
+    currency: "AUD"
+    balanceSource: statement
+
+  # NetBank Saver. CommBank exports no CSV for this one, which is why cba-pdf exists: its
+  # Transaction Summary PDF is the only source the bank offers (§4).
+  - ref: "cba-netsaver"
+    currency: "AUD"
+    balanceSource: statement
+
+  # Clearing accounts (V2-PROPOSAL.md §6.10): a closed counterparty whose statements are gone.
+  # They hold no facts and are never chained. Their opening is computed backwards from the
+  # movements that matched them, so the derived balance lands on closingBalance. Retrofit is a
+  # config edit: register the real account and drop the `clearing:` line.
+  - ref: "westpac-card"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2025-06-30"
+  - ref: "nab-fixed"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2023-09-30"
+  - ref: "nab-offset"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2023-02-28"
+
+  # Cash. balanceSource: declared — no statement exists, so balances arrive only when a person
+  # states one (§2.3 ATTESTATION) and the chain has deliberate gaps between them. One per person,
+  # because two wallets are two accounts however loosely either is tracked.
+  - ref: "cash-ron"
+    currency: "AUD"
+    balanceSource: declared
+

@@ -1,0 +1,19 @@
+# Account profiles — derived roles (V2-PROPOSAL.md §6.9). Read by derive, never by the writer.
+#
+# A matching row becomes `noop`: recorded and visible, but not a posting of the account — no
+# chain edge, no transfer leg, no unit, no contribution to sums. The why is required, because a
+# rule that excludes a row from the ledger must say what it is instead.
+#
+# Rules ride configRevision, so editing this file is a reflow; a per-row MARK_NOOP decision can
+# override any of it.
+
+profiles:
+  # ING's loan statements print the Orange Advantage package fee as a statement snapshot whose
+  # balance never includes it; the fee is paid from the loan-offset account, whose four
+  # `OA Annual Fee` rows are the real charge (categorised FEES). The four loan lines are
+  # references, not postings — see Issue A in docs/history-review.local.html.
+  ing-variable-rate:
+    rules:
+      - match: 'Orange Advantage annual fee'
+        action: MARK_NOOP
+        reason: 'fee paid from the loan-offset account; this loan line is a reference'

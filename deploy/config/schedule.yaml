@@ -1,0 +1,25 @@
+# The runner's schedule (V2-PROPOSAL.md §5.5, §9.1). Intervals only, with a phase: `at` is a local
+# time of day; a weekly job also names `on` (one weekday) and may set `zone` (default UTC). This is
+# not cron — one time, one weekday, no lists.
+#
+# Empty or absent means no scheduled jobs: every job is manual (the Jobs page buttons).
+#
+# `job` must be one of the runner's jobs (ingest, egress-firefly, journal-snapshot); `params` are
+# validated at load. A daily/weekly entry is a calendar cadence (the local wall time is preserved
+# across a DST change).
+
+jobs: []
+
+# Examples (uncomment to enable):
+#  - job: journal-snapshot
+#    every: 24h
+#    at: "02:30"
+#    zone: Australia/Sydney
+#  - job: egress-firefly
+#    params: { mode: plan }
+#    every: 1h
+#    at: "00:15"
+#  - job: prune-archive
+#    every: 7d
+#    on: Sun
+#    at: "03:00"

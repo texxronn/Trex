@@ -1,0 +1,13 @@
+# trex-sequencer — SPEC.md §6
+# Relative paths resolve against this config directory; absolute paths are used as-is.
+
+# The API has no authentication. Keep it on loopback unless the network is trusted;
+# any other host prints a warning at startup.
+bindHost: "127.0.0.1"
+bindPort: 8080
+
+journal:
+  # source == target: recover in place (normal operation).
+  # source != target: source is authoritative and is byte-copied over target on every start.
+  source: "/var/lib/trex/journal/journal.jsonl"
+  target: "/var/lib/trex/journal/journal.jsonl"

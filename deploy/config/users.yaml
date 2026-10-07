@@ -1,0 +1,20 @@
+# users.yaml — the people whose decisions are attributed (V2-PROPOSAL.md §6.6).
+#
+# Attribution, not authorization: the id is stamped into decisions forever and is never reused.
+# `cadence` only phrases a gentle reminder; it never gates anything and any user may close any
+# grain. A missing or empty file is a startup error.
+#
+#   id       stable; stamped into decisions permanently
+#   name     display only
+#   active   false for someone who has stopped (ids are never reused)
+#   cadence  weekly | fortnightly | monthly | yearly | null — phrasing only
+
+users:
+  - id: "ron"
+    name: "Ron"
+    active: true
+    cadence: "weekly"
+  - id: "mel"
+    name: "Mel"
+    active: true
+    cadence: "weekly"

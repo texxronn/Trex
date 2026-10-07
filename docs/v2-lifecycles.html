@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trex v2 — lifecycles</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #fbfbfa;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #222;
+  }
+  header { max-width: 1400px; margin: 0 auto 12px; }
+  h1 { font-size: 15px; font-weight: 650; margin: 0 0 4px; letter-spacing: .01em; }
+  p.legend { font-size: 12.5px; color: #666; margin: 0; }
+  .mermaid { max-width: none; margin: 0 auto; overflow-x: auto; }
+  .mermaid svg { max-width: none !important; height: auto; }
+  #err {
+    display: none; max-width: 1400px; margin: 24px auto; padding: 12px 14px;
+    border: 1px solid #e3b7b7; background: #fdf2f2; border-radius: 8px;
+    font-size: 13px; color: #7a2e2e;
+  }
+  #err code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>trex v2 — the seven lifecycles (V2-PROPOSAL.md §6.8)</h1>
+  <p class="legend">
+    <strong>event</strong> = an appended decision · <strong>derive</strong> = a pure
+    recomputation · <strong>reflow</strong> = a rule/config change.
+    Nothing is deleted: terminal-looking states are retired and can be restored.
+  </p>
+</header>
+
+<pre class="mermaid">
+stateDiagram-v2
+    direction LR
+
+    state "Fact · observation (§6.1)" as Fact {
+        direction TB
+        [*] --> f_posted : source publishes a settled row
+        [*] --> f_pending : source publishes an authorisation
+        state "posted" as f_posted
+        state "pending" as f_pending
+        state "settled" as f_settled
+        state "stale" as f_stale
+        state "superseded" as f_superseded
+        state "retired" as f_retired
+        f_pending --> f_settled : derive · a unique posted row (settled_by)
+        f_pending --> f_settled : event · SETTLE
+        f_pending --> f_stale : derive · frontier + settlementWindowDays
+        f_stale --> f_settled : event · SETTLE (late)
+        f_superseded --> f_posted : event · REVOKE (restore)
+        f_retired --> f_posted : event · REVOKE (restore)
+        f_posted --> f_superseded : event · SUPERSEDE (re-parse / correction)
+        f_posted --> f_retired : event · RETIRE
+    }
+
+    state "Decision (§6.2)" as Decision {
+        direction TB
+        [*] --> d_issued
+        state "issued" as d_issued
+        state "effective" as d_effective
+        state "ineffective" as d_ineffective
+        state "revoked" as d_revoked
+        d_issued --> d_effective : derive · it applies
+        d_issued --> d_ineffective : derive · it rejects → INEFFECTIVE_DECISION
+        d_issued --> d_revoked : event · REVOKE, or a family inverse
+        d_effective --> d_revoked : event · a later decision answers it
+        d_revoked --> d_effective : event · REVOKE of the REVOKE (latest wins)
+        d_ineffective --> d_effective : event · corrected (REVOKE / replacement)
+    }
+
+    state "Transfer leg (§9.7)" as Leg {
+        direction TB
+        [*] --> l_pool : posted, not transfer-shaped
+        state "in the pool" as l_pool
+        state "held" as l_held
+        state "paired" as l_paired
+        state "unpaired" as l_unpaired
+        state "external" as l_external
+        l_pool --> l_held : derive · transfer-shaped, no contra
+        l_held --> l_paired : derive · contra arrives, or event · PAIR
+        l_paired --> l_unpaired : event · UNPAIR, or reflow
+        l_unpaired --> l_paired : event · PAIR
+        l_held --> l_external : event · MARK_EXTERNAL
+        l_external --> l_pool : event · REVOKE
+    }
+
+    state "Category (§9.3)" as Category {
+        direction TB
+        [*] --> c_rule : derive · first matching rule (or UNCATEGORIZED)
+        state "rule answer" as c_rule
+        state "pinned" as c_pinned
+        c_rule --> c_rule : reflow · rules move
+        c_rule --> c_pinned : event · PIN
+        c_pinned --> c_pinned : event · later PIN (re-pin)
+        c_pinned --> c_rule : event · UNPIN
+    }
+
+    state "Review item (§7.2)" as Review {
+        direction TB
+        [*] --> r_open : derive · dup / restatement / ambiguity / settlement / ineffective
+        state "open" as r_open
+        state "resolved" as r_resolved
+        state "dismissed" as r_dismissed
+        r_open --> r_resolved : derive · the cause is gone
+        r_open --> r_dismissed : event · DISMISS
+        r_dismissed --> r_open : derive · a newer fact lands, or event · REVOKE
+    }
+
+    state "Read marker (§9.4)" as Ack {
+        direction TB
+        [*] --> a_unread
+        state "unread" as a_unread
+        state "read" as a_read
+        state "changed" as a_changed
+        a_unread --> a_read : event · USER_ACK (user, row, stateHash)
+        a_read --> a_unread : event · USER_UNACK
+        a_read --> a_changed : reflow · the row's content moved
+        a_changed --> a_read : event · re-acknowledge
+    }
+
+    state "Firefly projection (§11)" as Proj {
+        direction TB
+        [*] --> p_planned : derive · a projectable unit exists
+        state "planned" as p_planned
+        state "posted" as p_posted
+        state "drifted" as p_drifted
+        state "orphan" as p_orphan
+        state "human-owned" as p_human
+        p_planned --> p_posted : event · --apply (create)
+        p_posted --> p_drifted : derive · category or content moved
+        p_drifted --> p_posted : event · --apply (retag / update)
+        p_posted --> p_orphan : derive · unit de-projected (UNPAIR / REVOKE / RETIRE)
+        p_orphan --> [*] : event · --remove-orphans (on instruction)
+        p_posted --> p_human : derive · a hand edit is detected (terminal, reported)
+    }
+</pre>
+
+<div id="err">
+  The diagram could not load <code>mermaid</code> from the CDN. If this machine is
+  offline, open the page somewhere with network access, or paste the <code>&lt;pre
+  class="mermaid"&gt;</code> block into a mermaid renderer.
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  (function () {
+    if (!window.mermaid) { document.getElementById('err').style.display = 'block'; return; }
+    try {
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: 'neutral',
+        securityLevel: 'loose',
+        state: { useMaxWidth: false },
+        themeVariables: { fontSize: '15px' }
+      });
+    } catch (e) {
+      document.getElementById('err').style.display = 'block';
+      console.error(e);
+    }
+  })();
+</script>
+</body>
+</html>

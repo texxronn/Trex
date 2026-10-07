@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>trex</groupId>
+    <artifactId>trex</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>trex-v2-hub</artifactId>
+  <name>trex-v2-hub</name>
+  <description>
+    The index owner (V2-PROPOSAL.md §7.4): watches the journal and the config, applies and
+    re-derives, and serves the blotter API. The only writer of the SQLite index.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-log</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-index</artifactId>
+    </dependency>
+    <!-- Type-only dependency: the writer's API DTOs (FactDraft/DecisionDraft/…) live in
+         trex-v2-sequencer, and the plan's graph gives no shared API module. The hub forwards
+         decisions to the sequencer over HTTP and never calls its classes to write the journal. -->
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-sequencer</artifactId>
+    </dependency>
+  </dependencies>
+</project>

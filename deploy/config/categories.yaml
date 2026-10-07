@@ -1,0 +1,274 @@
+# Master categories — SPEC.md §5.6, §6.
+#
+# Read by journal consumers only (grid, resolver, and later the Firefly egress);
+# the sequencer never loads this file. A category is NEVER stored in the journal:
+# change a rule here and every matching transaction, including old ones, is
+# recategorised with no journal line written (invariant §0.7).
+#
+# Fine-grained categorisation stays in Firefly. This is the master level only.
+#
+# Reserved, and never declared or assigned here:
+#   TRANSFER        a transfer line or one of its legs — comes from the journal
+#   UNCATEGORIZED   nothing matched; the worklist that tells you what rule to write next
+#
+# Rule shape (first match wins, pins before rules):
+#   category: <declared name>
+#   when:
+#     all / any / not      compose, nest freely
+#     externalId: [ids]    exact ids — the pin form
+#     match: "regex"       case-insensitive, matched anywhere in the text
+#     matchOn: raw         raw (default, verbatim from the bank) or description (cleaned)
+#     direction: in|out    from the sign of the amount
+#     accounts: [refs]     either side of a transfer counts
+#     amountMin/amountMax  inclusive cents, against the absolute amount
+#
+# Refunds. A merchant-identity rule (one whose `match` is a merchant or provider name) is
+# deliberately direction-blind, so a refund lands in the category it reverses and the month
+# nets out. Direction is kept only where the word alone does not identify the money: SALARY
+# and INTEREST_EARNED require `in`, INTEREST_PAID/FEES/VISA_FEES require `out`, and a cash
+# withdrawal is never a deposit. Direction-blind rules may match an inbound description that
+# happens to name a merchant; measured, that is almost always the refund it is.
+
+categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
+             SUBSCRIPTIONS, TRANSPORT, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES, CHILDCARE,
+             HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, SHOPPING, BILLS, TAXES, SAVINGS,
+             DISCRETIONARY]
+
+# One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
+# hand-written and ordered, that one is written by trex-ws and order-independent.
+
+# Order is the decision: first match wins. The narrow rules come first, so a line naming
+# both a specific merchant and a generic word lands where it belongs.
+rules:
+  - category: SALARY
+    comment: "pay coming in — salary, payroll or wages, either earner"
+    when:
+      all:
+        - direction: in
+        - match: "salary|payroll|wages?"
+
+  # Interest EARNED (direction in) as against INTEREST_PAID below.
+  - category: INTEREST_EARNED
+    comment: "interest and dividends credited to an account"
+    when:
+      all:
+        - direction: in
+        - match: "interest|dividend"
+
+  # Interest you PAY: credit-card purchase interest, loan interest charges, excess-interest
+  # debits. Before BILLS, because a loan interest line names the mortgage and BILLS matches
+  # "mortgage". Matching the bare word with direction out covers every form the banks write:
+  #   "PURCHASE INTEREST" · "Interest Charge - Receipt No …" · "Interest charge – Revolving"
+  #   (note the en dash) · "Debit Excess Interest"
+  - category: INTEREST_PAID
+    comment: "interest you pay: card purchase interest, loan and excess-interest charges"
+    when:
+      all:
+        - direction: out
+        - match: "interest"
+
+  # School fees first, so a school's "fees" is never read as a bank charge. The school and the
+  # after-school care share a name but are different money — "COM*HolyFamilyCathol" against
+  # "Direct Debit … Holy Family OOSH" — so this sits above FEES and above CHILDCARE.
+  - category: SCHOOL_FEES
+    comment: "school fees and school-billed extras"
+    when:
+      match: "holyfamilycatho|school fees|tuition"
+
+  - category: "SCHOOL_FEES"
+    comment: "schools, university and student accommodation, plus book club and assessments"
+    when:
+      match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
+
+  # What the bank charges you: account keeping, safe custody, overdraw, late payment, dishonour.
+  # \bfees?\b on purpose — "COFFEE" contains "fee" and would otherwise be a bank charge.
+  # School fees are claimed above, so a school's "fees" never reaches here.
+  # The `not` clause matters too: ING writes cash withdrawals with an "ATM owner fee of $0.00"
+  # suffix, so the word appears on rows that are withdrawals, not fees.
+  - category: FEES
+    comment: "what the bank charges: account keeping, overdraw, late payment, dishonour"
+    when:
+      all:
+        - direction: out
+        - match: "\\bfees?\\b"
+        - not:
+            match: "atm owner fee"
+
+  # Visa and immigration charges. NEVER the bare word "visa": every ING card row says
+  # "Visa Purchase", so that would swallow the entire credit-card statement.
+  - category: VISA_FEES
+    comment: "visa and immigration charges, never the word on a card row"
+    when:
+      all:
+        - direction: out
+        - match: "statebankin|vfsglobal|home affairs|immi account"
+
+  # Cash out of an ATM. FEES runs above but excludes the "ATM owner fee of $0.00" suffix ING
+  # writes on these rows, so a withdrawal that mentions a fee is not read as one. Honest at
+  # master level: once it is cash, the statement cannot say what it bought.
+  - category: CASH_WITHDRAW
+    comment: "cash out of an ATM — at master level the statement cannot say what it bought"
+    when:
+      all:
+        - direction: out
+        - match: "\\batm\\b|wdl atm|cash out|cash withdrawal"
+
+  # Insurance premiums, by provider name; some providers never write the word. Blind, so a
+  # premium refund nets here.
+  - category: INSURANCE
+    comment: "insurance premiums, by provider name"
+    when:
+      match: "insurance|\\bnib\\b|nrma|medibank|bupa|ahm|allianz|aami|youi|budget direct"
+
+  # Recurring services. Before SHOPPING, so AMAZON WEB SERVICES is hosting rather than retail.
+  - category: SUBSCRIPTIONS
+    comment: "recurring services billed monthly or yearly"
+    when:
+      match: "netflix|stan\\b|spotify|disney|binge|kayo|prime video|anthropic|claude|openai|amazon web services|apple\\.com|google (one|storage)|youtubepremium|microsoft|backblaze|namecheap|humblebundl|truthfinder"
+
+  # Getting around without driving: Opal (trains and buses, the primary mode here), tolls,
+  # rideshare trips, and the airline/ferry booking sites that are transport rather than travel.
+  # "UBER *TRIP" only — Uber Eats is food; the banks pad the field, so allow any spacing.
+  # Tolls sit here rather than with FUEL because they are a cost of the trip, not of the car.
+  - category: TRANSPORT
+    comment: "trains, tolls, rideshare and tap-on transport"
+    when:
+      match: "tfnsw|opal machine|opal fare|linkt|e-?toll|uber\\s+\\*?\\s*trip|translink|transportfornsw"
+
+  # Petrol only, kept apart from TRANSPORT so train spend is visible on its own, and apart
+  # from VEHICLE so servicing does not hide inside the fuel bill. Before GROCERIES so COSTCO
+  # GAS is fuel while COSTCO WHOLESALE stays the weekly shop.
+  # \bshell\b, never bare "shell": SHELLHARBOUR is a suburb that appears in these statements.
+  - category: FUEL
+    comment: "petrol, kept apart from TRANSPORT because trains are the primary transport"
+    when:
+      match: "ampol|speedway|costco gas|mobil|caltex|\\bbp\\b|\\bshell\\b|7-eleven|united petroleum|metro petroleum|puma energy|petrol|\\bfuel\\b|eg group"
+
+  # Keeping the car on the road: servicing, repairs, tyres, rego. Fuel stays separate.
+  - category: VEHICLE
+    comment: "keeping the car on the road: rego, servicing, parts"
+    when:
+      match: "bluegum|autocare|auto care|mechanical|\\btyres?\\b|service centre|\\brego\\b|registration|smash repair"
+
+  - category: GROCERIES
+    comment: "supermarkets, grocers and the bulk shops"
+    when:
+      match: "woolworths|coles|aldi|iga|foodland|costco wholesale|minto fruit|bakers flour|glenfield bakery|best meats"
+
+  # Eating that is not a grocery run: cafés, coffee, takeaway. Restaurants are deliberately
+  # NOT here — a restaurant meal is the thing you would cut, so it sits in DISCRETIONARY,
+  # and Firefly can split café from restaurant downstream if the detail is ever wanted.
+  - category: FOOD
+    comment: "eating out: cafes, bakeries, takeaway and restaurants"
+    when:
+      match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph|sushi|mcdonald|hungry jack|\\bkfc\\b|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
+
+  # School fees, before CHILDCARE: the school and the after-school care share a name but are
+  # different money. CCS is the Child Care Subsidy, paid to you and netting against the cost.
+  - category: CHILDCARE
+    comment: "childcare and after-school care, net of the CCS subsidy"
+    when:
+      match: "holy family|oosh|childcare|child care|flexischool|\\bccs\\b"
+
+  # Over the counter: pharmacy and the like.
+  - category: HEALTH_SUPPLIES
+    comment: "chemists and health supplies"
+    when:
+      match: "chemist|pharmacy|priceline|\\bcwh\\b"
+
+  # Seeing someone: GP, dental, optical, physio, specialists.
+  - category: HEALTH
+    comment: "medical: doctors, dentists, specialists, health funds"
+    when:
+      match: "healthcare|medical|dental|physio|specsavers|optical|pathology|radiology|hospital"
+
+  # Gyms, pools, leisure centres and the kids' sport clubs.
+  - category: SPORT_AND_LEISURE
+    comment: "sport, activities and the kids' clubs"
+    when:
+      match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|eschol park|camden tigers|football|soccer club|leisure cent"
+
+  # Hardware and the house, tracked apart from general retail. Only the chain seen in the
+  # data so far; adding another is a config edit, not a code change.
+  - category: HOME_IMPROVEMENT
+    comment: "hardware and the house — tracked apart from SHOPPING on purpose"
+    when:
+      match: "bunnings|mitre ?10"
+
+  # Retail, including the op shops.
+  - category: "SHOPPING"
+    comment: "general retail that no narrower rule claimed. alipayaustr and aiaumarkets are the same company — AIAU Markets Pty Ltd trades as Alipay (Australia), ABN 17 151 757 845 — so both descriptors mean a payment processor, not a shop"
+    when:
+      match: "amazon au|amazon pay india|kmart|big ?w|target [0-9]|st vincent de paul|vinnies|salvos|myer|ikea|just ?group|ebay au|alipayaustr|aiaumarkets|hmhennesmau|kathmandupt|temu"
+
+  - category: BILLS
+    comment: "household bills: power, water, phone, internet, council"
+    when:
+      match: "electricity|water corp|sydney water|internet|mobile|rent|mortgage|subscription|agl sales|agl retail|telco payment|telstralimi|council|campbelltown city"
+
+  - category: TAXES
+    comment: "tax paid to the ATO or to Revenue NSW"
+    when:
+      match: "\\bATO\\b|australian taxation|tax office"
+
+  # Money leaving for an external investment or savings provider. Moves between
+  # your own accounts are structurally TRANSFER and never reach this rule. Direction stays
+  # out: a contribution is the thing worth seeing, and a redemption is not a "saving".
+  - category: SAVINGS
+    comment: "money moved deliberately into savings"
+    when:
+      all:
+        - direction: out
+        - match: "vanguard|betashares|raiz|spaceship|superannuation"
+
+  # Everyday discretionary spend: restaurants, pubs, clubs, cinemas, and the bottle shop.
+  # Last, so every specific rule above wins first.
+  - category: DISCRETIONARY
+    comment: "the wants rather than the needs"
+    when:
+      match: "restaurant|bar |pub |cinema|bottle|rsl|diggers|catholic cl|liquorland|liquor"
+
+  - category: "FOOD"
+    comment: "takeaway, cafes, bakeries and restaurants"
+    when:
+      match: "domino|pizza|sushi people|food depot|scirocco|chatkazz|raj bhavan|breadtop|cheesecake shop"
+
+  - category: "GROCERIES"
+    comment: "Asian and Indian grocers, greengrocers and bakeries around Ingleburn/Strathfield — the weekly shop that is not a Coles or Woolworths"
+    when:
+      match: "udaya|nilgiris|longwei|hyper foods|supermart|super ?market|veggie & gr|ozmart|sai ram|spices|qianxi|sunrise gourmet|breadtop|bakers delight"
+
+  - category: "SUBSCRIPTIONS"
+    comment: "recurring memberships billed to a card: Prime, eBay Plus, Udemy, SEMrush"
+    when:
+      match: "udemy|amznprime|ebay plus|semrush|google zepp|prime ?au"
+
+  - category: "VEHICLE"
+    comment: "rego, fines and parts — Service NSW, the State Debt Recovery Office, Supercheap"
+    when:
+      match: "sdro|infrngmnt|super ?cheap|snsw|service nsw"
+
+  - category: "TAXES"
+    comment: "accountants and tax agents"
+    when:
+      match: "tax store|smart tax advisors"
+
+  - category: "SPORT_AND_LEISURE"
+    comment: "travel, outings and junior sport: flights, accommodation, ticketing, zoos, theme parks and clubs. There is no TRAVEL category, and adding one would recategorise history"
+    when:
+      match: "booking\\.?com|ticketek|ticketmaste|taronga|carnivalfun|feld entertainment|jetstar|moonshadow|boatshed|holiday park|motel|breeze ap|rovers fc|soccajoey|flyscoot|qantas|duty free|minion"
+
+  - category: "SHOPPING"
+    comment: "general retail: electronics, clothing, stationery, department and online stores, and the sports and homeware chains"
+    when:
+      match: "jb hi.?fi|hn online|harvey norman|bevilles|strandbags|shein|lowes|portmans|hennes|best and less|goodguys|amazon reta|amazon mar|anaconda|surfside|reject shop|smiggle|officeworks|spotlight|tk ?maxx|rebel|h&m|temu"
+
+  - category: "BILLS"
+    comment: "energy and telco billed to a card, including via PayPal"
+    when:
+      match: "aglenergy|origin energy|telstra"
+
+  - category: "HEALTH"
+    comment: "NSW Health and local health district billing"
+    when:
+      match: "nswh |swslhd"

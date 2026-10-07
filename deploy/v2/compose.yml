@@ -1,0 +1,309 @@
+# trex v2 — the container deployment (V2-PROPOSAL.md §14: "Deployment is one image").
+#
+#   mvn -pl trex-v2-dist -am package -Pdocker        # builds trex/trex-v2:<version>
+#   docker compose -f deploy/v2/compose.yml up -d    # sequencer + hub
+#   docker compose -f deploy/v2/compose.yml run --rm --profile tools ingest --types
+#   docker compose -f deploy/v2/compose.yml run --rm --profile tools egress firefly --plan ...
+#
+# Every service runs the same image; only the command names the role. The tuned rules in
+# deploy/config are seeded into a writable volume (the hub's rule editor still writes
+# categories.yaml), so nothing is baked into the image.
+name: trex-v2
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  # exec, not the default: sqlite-jdbc extracts a native library into /tmp and loads it, so a
+  # noexec /tmp makes the hub (and the index/verify tools) fail at startup. v1's sqlite egress
+  # needed the same.
+  tmpfs: ["/tmp:exec"]
+
+x-trex: &trex
+  image: ${TREX_IMAGE_PREFIX:-trex}/trex-v2:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+  user: "1000:1000"
+  environment:
+    JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+
+configs:
+  sequencer.yaml:
+    file: ./sequencer.yaml
+  accounts.yaml:
+    file: ../config/accounts.yaml
+  users.yaml:
+    file: ../config/users.yaml
+  categories.yaml:
+    file: ../config/categories.yaml
+  transfers.yaml:
+    file: ../config/transfers.yaml
+  pins.yaml:
+    file: ../config/pins.yaml
+  firefly.yaml:
+    file: ../config/firefly.yaml
+  statements.yaml:
+    file: ../config/statements.yaml
+  sources.yaml:
+    file: ../config/sources.yaml
+  schedule.yaml:
+    file: ../config/schedule.yaml
+  profiles.yaml:
+    file: ../config/profiles.yaml
+
+volumes:
+  config:
+  journal:
+  index:
+  evidence:
+  archive:
+  staging:
+
+services:
+  # Seed a writable config volume and the state directories, then hand them to uid 1000.
+  # Existing rule files are kept on restart, so UI edits survive a container rebuild.
+  init:
+    <<: *hardening
+    image: ${TREX_IMAGE_PREFIX:-trex}/trex-v2:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    user: root
+    entrypoint: ["/bin/sh", "-ec"]
+    # A list of one, on purpose: Compose shell-splits a string command, so `sh -ec` would
+    # receive only the first word as its script. One list item keeps the whole script an
+    # argument. cp -n would also do, but this also creates the state directories.
+    command:
+      - >-
+        mkdir -p /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
+        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml; do
+          if [ ! -e "/etc/trex/$$f" ]; then cp "/bootstrap/$$f" "/etc/trex/$$f"; fi;
+        done;
+        chown -R 1000:1000 /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    configs:
+      - { source: sequencer.yaml, target: /bootstrap/sequencer.yaml }
+      - { source: accounts.yaml, target: /bootstrap/accounts.yaml }
+      - { source: users.yaml, target: /bootstrap/users.yaml }
+      - { source: categories.yaml, target: /bootstrap/categories.yaml }
+      - { source: transfers.yaml, target: /bootstrap/transfers.yaml }
+      - { source: pins.yaml, target: /bootstrap/pins.yaml }
+      - { source: firefly.yaml, target: /bootstrap/firefly.yaml }
+      - { source: statements.yaml, target: /bootstrap/statements.yaml }
+      - { source: sources.yaml, target: /bootstrap/sources.yaml }
+      - { source: schedule.yaml, target: /bootstrap/schedule.yaml }
+      - { source: profiles.yaml, target: /bootstrap/profiles.yaml }
+    volumes:
+      - config:/etc/trex
+      - journal:/var/lib/trex/journal
+      - index:/var/lib/trex/index
+      - evidence:/var/lib/trex/evidence
+      - archive:/var/lib/trex/archive
+      - staging:/var/lib/trex/staging
+    restart: "no"
+
+  # The only journal writer. It reads config read-only: it never edits the rules.
+  sequencer:
+    <<: [*trex, *hardening]
+    command:
+      - sequencer
+      - --journal
+      - /var/lib/trex/journal/trex.jsonl
+      - --config
+      - /etc/trex
+      - --archive
+      - /var/lib/trex/archive
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    volumes:
+      - config:/etc/trex:ro
+      - journal:/var/lib/trex/journal
+      - archive:/var/lib/trex/archive
+    ports:
+      - "${TREX_SEQ_BIND:-127.0.0.1}:${TREX_SEQ_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    stop_grace_period: 30s
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # Owns the index and the blotter UI, and forwards decisions to the sequencer.
+  hub:
+    <<: [*trex, *hardening]
+    command:
+      - hub
+      - --journal
+      - /var/lib/trex/journal/trex.jsonl
+      - --config
+      - /etc/trex
+      - --index
+      - /var/lib/trex/index/trex.sqlite
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8090"
+      - --sequencer-url
+      - http://sequencer:8080
+      - --evidence
+      - /var/lib/trex/evidence
+      - --runner-url
+      - http://runner:8091
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+    volumes:
+      - config:/etc/trex
+      - journal:/var/lib/trex/journal:ro
+      - index:/var/lib/trex/index
+      - evidence:/var/lib/trex/evidence
+    ports:
+      # Loopback by default. Set TREX_HUB_BIND=0.0.0.0 (or a LAN IP) to put the UI on the
+      # network. The API has no auth, so front it with Caddy/Tailscale before exposure.
+      - "${TREX_HUB_BIND:-127.0.0.1}:${TREX_HUB_PORT:-8090}:8090"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      sequencer:
+        condition: service_healthy
+
+  # The on-demand job dispatcher and staging inbox (V2-PROPOSAL.md §5.5, §12.5). It binds the
+  # container's network so the hub can proxy it, but the port is NEVER published — reachable only
+  # inside the compose network. Jobs are the same subcommands a person would run; the runner never
+  # writes the log and never touches the index.
+  runner:
+    <<: [*trex, *hardening]
+    command:
+      - runner
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8091"
+      - --config
+      - /etc/trex
+      - --statements
+      - /statements
+      - --staging
+      - /var/lib/trex/staging
+      - --evidence
+      - /var/lib/trex/evidence
+      - --archive
+      - /var/lib/trex/archive
+      - --sequencer-url
+      - http://sequencer:8080
+      - --hub-url
+      - http://hub:8090
+      - --firefly-url
+      - ${TREX_FIREFLY_URL:?set TREX_FIREFLY_URL}
+      - --accounts
+      - /etc/trex/firefly.yaml
+    environment:
+      JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+    volumes:
+      - config:/etc/trex:ro
+      - staging:/var/lib/trex/staging
+      - ${TREX_CSV_DIR:-./}:/statements:ro
+      - evidence:/var/lib/trex/evidence
+      - archive:/var/lib/trex/archive
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      sequencer:
+        condition: service_healthy
+      hub:
+        condition: service_started
+
+  # ---- on-demand tools (profile "tools") --------------------------------------------------
+
+  index:
+    <<: [*trex, *hardening]
+    profiles: ["tools"]
+    command:
+      - index
+      - --journal
+      - /var/lib/trex/journal/trex.jsonl
+      - --config
+      - /etc/trex
+      - --index
+      - /var/lib/trex/index/trex.sqlite
+      - --rebuild
+    volumes:
+      - config:/etc/trex:ro
+      - journal:/var/lib/trex/journal:ro
+      - index:/var/lib/trex/index
+
+  verify:
+    <<: [*trex, *hardening]
+    profiles: ["tools"]
+    command:
+      - verify
+      - --journal
+      - /var/lib/trex/journal/trex.jsonl
+      - --config
+      - /etc/trex
+      - --index
+      - /var/lib/trex/index/trex.sqlite
+      - --evidence
+      - /var/lib/trex/evidence
+    volumes:
+      - config:/etc/trex:ro
+      - journal:/var/lib/trex/journal:ro
+      - index:/var/lib/trex/index
+      - evidence:/var/lib/trex/evidence
+
+  ingest:
+    <<: [*trex, *hardening]
+    profiles: ["tools"]
+    command: ["ingest", "--types"]
+    volumes:
+      - ${TREX_CSV_DIR:-./}:/data:ro
+      - config:/etc/trex:ro
+      - journal:/var/lib/trex/journal:ro
+      - evidence:/var/lib/trex/evidence
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  egress-archive:
+    <<: [*trex, *hardening]
+    profiles: ["tools"]
+    command:
+      - egress
+      - archive
+      - --journal
+      - /var/lib/trex/journal/trex.jsonl
+      - --archive
+      - /var/lib/trex/archive/archive.jsonl
+      - --evidence
+      - /var/lib/trex/evidence
+      - --evidence-archive
+      - /var/lib/trex/archive/evidence
+    volumes:
+      - journal:/var/lib/trex/journal:ro
+      - evidence:/var/lib/trex/evidence:ro
+      - archive:/var/lib/trex/archive
+
+  egress-firefly:
+    <<: [*trex, *hardening]
+    profiles: ["tools"]
+    command:
+      - egress
+      - firefly
+      - --hub-url
+      - http://hub:8090
+      - --firefly-url
+      - ${TREX_FIREFLY_URL:?set TREX_FIREFLY_URL}
+      - --accounts
+      - /etc/trex/firefly.yaml
+      - --plan
+    volumes:
+      - config:/etc/trex:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      hub:
+        condition: service_started

@@ -1,0 +1,30 @@
+[Unit]
+Description=trex v2 archive mirror (journal + evidence to a second copy)
+Documentation=file:///opt/trex/README.md
+After=trex-sequencer.service
+Wants=trex-sequencer.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar egress archive \
+  --journal /var/lib/trex/journal/trex.jsonl \
+  --archive /var/lib/trex/archive/archive.jsonl \
+  --evidence /var/lib/trex/evidence \
+  --evidence-archive /var/lib/trex/archive/evidence
+StateDirectory=trex/archive
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/trex/archive
+User=trex
+Group=trex
+EnvironmentFile=-/etc/trex/trex.env
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes

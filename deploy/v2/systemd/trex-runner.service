@@ -1,0 +1,43 @@
+[Unit]
+Description=trex v2 runner (on-demand jobs and the staging inbox; loopback only)
+Documentation=file:///opt/trex/README.md
+After=trex-hub.service
+Wants=trex-hub.service
+PartOf=trex.target
+
+[Service]
+Type=simple
+# The hub proxies the browser to this; it must not bind anything but loopback.
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar runner \
+  --host 127.0.0.1 \
+  --port 8091 \
+  --config /etc/trex \
+  --statements /opt/trex/statements \
+  --staging /var/lib/trex/staging \
+  --evidence /var/lib/trex/evidence \
+  --sequencer-url http://127.0.0.1:8080 \
+  --hub-url http://127.0.0.1:8090 \
+  --firefly-url ${TREX_FIREFLY_URL} \
+  --accounts /etc/trex/firefly.yaml
+StateDirectory=trex/staging trex/evidence
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/trex/staging /var/lib/trex/evidence
+User=trex
+Group=trex
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=-/etc/trex/trex.env
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+
+[Install]
+WantedBy=trex.target

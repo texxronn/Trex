@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>trex</groupId>
+    <artifactId>trex</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>trex-v2-dist</artifactId>
+  <name>trex-v2-dist</name>
+  <description>
+    Packaging only (V2-PROPOSAL.md §5.2): shades every v2 module into one
+    trex-v2.jar whose Main dispatches by subcommand. Contains no logic of its own.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-log</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-index</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-sequencer</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-hub</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-egress</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-ingest</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>trex</groupId>
+      <artifactId>trex-v2-runner</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>info.picocli</groupId>
+      <artifactId>picocli</artifactId>
+    </dependency>
+    <!-- One runtime binding so the services log; the api is a parent dependency. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>trex-v2</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>trex.v2.Main</mainClass>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- One image, every role (V2-PROPOSAL.md §5.2, §14, §19): the same trex-v2.jar,
+           the role named by the command. jib's standard layout carries the dependency
+           jars too; the entrypoint runs trex.v2.Main, which dispatches the subcommand. -->
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <configuration>
+          <skip>false</skip>
+          <to>
+            <image>${trex.image.prefix}/trex-v2:${trex.image.tag}</image>
+          </to>
+          <container>
+            <mainClass>trex.v2.Main</mainClass>
+            <ports>
+              <port>8080</port>
+              <port>8090</port>
+            </ports>
+          </container>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

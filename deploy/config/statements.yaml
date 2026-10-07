@@ -1,0 +1,16 @@
+# Statement filename → (sourceType, account) map (V2-PROPOSAL.md §12.5). Read by trex-runner
+# and nothing else. Just patterns and refs — no private data — so the staging inbox can prefill
+# a type and account for a known statement; anything unmatched is chosen by hand in the UI.
+#
+# `match` is an exact file name or a simple * / ? glob, case-insensitive; the first rule wins.
+
+files:
+  - { match: "ING_Salary_Account.csv",                 sourceType: ing-csv, account: ing-salary }
+  - { match: "ING_Loan_Offset_Account.csv",            sourceType: ing-csv, account: ing-loan-offset }
+  - { match: "ING_Mortgate_Simplifier.csv",            sourceType: ing-csv, account: ing-mortgage-simplifier }
+  - { match: "ING_Variable_Rate.csv",                  sourceType: ing-csv, account: ing-variable-rate }
+  - { match: "ING_Orange_Everyday.csv",                sourceType: ing-csv, account: ing-orange }
+  - { match: "ING_One_LowRate_Credit.csv",             sourceType: ing-csv, account: ing-credit-card }
+  - { match: "BW_20240101_20261001.csv",               sourceType: bw-csv,  account: bw-credit-card }
+  - { match: "CBA_SmartAccess_20241002_20261002.pdf",  sourceType: cba-pdf, account: cba-smartaccess }
+  - { match: "CBA_Netbank_Saver_20241002_20261002.pdf", sourceType: cba-pdf, account: cba-netsaver }

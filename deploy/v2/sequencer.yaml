@@ -1,0 +1,13 @@
+# trex-sequencer config for the v2 container (V2-PROPOSAL.md §5.3).
+# Mounted at /etc/trex/sequencer.yaml by deploy/v2/compose.yml; nothing is baked into the image.
+#
+# bindHost is 0.0.0.0 because the API must be reachable from the hub's network namespace. The API
+# has no authentication: compose publishes the port on the host's loopback only, so exposure is
+# unchanged from a host run.
+bindHost: "0.0.0.0"
+bindPort: 8080
+
+journal:
+  # source == target: recover in place. Both live on the journal volume, never in the image.
+  source: "/var/lib/trex/journal/trex.jsonl"
+  target: "/var/lib/trex/journal/trex.jsonl"

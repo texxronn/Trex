@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>trex</title>
+  <script>
+    // Pick the theme before first paint: the stored choice, else the OS preference.
+    (function () {
+      var t = localStorage.getItem('trex.theme');
+      if (t !== 'light' && t !== 'grey' && t !== 'dark') {
+        t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+          ? 'light' : 'grey';
+      }
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+  <link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+  <header>
+    <h1>trex</h1>
+    <nav>
+      <a href="#blotter" data-mode="blotter">Blotter</a>
+      <a href="#review" data-mode="review">Review</a>
+      <a href="#eyeball" data-mode="eyeball">Eyeball</a>
+      <a href="#rules" data-mode="rules">Rules</a>
+      <a href="#accounts" data-mode="accounts">Accounts</a>
+      <a href="#chains" data-mode="chains">Chains</a>
+      <a href="#jobs" data-mode="jobs">Jobs</a>
+    </nav>
+    <span class="spacer"></span>
+    <label class="theme" title="Theme">
+      <select id="theme" aria-label="Theme">
+        <option value="light">Light</option>
+        <option value="grey">Grey</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+  </header>
+  <div id="status" class="status"></div>
+  <main id="main"></main>
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/ui/js/app.js"></script>
+</body>
+</html>

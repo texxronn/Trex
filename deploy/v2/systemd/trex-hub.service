@@ -1,0 +1,39 @@
+[Unit]
+Description=trex v2 hub (index owner and blotter API)
+Documentation=file:///opt/trex/README.md
+After=trex-sequencer.service
+Wants=trex-sequencer.service
+PartOf=trex.target
+
+[Service]
+Type=simple
+# The hub owns the index and, alone among the services, writes the rule files.
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar hub \
+  --journal /var/lib/trex/journal/trex.jsonl \
+  --config /etc/trex \
+  --index /var/lib/trex/index/trex.sqlite \
+  --sequencer-url http://127.0.0.1:8080 \
+  --evidence /var/lib/trex/evidence \
+  --runner-url http://127.0.0.1:8091
+StateDirectory=trex/index trex/evidence
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/trex/index /var/lib/trex/evidence /etc/trex
+User=trex
+Group=trex
+EnvironmentFile=-/etc/trex/trex.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+
+[Install]
+WantedBy=trex.target

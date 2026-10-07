@@ -1,0 +1,37 @@
+# Firefly III egress mapping — SPEC.md §5.8. Read by trex-egress-firefly and nothing else.
+#
+# This file exists so that Firefly's vocabulary stays out of the spine. accounts.yaml is the
+# sequencer's registry; what a ref is *called in Firefly*, and whether Firefly considers it an
+# asset or a liability, is the egress's business. A second egress gets its own file rather than
+# another column in accounts.yaml.
+#
+# Keyed by NAME, not by Firefly's numeric id, on purpose:
+#   - a Firefly rebuild changes every id and no name, so the mapping survives a restore
+#   - the id is resolved at startup and cached; losing the cache costs one lookup
+#   - a rename in Firefly is a hard stop at startup with the new name suggested, never a
+#     silent post into the wrong account
+#
+# `type` must match what Firefly says, and startup refuses to run if it does not. It is not
+# decoration: it decides the transaction type, because Firefly rejects a `transfer` that crosses
+# between asset and liability (verified on 6.7.3).
+#     asset <-> asset          transfer
+#     asset  -> liability      withdrawal      (paying a card or a loan)
+#     liability -> asset       deposit         (drawing a loan, a card refund)
+#
+# The ref is permanent (it is in the identity of receipt-keyed rows, §2.4). The name is a label
+# and costs one line to change.
+
+accounts:
+  ing-savings:             { name: "ING Savings",           type: asset }
+  ing-orange:              { name: "ING Orange Everyday",   type: asset }
+  ing-salary:              { name: "ING Salary",            type: asset }
+  ing-loan-offset:         { name: "ING Loan Offset",       type: asset }
+  cba-smartaccess:         { name: "CBA SmartAccess",       type: asset }
+  cba-netsaver:            { name: "CBA NetBank Saver",     type: asset }
+
+  # Liabilities: money owed. A purchase is a withdrawal FROM the liability; a payment is a
+  # withdrawal from an asset INTO it.
+  ing-credit-card:         { name: "ING Credit Card",       type: liability }
+  bw-credit-card:          { name: "BankWest Credit Card",  type: liability }
+  ing-mortgage-simplifier: { name: "ING Mortgage Simplifier", type: liability }
+  ing-variable-rate:       { name: "ING Variable Rate Loan", type: liability }
