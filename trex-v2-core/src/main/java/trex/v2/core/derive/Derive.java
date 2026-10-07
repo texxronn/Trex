@@ -438,13 +438,18 @@ public final class Derive {
                     legState.put(f.externalId(), LegState.EXTERNAL);
                     continue;
                 }
-                // T1 — receipt.
-                List<Integer> t1 = candidates(eligible, paired, i, (g) ->
-                    f.fact().receipt() != null && !f.fact().receipt().isBlank()
-                        && f.fact().receipt().equals(g.fact().receipt())
-                        && !g.fact().accountRef().equals(f.fact().accountRef())
-                        && oppositeSign(f.fact().amount(), g.fact().amount())
-                        && currency(g).equals(currency(f)));
+                int window = config.transfers().windowDays();
+                // T1 — receipt. Equal amount, opposite sign, same currency and within the window:
+                // receipts recur across accounts and years, so the guard costs nothing on a genuine
+                // pair and refuses to shape two unrelated rows on a collision (§9.9.C.3).
+                List<Integer> t1 = candidates(eligible, paired, i, (s, g) ->
+                    s.fact().receipt() != null && !s.fact().receipt().isBlank()
+                        && s.fact().receipt().equals(g.fact().receipt())
+                        && !g.fact().accountRef().equals(s.fact().accountRef())
+                        && oppositeSign(s.fact().amount(), g.fact().amount())
+                        && Math.abs(g.fact().amount()) == Math.abs(s.fact().amount())
+                        && currency(g).equals(currency(s))
+                        && Math.abs(ChronoUnit.DAYS.between(s.fact().date(), g.fact().date())) <= window);
                 if (t1.size() == 1) {
                     pairT1(rows, paired, eligible, i, t1.getFirst(), f);
                     continue;
@@ -454,42 +459,40 @@ public final class Derive {
                     pairingReview.add(ambiguous(f, t1, eligible));
                     continue;
                 }
-                // T2 — same day, equal stem.
-                List<Integer> t2 = candidates(eligible, paired, i, (g) ->
-                    Math.abs(g.fact().amount()) == Math.abs(f.fact().amount())
-                        && oppositeSign(f.fact().amount(), g.fact().amount())
-                        && !g.fact().accountRef().equals(f.fact().accountRef())
-                        && currency(g).equals(currency(f))
-                        && g.fact().date().equals(f.fact().date())
-                        && MerchantStem.transferStem(g.fact().rawDescription())
-                            .equals(MerchantStem.transferStem(f.fact().rawDescription())));
-                if (t2.size() == 1) {
-                    pairT2(rows, paired, eligible, i, t2.getFirst(), f, Confidence.HIGH);
+                // T2 — same day, unique both ways: this leg has exactly one candidate and that
+                // candidate has no other same-day suitor. Text is never compared across accounts.
+                java.util.function.BiPredicate<CurrentFact, CurrentFact> sameDay = (s, g) ->
+                    Math.abs(g.fact().amount()) == Math.abs(s.fact().amount())
+                        && oppositeSign(s.fact().amount(), g.fact().amount())
+                        && !g.fact().accountRef().equals(s.fact().accountRef())
+                        && currency(g).equals(currency(s))
+                        && g.fact().date().equals(s.fact().date());
+                int t2 = counterpart(eligible, paired, i, sameDay);
+                if (t2 >= 0) {
+                    pairT2(rows, paired, eligible, i, t2, f, Confidence.HIGH);
                     continue;
                 }
-                if (t2.size() > 1) {
+                if (t2 == AMBIGUOUS) {
                     legState.put(f.externalId(), LegState.HELD);
-                    pairingReview.add(ambiguous(f, t2, eligible));
+                    pairingReview.add(ambiguous(f, candidates(eligible, paired, i, sameDay), eligible));
                     continue;
                 }
-                // T3 — windowed.
-                int window = config.transfers().windowDays();
-                List<Integer> t3 = candidates(eligible, paired, i, (g) ->
-                    Math.abs(g.fact().amount()) == Math.abs(f.fact().amount())
-                        && oppositeSign(f.fact().amount(), g.fact().amount())
-                        && !g.fact().accountRef().equals(f.fact().accountRef())
-                        && currency(g).equals(currency(f))
-                        && !g.fact().date().equals(f.fact().date())
-                        && Math.abs(ChronoUnit.DAYS.between(f.fact().date(), g.fact().date())) <= window
-                        && MerchantStem.transferStem(g.fact().rawDescription())
-                            .equals(MerchantStem.transferStem(f.fact().rawDescription())));
-                if (t3.size() == 1) {
-                    pairT2(rows, paired, eligible, i, t3.getFirst(), f, Confidence.HIGH);
+                // T3 — windowed unique: as T2, for legs that differ in date by at most windowDays.
+                java.util.function.BiPredicate<CurrentFact, CurrentFact> windowed = (s, g) ->
+                    Math.abs(g.fact().amount()) == Math.abs(s.fact().amount())
+                        && oppositeSign(s.fact().amount(), g.fact().amount())
+                        && !g.fact().accountRef().equals(s.fact().accountRef())
+                        && currency(g).equals(currency(s))
+                        && !g.fact().date().equals(s.fact().date())
+                        && Math.abs(ChronoUnit.DAYS.between(s.fact().date(), g.fact().date())) <= window;
+                int t3 = counterpart(eligible, paired, i, windowed);
+                if (t3 >= 0) {
+                    pairT2(rows, paired, eligible, i, t3, f, Confidence.HIGH);
                     continue;
                 }
-                if (t3.size() > 1) {
+                if (t3 == AMBIGUOUS) {
                     legState.put(f.externalId(), LegState.HELD);
-                    pairingReview.add(ambiguous(f, t3, eligible));
+                    pairingReview.add(ambiguous(f, candidates(eligible, paired, i, windowed), eligible));
                     continue;
                 }
                 legState.put(f.externalId(), LegState.HELD);
@@ -515,17 +518,41 @@ public final class Derive {
         }
 
         private List<Integer> candidates(List<CurrentFact> eligible, boolean[] paired, int self,
-                                         java.util.function.Predicate<CurrentFact> filter) {
+                                         java.util.function.BiPredicate<CurrentFact, CurrentFact> filter) {
+            CurrentFact s = eligible.get(self);
             List<Integer> out = new ArrayList<>();
             for (int j = 0; j < eligible.size(); j++) {
                 if (j == self || paired[j]) {
                     continue;
                 }
-                if (filter.test(eligible.get(j))) {
+                if (filter.test(s, eligible.get(j))) {
                     out.add(j);
                 }
             }
             return out;
+        }
+
+        /** More than one candidate at a tier, or a candidate that has another suitor. */
+        private static final int AMBIGUOUS = -2;
+
+        /**
+         * The unique counterpart of {@code self}: exactly one candidate, and that candidate's own
+         * candidate set is exactly {@code self}. Returns its index, {@code -1} for none or
+         * {@link #AMBIGUOUS}. Mutual uniqueness is what stops a leg with two suitors from being
+         * paired arbitrarily by the first one processed (§9.9.C.3).
+         */
+        private int counterpart(List<CurrentFact> eligible, boolean[] paired, int self,
+                                java.util.function.BiPredicate<CurrentFact, CurrentFact> filter) {
+            List<Integer> mine = candidates(eligible, paired, self, filter);
+            if (mine.isEmpty()) {
+                return -1;
+            }
+            if (mine.size() > 1) {
+                return AMBIGUOUS;
+            }
+            int j = mine.getFirst();
+            List<Integer> theirs = candidates(eligible, paired, j, filter);
+            return theirs.size() == 1 && theirs.getFirst() == self ? j : AMBIGUOUS;
         }
 
         private void pairT1(Map<String, TransferRow> rows, boolean[] paired, List<CurrentFact> eligible,

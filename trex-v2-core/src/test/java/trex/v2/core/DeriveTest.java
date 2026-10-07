@@ -141,17 +141,16 @@ class DeriveTest {
     }
 
     @Test
-    void theMatcherRequiresEqualTransferStemUnlikeV1() {
-        // v1's Matcher paired same-day, equal-magnitude, opposite-sign shaped legs on amount and date
-        // alone. v2 (§9.9.C) additionally requires an equal transferStem after removing the transfer
-        // vocabulary. A deliberate divergence, pinned so it stays a choice rather than drift.
+    void theMatcherNeverComparesTextAcrossAccounts() {
+        // §9.9.C.3: the pool pairs on amount, sign, account, currency and date alone. The v1 T2/T3
+        // equal-`transferStem` tier is retired; the shape pre-filter is what keeps ordinary rows out
+        // of the pool, not a text comparison.
         List<Fact> facts = List.of(
             fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Transfer to Savings 4321", null, 0),
             fact(2, "b", "ing-orange", LocalDate.of(2026, 9, 1), 1000, "Transfer from Other 9999", null, 0));
         Derivation d = Derive.derive(facts, List.of(), config(), ASOF);
-        assertTrue(d.transfers().isEmpty(), "different merchant stems do not auto-pair in v2");
-        assertEquals(LegState.HELD, d.current("a").orElseThrow().leg());
-        assertEquals(LegState.HELD, d.current("b").orElseThrow().leg());
+        assertEquals(LegState.MATCHED, d.current("a").orElseThrow().leg());
+        assertEquals(1, d.transfers().size());
     }
 
     @Test

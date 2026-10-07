@@ -18,12 +18,12 @@ import java.util.regex.Pattern;
  * run of 3+ spaces), whitespace-collapsed, upper-cased. It is the "same merchant" equality used
  * by pending settlement and {@code POTENTIAL_DUP}.
  *
- * <p>{@link #transferStem} additionally drops the transfer allowlist vocabulary and digit runs,
- * so {@code "Transfer to Savings 4321"} and {@code "Transfer from Savings 4321"} compare equal
- * for T2/T3 (§9.9.C).
- *
  * <p>{@link #similar} is the RESTATEMENT comparison (§8.4): payment-network noise stripped,
  * tokens of 3+ alphabetic characters, case-folded, compared as sets at the configured overlap.
+ *
+ * <p>The retired {@code transferStem} (the v1 T2/T3 text tier) is gone: transfer matching now
+ * compares amount, sign, account, currency and date alone, behind the account-scoped shape
+ * pre-filter (§9.9.C.3, {@code docs/V2-PARITY.md}).
  */
 public final class MerchantStem {
 
@@ -35,16 +35,11 @@ public final class MerchantStem {
      */
     private static final Pattern TAIL = Pattern.compile(" - Visa Purchase| - Receipt| {3,}");
 
-    /** Words that name the movement of a transfer rather than the counterparty (§9.9.C). */
-    private static final Pattern TRANSFER_WORDS = Pattern.compile(
-        "\\b(TRANSFER|INTERNAL|FAST|TO|FROM|MY|ACCOUNT|OSKO|PAYID|BPAY|BILL|PAYMENT|RECEIVED)\\b");
-
     /** Payment-network noise that says nothing about who was paid (§8.4). */
     private static final Set<String> PAYMENT_NOISE = Set.of(
         "VISA", "EFTPOS", "POS", "AUTHORISATION", "AUTHORIZATION", "DEBIT", "CREDIT",
         "PURCHASE", "CARD", "PAYMENT", "RECEIPT", "WITHDRAWAL", "DEPOSIT", "TRANSACTION");
 
-    private static final Pattern DIGITS = Pattern.compile("\\b\\d+\\b");
     private static final Pattern NON_ALNUM = Pattern.compile("[^A-Z0-9]+");
 
     private MerchantStem() {}
@@ -56,13 +51,6 @@ public final class MerchantStem {
         }
         String head = TAIL.split(rawDescription.strip(), 2)[0];
         return head.replaceAll("\\s+", " ").strip().toUpperCase(Locale.ROOT);
-    }
-
-    /** {@link #stem} with the transfer vocabulary and digit runs removed, for T2/T3 equality. */
-    public static String transferStem(String rawDescription) {
-        String s = TRANSFER_WORDS.matcher(stem(rawDescription)).replaceAll(" ");
-        s = DIGITS.matcher(s).replaceAll(" ");
-        return s.replaceAll("\\s+", " ").strip();
     }
 
     /**
