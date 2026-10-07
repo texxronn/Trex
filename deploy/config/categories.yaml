@@ -188,6 +188,13 @@ rules:
     when:
       match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|eschol park|camden tigers|football|soccer club|leisure cent"
 
+  # The kids' piano teacher, paid by CommBank App. The memo varies — "Piano Lessons",
+  # "11 Lessons", "Payment", or nothing — so match the payee name, the one constant.
+  - category: SPORT_AND_LEISURE
+    comment: "the kids' activities: private piano lessons"
+    when:
+      match: "vazhel"
+
   # Hardware and the house, tracked apart from general retail. Only the chain seen in the
   # data so far; adding another is a config edit, not a code change.
   - category: HOME_IMPROVEMENT
