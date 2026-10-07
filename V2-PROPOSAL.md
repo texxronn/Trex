@@ -445,7 +445,7 @@ conclusions or interpretations; each becomes a derivation:
 | `state` | stored per version | derived from derivation + decisions | The whole point. |
 | `transferKey`, `legIds`, `confidence` | stored on TRANSFER lines | derived | Pairing is either automatic (derived) or a decision (log). |
 | `corrects` | stored, unused in phase 1 | `SUPERSEDE` decision | A correction is a decision with a reason, not a field. |
-| `balance` | stored | stored | It is an observation — a fact. |
+| `balance` | stored | stored | It is an observation — a fact. Whether it acts as a chain edge is a derived role (§6.9). |
 
 **No fact carries a category.** A category is an answer computed from the latest fact
 plus `categories.yaml` (rules), `refdata.yaml` (the declared names) and any `PIN`
@@ -492,6 +492,8 @@ The full action set — small on purpose:
 | `UNPIN` | `externalIds`, `comment?` | Release those ids back to rule evaluation. |
 | `SUPERSEDE` | `fromId`, `toId`, `reason` | A re-parse or correction replaces one fact with another. |
 | `RETIRE` | `externalId`, `reason` | The fact no longer counts and has no replacement. |
+| `MARK_NOOP` | `externalId`, `reason` | Recorded, but not a posting of this account: no chain edge, no unit, no transfer leg, no sum. A classification, never a correction (§6.9). |
+| `UNMARK_NOOP` | `externalId`, `comment?` | Return the row to its profile's default; the family inverse of `MARK_NOOP`. |
 | `REVOKE` | `revokes`, `comment?` | Undo decision `n = revokes`; the general escape hatch. |
 | `USER_ACK` | `externalId`, `stateHash`, `configRevision`, `deriveVersion`, `hashVersion`, `comment?` | "I have read this row; its derived content was X." One line per row per user; the `user` is on the line and other users' markers are untouched. |
 | `USER_UNACK` | `externalId`, `comment?` | Release that row's read marker for this user; the family inverse of `USER_ACK`. |
@@ -505,9 +507,10 @@ example of every event is §6.7.
 undo is itself a decision (§13):
 
 - **Family inverses** are the everyday path: `UNPAIR` answers `PAIR`, `MARK_EXTERNAL`
-  answers a pairing, `UNPIN` answers `PIN`, `USER_UNACK` answers `USER_ACK`, a later `PIN`
-  re-pins, a later `USER_ACK` re-reads. For a leg, the latest effective pairing decision
-  naming it wins; for an id, the latest category decision naming it wins (§9.8).
+  answers a pairing, `UNPIN` answers `PIN`, `USER_UNACK` answers `USER_ACK`,
+  `UNMARK_NOOP` answers `MARK_NOOP`, a later `PIN` re-pins, a later `USER_ACK` re-reads.
+  For a leg, the latest effective pairing decision naming it wins; for an id, the latest
+  category decision naming it wins (§9.8).
 - **`REVOKE` is the general undo.** It names the `n` of the decision it revokes and is
   the only way back from `SUPERSEDE`, `RETIRE` and `DISMISS`. A `REVOKE` is itself a
   decision, so revoking a `REVOKE` restores the original: the latest answer wins.
@@ -722,8 +725,10 @@ its body.
 | 15 | `NOTE` | `POST /decisions` | `decision` | Annotate |
 | 16 | `PIN` | `POST /decisions` | `decision` | A person overrides a category |
 | 17 | `UNPIN` | `POST /decisions` | `decision` | A person returns a row to the rules |
-| 18 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
-| 19 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
+| 18 | `MARK_NOOP` | `POST /decisions` | `decision` | The row is recorded but is not a posting of this account (§6.9) |
+| 19 | `UNMARK_NOOP` | `POST /decisions` | `decision` | Return the row to its profile's default |
+| 20 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
+| 21 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
 
 **Facts (1–4)**
 
@@ -904,12 +909,30 @@ the process that submitted the decision.
  "actor":"user","user":"priya","at":"2026-09-29T19:14:00.000Z"}
 ```
 
+```json
+// 18 · MARK_NOOP — recorded, but not a posting of this account
+{"n":8438,"kind":"trex.decision","v":1,"atMs":1790709300000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"MARK_NOOP","externalId":"a7e1c94d06f3b28a",
+ "reason":"fee paid from the loan-offset account; this loan line is a reference",
+ "actor":"user","user":"ron","at":"2026-09-29T19:15:00.000Z"}
+```
+
+```json
+// 19 · UNMARK_NOOP — back to the profile's default
+{"n":8439,"kind":"trex.decision","v":1,"atMs":1790709360000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"UNMARK_NOOP","externalId":"a7e1c94d06f3b28a",
+ "comment":"the charge was real after all",
+ "actor":"user","user":"ron","at":"2026-09-29T19:16:00.000Z"}
+```
+
 Migration writes the same decision shapes with `actor:"migrated"` — a `PAIR` for every
 transfer the v1 journal had resolved, a `MARK_EXTERNAL` for every leg it had marked,
 no `user` — so the migrated state is exactly what v1 had (§16).
 
 **What is deliberately not an event.** No request batch header — a `POST /facts` batch is a
-request, not a line (the *ingest workflow* around it emits `ingest` events, 18–19); no state
+request, not a line (the *ingest workflow* around it emits `ingest` events, 20–21); no state
 transitions (derived); no TRANSFER lines (derived); no control or watermark lines (removed in
 v1); no edits (a correction is a `SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never
 rewritten); no period review state (a period is only the view the Eyeball buckets rows by,
@@ -934,6 +957,8 @@ is a chain of appended events plus derived transitions:
 | | `pending → stale` | derivation: the posted-fact frontier passes it unsettled; `DISMISS` silences it |
 | | `posted → superseded` | event: `SUPERSEDE` after a re-parse or correction |
 | | `posted → retired` | event: `RETIRE` — the fact no longer counts, with no replacement |
+| Role | `transaction → noop` | derivation: an account profile rule, or a `MARK_NOOP` decision |
+| | `noop → transaction` | derivation: `UNMARK_NOOP`, or the profile rule removed |
 | Decision | `issued → effective` | derivation applies it |
 | | `issued → ineffective` | derivation rejects it (e.g. a `PAIR` of same-signed legs, an unresolvable id) → review item |
 | | `issued → revoked` | event: a later `REVOKE` (or a family inverse); revoking the `REVOKE` restores it |
@@ -1075,6 +1100,82 @@ prechecks them against its index for a fast, friendly `422`; `derive()` is where
 true. A semantically bad decision that gets past both is recorded, surfaced as
 `INEFFECTIVE_DECISION`, and corrected by a later decision — never silently dropped, and
 never a write-path rule that a reflow cannot revisit.
+
+### 6.9 Roles, the balance check, and conflict resolution
+
+A bank statement is not always a ledger. ING's loan exports, for example, carry fee lines
+whose balance column is a statement snapshot rather than a running balance: the row is
+true as printed, but it is not a posting of that account. Treating every balance as a
+chain edge turns such a statement into a reconciliation fault no parser can fix — and
+rewriting the row to make the chain close would destroy what the bank said.
+
+The system keeps every row exactly as stated (`balance` included) and separates **what a
+row is** from **what the chain can prove**.
+
+**Roles.** Every current fact has a derived role: `transaction` (the default) or `noop` —
+recorded and visible, but not a posting: no chain edge, no transfer leg, no unit, no
+contribution to the account's sums. A role is never stored on the line; `derive()`
+computes it from the facts, `profiles.yaml` and the decisions, so the log stays faithful
+and a role change is a reflow, not a re-parse. A `noop` row stays in the Blotter, marked
+and filterable: it is evidence, not noise.
+
+**Account profiles.** `profiles.yaml` binds rules to accounts — the account-scoped
+analogue of `categories.yaml`:
+
+```yaml
+profiles:
+  ing-variable-rate:
+    rules:
+      - match: 'Orange Advantage annual fee'
+        action: MARK_NOOP
+        reason: 'fee paid from the loan-offset account; this loan line is a reference'
+```
+
+A profile classifies by default; a `MARK_NOOP`/`UNMARK_NOOP` decision overrides it in
+either direction — decisions win over derivation, latest effective wins, the same
+precedence as `PIN`/`UNPIN` over category rules.
+
+**The balance check.** Reconciliation runs over `transaction` rows only: exactly one
+value with net `+1` (the opening), one with net `−1` (the closing), and
+`Σ amount == closing − opening`. Every excluded `noop` row is named in the result with
+the rule or decision that classified it. A fork with no explanation is `broken`; a chain
+with explained exclusions is `reconciled` **with those exclusions listed** — never
+silently clean. Nothing is rebalanced: the excluded row's edges and amount are not part
+of the chain, and no other row's balance is adjusted. `RETIRE` is not this: it corrects
+a source claim that must not count at all; `MARK_NOOP` classifies a claim as not a
+posting.
+
+**Forks are conflicts, resolved per side.** A fork is a value claimed by two rows — two
+claimants at the same previous balance, or two rows closing into it. The hub pairs them
+from the facts alone (a side never needs to remember the other), and presents the
+**sides**, not the pair as a unit. Resolution is per row and iterative, like resolving a
+merge conflict:
+
+- `MARK_NOOP` one side: that side stops posting, the other lives, and the chain is
+  recomputed. Only one side may resolve the conflict in practice — removing a
+  load-bearing row (whose balance is another row's previous) simply leaves a different
+  fork, which the preview shows.
+- **Keep both**: the row counts; the bank's arithmetic genuinely disagrees. The fork is
+  accepted as explained rather than resolved. Whether that is a config exception or a
+  decision is deliberately still open.
+- Every choice is previewed before it is written: "noop this side → reconciled at X;
+  noop that side → two forks remain". The resolver never picks for you.
+
+The hub opens a derived `BALANCE_BREAK` review item for a fork with no explanation, and
+the ingest history annotates the batch that completed the fork. There is no announcement
+line in the log: like every review item, it appears while the condition holds and clears
+when it stops.
+
+**What does not happen.** No rebalancing, no invented balancing entries, no rewrite of a
+stated balance. A `noop` row already projected to Firefly becomes an orphan on the next
+plan and is removed only on explicit instruction (§11.5). Undo is `UNMARK_NOOP` or
+`REVOKE`; a profile edit re-derives immediately.
+
+**Deferred.** A writer-side provisional flag (a facts-only chain warning at append time,
+independent of the hub) was considered and is on the shelf: the hub owns meaning, and the
+writer boundary stays intact (§6.8). If it is ever built it is a provisional ingest
+warning only, and amending the writer's "no derived review flags" boundary is part of
+that change, not an accident of it.
 
 ---
 
@@ -1967,6 +2068,13 @@ been imported and simply had no activity — and never asserts "not imported". A
 cross-links to the Blotter for that account and period. Marking a hole with a person's
 conclusion (received, no activity) would be a decision, not a property of this view.
 
+**Chain health.** The same mode (or its own view, once it earns one) carries the balance
+check of §6.9: per account, `reconciled` / open, with forks shown as conflicts — the two
+sides, the balance value they contest, and a per-side preview of resolving one (or
+keeping both). It is the operator surface for roles: a fork appears the moment the head
+moves, is explained by an account profile or a `MARK_NOOP`, and clears itself when the
+chain closes. Nothing here is stored: it is a view over the derived check.
+
 ---
 
 ## 11. Firefly bridge — projection with convergence
@@ -2386,7 +2494,10 @@ v1's tests are good; v2 adds invariants that only exist once derivation is separ
 9. **Evidence.** Re-parsing stored evidence with the same parser reproduces the same
    facts; the identity cross-source test holds for every pair of sources.
 10. **Reconciliation** (v1 test 6) runs over derived state, unchanged, including the
-    `DECLARED` case.
+    `DECLARED` case. With roles (§6.9), the chain runs over `transaction` rows only: a
+    `noop` row removes its edges and amount and nothing else; the exclusions are named in
+    the result; a profile rule and a decision agree, with the decision winning in both
+    directions; and a rebuild reproduces every role exactly.
 11. **Pending is never lost and never counted.** A pending fact survives a restart and a
     full index rebuild; it is absent from current totals, the balance chain and the
     Firefly projection; when exactly one posted counterpart arrives, `settled_by` is

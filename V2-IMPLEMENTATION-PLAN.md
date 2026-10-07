@@ -280,6 +280,28 @@ reviewed supersede.
 
 ---
 
+### P5 — Roles, noop, and the balance check (§6.9)
+
+**Work**: `profiles.yaml` (account-scoped rules) and its loader; the role derivation in
+`derive()` (`transaction` | `noop`); `MARK_NOOP`/`UNMARK_NOOP` decisions with precheck and
+family precedence; role-aware reconciliation over `transaction` rows with named
+exclusions; fork pairing and the per-side preview (hub endpoint + Chains surface);
+the `BALANCE_BREAK` review kind; the Blotter's marked-`noop` rendering. No line-format
+change: roles are derived, and the decision catalogue addition is spec-only until used.
+
+**Acceptance**: on the private fixture, the four `ing-variable-rate` annual-fee rows
+resolve as a fork. `MARK_NOOP` on the leaf side → reconciled at the account's true
+closing balance, with four named exclusions; on the load-bearing side → a different fork
+remains (the preview was honest). A profile rule and a decision agree, and the decision
+wins both ways; `UNMARK_NOOP`/`REVOKE` restores the prior state; `trex index --rebuild`
+reproduces every role; a `noop` row is absent from the projection and a previously
+posted one is reported as an orphan, never deleted. `trex verify` stays green.
+
+**Out of scope** the writer-side provisional flag (deferred, §6.9), the keep-both
+formalism if unsettled, parse-time profile parameters, and any line-format change.
+
+---
+
 ## 4. Coding standards for v2
 
 - **Java 25**, records and sealed interfaces; exhaustive `switch` over sealed types.
