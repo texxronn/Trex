@@ -20,6 +20,7 @@ public final class StateHash {
         return Hashes.sha256(String.join("|",
             c.externalId(),
             c.role() == null ? "" : c.role().name(),
+            c.rail() == null ? "" : c.rail().name(),
             c.leg() == null ? "" : c.leg().name(),
             c.fact().accountRef(),
             c.fact().date().toString(),

@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS txn_current (
   source          TEXT NOT NULL,
   target          TEXT NOT NULL,
   role            TEXT NOT NULL,
+  rail            TEXT,
   leg             TEXT NOT NULL,
   transfer_id     TEXT,
   category        TEXT NOT NULL,
@@ -116,6 +117,7 @@ CREATE TABLE IF NOT EXISTS transfer (
   confidence  TEXT NOT NULL,
   origin      TEXT NOT NULL,
   decision_n  INTEGER,
+  method      TEXT NOT NULL,
   matched_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS transfer_from ON transfer(from_leg);

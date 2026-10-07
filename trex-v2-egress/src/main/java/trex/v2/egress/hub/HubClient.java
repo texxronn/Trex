@@ -55,8 +55,9 @@ public final class HubClient {
 
     /** One current transaction, as the blotter API publishes it. */
     public record LedgerRow(String externalId, long n, String accountRef, LocalDate date, long amount,
-                            long balance, String rawDescription, String leg, String role, String transferId,
-                            String category, String categoryOrigin, String ruleId, boolean hasReview) {}
+                            long balance, String rawDescription, String leg, String role, String rail,
+                            String transferId, String category, String categoryOrigin, String ruleId,
+                            boolean hasReview) {}
 
     public record LedgerPage(long total, List<LedgerRow> rows) {}
 

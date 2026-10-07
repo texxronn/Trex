@@ -224,7 +224,7 @@ class EyeballTest {
 
     private static LedgerRow ledger(String id, long n, String account, LocalDate date, long amount,
                                     long balance, String raw, String category, String leg) {
-        return new LedgerRow(id, n, account, date, amount, balance, raw, leg, "transaction", null, category,
+        return new LedgerRow(id, n, account, date, amount, balance, raw, leg, "transaction", null, null, category,
             "RULE", null, false);
     }
 

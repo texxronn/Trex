@@ -14,7 +14,7 @@ final class HubSql {
 
     static final String LEDGER_SELECT = """
         SELECT t.external_id, t.n, t.account_ref, t.date, t.amount, t.balance, t.raw_description,
-               t.leg, t.role, t.transfer_id, t.category, t.category_origin, t.rule_id,
+               t.leg, t.role, t.rail, t.transfer_id, t.category, t.category_origin, t.rule_id,
                EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review
         FROM txn_current t""";
 
@@ -37,7 +37,7 @@ final class HubSql {
     static final String REVIEW_ORDER = " ORDER BY r.kind, r.subject";
 
     static final String TRANSFERS_SELECT = """
-        SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, matched_at
+        SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, method, matched_at
         FROM transfer ORDER BY transfer_id""";
 
     /** All-time first/last transaction date and the row count, one row per account. */

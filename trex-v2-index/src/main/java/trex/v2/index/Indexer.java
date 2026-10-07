@@ -340,6 +340,7 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(i++, f.envelope().source());
                 ps.setString(i++, f.envelope().target());
                 ps.setString(i++, c.role().wire());
+                ps.setString(i++, c.rail() == null ? null : c.rail().name());
                 ps.setString(i++, c.leg().name());
                 ps.setString(i++, c.transferId());
                 ps.setString(i++, c.category());
@@ -362,7 +363,8 @@ public final class Indexer implements AutoCloseable {
                 } else {
                     ps.setLong(6, t.decisionN());
                 }
-                ps.setString(7, t.matchedAt().toString());
+                ps.setString(7, t.method().name());
+                ps.setString(8, t.matchedAt().toString());
                 ps.addBatch();
             }
             ps.executeBatch();

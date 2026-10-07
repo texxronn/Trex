@@ -7,5 +7,6 @@ import java.time.LocalDate;
  * pairing state, category (with provenance) and whether a review item names it.
  */
 public record LedgerRow(String externalId, long n, String accountRef, LocalDate date, long amount,
-                        long balance, String rawDescription, String leg, String role, String transferId,
-                        String category, String categoryOrigin, String ruleId, boolean hasReview) {}
+                        long balance, String rawDescription, String leg, String role, String rail,
+                        String transferId, String category, String categoryOrigin, String ruleId,
+                        boolean hasReview) {}

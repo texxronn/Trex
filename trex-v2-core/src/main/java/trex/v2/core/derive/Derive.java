@@ -7,6 +7,7 @@ import trex.v2.core.Hashes;
 import trex.v2.core.Ids;
 import trex.v2.core.MerchantStem;
 import trex.v2.core.Observation;
+import trex.v2.core.Rail;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
@@ -282,7 +283,7 @@ public final class Derive {
                 }
                 Fact f = latestById.get(id);
                 if (f.observation() == Observation.POSTED) {
-                    out.put(id, new CurrentFact(f, roleFor(f), LegState.EXTERNAL, null, null,
+                    out.put(id, new CurrentFact(f, roleFor(f), railFor(f), LegState.EXTERNAL, null, null,
                         CategoryOrigin.NONE, null, null));
                 }
             }
@@ -397,7 +398,7 @@ public final class Derive {
                         Fact fb = byId.get(b).fact();
                         String tid = uniqueTransferId(rows, mintTransferId(fa, fb), byId.get(a), byId.get(b));
                         rows.put(tid, new TransferRow(tid, a, b, Confidence.MANUAL, "decision", p.n(),
-                            p.at()));
+                            transferMethod(fa, fb), p.at()));
                         livePairLegs.add(a);
                         livePairLegs.add(b);
                     }
@@ -560,7 +561,7 @@ public final class Derive {
             CurrentFact g = eligible.get(j);
             String tid = uniqueTransferId(rows, Ids.transferId(f.fact().receipt()), f, g);
             rows.put(tid, new TransferRow(tid, f.externalId(), g.externalId(), Confidence.EXACT, "derived",
-                null, laterIngested(f.fact(), g.fact())));
+                null, transferMethod(f.fact(), g.fact()), laterIngested(f.fact(), g.fact())));
             paired[i] = true;
             paired[j] = true;
             legState.put(f.externalId(), LegState.MATCHED);
@@ -572,7 +573,7 @@ public final class Derive {
             CurrentFact g = eligible.get(j);
             String tid = uniqueTransferId(rows, mintTransferId(f.fact(), g.fact()), f, g);
             rows.put(tid, new TransferRow(tid, f.externalId(), g.externalId(), confidence, "derived",
-                null, laterIngested(f.fact(), g.fact())));
+                null, transferMethod(f.fact(), g.fact()), laterIngested(f.fact(), g.fact())));
             paired[i] = true;
             paired[j] = true;
             legState.put(f.externalId(), LegState.MATCHED);
@@ -620,6 +621,23 @@ public final class Derive {
         private String currency(CurrentFact c) {
             Account account = config.registry().account(c.fact().accountRef());
             return account.currency();
+        }
+
+        /** The rail method the account's patterns declare for this row, or null (§9.9.C.4). */
+        private Rail railFor(Fact f) {
+            return config.transfers().railFor(f.accountRef(), f.rawDescription());
+        }
+
+        /** The payer leg's rail method, falling back to the payee's and then {@code BANK_TRANSFER}. */
+        private Rail transferMethod(Fact a, Fact b) {
+            Fact payer = a.amount() < 0 ? a : b;
+            Fact payee = payer == a ? b : a;
+            Rail method = railFor(payer);
+            if (method != null) {
+                return method;
+            }
+            method = railFor(payee);
+            return method != null ? method : Rail.BANK_TRANSFER;
         }
 
         /**
@@ -678,7 +696,7 @@ public final class Derive {
 
         private Map<String, CurrentFact> applyPairing(Map<String, CurrentFact> currentMap) {
             Map<String, CurrentFact> out = new LinkedHashMap<>();
-            currentMap.forEach((id, c) -> out.put(id, new CurrentFact(c.fact(), c.role(),
+            currentMap.forEach((id, c) -> out.put(id, new CurrentFact(c.fact(), c.role(), c.rail(),
                 legState.getOrDefault(id, LegState.EXTERNAL), transferIdByLeg.get(id), null,
                 CategoryOrigin.NONE, null, null)));
             return out;
@@ -770,7 +788,7 @@ public final class Derive {
             if (row == null) {
                 return c;
             }
-            return new CurrentFact(c.fact(), c.role(), c.leg(), c.transferId(), row.category(),
+            return new CurrentFact(c.fact(), c.role(), c.rail(), c.leg(), c.transferId(), row.category(),
                 row.origin(), row.ruleId(), c.stateHash());
         }
 

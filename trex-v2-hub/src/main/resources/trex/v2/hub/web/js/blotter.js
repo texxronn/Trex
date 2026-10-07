@@ -103,7 +103,7 @@ function renderRows() {
   const head = el('tr', {},
     el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
-    el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'n'), el('th', {}, 'id'));
+    el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'), el('th', {}, 'n'), el('th', {}, 'id'));
   const rows = (status.rows || []).map((row) => {
     const checkbox = el('input', {
       type: 'checkbox', checked: selected.has(row.externalId),
@@ -122,6 +122,7 @@ function renderRows() {
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.role === 'noop' ? el('span', { class: 'tag role-noop' }, 'noop') : ''),
+      el('td', { class: 'muted' }, row.rail ? row.rail + ' \u00b7 ' + (row.amount < 0 ? 'OUT' : 'IN') : ''),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
   });
