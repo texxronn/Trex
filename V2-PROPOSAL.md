@@ -1190,7 +1190,17 @@ accounts:
     currency: "AUD"
     balanceSource: clearing
     closingBalance: 0          # cents; what the account was worth when it closed
-    closedAt: "2025-06-30"
+    closedAt: "2025-06-30"     # optional; flags any later movement
+  - ref: "nab-fixed"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2023-09-30"
+  - ref: "nab-offset"          # the variable-rate facility's offset
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2023-02-28"
 ```
 
 - It holds **no facts** and is never chained — a declared position, not a statement. Its
@@ -1202,7 +1212,8 @@ accounts:
 
   ```yaml
   ing-orange:
-    - { match: 'NAB Fixed Payments|Nab Offset', rail: BANK_TRANSFER, clearing: nab-loans }
+    - { match: 'NAB Fixed Payments', rail: BANK_TRANSFER, clearing: nab-fixed }
+    - { match: 'Nab Offset',         rail: BANK_TRANSFER, clearing: nab-offset }
     - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
         rail: BPAY, clearing: westpac-card }
   ```

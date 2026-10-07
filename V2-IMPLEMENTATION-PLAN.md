@@ -348,13 +348,14 @@ of the clearing Firefly account with the computed opening and a verify check; th
 reconcile rendering of the computed opening. No log or line-format change — a clearing account
 holds no facts.
 
-**Acceptance**: register `westpac-card` and `nab-loans` with closing 0. The 86 Westpac legs and
-74 NAB legs pair as clearing transfers, carrying rails and correct direction, and leave the
-review queue; neither side is a unit of its own. Each account's derived balance lands on 0 —
-Westpac computed opening −$78,092.02, NAB −$206,053.87 — shown in the Accounts view. Reconcile
-reports `CLEARING`, never `BROKEN`. The egress plan posts the transfers and provisions the
-openings so Firefly's balances land on 0, and `verify` is green. Removing a `clearing:` line
-and ingesting real statements re-pairs against the real legs with no leftover synthetic side.
+**Acceptance**: register `westpac-card`, `nab-fixed` and `nab-offset` with closing 0. The 86
+Westpac legs, 40 fixed legs and 33 offset legs pair as clearing transfers — carrying rails and
+correct direction, leaving the review queue, neither side a unit of its own — and each account's
+derived balance lands on 0: Westpac computed opening −$78,092.02, NAB fixed −$31,800.00, NAB
+offset −$174,200.00. Reconcile reports `CLEARING`, never `BROKEN`. The egress plan posts the
+transfers and provisions the openings so Firefly's balances land on 0, and `verify` is green.
+Removing a `clearing:` line and ingesting real statements re-pairs against the real legs with no
+leftover synthetic side.
 
 **Out of scope** interest vs principal splitting without statements, and any attempt to invent
 facts for the missing history.
