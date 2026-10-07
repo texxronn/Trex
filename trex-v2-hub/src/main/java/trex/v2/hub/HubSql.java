@@ -14,7 +14,7 @@ final class HubSql {
 
     static final String LEDGER_SELECT = """
         SELECT t.external_id, t.n, t.account_ref, t.date, t.amount, t.balance, t.raw_description,
-               t.leg, t.transfer_id, t.category, t.category_origin, t.rule_id,
+               t.leg, t.role, t.transfer_id, t.category, t.category_origin, t.rule_id,
                EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review
         FROM txn_current t""";
 

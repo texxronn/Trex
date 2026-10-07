@@ -238,7 +238,7 @@ public final class HubQueries implements AutoCloseable {
                         rows.add(new LedgerRow(rs.getString(1), rs.getLong(2), rs.getString(3),
                             LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
                             rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
-                            rs.getString(12), rs.getInt(13) != 0));
+                            rs.getString(12), rs.getString(13), rs.getInt(14) != 0));
                     }
                 }
             }
@@ -259,6 +259,10 @@ public final class HubQueries implements AutoCloseable {
         if (q.leg() != null) {
             conditions.add("t.leg = ?");
             params.add(q.leg());
+        }
+        if (q.role() != null) {
+            conditions.add("t.role = ?");
+            params.add(q.role());
         }
         if (q.direction() != null) {
             conditions.add("out".equals(q.direction()) ? "t.amount < 0" : "t.amount > 0");

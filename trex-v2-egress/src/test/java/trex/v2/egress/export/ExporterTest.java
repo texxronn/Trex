@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ExporterTest {
 
     private static final List<LedgerRow> ROWS = List.of(new LedgerRow("id1", 1, "ing-savings",
-        LocalDate.of(2026, 9, 1), -1000, 900, "COLES, 1234", "EXTERNAL", null, "GROCERIES", "RULE",
-        "rule #1", false));
+        LocalDate.of(2026, 9, 1), -1000, 900, "COLES, 1234", "EXTERNAL", "transaction", null, "GROCERIES",
+        "RULE", "rule #1", false));
 
     private static final Map<String, String> CURRENCY = Map.of("ing-savings", "AUD");
 

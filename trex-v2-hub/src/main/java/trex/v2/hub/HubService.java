@@ -319,7 +319,7 @@ public final class HubService implements HubApi, AutoCloseable {
         DeriveConfig c = refresher.config();
         LocalDate at = asOf == null ? LocalDate.now() : asOf;
         List<Fact> facts = reads.currentFacts();
-        LedgerPage page = reads.ledger(new BlotterQuery(null, null, null, null, range.from(), range.to(),
+        LedgerPage page = reads.ledger(new BlotterQuery(null, null, null, null, null, range.from(), range.to(),
             null, null, null, false, "date", "asc", MAX_WALK_ROWS, 0));
         return Eyeball.walk(period, user, at, bucket, facts, page.rows(), reads.review(null), reads.pending(),
             c.registry(), c.transfers());

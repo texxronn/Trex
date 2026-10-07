@@ -16,7 +16,7 @@ let pager;
 let pinSelect;
 
 const filters = {
-  account: '', category: '', leg: '', q: '', hasReview: false,
+  account: '', category: '', leg: '', role: '', q: '', hasReview: false,
   sort: 'date', order: 'desc', limit: 100, offset: 0,
 };
 let selected = new Set();
@@ -33,6 +33,7 @@ export function mount(container, context) {
   if (query.has('account')) filters.account = query.get('account');
   if (query.has('category')) filters.category = query.get('category');
   if (query.has('leg')) filters.leg = query.get('leg');
+  if (query.has('role')) filters.role = query.get('role');
   if (query.has('hasReview')) filters.hasReview = query.get('hasReview') === 'true';
   render();
   load();
@@ -52,6 +53,7 @@ function render() {
     field('Category', select('category', ['', ...refdata.categories, 'UNCATEGORIZED'], filters.category,
       (v) => set('category', v))),
     field('Leg', select('leg', ['', 'MATCHED', 'HELD', 'EXTERNAL'], filters.leg, (v) => set('leg', v))),
+    field('Role', select('role', ['', 'transaction', 'noop'], filters.role, (v) => set('role', v))),
     field('Text', el('input', {
       type: 'search', value: filters.q,
       oninput: debounce((e) => set('q', e.target.value, true), 250),
@@ -72,6 +74,8 @@ function render() {
       ? decisions.markExternal(ctx, ids[0], 'marked external in blotter') : null, 1)),
     button('Pair', () => apply((ids) => ids.length === 2 ? decisions.pair(ctx, ids[0], ids[1], 'paired in blotter') : null, 2)),
     button('Unpair', () => apply((ids) => ids.length === 2 ? decisions.unpair(ctx, ids[0], ids[1], 'unpaired in blotter') : null, 2)),
+    button('Mark noop', markNoop),
+    button('Unmark noop', unmarkNoop),
   );
 
   tableHost = el('div');
@@ -99,7 +103,7 @@ function renderRows() {
   const head = el('tr', {},
     el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
-    el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'));
+    el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'n'), el('th', {}, 'id'));
   const rows = (status.rows || []).map((row) => {
     const checkbox = el('input', {
       type: 'checkbox', checked: selected.has(row.externalId),
@@ -107,7 +111,8 @@ function renderRows() {
         if (e.target.checked) selected.add(row.externalId); else selected.delete(row.externalId);
       },
     });
-    return el('tr', { class: row.hasReview ? 'bad' : '' },
+    const classes = [row.hasReview ? 'bad' : '', row.role === 'noop' ? 'noop' : ''].filter(Boolean).join(' ');
+    return el('tr', { class: classes },
       el('td', {}, checkbox),
       el('td', {}, row.date),
       el('td', {}, row.accountRef),
@@ -116,6 +121,7 @@ function renderRows() {
       el('td', { class: 'desc' }, row.rawDescription),
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
+      el('td', {}, row.role === 'noop' ? el('span', { class: 'tag role-noop' }, 'noop') : ''),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
   });
@@ -145,6 +151,28 @@ function apply(build, required = 1) {
     return;
   }
   submit([decision]);
+}
+
+// A role is a classification with a reason (§6.9), so marking one asks why.
+function markNoop() {
+  const ids = [...selected];
+  if (ids.length !== 1) {
+    toast('Select exactly 1 row', 'bad');
+    return;
+  }
+  const reason = window.prompt('Why is this row not a posting of its account?',
+    'reference line, not a posting');
+  if (!reason) return;
+  submit([decisions.markNoop(ctx, ids[0], reason)]);
+}
+
+function unmarkNoop() {
+  const ids = [...selected];
+  if (ids.length !== 1) {
+    toast('Select exactly 1 row', 'bad');
+    return;
+  }
+  submit([decisions.unmarkNoop(ctx, ids[0], 'restored to a posting in blotter')]);
 }
 
 async function submit(list) {

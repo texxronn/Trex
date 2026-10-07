@@ -14,4 +14,6 @@ export const decisions = {
   dismiss: (ctx, item, ids, comment) => ({ ...envelope('DISMISS', ctx, comment), item, externalIds: ids }),
   pair: (ctx, legA, legB, comment) => ({ ...envelope('PAIR', ctx, comment), legA, legB }),
   unpair: (ctx, legA, legB, comment) => ({ ...envelope('UNPAIR', ctx, comment), legA, legB }),
+  markNoop: (ctx, id, reason) => ({ ...envelope('MARK_NOOP', ctx, reason), externalId: id, reason }),
+  unmarkNoop: (ctx, id, comment) => ({ ...envelope('UNMARK_NOOP', ctx, comment), externalId: id }),
 };

@@ -56,6 +56,13 @@ class HubReconcileTest {
             assertEquals("fee", ex.externalId());
             assertEquals("profile", ex.classifiedBy());
             assertEquals("a statement snapshot, not a posting", ex.reason());
+
+            // The Blotter carries the role and can filter on it: the noop row is visible, not noise.
+            var noopRows = hub.ledger(BlotterQuery.parse("role=noop"));
+            assertEquals(1, noopRows.total());
+            assertEquals("fee", noopRows.rows().getFirst().externalId());
+            assertEquals("noop", noopRows.rows().getFirst().role());
+            assertEquals(2, hub.ledger(BlotterQuery.parse("role=transaction")).total());
         }
     }
 

@@ -9,7 +9,7 @@ import java.util.Map;
  * the request's query string; an unknown value is a 400, never a silently ignored filter. Values
  * are bound as parameters; only whitelisted column and direction names are ever concatenated.
  */
-public record BlotterQuery(String account, String category, String leg, String direction,
+public record BlotterQuery(String account, String category, String leg, String role, String direction,
                            LocalDate from, LocalDate to, String q, Long minAmount, Long maxAmount,
                            boolean hasReview, String sort, String order, int limit, int offset) {
 
@@ -21,6 +21,10 @@ public record BlotterQuery(String account, String category, String leg, String d
         String leg = value(p, "leg");
         if (leg != null && !leg.equals("MATCHED") && !leg.equals("HELD") && !leg.equals("EXTERNAL")) {
             throw new IllegalArgumentException("leg must be MATCHED, HELD or EXTERNAL");
+        }
+        String role = value(p, "role");
+        if (role != null && !role.equals("transaction") && !role.equals("noop")) {
+            throw new IllegalArgumentException("role must be 'transaction' or 'noop'");
         }
         String direction = value(p, "direction");
         if (direction != null && !direction.equals("in") && !direction.equals("out")) {
@@ -47,7 +51,7 @@ public record BlotterQuery(String account, String category, String leg, String d
         int offset = Math.max(intValue(p, "offset", 0), 0);
         boolean hasReview = "true".equalsIgnoreCase(value(p, "hasReview"));
         return new BlotterQuery(
-            value(p, "account"), value(p, "category"), leg, direction,
+            value(p, "account"), value(p, "category"), leg, role, direction,
             dateValue(p, "from"), dateValue(p, "to"), value(p, "q"),
             longValue(p, "minAmount"), longValue(p, "maxAmount"), hasReview, sort, order, limit, offset);
     }

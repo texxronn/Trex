@@ -235,6 +235,11 @@ td.desc { white-space: normal; max-width: 30rem; }
 }
 .tag.good { color: var(--good); border-color: var(--good); background: var(--good-soft); }
 
+/* A noop row is evidence, not noise: visible and filterable, but not a posting (§6.9). */
+tbody tr.noop td { opacity: .55; }
+tbody tr.noop:hover td { opacity: .8; }
+.tag.role-noop { border-style: dashed; }
+
 /* ---- misc --------------------------------------------------------------- */
 
 .pager { margin-top: 0.55rem; display: flex; gap: 0.5rem; align-items: center; color: var(--muted); font-size: 12px; }
