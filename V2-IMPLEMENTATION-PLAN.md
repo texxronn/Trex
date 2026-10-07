@@ -304,14 +304,14 @@ formalism if unsettled, parse-time profile parameters, and any line-format chang
 
 ### P6 — Transfer patterns, the pool, and attribution (§9.9.C)
 
-**Work**: per-account `transferPatterns` in `transfers.yaml` (a `default` list plus
-account extensions, each entry carrying a `rail` and an optional `shape: false` for
-rail-only tags); the pre-filter applied per account; the pool ladder (receipt →
-same-day unique → windowed unique → ambiguous); retirement of the stem tier and
-`transferStem` from the matching path; rail derivation per leg (method from the pattern,
-direction from the sign; `EXTERNAL` legs included) and the payer's method on the derived
-transfer; the pattern edit preview (legs potted / pairs made); the pot surfacing in the
-leg-resolution view. No log or line-format change; a derive-only reflow.
+**Work**: per-account `transferPatterns` in `transfers.yaml` (ordered, first match wins:
+the account's entries before `default`; each entry carrying a `rail` and an optional
+`shape: false` for rail-only tags); the pre-filter applied per account; the pool ladder
+(receipt → same-day unique → windowed unique → ambiguous); retirement of the stem tier
+and `transferStem` from the matching path; rail derivation per leg (method from the
+pattern, direction from the sign; `EXTERNAL` legs included) and the payer's method on the
+derived transfer; the pattern edit preview (legs potted / pairs made); the pot surfacing
+in the leg-resolution view. No log or line-format change; a derive-only reflow.
 
 **Acceptance**: on the private fixture, the measured families resolve — Osko↔CBA (45),
 BPAY↔BankWest (26), CBA internal (11) — and the ties behave: two $2,000 Oskos on
@@ -324,7 +324,11 @@ the genuine receipt pairs — all same-day, equal amount — keep pairing. The 1
 (17 `Fast Transfer From … to PayID` receipts from people, 2 `Transfer To … PayID`
 payments) carry the `PAYID` rail with `IN` / `OUT` from their signs and leave the pool as
 rail-only, so they cannot open `UNMATCHED_LEG`; the Osko payer legs read `OSKO · OUT`, the
-card payments `BPAY · OUT`, and the CBA internals `BANK_TRANSFER · IN/OUT`. Held legs fall from 518 to ~330 (roughly 348 after pairing, less
+card payments `BPAY · OUT`, and the CBA internals `BANK_TRANSFER · IN/OUT`. An Osko
+payment to a non-self name (e.g. `GLEN MACHADO … to +61-412658030`) is `EXTERNAL` with
+rail `OSKO · OUT` on the first derive — an expense, not a held leg — while a self Osko
+whose contra is missing (the pre-CBA-history cases) stays `HELD` as a transfer awaiting
+its other side. Held legs fall from 518 to ~330 (roughly 348 after pairing, less
 the rail-only PayID rows); no unshaped row can ever pair; a pattern edit reflows without
 re-ingest; `trex index --rebuild` reproduces every pairing and `rail`; `trex verify`
 green; `docs/V2-PARITY.md` updated for the retired stem tier.

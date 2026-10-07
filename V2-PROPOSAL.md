@@ -1862,10 +1862,14 @@ Evaluation order, first match wins:
    another account that is a **plausible counterpart** — opposite sign, equal `|amount|`,
    the same `currency`, and dates within `windowDays`. Receipt numbers are not globally
    unique (the same ING receipt appears on rows years and accounts apart), and a collision
-   must not shape two unrelated rows. Patterns are account-scoped: each institution writes its own
-   vocabulary (`Osko`, `Fast Transfer`, `Transfer to xx\d+`, `Bill Payment Received`),
-   and a leg is judged only by the list of the account it sits in. Sign and account do
-   not determine shape — they qualify a candidate. Only shaped legs enter the pool; the
+   must not shape two unrelated rows. Patterns are account-scoped: each institution writes
+   its own vocabulary (`Osko`, `Fast Transfer`, `Transfer to xx\d+`, `Bill Payment
+   Received`), and a leg is judged only by the lists of the account it sits in. Patterns
+   are ordered and the **first match wins** — the account's own entries first, then
+   `default` — and the match decides both shape and rail. That ordering separates "Osko to
+   self" (a transfer) from "Osko to anyone else" (an expense): the self pattern precedes
+   the generic rail-only one. Sign and account do not determine shape — they qualify a
+   candidate. Only shaped legs enter the pool; the
    pre-filter is what keeps ordinary rows out of it, whatever the amount/date coincidence.
 3. **Pool and ladder.** The matcher runs `(date, n)` order over the pool of shaped,
    undecided legs and takes the first tier that fires:
@@ -1912,7 +1916,9 @@ Evaluation order, first match wins:
        - { match: 'Internal Transfer', rail: BANK_TRANSFER }
        - { match: 'To my account',     rail: BANK_TRANSFER }
        - { match: 'From my account',   rail: BANK_TRANSFER }
-       - { match: 'Osko',              rail: OSKO }
+       # Osko to self is a transfer; Osko to anyone else is an expense.
+       - { match: '^Rohan Machado - Osko Payment to', rail: OSKO }
+       - { match: 'Osko Payment to',                  rail: OSKO, shape: false }
      ing-orange:
        - { match: 'Bankwest Auto Pay',          rail: BPAY }
        - { match: 'BANKWEST CREDIT CARD.*BPAY', rail: BPAY }
@@ -1928,10 +1934,10 @@ Evaluation order, first match wins:
        - { match: 'Bill Payment Received', rail: BPAY }
    ```
 
-   An account's effective list is the `default` list plus its own entries; an account
-   with no entry still shapes by the default rails and by receipts. Saving a change runs
-   the same preview contract as a rule edit: it shows the legs the change would pot and
-   the pairs it would make, before anything moves.
+   An account's effective list is its own entries followed by `default`, first match wins;
+   an account with no entries still shapes by the default rails and by receipts. Saving a
+   change runs the same preview contract as a rule edit: it shows the legs the change
+   would pot and the pairs it would make, before anything moves.
 
    > **Parity with v1.** v1 paired on amount, sign, account, currency and date alone, and
    > that is what the pool does — with two differences that make it safe rather than
