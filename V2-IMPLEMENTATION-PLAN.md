@@ -308,10 +308,10 @@ formalism if unsettled, parse-time profile parameters, and any line-format chang
 account extensions, each entry carrying a `rail` and an optional `shape: false` for
 rail-only tags); the pre-filter applied per account; the pool ladder (receipt →
 same-day unique → windowed unique → ambiguous); retirement of the stem tier and
-`transferStem` from the matching path; rail derivation per leg (EXTERNAL included) and on
-the derived transfer (payer side wins); the pattern edit preview (legs potted / pairs
-made / direction contradictions named); the pot surfacing in the leg-resolution view. No
-log or line-format change; a derive-only reflow.
+`transferStem` from the matching path; directional rail derivation per leg from the sign
+(`<METHOD>_IN` / `<METHOD>_OUT`, `EXTERNAL` legs included) and on the derived transfer
+(payer side wins); the pattern edit preview (legs potted / pairs made); the pot surfacing
+in the leg-resolution view. No log or line-format change; a derive-only reflow.
 
 **Acceptance**: on the private fixture, the measured families resolve — Osko↔CBA (45),
 BPAY↔BankWest (26), CBA internal (11) — and the ties behave: two $2,000 Oskos on
@@ -322,8 +322,9 @@ same-day preference. A reused receipt never shapes or pairs unrelated rows: the 
 the two cross-era collisions (1,498-day UBS/COLES, 904-day WH SMITH/JPM) unpair, while
 the genuine receipt pairs — all same-day, equal amount — keep pairing. The 19 PayID rows
 (17 `Fast Transfer From … to PayID` receipts from people, 2 `Transfer To … PayID`
-payments) carry `PAYID_IN`/`PAYID_OUT` and leave the pool as rail-only, so they cannot
-open `UNMATCHED_LEG`. Held legs fall from 518 to ~330 (roughly 348 after pairing, less
+payments) carry `PAYID_IN` / `PAYID_OUT` and leave the pool as rail-only, so they cannot
+open `UNMATCHED_LEG`; the Osko payer legs read `OSKO_OUT`, the card payments `BPAY_OUT`,
+and the CBA internals `BANK_TRANSFER_IN` / `BANK_TRANSFER_OUT`. Held legs fall from 518 to ~330 (roughly 348 after pairing, less
 the rail-only PayID rows); no unshaped row can ever pair; a pattern edit reflows without
 re-ingest; `trex index --rebuild` reproduces every pairing and `rail`; `trex verify`
 green; `docs/V2-PARITY.md` updated for the retired stem tier.

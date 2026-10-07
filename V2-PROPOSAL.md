@@ -1887,16 +1887,16 @@ Evaluation order, first match wins:
      HELD is what it is — on hold waiting for a contra — and the item is the separate
      statement that there is more than one; no pair is emitted either way. Resolved by
      `PAIR` or `MARK_EXTERNAL`, or the candidates resolve themselves as they are decided.
-4. **Attribution (rails).** Every pattern declares a `rail`: `OSKO`, `PAYID_IN`,
-   `PAYID_OUT`, `BPAY` or `BANK_TRANSFER`. A rail is derived per leg from the pattern
-   that matched it — `EXTERNAL` legs included — so the Blotter can show how a payment
-   arrived (`PAYID_IN`) or left (`PAYID_OUT`) even when no contra exists. A pattern may
-   be **rail-only** (`shape: false`): it tags its rows but never places them in the pool,
-   which is how person-to-person PayID keeps its rail without becoming a transfer
-   candidate. A matched pair records the **payer leg's rail** (the negative side, the
-   party that initiated the movement), falling back to the payee leg's rail and then
-   `BANK_TRANSFER`. A directional rail is validated against the leg's sign — a
-   `PAYID_IN` pattern that matches a debit is a config error the preview names.
+4. **Attribution (rails).** Every pattern declares a rail **method** — `OSKO`, `PAYID`,
+   `BPAY` or `BANK_TRANSFER` — and a leg's derived rail is always directional from its
+   sign: `<METHOD>_IN` on a credit, `<METHOD>_OUT` on a debit. The vocabulary is the full
+   eight; `BPAY_IN` is defined even though today's data has none. A rail is derived per
+   leg — `EXTERNAL` legs included — so the Blotter can show how a payment arrived
+   (`PAYID_IN`) or left (`OSKO_OUT`) even when no contra exists, and a pattern may be
+   **rail-only** (`shape: false`) to tag rows without placing them in the pool. A matched
+   pair records the **payer leg's directional rail** (the negative side), falling back to
+   the payee leg's rail and then `BANK_TRANSFER_OUT`; the suffix is relative to the leg
+   that carried it, and the pair's from/to accounts already fix the perspective.
 5. **Collapse.** A pair emits one `transfer` row; its legs are `MATCHED` and are never
    projected (§11). A pair emitted from a decision carries `origin: decision` and the
    decision's `n`; a pair from the matcher carries `origin: derived`.
@@ -1920,8 +1920,8 @@ Evaluation order, first match wins:
        - { match: 'Fast Transfer',       rail: BANK_TRANSFER }
        - { match: 'Transfer from xx\d+', rail: BANK_TRANSFER }
        # Person-to-person PayID: a rail, not a transfer candidate.
-       - { match: 'Fast Transfer From .+ to PayID', rail: PAYID_IN,  shape: false }
-       - { match: 'Transfer To .+ PayID',           rail: PAYID_OUT, shape: false }
+       - { match: 'Fast Transfer From .+ to PayID', rail: PAYID, shape: false }
+       - { match: 'Transfer To .+ PayID',           rail: PAYID, shape: false }
      cba-netsaver:
        - { match: 'Transfer to xx\d+', rail: BANK_TRANSFER }
      bw-credit-card:
