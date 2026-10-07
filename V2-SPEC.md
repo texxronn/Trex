@@ -38,13 +38,13 @@ migrated from.
 | Module | Kind | Responsibility |
 |---|---|---|
 | `trex-v2-core` | library | model, identity, `Clean`, `MerchantStem`, `occ`, `derive()`, workbook, state hashes. Pure. |
-| `trex-v2-log` | library | framed writer/reader + recovery, line codec, evidence store, `Json`/`Yaml`, `ConfigLoader`. |
+| `trex-v2-log` | library | framed writer/reader + recovery, line codec, evidence store, `Json`/`Yaml`, `ConfigLoader`, stream export/read (`Streams`). |
 | `trex-v2-index` | library | SQLite materialiser: log → level-1 mirror → derived tables; index lock; offset; rebuild. |
-| `trex-v2-sequencer` | service | the only writer: `POST /facts`, `/decisions`, `/ingest`, `GET /head`, `POST /maintenance/snapshot`, recovery, fsync. |
+| `trex-v2-sequencer` | service | the only writer: `POST /facts`, `/decisions`, `/ingest`, `/stream`, `GET /head`, `POST /maintenance/snapshot`, recovery, fsync. |
 | `trex-v2-hub` | service | index owner; blotter API + UI; decision precheck/forward; reflow; ACK; SSE; proxy to the runner. |
 | `trex-v2-ingest` | library/CLI | adapters → evidence + facts + ingest events; source archive; whole-file validation; day batching; feeds; re-parse. |
 | `trex-v2-egress` | library/CLI | archive byte mirror; Firefly projection; export. |
-| `trex-v2-runner` | service | on-demand job dispatcher + staging inbox: a loopback trigger API, `ingest`/`egress-firefly`/`journal-snapshot`, sync/async. Never writes the log or the index. |
+| `trex-v2-runner` | service | on-demand job dispatcher + staging inbox: a loopback trigger API, `ingest`/`egress-firefly`/`journal-snapshot`/`stream`, sync/async. Never writes the log or the index. |
 | `trex-v2-dist` | packaging | one shaded `trex-v2.jar`; picocli subcommands select the role. No logic. |
 
 `trex-v2-hub` depends on `trex-v2-sequencer` for shared wire DTOs only (a type-only dependency).
@@ -70,8 +70,9 @@ migrated from.
   `parser`. The time is the envelope's `atMs`.
 - **Decisions** (`Decision`): `action`, `actor` (`user | migrated | system`), `user` (nullable),
   plus the action's fields; `at` is `envelope.atMs`. The complete action set is `PAIR`, `UNPAIR`,
-  `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `REVOKE`, `USER_ACK`,
-  `USER_UNACK`, `NOTE`. On the wire, `REVOKE`'s target is `revokes` — the envelope owns `target`.
+  `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `MARK_NOOP`,
+  `UNMARK_NOOP`, `REVOKE`, `USER_ACK`, `USER_UNACK`, `NOTE`. On the wire, `REVOKE`'s target is
+  `revokes` — the envelope owns `target`.
 - **Ingest events** (`IngestEvent`): `phase` (`start | complete`) and `batch`; a `start` also carries
   `evidence`/`file`/`account`/`sourceType`/`parser`, a `complete` the `appended`/`duplicate`/`flagged`
   counts and a `status`. The facts sit strictly between the pair, so a batch's `n` range is the
@@ -120,17 +121,37 @@ replay → effective decisions → supersession / chain resolution → current t
 state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/3"`, `hashVersion = "statehash/2"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/5"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
-**Transfer pairing.** `PAIR` decisions win. The matcher tiers are T1 (shared receipt), T2 (same day)
-and T3 (within `windowDays`), requiring equal magnitude, opposite sign, different accounts, same
-currency, and — for T2/T3 — an equal `transferStem`. Ambiguity (more than one candidate) becomes a
-review item, never a guess.
+**Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
+recorded and visible but is not a posting — no chain edge, no transfer leg, no unit, no sum. The role
+comes from an account-profile rule in `profiles.yaml` (matched on the cleaned description) or a
+`MARK_NOOP`/`UNMARK_NOOP` decision, and a decision wins over the profile in either direction; the role
+is never stored on the line, so a change is a reflow.
+
+**Transfer shape and pairing.** A leg is *transfer-shaped* when its own account's first matching
+`transferPatterns` entry says `shape: true` (§9.9.C), or it shares a receipt with a plausible
+counterpart (opposite sign, equal magnitude, same currency, within `windowDays`). A pattern also
+declares the rail method (`OSKO`/`PAYID`/`BPAY`/`BANK_TRANSFER`) and may be `shape: false` (rail-only)
+or name a `clearing:` account. `PAIR` decisions win. The pool ladder pairs shaped, undecided legs in
+`(date, n)` order: **T1** shared receipt, **T2** same day, **T3** within `windowDays`, each requiring
+equal magnitude, opposite sign, different accounts, same currency, and a **mutually unique**
+counterpart. More than one candidate opens `AMBIGUOUS_TRANSFER` and pairs nothing; text is never
+compared across accounts (the v1 `transferStem` tier is retired). A clearing leg pairs directly with
+its `clearing:` account — one real leg and an account side, no window, no ambiguity. A matched pair
+records the payer leg's rail method; the rail direction is the sign.
 
 **Review items** (`(subject, kind)` is the key): `POTENTIAL_DUP`, `RESTATEMENT`, `AMBIGUOUS_TRANSFER`,
-`AMBIGUOUS_SETTLEMENT`, `UNMATCHED_LEG`, `STALE_PENDING`, `INEFFECTIVE_DECISION`. Duplicate and
-restatement rows are grouped into clusters, so one item lists every member.
+`AMBIGUOUS_SETTLEMENT`, `UNMATCHED_LEG`, `STALE_PENDING`, `INEFFECTIVE_DECISION`, `BALANCE_BREAK` (a
+statement account whose chain does not close; subject the account ref, so a `DISMISS` names the
+account). Duplicate and restatement rows are grouped into clusters, so one item lists every member.
+
+**The balance check and clearing.** Reconciliation runs over `transaction` rows only; a `noop` row's
+edges and amount leave the chain and are named as exclusions. An account with unexplained forks is
+`broken`; a `DECLARED` (cash) account reports its gap; a `CLEARING` account (§6.10) holds no facts and
+reports a computed opening (`closing + Σ real movements`), so its derived balance lands on the
+declared closing.
 
 **Pending.** A pending fact is never current, never counted, never projected; it is `OPEN`, `SETTLED`
 by a derived counterpart, or `STALE` past the account's `settlementWindowDays`, and is closed by
@@ -141,11 +162,14 @@ by a derived counterpart, or `STALE` past the account's `settlementWindowDays`, 
 ## 7. The read model
 
 SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `ingest_event`); level
-2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current`, `transfer`,
-`pending`, `review_item`, `category_current`, `pin_current`, `ineffective_decision`, `unit`,
-`projection_state`, `user_ack`, `source_cursor`, `evidence`, and the `ingest_batch` view (the
-markers paired). Every table can be dropped; `trex index --rebuild`
-reproduces them. The hub holds one writer connection and a small read pool, with `query_only` reads.
+2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current` (carrying the
+derived `role` and rail), `transfer` (carrying the payer `method` and, for a clearing pair, the
+`clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`,
+`ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
+`ingest_batch` view (the markers paired). A derived column's shape change drops and recreates its
+table and clears the derived meta, so the next apply re-derives. Every table can be dropped;
+`trex index --rebuild` reproduces them. The hub holds one writer connection and a small read pool,
+with `query_only` reads.
 
 ---
 
@@ -156,6 +180,7 @@ reproduces them. The hub holds one writer connection and a small read pool, with
 | `POST` | `/facts` | append a batch of fact drafts (`allOrNone`, `source` required, `target?`); per-row outcome `Appended \| Duplicate \| Flagged \| Rejected`. |
 | `POST` | `/decisions` | append a batch of decisions (`source` required); reference/structure validation only. |
 | `POST` | `/ingest` | append one ingest event (`source` required); the writer stamps the envelope and assigns `n`. |
+| `POST` | `/stream` | append streamed raw JSONL verbatim (§14.1): `n`-contiguous, re-validated per line; returns `{appended, headN, stoppedAt, error}`. |
 | `GET` | `/head` | the current log head `n` and byte offset. |
 | `POST` | `/maintenance/snapshot` | write a dated gzip copy of the journal prefix to the archive; `?sync=false` runs it in the background. |
 
@@ -167,21 +192,25 @@ unauthenticated and binds loopback by default.
 
 ## 9. Hub API and UI (`trex-v2-hub`)
 
-`/head`, `/api/status`, `/api/refdata`, `/api/ledger`, `/api/review`, `/api/transfers`, `/api/units`,
-`/api/reconcile`, `/api/opening`, `/api/workbook`, `/api/projection` (GET/POST), `/api/cursors`
-(GET/POST), `/api/decisions` (POST), `/api/acks` (GET/POST), `/api/eyeball`, `/api/ingests`,
-`/api/accounts`, `/api/reflow/preview` (POST), `/api/config/categories` (GET/PUT), `/api/jobs*`
-(proxied to the runner), and `/api/events` (SSE snapshot then deltas).
+`/head`, `/api/status`, `/api/refdata`, `/api/ledger` (filters include `role` and `leg`), `/api/review`,
+`/api/transfers`, `/api/units`, `/api/reconcile` (with named `noop` exclusions), `/api/chains` (the
+§6.9 balance check: per-account forks and a per-side noop preview), `/api/opening`, `/api/workbook`,
+`/api/projection` (GET/POST), `/api/cursors` (GET/POST), `/api/decisions` (POST), `/api/acks`
+(GET/POST), `/api/eyeball`, `/api/ingests`, `/api/accounts`, `/api/reflow/preview` (POST),
+`/api/reflow/preview/transfers` (POST), `/api/config/categories` (GET/PUT), `/api/config/transfers`
+(GET/PUT), `/api/jobs*` (proxied to the runner), and `/api/events` (SSE snapshot then deltas).
 
-The UI has six modes: **Blotter** (SQL-backed filters, inline decisions, status strip), **Review**
-(the derived queue, one decision away from clear), **Eyeball** (§10.3 — open items, the nine anomaly
-checks with an explicit `asOf`, and transactions bucketed by day/week/month with a per-row
-`Ack`/`Unack` and a per-row pin), **Rules** (editor with blast-radius preview, lint, fixtures,
-coverage), **Accounts** (§10.5 — per-account earliest/latest, the newest ingest, and a facts-derived
-weekly strip; a quiet week inside the range is a hole to check, never "not imported"), and **Jobs**
-(the trigger runner: the staging inbox, egress Plan/Verify/Apply, Snapshot journal, the ingest
-history, and the ops strip of staleness — last plan/apply and unprojected/drifted/orphaned unit
-counts).
+The UI has seven modes: **Blotter** (SQL-backed filters including role, inline decisions — pin, pair,
+mark external, `noop`/`unmark noop` — status strip), **Review** (the derived queue, one decision away
+from clear), **Eyeball** (§10.3 — open items, the nine anomaly checks with an explicit `asOf`, and
+transactions bucketed by day/week/month with a per-row `Ack`/`Unack` and a per-row pin), **Rules**
+(category editor with blast-radius preview, lint, fixtures, coverage, plus a **Transfer patterns**
+editor with the same preview contract), **Accounts** (§10.5 — per-account opening, earliest/latest,
+the newest ingest, and a facts-derived weekly strip; a quiet week inside the range is a hole to
+check, never "not imported"), **Chains** (§6.9 — the balance check per account, forks with both sides,
+the computed clearing opening, and a per-side `noop` preview), and **Jobs** (the trigger runner: the
+staging inbox, egress Plan/Verify/Apply, Snapshot journal, the ingest history, and the ops strip of
+staleness — last plan/apply and unprojected/drifted/orphaned unit counts).
 
 ---
 
@@ -220,22 +249,24 @@ counts).
 ## 12. Configuration (`deploy/config`)
 
 `sequencer.yaml` (bind host/port, journal source/target), `accounts.yaml` (ref, currency,
-`balanceSource`, `settlementWindowDays`), `users.yaml` (non-empty; id, name, active, cadence),
-`categories.yaml` (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures,
-run on load), `transfers.yaml` (window, tolerances, allowlist), `firefly.yaml` (account mapping),
-`sources.yaml` (the declared 8-char sources the sequencer accepts), `statements.yaml` (a filename →
-`sourceType`/account map for the runner's upload picker), and an optional `refdata.yaml` overriding
-the declared category names. The rules are the tuned contract; a rebuild consumes them as-is. The
-sequencer's environment is `TREX_ENV` (not a file); the archive location is `--archive` on the
-sequencer and runner.
+`balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, and for a clearing account
+`closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
+(declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
+`profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
+per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing`),
+`firefly.yaml` (account mapping), `sources.yaml` (the declared 8-char sources the sequencer accepts),
+`statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker), and an
+optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a
+rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
+location is `--archive` on the sequencer and runner.
 
 ---
 
 ## 13. CLI
 
 One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runner`, `index`,
-`ingest`, `egress archive`, `egress firefly`, `snapshot`, `reflow`, `verify`, `export`, `import`
-(dev). Exit code `64` is `EX_USAGE`. No config is baked in.
+`ingest`, `egress archive`, `egress firefly`, `snapshot`, `stream export`, `stream ingest`, `reflow`,
+`verify`, `export`, `import` (dev). Exit code `64` is `EX_USAGE`. No config is baked in.
 
 ---
 
@@ -270,10 +301,11 @@ run over real statement files.
 ## 16. The runner and its schedule
 
 `trex-v2-runner` is a loopback service the hub proxies. A **job** is an invocation of an existing
-subcommand — `ingest`, `egress-firefly`, `journal-snapshot` — never new logic: the runner starts the
-process, streams its output and records the exit code. One serialized worker, a bounded in-memory run
-history, and a **staging inbox** for uploads. `POST /jobs/{name}/runs` is async (`202 {runId}`) or,
-with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
+subcommand — `ingest`, `egress-firefly`, `journal-snapshot`, `stream` (mode `export | ingest`) — never
+new logic: the runner starts the process, streams its output and records the exit code. One serialized
+worker, a bounded in-memory run history, and a **staging inbox** for uploads. `POST /jobs/{name}/runs`
+is async (`202 {runId}`) or, with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
+The runner mounts the journal read-only so the `stream` export job can read it.
 
 **The schedule** (`schedule.yaml`, empty by default) enqueues jobs through the same queue. It is
 intervals only, with a phase — no cron:
@@ -303,9 +335,14 @@ Runs carry a `trigger` (`manual` | `schedule`), and `GET /jobs` reports each job
 
 Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 
-- the matcher's equal-`transferStem` requirement at T2/T3 (stricter than v1);
+- the transfer matcher's account-scoped shape pre-filter, the mutually-unique tie rule, and the
+  receipt plausible-counterpart guard (v1's interim `transferStem` tier is retired);
+- roles and the balance check (`noop`, `BALANCE_BREAK`, the Chains view), and clearing accounts with
+  a computed opening (v1 had neither);
+- per-account `transferPatterns` and the derived rail method (v1 had a flat allowlist, no rail);
+- stream promotion (`trex stream export|ingest`, the sequencer `/stream` path) — post-proposal;
 - pending settlement and its sign convention (v1 skipped pending entirely);
-- `transferStem`, the restatement similarity, and the payment-noise word list (no v1 counterpart);
+- the restatement similarity and the payment-noise word list (no v1 counterpart);
 - `occ` restated to v1's exact rule;
 - the hub↔sequencer type-only dependency;
 - the uniform envelope, namespaced kinds and `v = 1` (the pre-envelope v2 log was `v = 2` on facts

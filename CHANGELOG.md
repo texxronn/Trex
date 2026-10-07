@@ -40,6 +40,36 @@ everything is under **Unreleased**.
   window. A quiet bucket inside an account's range is a hole (check me); outside it is unanswered.
   Read-only: the strip is recomputed from the current rows per request, and statement periods are
   not recorded, so a hole never asserts "not imported".
+- **Roles and the balance check** (P5, §6.9). `profiles.yaml` binds account-scoped rules that
+  classify a row `noop` (recorded and visible, not a posting); `MARK_NOOP`/`UNMARK_NOOP` decisions
+  override a profile in either direction. Derive excludes `noop` rows from shaping, pairing and
+  units; reconciliation runs over `transaction` rows only and names every exclusion with the rule or
+  decision that classified it. A new `BALANCE_BREAK` review item opens on an account whose chain
+  does not close (subject the account ref, dismissable by account). The Blotter shows and filters the
+  role; a new **Chains** mode shows forks with both sides and a per-side `noop` preview.
+- **Transfer patterns, the pool and rails** (P6, §9.9.C). `transfers.yaml` gains ordered per-account
+  `transferPatterns` (first match wins; the account's entries before `default`), each carrying a
+  `rail` and an optional `shape: false` (rail-only). Shape is the pre-filter; the pool ladder
+  (receipt → same-day → windowed) requires a **mutually unique** counterpart and refuses to guess a
+  tie; the interim `transferStem` tier is retired, so text is never compared across accounts. Rails
+  (`OSKO`/`PAYID`/`BPAY`/`BANK_TRANSFER`, direction from the sign) are derived per leg and shown in
+  the Blotter; a matched pair records the payer's method. A receipt shapes/pairs only with a
+  plausible counterpart. A **Transfer patterns** editor previews the legs it would pot and the pairs
+  it would make.
+- **Clearing accounts** (P7, §6.10). `balanceSource: clearing` with `closingBalance`/`closedAt` — a
+  closed counterparty that holds no facts. A transfer pattern may name a `clearing:` account and its
+  leg pairs directly (one real leg + an account side, no window, no ambiguity). Reconciliation
+  reports `CLEARING` and the opening is computed backwards (`closing + Σ movements`) so the derived
+  balance lands on the declared closing; the computed opening is shown in Accounts, reconcile and
+  opening. Registering the real statements and dropping the `clearing:` line re-pairs with no
+  leftover synthetic side.
+- **Stream promotion** (P8, §14.1). `trex stream export` writes the journal as gzipped JSONL plus a
+  manifest (head, counts, `configRevision`, `deriveVersion`); `trex stream ingest` appends it line
+  for line to another sequencer through a new `POST /stream`, re-validating each line as it lands
+  (`n` contiguity, known kind, known `accountRef`, decision cross-references). Ingest skips a prefix
+  already present, refuses a gap or a `configRevision` mismatch before writing, refuses a missing
+  evidence id, and reports the landed prefix when a bad line stops it. The `stream` runner job runs
+  both modes; the runner mounts the journal read-only.
 
 ### Changed
 
@@ -57,6 +87,11 @@ everything is under **Unreleased**.
 - `REVOKE`'s wire field is `revokes` (`target` moved to the envelope).
 - The index schema gained the envelope columns and `ingest_event`; an old-shaped index is dropped
   and re-mirrored.
+- **`deriveVersion` is `derive/5` and `hashVersion` is `statehash/4`** (roles, rails and the balance
+  check; a role and a rail are part of a row's state hash). The transfer matcher no longer compares
+  text across accounts.
+- `txn_current` gained `role` and `rail`, and `transfer` gained `method` and `clearing_account`; the
+  affected derived tables are dropped and rebuilt on the first apply at the new shape.
 
 ### Fixed
 
