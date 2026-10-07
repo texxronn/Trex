@@ -577,6 +577,11 @@ public final class HubService implements HubApi, AutoCloseable {
             imports.put(imp.accountRef(), imp);
         }
 
+        Map<String, Opening.PerAccount> openings = new HashMap<>();
+        for (Opening.PerAccount p : Opening.of(reads.currentFacts(), refresher.config().registry(),
+                reads.transferRows())) {
+            openings.put(p.accountRef(), p);
+        }
         List<AccountsResponse.AccountCoverage> accounts = new ArrayList<>();
         for (Account account : refresher.config().registry().accounts().values()) {
             HubQueries.AccountTotals total = totals.get(account.ref());
@@ -607,8 +612,10 @@ public final class HubService implements HubApi, AutoCloseable {
                     files.getOrDefault(account.ref() + "|" + key, List.of())));
             }
             HubQueries.LastImport imp = imports.get(account.ref());
+            Opening.PerAccount op = openings.get(account.ref());
             accounts.add(new AccountsResponse.AccountCoverage(account.ref(), account.currency(),
-                account.balanceSource().wire(), total == null ? null : total.first(),
+                account.balanceSource().wire(), op == null ? null : op.backwardOpening(),
+                total == null ? null : total.first(),
                 total == null ? null : total.last(), total == null ? 0 : total.txns(),
                 txnsInWindow, holes,
                 imp == null ? null : new AccountsResponse.Import(imp.file(), imp.status(), imp.startedMs()),

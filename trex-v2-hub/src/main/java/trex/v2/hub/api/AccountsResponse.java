@@ -11,8 +11,12 @@ import java.util.List;
 public record AccountsResponse(String window, String granularity, LocalDate from, LocalDate to,
                                List<AccountCoverage> accounts) {
 
-    /** One account row: all-time totals, the window's buckets, and the newest ingest (nullable). */
-    public record AccountCoverage(String ref, String currency, String balanceSource,
+    /**
+     * One account row: all-time totals, the window's buckets, and the newest ingest (nullable).
+     * {@code opening} is the derived opening (backward for a statement, computed for a clearing
+     * account, §6.10/§11.3), or null when the account has no facts and no clearing movements.
+     */
+    public record AccountCoverage(String ref, String currency, String balanceSource, Long opening,
                                   LocalDate first, LocalDate last, long txns, long txnsInWindow,
                                   long holes, Import lastImport, List<Bucket> buckets) {}
 

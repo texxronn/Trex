@@ -4,6 +4,7 @@
 
 import { api } from './api.js';
 import { el, clear, scroll } from './dom.js';
+import { money } from './format.js';
 import { reportError } from './toast.js';
 
 const WINDOWS = {
@@ -89,7 +90,8 @@ function summary() {
 
 function table() {
   const head = el('tr', {},
-    el('th', {}, 'Account'), el('th', {}, 'Currency'), el('th', {}, 'Earliest'),
+    el('th', {}, 'Account'), el('th', {}, 'Currency'), el('th', { class: 'amount' }, 'Opening'),
+    el('th', {}, 'Earliest'),
     el('th', {}, 'Latest'), el('th', { class: 'amount' }, 'Txns'),
     el('th', {}, 'Last import'), el('th', { class: 'amount' }, 'Holes'),
     el('th', {}, 'Coverage'));
@@ -103,6 +105,8 @@ function accountRow(account) {
     el('td', {}, el('a', { href: '#blotter?' + new URLSearchParams({ account: account.ref }) },
       account.ref)),
     el('td', { class: 'muted' }, account.currency),
+    el('td', { class: 'amount' }, account.opening === null || account.opening === undefined
+      ? '\u2014' : money(account.opening)),
     el('td', { class: 'muted' }, account.first || '\u2014'),
     el('td', { class: 'muted' }, account.last || '\u2014'),
     el('td', { class: 'amount' }, `${account.txnsInWindow}/${account.txns}`),
