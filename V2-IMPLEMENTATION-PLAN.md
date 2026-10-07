@@ -385,6 +385,11 @@ derives it normally.
 decision-level fallback for targets that already hold their own history (retained as a
 design note only).
 
+A stream is plain JSONL and may be transformed before ingest (`jq`, `zcat`): field-level
+edits such as a `env` re-stamp or comment redaction are supported, while line drops,
+reordering and identity-field edits are refused or caught by validation. The untransformed
+export remains the file of record.
+
 ---
 
 ## 4. Coding standards for v2

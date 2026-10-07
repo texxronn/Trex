@@ -2610,6 +2610,21 @@ Ingest is resumable: re-running skips the prefix already present and continues a
 history — the fallback is a decision-level export/replay carrying each decision's
 `factsBefore` watermark, so conclusions are merged without merging histories.
 
+**The stream is plain JSONL, and it may be transformed.** Files are gzipped on export and
+accepted gzipped or plain on ingest, so ordinary tools compose:
+
+```sh
+zcat trex-stream.jsonl.gz | jq -c '.env = "Prod1   "' > prod-stream.jsonl
+```
+
+A transform is safe when it edits fields per line — typically re-stamping `env` for the
+target, or redacting comment text — and keeps `n` contiguous, preserves line order and
+leaves every identity field (`externalId`, `accountRef`, `date`, `amount`, `balance`,
+`receipt`, `occ`, `evidenceId`) untouched; a rewritten `source` must name a process declared
+in `sources.yaml`. Ingest re-validates structure but cannot detect a semantic edit, so the
+untransformed export stays the file of record. `trex stream ingest --env Prod1` re-stamps
+the environment as a convenience; the default preserves the source's.
+
 **Deployment is one image.** The rhythms above are commands of the same artifact; only
 the sequencer mounts the journal read-write, and every other role gets it `:ro`. Compose
 and systemd differ only in the `command:`/`ExecStart=` line. Three roles run always: the
