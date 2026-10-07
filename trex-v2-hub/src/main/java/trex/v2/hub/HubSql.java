@@ -69,11 +69,34 @@ final class HubSql {
 
     static final String TRANSFER_LEGS = "SELECT transfer_id, from_leg, to_leg FROM transfer";
 
+    /** The current posted facts. The chain, the projection and the walk run over transactions only
+     * (§6.9); noop rows are read separately for the reconcile result's exclusions. */
     static final String CURRENT_FACTS = """
         SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
                observation, source_type, provenance, evidence_id, parser,
                line_v, at_ms, env, source, target
-        FROM txn_current ORDER BY n""";
+        FROM txn_current WHERE role = 'transaction' ORDER BY n""";
+
+    /** The current noop rows, the rows the balance chain skips by role (§6.9). */
+    static final String CURRENT_NOOPS = """
+        SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
+               observation, source_type, provenance, evidence_id, parser,
+               line_v, at_ms, env, source, target
+        FROM txn_current WHERE role = 'noop' ORDER BY n""";
+
+    /**
+     * The latest effective role decision naming any id in a chain, with its reason (§6.9). A
+     * decision naming an earlier id still applies via {@code chain_resolved}; decisions a REVOKE
+     * targets are skipped. The action distinguishes a decision-classified noop from the profile
+     * default, so a later {@code UNMARK_NOOP} correctly yields the profile's answer.
+     */
+    static final String ROLE_DECISION = """
+        SELECT n, action, json_extract(payload, '$.reason')
+        FROM decision
+        WHERE action IN ('MARK_NOOP', 'UNMARK_NOOP')
+          AND json_extract(payload, '$.externalId') IN (SELECT id FROM chain_resolved WHERE current_id = ?)
+          AND n NOT IN (SELECT json_extract(payload, '$.revokes') FROM decision WHERE action = 'REVOKE')
+        ORDER BY n DESC LIMIT 1""";
 
     static final String PENDING_SELECT = """
         SELECT external_id, account_ref, date, amount, settled_by, state

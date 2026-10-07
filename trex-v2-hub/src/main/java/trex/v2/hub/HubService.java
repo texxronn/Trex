@@ -265,14 +265,31 @@ public final class HubService implements HubApi, AutoCloseable {
             .filter(a -> a.balanceSource() == BalanceSource.DECLARED)
             .map(Account::ref)
             .collect(Collectors.toCollection(TreeSet::new));
-        Map<String, Reconciliation.AccountResult> results = Reconciliation.reconcile(reads.currentFacts(), declared);
+        List<Fact> noops = reads.currentNoops();
+        Map<String, Fact> noopById = new HashMap<>();
+        for (Fact f : noops) {
+            noopById.put(f.externalId(), f);
+        }
+        Map<String, Reconciliation.AccountResult> results =
+            Reconciliation.reconcile(reads.currentFacts(), noops, declared);
         List<ReconcileResponse.AccountJson> accounts = results.values().stream()
             .map(r -> new ReconcileResponse.AccountJson(r.accountRef(),
                 r.status().name().toLowerCase(java.util.Locale.ROOT), r.reconcilable(), r.balances(),
-                r.opening(), r.closing(), r.sum(), r.gap()))
+                r.opening(), r.closing(), r.sum(), r.gap(),
+                r.exclusions().stream().map(id -> exclusion(id, noopById.get(id), c)).toList()))
             .toList();
         boolean ok = accounts.stream().allMatch(ReconcileResponse.AccountJson::balances);
         return new ReconcileResponse(ok, accounts);
+    }
+
+    /** Why one noop row was excluded (§6.9): a MARK_NOOP decision wins over the profile rule. */
+    private ReconcileResponse.ExclusionJson exclusion(String id, Fact f, DeriveConfig c) {
+        HubQueries.RoleDecision d = reads.roleDecision(id);
+        if (d != null && "MARK_NOOP".equals(d.action())) {
+            return new ReconcileResponse.ExclusionJson(id, "decision " + d.n(), d.reason());
+        }
+        String reason = f == null ? null : c.profiles().reasonFor(f.accountRef(), f.rawDescription());
+        return new ReconcileResponse.ExclusionJson(id, "profile", reason);
     }
 
     // ---- eyeball markers (V2-PROPOSAL.md §9.4) ----------------------------------------------

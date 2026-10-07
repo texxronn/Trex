@@ -457,11 +457,20 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
-    /** The current posted facts, for reconciliation. */
+    /** The current posted facts (role {@code transaction}), for reconciliation and the walk. */
     public List<trex.v2.core.Fact> currentFacts() {
+        return currentFacts(HubSql.CURRENT_FACTS);
+    }
+
+    /** The current {@code noop} facts, named as exclusions by the balance check (§6.9). */
+    public List<trex.v2.core.Fact> currentNoops() {
+        return currentFacts(HubSql.CURRENT_NOOPS);
+    }
+
+    private List<trex.v2.core.Fact> currentFacts(String sql) {
         return read(conn -> {
             List<trex.v2.core.Fact> rows = new ArrayList<>();
-            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.CURRENT_FACTS)) {
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
                 while (rs.next()) {
                     rows.add(new trex.v2.core.Fact(
                         new trex.v2.core.Envelope(rs.getLong(1), trex.v2.core.Fact.KIND, rs.getInt(15),
@@ -484,6 +493,25 @@ public final class HubQueries implements AutoCloseable {
             return rows;
         });
     }
+
+    /**
+     * The latest effective role decision naming this row's chain, or null when none applies (§6.9).
+     * The action is {@code MARK_NOOP} or {@code UNMARK_NOOP}; only the former classifies an
+     * exclusion, the latter yields the profile default.
+     */
+    public RoleDecision roleDecision(String externalId) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ROLE_DECISION)) {
+                ps.setString(1, externalId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? new RoleDecision(rs.getLong(1), rs.getString(2), rs.getString(3)) : null;
+                }
+            }
+        });
+    }
+
+    /** The latest role decision for a row: its n, its action and a MARK_NOOP's reason. */
+    public record RoleDecision(long n, String action, String reason) {}
 
     // ---- existence checks (decision precheck) ----------------------------------------------
 
