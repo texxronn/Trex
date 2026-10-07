@@ -362,29 +362,28 @@ facts for the missing history.
 
 ---
 
-### P8 — Decision export and replay (§14.1)
+### P8 — Stream export and ingest (§14.1)
 
-**Work**: `trex decisions export` (a consistent journal prefix → neutral JSONL, each decision
-carrying its `factsBefore` watermark, plus a manifest: facts head, counts, config revision)
-and `trex decisions replay` (source-order posting gated on the watermark; skip-if-identical;
-`REVOKE` `n`-remapping; fail-fast naming the offending decision; `--dry-run` foreign-key
-check; incremental re-export); the `decisions` runner job (`mode = export | replay`) in the
-JobCatalogue and the Jobs view; export files treated as private, since comments may quote
-descriptions.
+**Work**: `trex stream export` (journal → gzipped JSONL plus a manifest: head `n`, counts,
+`configRevision`, `deriveVersion`; `--since n` for a suffix) and `trex stream ingest`
+(`n`-contiguous verbatim append through the sequencer; resume by skipping the prefix
+already present; fail-fast naming the offending line; manifest config check; evidence
+presence check); the sequencer's stream path with per-line validation (known kind/`v`,
+well-formed envelope, known `accountRef`, decision cross-references); the `stream` runner
+job (`mode = export | ingest`); stream files treated as private, like statements.
 
-**Acceptance**: round-trip on a fixture — seed two sequencers from the same statements,
-export the first's decisions, replay onto the second, and the derived state (legs, transfer
-pairs, categories, `user_ack`, roles) is identical; a `REVOKE` remaps to the new target `n`;
-replaying the same file again skips every decision as already-identical; a decision whose
-`factsBefore` exceeds the target's fact count is refused with that decision named (and
-`--force` is the explicit override); a `DISMISS` followed by a newer fact re-opens
-identically on the target, proving the interleaving survived; a second export after further
-review replays only the new decisions; a decision naming an unknown `externalId` fails with
-that decision named and nothing after it posted; a config revision mismatch is reported from
-the manifest before any post; `trex verify` is green on the target afterwards.
+**Acceptance**: export a dev log and ingest it into an empty sequencer with identical config
+and evidence: `n`, `atMs`, envelope and every line match the source, the derived state is
+identical row-for-row (row hashes, review items, reconcile, roles, rails) and `trex verify`
+is green. A stream beginning past `head + 1` is refused naming the gap; a missing evidence
+id is refused; a `configRevision` mismatch is refused before any write; a bad line stops the
+ingest at that line with the landed prefix reported; re-running the same file skips the
+prefix and completes; after a complete ingest, a new fact appends at `head + 1` and the hub
+derives it normally.
 
-**Out of scope** replaying facts or ingest events, cross-parser migration, and scheduling
-replay automatically.
+**Out of scope** merging two unrelated logs, ingesting without the evidence store, and the
+decision-level fallback for targets that already hold their own history (retained as a
+design note only).
 
 ---
 

@@ -98,30 +98,35 @@ cd /opt/trex && docker compose down -v && docker compose up -d && ./ingest-all.s
 
 ### Promoting dev curation to prod
 
-Dev is where rules and reviews are iterated; prod is cut over by **rebuilding and replaying**,
-never by copying a journal (its `env`/`source` would name the wrong origin, and its `n`s are
-dev's). Pin one release and one config for both sides first.
+Dev is where rules and reviews are iterated; prod is cut over by **replicating the stream**,
+not by copying a journal file by hand. `trex stream` exports the log as-is and ingests it
+line for line into a fresh target, so `n`, `atMs`, decisions, evidence ids and the
+fact/decision interleaving all arrive intact. Pin one release and one config for both sides
+first.
 
 1. **Back up the host** (journal, evidence, config) — the old v1 journal is private and may be
    the only copy. See *Back up* below.
-2. **Review to done in dev**, then export the decisions:
-   `trex decisions export --journal <dev journal> --out decisions.jsonl`, or the runner's
-   `decisions` job with `mode=export`. The export is a snapshot of the log at its current head;
-   if review continues later, export again — replay is incremental and posts only new decisions.
-   Treat the file as private: comments can quote descriptions.
-3. **Deploy the same image and config** to the host, and on cutover reset to day 0
-   (`docker compose down -v && docker compose up -d`).
-4. **Re-seed** from the private statement store (*Seeding and testing* above).
-5. **Replay** the decisions on the host, after the facts are in:
-   `trex decisions replay --file decisions.jsonl --sequencer-url http://127.0.0.1:8080 --dry-run`,
-   then again without `--dry-run` (or the runner's `decisions` job, `mode=replay`). Identity
-   resolves 1:1 because both logs were built from the same statements; `REVOKE`s are remapped,
-   and a decision whose `factsBefore` watermark exceeds the target's facts is refused — no
-   decision can land before its transactions.
-6. **Verify**: `/api/status` counts match dev apart from ingest events, `reconcile` is
-   identical, the review queue matches, `trex verify` is green.
+2. **Review to done in dev**, then export the stream:
+   `trex stream export --journal <dev journal> --out trex-stream.jsonl.gz`, or the runner's
+   `stream` job with `mode=export`. Treat the file as private, like the statements.
+3. **Copy the stream *and* the evidence store** to the host. Facts name evidence ids;
+   `stream ingest` refuses a missing one, and `trex verify` checks the hashes afterwards.
+4. **Deploy the same image and config** to the host, and on cutover reset to day 0
+   (`docker compose down -v && docker compose up -d`). Keep the statement store on the host
+   for future ingests.
+5. **Ingest the stream:**
+   `trex stream ingest --file trex-stream.jsonl.gz --sequencer-url http://127.0.0.1:8080`
+   (or the runner's `stream` job, `mode=ingest`). It refuses a config mismatch or a gap at
+   `head + 1`, and is resumable — re-running skips what has already landed.
+6. **Verify**: `n` and counts match dev, `reconcile` and the review queue match, `trex verify`
+   is green (framing, index, evidence hashes, egress plan).
 7. **Project** when ready: `egress firefly --plan` → review → `--apply` (locked without
    `--allow-apply`).
+
+While prod is still a replica, later deltas — more review, further curation — export with
+`trex stream export --since <n>` and ingest the suffix. Once prod starts ingesting on its
+own, the two logs diverge and prod becomes the log of record; from then on, streams are for
+backup and restore, not promotion.
 
 ### Back up (volume → tarball)
 
