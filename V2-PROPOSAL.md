@@ -1859,7 +1859,10 @@ Evaluation order, first match wins:
 2. **Shape (the pre-filter).** With no effective decision, a leg is *transfer-shaped*
    when `clean(rawDescription)` matches a pattern declared **for its own account** in
    `transfers.yaml` (case-insensitive), or it shares a non-null `receipt` with a leg in
-   another account. Patterns are account-scoped: each institution writes its own
+   another account that is a **plausible counterpart** — opposite sign, equal `|amount|`,
+   the same `currency`, and dates within `windowDays`. Receipt numbers are not globally
+   unique (the same ING receipt appears on rows years and accounts apart), and a collision
+   must not shape two unrelated rows. Patterns are account-scoped: each institution writes its own
    vocabulary (`Osko`, `Fast Transfer`, `Transfer to xx\d+`, `Bill Payment Received`),
    and a leg is judged only by the list of the account it sits in. Sign and account do
    not determine shape — they qualify a candidate. Only shaped legs enter the pool; the
@@ -1867,8 +1870,9 @@ Evaluation order, first match wins:
 3. **Pool and ladder.** The matcher runs `(date, n)` order over the pool of shaped,
    undecided legs and takes the first tier that fires:
    - **T1 — receipt.** Both legs share the same non-null `receipt`, are in different
-     accounts, have opposite signs and the same `currency` → `confidence: EXACT`,
-     `transfer_id` = `TRF-<receipt>`.
+     accounts, have opposite signs, equal `|amount|`, the same `currency` and dates
+     within `windowDays` → `confidence: EXACT`, `transfer_id` = `TRF-<receipt>`. A
+     receipt with no such counterpart pairs nothing and shapes nothing.
    - **T2 — same-day unique.** `|amount|` equal, opposite signs, different accounts, same
      `currency`, same `date`, and the candidate is unique *and* has no other same-day
      suitor → `confidence: HIGH`, `transfer_id` = `transferId(rootA, rootB)`.
@@ -1926,8 +1930,11 @@ Evaluation order, first match wins:
    > lucky: the pre-filter keeps ordinary rows out of the pool entirely, and a tie goes to
    > `AMBIGUOUS_TRANSFER` for a human, never to an arbitrary pick. The stem tier (`T2/T3`
    > requiring equal `transferStem`) is retired; `MerchantStem.transferStem` leaves the
-   > matching path. Equivalences and divergences with v1 stay recorded in
-   > `docs/V2-PARITY.md`.
+   > matching path. Receipts get the same discipline: equal amount and the date window are
+   > part of the tier, because receipt numbers collide across accounts and years (measured
+   > in the loaded history: a 1,498-day payroll/card pair). Every genuine receipt pair
+   > there is same-day and equal-amount, so the guard costs nothing. Equivalences and
+   > divergences with v1 stay recorded in `docs/V2-PARITY.md`.
 
 #### D. Pending settlement and staleness
 

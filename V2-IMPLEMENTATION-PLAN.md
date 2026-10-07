@@ -315,9 +315,13 @@ in the leg-resolution view. No log or line-format change; a derive-only reflow.
 BPAY↔BankWest (26), CBA internal (11) — and the ties behave: two $2,000 Oskos on
 consecutive days pair same-day, the $600 case pairs BankWest with the same-day BPAY and
 leaves the later Osko `HELD`. `AMBIGUOUS_TRANSFER` appears only where a tie survives
-same-day preference. Held legs fall from 518 to ~348; no unshaped row can ever pair; a
-pattern edit reflows without re-ingest; `trex index --rebuild` reproduces every pairing
-and `kind`; `trex verify` green; `docs/V2-PARITY.md` updated for the retired stem tier.
+same-day preference. A reused receipt never shapes or pairs unrelated rows: the two
+`Interest Charge` rows sharing receipt 901371 stay `EXTERNAL` and `INTEREST_PAID`, and
+the two cross-era collisions (1,498-day UBS/COLES, 904-day WH SMITH/JPM) unpair, while
+the genuine receipt pairs — all same-day, equal amount — keep pairing. Held legs fall
+from 518 to ~348; no unshaped row can ever pair; a pattern edit reflows without
+re-ingest; `trex index --rebuild` reproduces every pairing and `kind`; `trex verify`
+green; `docs/V2-PARITY.md` updated for the retired stem tier.
 
 **Out of scope** the one-sided policy (NAB, pre-history card payments), the
 pattern-discovery suggestion loop, and any change to receipts or pending settlement.
