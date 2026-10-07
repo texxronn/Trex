@@ -1887,11 +1887,16 @@ Evaluation order, first match wins:
      HELD is what it is — on hold waiting for a contra — and the item is the separate
      statement that there is more than one; no pair is emitted either way. Resolved by
      `PAIR` or `MARK_EXTERNAL`, or the candidates resolve themselves as they are decided.
-4. **Attribution.** Every pattern declares a `kind` — `OSKO`, `BPAY` or `BANK_TRANSFER` —
-   and the emitted transfer records the most specific kind of its two shaped sides
-   (`OSKO` > `BPAY` > `BANK_TRANSFER`), so the Blotter can say *why* a pair exists and
-   later analysis can group transfers by rail. A receipt pair records the kind of its
-   shaped side, or `BANK_TRANSFER` when neither side carries one.
+4. **Attribution (rails).** Every pattern declares a `rail`: `OSKO`, `PAYID_IN`,
+   `PAYID_OUT`, `BPAY` or `BANK_TRANSFER`. A rail is derived per leg from the pattern
+   that matched it — `EXTERNAL` legs included — so the Blotter can show how a payment
+   arrived (`PAYID_IN`) or left (`PAYID_OUT`) even when no contra exists. A pattern may
+   be **rail-only** (`shape: false`): it tags its rows but never places them in the pool,
+   which is how person-to-person PayID keeps its rail without becoming a transfer
+   candidate. A matched pair records the **payer leg's rail** (the negative side, the
+   party that initiated the movement), falling back to the payee leg's rail and then
+   `BANK_TRANSFER`. A directional rail is validated against the leg's sign — a
+   `PAYID_IN` pattern that matches a debit is a config error the preview names.
 5. **Collapse.** A pair emits one `transfer` row; its legs are `MATCHED` and are never
    projected (§11). A pair emitted from a decision carries `origin: decision` and the
    decision's `n`; a pair from the matcher carries `origin: derived`.
@@ -1904,20 +1909,23 @@ Evaluation order, first match wins:
    holdWindowDays: 30     # UNMATCHED_LEG
    transferPatterns:
      default:
-       - { match: 'Internal Transfer', kind: BANK_TRANSFER }
-       - { match: 'To my account',     kind: BANK_TRANSFER }
-       - { match: 'From my account',   kind: BANK_TRANSFER }
-       - { match: 'Osko',              kind: OSKO }
+       - { match: 'Internal Transfer', rail: BANK_TRANSFER }
+       - { match: 'To my account',     rail: BANK_TRANSFER }
+       - { match: 'From my account',   rail: BANK_TRANSFER }
+       - { match: 'Osko',              rail: OSKO }
      ing-orange:
-       - { match: 'Bankwest Auto Pay',          kind: BPAY }
-       - { match: 'BANKWEST CREDIT CARD.*BPAY', kind: BPAY }
+       - { match: 'Bankwest Auto Pay',          rail: BPAY }
+       - { match: 'BANKWEST CREDIT CARD.*BPAY', rail: BPAY }
      cba-smartaccess:
-       - { match: 'Fast Transfer',       kind: BANK_TRANSFER }
-       - { match: 'Transfer from xx\d+', kind: BANK_TRANSFER }
+       - { match: 'Fast Transfer',       rail: BANK_TRANSFER }
+       - { match: 'Transfer from xx\d+', rail: BANK_TRANSFER }
+       # Person-to-person PayID: a rail, not a transfer candidate.
+       - { match: 'Fast Transfer From .+ to PayID', rail: PAYID_IN,  shape: false }
+       - { match: 'Transfer To .+ PayID',           rail: PAYID_OUT, shape: false }
      cba-netsaver:
-       - { match: 'Transfer to xx\d+', kind: BANK_TRANSFER }
+       - { match: 'Transfer to xx\d+', rail: BANK_TRANSFER }
      bw-credit-card:
-       - { match: 'Bill Payment Received', kind: BPAY }
+       - { match: 'Bill Payment Received', rail: BPAY }
    ```
 
    An account's effective list is the `default` list plus its own entries; an account
