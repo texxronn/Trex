@@ -22,6 +22,12 @@ transferPatterns:
   # The inbound self Osko is the one default pattern that shapes: a credit from our own name is
   # a transfer waiting for its paying side. It must precede the bare Osko tag below.
   default:
+    # Closed counterparties (§6.10). These movements come from whichever ING account paid them,
+    # so the patterns are universal: they pair directly with the clearing account, no contra.
+    - { match: 'NAB Fixed Payments', rail: BANK_TRANSFER, clearing: nab-fixed }
+    - { match: 'Nab Offset',         rail: BANK_TRANSFER, clearing: nab-offset }
+    - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
+        rail: BPAY, clearing: westpac-card }
     - { match: 'MR ROHAN JOSEPH MACHADO.*Osko Payment', rail: OSKO }
     - { match: 'Osko Payment', rail: OSKO, shape: false }
     - { match: 'BPAY',         rail: BPAY, shape: false }
@@ -38,11 +44,6 @@ transferPatterns:
     - { match: 'Bankwest Auto Pay',                 rail: BPAY }
     - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
   ing-orange:
-    # Closed counterparties: pair directly with the clearing account, no contra needed (§6.10).
-    - { match: 'NAB Fixed Payments',                  rail: BANK_TRANSFER, clearing: nab-fixed }
-    - { match: 'Nab Offset',                          rail: BANK_TRANSFER, clearing: nab-offset }
-    - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
-        rail: BPAY, clearing: westpac-card }
     - { match: 'Internal Transfer',                 rail: BANK_TRANSFER }
     - { match: 'To my account',                     rail: BANK_TRANSFER }
     - { match: 'From my account',                   rail: BANK_TRANSFER }
