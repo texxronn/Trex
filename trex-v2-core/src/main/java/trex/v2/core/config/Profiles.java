@@ -29,16 +29,24 @@ public record Profiles(List<Rule> rules) {
 
     /** True when the raw description matches a noop rule declared for this account. */
     public boolean isNoop(String accountRef, String rawDescription) {
+        return reasonFor(accountRef, rawDescription) != null;
+    }
+
+    /**
+     * The reason of the first noop rule matching this account and cleaned description, or null when
+     * none does — the "why" a reconcile result names for a profile-classified exclusion (§6.9).
+     */
+    public String reasonFor(String accountRef, String rawDescription) {
         if (rules.isEmpty()) {
-            return false;
+            return null;
         }
         String cleaned = Clean.clean(rawDescription);
         for (Rule rule : rules) {
             if ((ANY_ACCOUNT.equals(rule.accountRef()) || rule.accountRef().equals(accountRef))
                 && rule.match().matcher(cleaned).find()) {
-                return true;
+                return rule.reason();
             }
         }
-        return false;
+        return null;
     }
 }

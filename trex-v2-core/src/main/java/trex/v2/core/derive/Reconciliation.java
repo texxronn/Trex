@@ -3,6 +3,7 @@ package trex.v2.core.derive;
 import trex.v2.core.Fact;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -13,7 +14,9 @@ import java.util.TreeMap;
 
 /**
  * Order-independent per-account reconciliation over derived current facts (V2-PROPOSAL.md §15.10;
- * SPEC §7 test 6). Transfer legs count like any other transaction; the v1 TRANSFER aggregate does
+ * SPEC §7 test 6). The chain runs over {@code transaction} rows only (§6.9): a {@code noop} row's
+ * edges and amount are not part of it, and the excluded rows are named in the result rather than
+ * silently dropped. Transfer legs count like any other transaction; the v1 TRANSFER aggregate does
  * not exist in v2. Never guesses: a chain that does not close is unreconcilable.
  */
 public final class Reconciliation {
@@ -28,11 +31,17 @@ public final class Reconciliation {
     }
 
     /**
-     * @param gap for a DECLARED account, value that moved between attestations and was never
-     *            recorded — the number the arrangement exists to produce, not an error.
+     * @param gap        for a DECLARED account, value that moved between attestations and was never
+     *                   recorded — the number the arrangement exists to produce, not an error.
+     * @param exclusions the {@code noop} row ids on this account that the chain deliberately skips
+     *                   (§6.9), sorted; named so the result is never silently clean.
      */
     public record AccountResult(String accountRef, Status status, long opening, long closing,
-                                long sum, long gap) {
+                                long sum, long gap, List<String> exclusions) {
+
+        public AccountResult {
+            exclusions = List.copyOf(exclusions);
+        }
 
         public boolean reconcilable() {
             return status == Status.RECONCILED;
@@ -48,22 +57,47 @@ public final class Reconciliation {
     private Reconciliation() {}
 
     /**
-     * @param currentFacts     the current posted facts (one per chain); pending excluded
+     * @param transactions     the current posted facts (one per chain); noop and pending excluded
      * @param declaredAccounts refs whose balances arrive from a person, not a statement
      */
-    public static Map<String, AccountResult> reconcile(List<Fact> currentFacts, Set<String> declaredAccounts) {
+    public static Map<String, AccountResult> reconcile(List<Fact> transactions, Set<String> declaredAccounts) {
+        return reconcile(transactions, List.of(), declaredAccounts);
+    }
+
+    /**
+     * @param noopExclusions   the current {@code noop} facts, whose rows the chain skips by role
+     *                         (§6.9); each is listed under its account in the result
+     */
+    public static Map<String, AccountResult> reconcile(List<Fact> transactions, List<Fact> noopExclusions,
+                                                       Set<String> declaredAccounts) {
         Map<String, List<Fact>> byAccount = new TreeMap<>();
-        for (Fact f : currentFacts) {
+        for (Fact f : transactions) {
             byAccount.computeIfAbsent(f.accountRef(), k -> new ArrayList<>()).add(f);
         }
+        Map<String, List<String>> excluded = new TreeMap<>();
+        for (Fact f : noopExclusions) {
+            excluded.computeIfAbsent(f.accountRef(), k -> new ArrayList<>()).add(f.externalId());
+        }
+        excluded.values().forEach(Collections::sort);
+
         Map<String, AccountResult> results = new LinkedHashMap<>();
-        byAccount.forEach((account, facts) -> results.put(account,
-            declaredAccounts.contains(account) ? reconcileDeclared(account, facts)
-                : reconcileStatement(account, facts)));
+        byAccount.forEach((account, facts) -> {
+            List<String> ex = excluded.getOrDefault(account, List.of());
+            results.put(account, declaredAccounts.contains(account)
+                ? reconcileDeclared(account, facts, ex)
+                : reconcileStatement(account, facts, ex));
+        });
+        // An account whose rows are all noop has no chain to break: report it reconciled, with its
+        // exclusions listed, rather than absent from the run.
+        excluded.forEach((account, ids) -> {
+            if (!results.containsKey(account)) {
+                results.put(account, new AccountResult(account, Status.RECONCILED, 0, 0, 0, 0, ids));
+            }
+        });
         return results;
     }
 
-    private static AccountResult reconcileStatement(String account, List<Fact> facts) {
+    private static AccountResult reconcileStatement(String account, List<Fact> facts, List<String> excluded) {
         Map<Long, Integer> diff = new HashMap<>();   // +1 per prev, -1 per balance
         long sum = 0;
         for (Fact f : facts) {
@@ -83,9 +117,10 @@ public final class Reconciliation {
             }
         });
         if (openings.size() != 1 || closings.size() != 1) {
-            return new AccountResult(account, Status.BROKEN, 0, 0, sum, 0);
+            return new AccountResult(account, Status.BROKEN, 0, 0, sum, 0, excluded);
         }
-        return new AccountResult(account, Status.RECONCILED, openings.getFirst(), closings.getFirst(), sum, 0);
+        return new AccountResult(account, Status.RECONCILED, openings.getFirst(), closings.getFirst(),
+            sum, 0, excluded);
     }
 
     /**
@@ -93,7 +128,7 @@ public final class Reconciliation {
      * attestation is derived: a declared account's fact with {@code amount == 0} (§6.1). Each gap
      * is cash that moved and was never itemised; reporting it is the point.
      */
-    private static AccountResult reconcileDeclared(String account, List<Fact> facts) {
+    private static AccountResult reconcileDeclared(String account, List<Fact> facts, List<String> excluded) {
         List<Fact> byDate = facts.stream()
             .sorted(Comparator.comparing(Fact::date).thenComparingLong(Fact::n))
             .toList();
@@ -118,6 +153,6 @@ public final class Reconciliation {
             closing = f.balance();
             moved = 0;
         }
-        return new AccountResult(account, Status.DECLARED, opening, closing, sum, gap);
+        return new AccountResult(account, Status.DECLARED, opening, closing, sum, gap, excluded);
     }
 }

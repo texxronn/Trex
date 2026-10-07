@@ -40,6 +40,37 @@ class ReconciliationTest {
     }
 
     @Test
+    void aNoopRowIsExcludedFromTheChainAndNamed() {
+        // The same closing chain, with a statement-snapshot noop row that would break it if it
+        // counted. It is skipped and listed under its account (§6.9).
+        Fact snapshot = new Fact(3, "fee", "ing-savings", LocalDate.of(2026, 9, 3), -29900, 0,
+            "Orange Advantage annual fee", null, 0, Observation.POSTED, "test", Provenance.BANK,
+            null, "test/1", AT);
+        Map<String, Reconciliation.AccountResult> r = Reconciliation.reconcile(List.of(
+                fact(1, "a", "ing-savings", -100, 900),
+                fact(2, "b", "ing-savings", 500, 1400)),
+            List.of(snapshot), Set.of());
+        Reconciliation.AccountResult result = r.get("ing-savings");
+        assertEquals(Reconciliation.Status.RECONCILED, result.status());
+        assertEquals(1000, result.opening());
+        assertEquals(1400, result.closing());
+        assertEquals(List.of("fee"), result.exclusions());
+    }
+
+    @Test
+    void anAllNoopAccountIsReportedReconciledWithItsExclusions() {
+        Fact snapshot = new Fact(3, "fee", "ing-variable-rate", LocalDate.of(2026, 9, 3), -29900, 0,
+            "Orange Advantage annual fee", null, 0, Observation.POSTED, "test", Provenance.BANK,
+            null, "test/1", AT);
+        Map<String, Reconciliation.AccountResult> r = Reconciliation.reconcile(
+            List.of(), List.of(snapshot), Set.of());
+        Reconciliation.AccountResult result = r.get("ing-variable-rate");
+        assertEquals(Reconciliation.Status.RECONCILED, result.status());
+        assertEquals(List.of("fee"), result.exclusions());
+        assertTrue(result.balances());
+    }
+
+    @Test
     void aBrokenChainIsABrokenFault() {
         // The balances do not share one opening/closing pair.
         Map<String, Reconciliation.AccountResult> r = Reconciliation.reconcile(List.of(
