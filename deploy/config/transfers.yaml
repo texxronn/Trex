@@ -81,10 +81,14 @@ transferPatterns:
     - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
 
   # CommBank writes its own internal transfers with the account form, never a person's name.
+  # A Fast Transfer to PayID is money from a person, not our own account: it must match the
+  # rail-only line first, or the broad Fast Transfer below would hold it forever.
   cba-smartaccess:
+    - { match: 'to PayID',             rail: PAYID, shape: false }
     - { match: 'Fast Transfer',        rail: BANK_TRANSFER }
     - { match: 'Transfer from xx\d+',  rail: BANK_TRANSFER }
   cba-netsaver:
+    - { match: 'to PayID',             rail: PAYID, shape: false }
     - { match: 'Transfer to xx\d+',    rail: BANK_TRANSFER }
 
   # BankWest receives the card payment; it is the contra of an ING BPAY to our own card.

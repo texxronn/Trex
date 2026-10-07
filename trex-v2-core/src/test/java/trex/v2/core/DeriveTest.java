@@ -165,6 +165,33 @@ class DeriveTest {
     }
 
     @Test
+    void aReusedReceiptShapesNothingWithoutAPlausibleCounterpart() {
+        // The same receipt recurs across accounts and years; it shapes only with a plausible
+        // counterpart (opposite sign, equal amount, same currency, within the window, §9.9.C.2).
+        List<Fact> facts = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2022, 1, 1), -66265, "UBS PAYROLL", "901371", 0),
+            fact(2, "b", "ing-orange", LocalDate.of(2024, 11, 30), -872, "COLES 1234", "901371", 0));
+        Derivation d = Derive.derive(facts, List.of(), config(), ASOF);
+        assertTrue(d.transfers().isEmpty(), "a collision is not a pair");
+        assertEquals(LegState.EXTERNAL, d.current("a").orElseThrow().leg());
+        assertEquals(LegState.EXTERNAL, d.current("b").orElseThrow().leg());
+    }
+
+    @Test
+    void twoSameDayCandidatesAreAmbiguousNotPaired() {
+        List<Fact> facts = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Transfer to Savings 4321", null, 0),
+            fact(2, "b", "ing-orange", LocalDate.of(2026, 9, 1), 1000, "Transfer from Savings 4321", null, 0),
+            fact(3, "c", "cash-ron", LocalDate.of(2026, 9, 1), 1000, "Transfer from Savings 4321", null, 0));
+        Derivation d = Derive.derive(facts, List.of(), config(), ASOF);
+        assertTrue(d.transfers().isEmpty(), "a tie is never picked");
+        assertEquals(LegState.HELD, d.current("a").orElseThrow().leg());
+        assertTrue(d.review().stream()
+            .anyMatch(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.AMBIGUOUS_TRANSFER)),
+            d.review().toString());
+    }
+
+    @Test
     void twoPairsSharingAReceiptKeepDistinctTransfers() {
         // A receipt is not unique across transfers (§8.3: that is why the date is in the natural
         // key). Two decision pairs sharing one must each keep a distinct transfer row — the second

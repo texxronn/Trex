@@ -26,28 +26,41 @@ fixture comparison is the end-to-end check behind all of this.
 | Firefly amounts: cents to fixed decimals, sign separate | `Projection.amount`/`signedAmount` | `Projection.amount`/`signedAmount` | Equivalent — `ProjectionFormatParityTest` |
 | Firefly re-tag: read-modify-write, CAS on the tag, clear a stale `category_id` | `trex.egress.firefly.FireflyEgress.retag` | `FireflyEgress.retag` | Equivalent — `FireflyEgressTest` (hand edit preserved; split/title survive; stale id cleared) |
 | Byte mirror: append + SHA-256 verify | `trex.egress.archive.ArchiveFollower` | `trex.v2.egress.archive.ArchiveMirror` | Equivalent — `ArchiveMirrorTest` |
-| Transfer matcher | `trex.sequencer.ingest.Matcher` | `Derive` P7 | **Deliberate divergence** — see below |
+| Transfer matcher: pool pairs on amount/sign/account/currency/date | `trex.sequencer.ingest.Matcher` | `Derive` P7 (§9.9.C.3) | Equivalent, with two deliberate guards — see below |
 
 ## Deliberate divergences
 
-### Transfer matcher requires an equal `transferStem`
+### Transfer matcher: the shape pre-filter and mutual-unique ties
 
 v1's matcher paired two shaped legs on **amount, sign, different account, currency and date window
-alone** — no merchant-text comparison. v2 (`V2-PROPOSAL.md` §9.9.C) additionally requires an equal
-`transferStem` (the merchant stem with the transfer vocabulary and digit runs removed) at T2 and T3.
+alone**. v2 (`V2-PROPOSAL.md` §9.9.C) keeps that pool but bolts on two guards that make it safe
+rather than lucky, and retires the interim stem tier (an earlier v2 draft required an equal
+`transferStem` at T2/T3; that is gone — `MerchantStem.transferStem` leaves the matching path):
 
-Consequence: v2 withholds some pairs v1 would have made, leaving both legs `HELD` for review rather
-than pairing them on amount and date alone. It is a change we chose — the stem is what keeps a
-same-amount coincidence from pairing two unrelated movements — and it is pinned by
-`DeriveTest.theMatcherRequiresEqualTransferStemUnlikeV1`. A migrated journal is unaffected: v1's
-pairs arrive as `PAIR` decisions, which win over the matcher.
+- **Shape is the pre-filter.** Only a leg whose account's ordered `transferPatterns` first-match says
+  `shape: true`, or which shares a receipt with a *plausible counterpart*, enters the pool. Ordinary
+  rows never reach amount/date comparison, whatever the coincidence.
+- **A tie is never picked.** At a tier the counterpart must be unique **both ways** — this leg has one
+  candidate and that candidate has no other suitor. More than one candidate opens
+  `AMBIGUOUS_TRANSFER` naming every one, and emits no pair.
+- **Receipts are guarded too.** T1 (a shared non-null receipt) also requires opposite sign, equal
+  `|amount|`, same currency and dates within `windowDays`, because receipt numbers recur across
+  accounts and years (a measured 1,498-day payroll/card collision). Every genuine receipt pair is
+  same-day and equal-amount, so the guard costs nothing.
+
+Pinned by `DeriveTest.theMatcherNeverComparesTextAcrossAccounts`,
+`DeriveTest.automaticMatcherPairsSameDayOppositeAmounts` and the private-fixture acceptance (the
+PayID rows, the $600 BankWest↔BPAY case, the receipt collisions). A migrated journal is unaffected:
+v1's pairs arrive as `PAIR` decisions, which win over the matcher.
 
 ## v2 additions with no v1 counterpart
 
 These are new and deterministic, not restatements; they affect matching and review but never
 identity, so tuning them is a reflow.
 
-- `MerchantStem.transferStem` — the stem minus transfer vocabulary and digits, for T2/T3.
+- Per-account ordered `transferPatterns` and the derived **rail** (`OSKO`/`PAYID`/`BPAY`/
+  `BANK_TRANSFER` method, direction from the sign) — v1 had a flat allowlist and no rail; a
+  `shape: false` pattern is rail-only (§9.9.C.2, §9.9.C.4).
 - `MerchantStem.tokens` / `MerchantStem.similar` and the payment-noise word list — the RESTATEMENT
   text comparison (§8.4); v1 had no equivalent.
 - Pending settlement, `SETTLE`, `AMBIGUOUS_SETTLEMENT`, `STALE_PENDING` — v1 skipped pending rows
