@@ -339,6 +339,28 @@ pattern-discovery suggestion loop, and any change to receipts or pending settlem
 
 ---
 
+### P7 — Clearing accounts (§6.10)
+
+**Work**: `balanceSource: clearing` with `closingBalance` / `closedAt`; the backwards-computed
+opening in `Opening` and a `CLEARING` reconcile status; the `clearing:` pattern action and its
+direct pairing (one real leg + an account side in the transfer/unit shape); egress provisioning
+of the clearing Firefly account with the computed opening and a verify check; the Accounts and
+reconcile rendering of the computed opening. No log or line-format change — a clearing account
+holds no facts.
+
+**Acceptance**: register `westpac-card` and `nab-loans` with closing 0. The 86 Westpac legs and
+74 NAB legs pair as clearing transfers, carrying rails and correct direction, and leave the
+review queue; neither side is a unit of its own. Each account's derived balance lands on 0 —
+Westpac computed opening −$78,092.02, NAB −$206,053.87 — shown in the Accounts view. Reconcile
+reports `CLEARING`, never `BROKEN`. The egress plan posts the transfers and provisions the
+openings so Firefly's balances land on 0, and `verify` is green. Removing a `clearing:` line
+and ingesting real statements re-pairs against the real legs with no leftover synthetic side.
+
+**Out of scope** interest vs principal splitting without statements, and any attempt to invent
+facts for the missing history.
+
+---
+
 ## 4. Coding standards for v2
 
 - **Java 25**, records and sealed interfaces; exhaustive `switch` over sealed types.

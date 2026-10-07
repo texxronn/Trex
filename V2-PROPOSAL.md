@@ -1177,6 +1177,52 @@ writer boundary stays intact (§6.8). If it is ever built it is a provisional in
 warning only, and amending the writer's "no derived review flags" boundary is part of
 that change, not an accident of it.
 
+### 6.10 Clearing accounts
+
+Some counterparties close before the journal begins: an old credit card, a paid-off loan. Their
+statements are gone, but the money that moved to them is real, and calling those movements
+"expenses" would distort both spending and net worth. A **clearing account** records such a
+counterparty without inventing facts:
+
+```yaml
+accounts:
+  - ref: "westpac-card"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0          # cents; what the account was worth when it closed
+    closedAt: "2025-06-30"
+```
+
+- It holds **no facts** and is never chained — a declared position, not a statement. Its
+  **opening is computed backwards** from the movements and the declared closing:
+  `opening = closing − Σ movements`, so the derived balance lands exactly on the declared
+  value. The computed opening is shown wherever the account is (Accounts view, reconcile):
+  the approximation is visible, never silent.
+- A transfer pattern may name a clearing account as its counterpart:
+
+  ```yaml
+  ing-orange:
+    - { match: 'NAB Fixed Payments|Nab Offset', rail: BANK_TRANSFER, clearing: nab-loans }
+    - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
+        rail: BPAY, clearing: westpac-card }
+  ```
+
+  A matching leg is **paired directly with the account** — no contra fact, no window, no
+  ambiguity — and stops being a unit of its own. The emitted transfer has one real leg and one
+  account side; direction stays structural.
+- **Retrofit is a config edit.** When real statements turn up, register the account as a
+  statement account, ingest the history, and point the patterns at it (or drop the `clearing:`
+  line). The next reflow re-pairs against real legs and the synthetic side disappears — there
+  is nothing to revoke, because the pairing was derived, not decided.
+- Reconciliation reports a clearing account as `CLEARING` (opening computed, closing declared,
+  no chain), the way `DECLARED` is never "wrong".
+- The egress provisions the Firefly account with the computed opening and posts the transfers,
+  so the projection's balance lands on the declared closing; `verify` checks it.
+
+Stated plainly: the computed opening absorbs everything the journal cannot know — a card's
+pre-history purchases, a loan's interest split. That is the price of clean flows; a later
+statement ingest replaces the approximation with the real chain.
+
 ---
 
 ## 7. The derived read model
@@ -1870,8 +1916,11 @@ Evaluation order, first match wins:
    self" (a transfer) from "Osko to anyone else" (an expense), and the same holds for
    BPAY: paying our own BankWest card is a transfer, a BPAY payment to any other biller is
    an expense. A shaping pattern always names a self counterpart — own name, own account
-   number, own card; a bare rail (`Osko Payment`, `BPAY`, `PayID`) is rail-only. Sign and
-   account do not determine shape — they qualify a candidate. Only shaped legs enter the pool; the
+   number, own card; a bare rail (`Osko Payment`, `BPAY`, `PayID`) is rail-only. A pattern
+   may also name a `clearing:` account (§6.10): a matching leg pairs directly with that
+   account — no contra fact, no window, no ambiguity — because the counterparty is
+   declared rather than looked up in the pool. Sign and account do not determine shape —
+   they qualify a candidate. Only shaped legs enter the pool; the
    pre-filter is what keeps ordinary rows out of it, whatever the amount/date coincidence.
 3. **Pool and ladder.** The matcher runs `(date, n)` order over the pool of shaped,
    undecided legs and takes the first tier that fires:
