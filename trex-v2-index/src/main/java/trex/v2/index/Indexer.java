@@ -668,12 +668,29 @@ public final class Indexer implements AutoCloseable {
         return out;
     }
 
-    /** The current posted facts, for reconciliation (V2-PROPOSAL.md §15.10). */
+    /** Every current fact, whichever role (V2-PROPOSAL.md §7.2); for identity checks. */
     public synchronized List<Fact> currentFacts() {
-        List<Fact> out = new ArrayList<>();
-        String sql = "SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
+        return currentFacts("SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
             + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
-            + "FROM txn_current ORDER BY n";
+            + "FROM txn_current ORDER BY n");
+    }
+
+    /** The current posted facts (role {@code transaction}), for reconciliation (V2-PROPOSAL.md §15.10). */
+    public synchronized List<Fact> currentTransactions() {
+        return currentFacts("SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
+            + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
+            + "FROM txn_current WHERE role = 'transaction' ORDER BY n");
+    }
+
+    /** The current {@code noop} facts, named as exclusions by the balance check (§6.9). */
+    public synchronized List<Fact> currentNoops() {
+        return currentFacts("SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
+            + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
+            + "FROM txn_current WHERE role = 'noop' ORDER BY n");
+    }
+
+    private List<Fact> currentFacts(String sql) {
+        List<Fact> out = new ArrayList<>();
         try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
             while (rs.next()) {
                 out.add(new Fact(

@@ -101,6 +101,10 @@ class IndexerTest {
             indexer.apply(journal, ASOF);
             assertEquals("noop", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
             assertEquals("transaction", string(db, "SELECT role FROM txn_current WHERE external_id='b'"));
+            // The role-filtered reads verify() and the hub run over: noops are exclusions, not postings.
+            assertEquals(1, indexer.currentNoops().size());
+            assertEquals("a", indexer.currentNoops().getFirst().externalId());
+            assertTrue(indexer.currentTransactions().stream().noneMatch(f -> f.externalId().equals("a")));
             indexer.rebuild(journal, ASOF);
             assertEquals("noop", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
         }

@@ -56,7 +56,8 @@ public final class VerifyCommand implements Callable<Integer> {
                 .map(trex.v2.core.config.Account::ref)
                 .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
             Map<String, trex.v2.core.derive.Reconciliation.AccountResult> reconcile =
-                trex.v2.core.derive.Reconciliation.reconcile(indexer.currentFacts(), declared);
+                trex.v2.core.derive.Reconciliation.reconcile(indexer.currentTransactions(),
+                    indexer.currentNoops(), declared);
             boolean reconcileOk = reconcile.values().stream()
                 .allMatch(trex.v2.core.derive.Reconciliation.AccountResult::balances);
             List<String> badEvidence = evidence == null ? List.of()
