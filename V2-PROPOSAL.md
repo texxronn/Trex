@@ -1888,15 +1888,15 @@ Evaluation order, first match wins:
      statement that there is more than one; no pair is emitted either way. Resolved by
      `PAIR` or `MARK_EXTERNAL`, or the candidates resolve themselves as they are decided.
 4. **Attribution (rails).** Every pattern declares a rail **method** — `OSKO`, `PAYID`,
-   `BPAY` or `BANK_TRANSFER` — and a leg's derived rail is always directional from its
-   sign: `<METHOD>_IN` on a credit, `<METHOD>_OUT` on a debit. The vocabulary is the full
-   eight; `BPAY_IN` is defined even though today's data has none. A rail is derived per
-   leg — `EXTERNAL` legs included — so the Blotter can show how a payment arrived
-   (`PAYID_IN`) or left (`OSKO_OUT`) even when no contra exists, and a pattern may be
-   **rail-only** (`shape: false`) to tag rows without placing them in the pool. A matched
-   pair records the **payer leg's directional rail** (the negative side), falling back to
-   the payee leg's rail and then `BANK_TRANSFER_OUT`; the suffix is relative to the leg
-   that carried it, and the pair's from/to accounts already fix the perspective.
+   `BPAY` or `BANK_TRANSFER`. Method and **direction** are shown together and stored
+   apart: direction is `IN` for a credit and `OUT` for a debit, and it is never declared —
+   it is the sign, so a rail can never contradict the amount. A rail is derived per leg,
+   `EXTERNAL` legs included, so the Blotter can read a payment received as `PAYID · IN`
+   or sent as `OSKO · OUT` even when no contra exists; a pattern may be **rail-only**
+   (`shape: false`) to tag rows without placing them in the pool. A matched pair records
+   the **payer leg's method**, falling back to the payee leg's method and then
+   `BANK_TRANSFER`; a pair's direction is structural — from the negative leg to the
+   positive one — so nothing extra is stored on the transfer.
 5. **Collapse.** A pair emits one `transfer` row; its legs are `MATCHED` and are never
    projected (§11). A pair emitted from a decision carries `origin: decision` and the
    decision's `n`; a pair from the matcher carries `origin: derived`.
