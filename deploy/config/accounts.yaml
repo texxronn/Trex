@@ -66,6 +66,26 @@ accounts:
     currency: "AUD"
     balanceSource: statement
 
+  # Clearing accounts (V2-PROPOSAL.md §6.10): a closed counterparty whose statements are gone.
+  # They hold no facts and are never chained. Their opening is computed backwards from the
+  # movements that matched them, so the derived balance lands on closingBalance. Retrofit is a
+  # config edit: register the real account and drop the `clearing:` line.
+  - ref: "westpac-card"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2025-06-30"
+  - ref: "nab-fixed"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2023-09-30"
+  - ref: "nab-offset"
+    currency: "AUD"
+    balanceSource: clearing
+    closingBalance: 0
+    closedAt: "2023-02-28"
+
   # Cash. balanceSource: declared — no statement exists, so balances arrive only when a person
   # states one (§2.3 ATTESTATION) and the chain has deliberate gaps between them. One per person,
   # because two wallets are two accounts however loosely either is tracked.

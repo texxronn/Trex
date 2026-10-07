@@ -27,7 +27,9 @@ public final class Reconciliation {
         /** The chain does not close on an account whose statements should make it: a FAULT. */
         BROKEN,
         /** A declared account: its chain has deliberate gaps; the gap is the finding (§6.1). */
-        DECLARED
+        DECLARED,
+        /** A clearing account: opening computed, closing declared, no chain (§6.10). */
+        CLEARING
     }
 
     /**
@@ -47,14 +49,22 @@ public final class Reconciliation {
             return status == Status.RECONCILED;
         }
 
-        /** True when nothing is wrong. A DECLARED account is never wrong, only incomplete. */
+        /** True when nothing is wrong. A DECLARED or CLEARING account is never wrong, only declared. */
         public boolean balances() {
-            return status == Status.DECLARED
+            return status == Status.DECLARED || status == Status.CLEARING
                 || (status == Status.RECONCILED && sum == closing - opening);
         }
     }
 
     private Reconciliation() {}
+
+    /**
+     * A clearing account's result (§6.10): its opening is computed backwards from the movements
+     * that matched it, its closing is declared, and it has no chain to break — never {@code BROKEN}.
+     */
+    public static AccountResult clearing(String accountRef, long opening, long closing) {
+        return new AccountResult(accountRef, Status.CLEARING, opening, closing, 0, 0, List.of());
+    }
 
     /**
      * @param transactions     the current posted facts (one per chain); noop and pending excluded

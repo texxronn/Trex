@@ -260,7 +260,8 @@ public final class HubService implements HubApi, AutoCloseable {
 
     @Override
     public OpeningResponse opening() {
-        return new OpeningResponse(Opening.of(reads.currentFacts(), refresher.config().registry()));
+        return new OpeningResponse(Opening.of(reads.currentFacts(), refresher.config().registry(),
+            reads.transferRows()));
     }
 
     private static Set<String> declaredAccounts(DeriveConfig c) {
@@ -312,14 +313,25 @@ public final class HubService implements HubApi, AutoCloseable {
     public ReconcileResponse reconcile() {
         DeriveConfig c = refresher.config();
         Set<String> declared = declaredAccounts(c);
+        List<Fact> transactions = reads.currentFacts();
         List<Fact> noops = reads.currentNoops();
         Map<String, Fact> noopById = new HashMap<>();
         for (Fact f : noops) {
             noopById.put(f.externalId(), f);
         }
         Map<String, Reconciliation.AccountResult> results =
-            Reconciliation.reconcile(reads.currentFacts(), noops, declared);
+            Reconciliation.reconcile(transactions, noops, declared);
+        // A clearing account holds no facts: opening computed, closing declared, never broken (§6.10).
+        List<trex.v2.core.derive.TransferRow> transferRows = reads.transferRows();
+        Map<String, Long> clearingReal = clearingRealAmounts(transferRows, transactions);
+        for (Account a : c.registry().accounts().values()) {
+            if (a.clearing()) {
+                long opening = a.closingBalance() + clearingReal.getOrDefault(a.ref(), 0L);
+                results.put(a.ref(), Reconciliation.clearing(a.ref(), opening, a.closingBalance()));
+            }
+        }
         List<ReconcileResponse.AccountJson> accounts = results.values().stream()
+            .sorted(java.util.Comparator.comparing(Reconciliation.AccountResult::accountRef))
             .map(r -> new ReconcileResponse.AccountJson(r.accountRef(),
                 r.status().name().toLowerCase(java.util.Locale.ROOT), r.reconcilable(), r.balances(),
                 r.opening(), r.closing(), r.sum(), r.gap(),
@@ -337,6 +349,27 @@ public final class HubService implements HubApi, AutoCloseable {
         }
         String reason = f == null ? null : c.profiles().reasonFor(f.accountRef(), f.rawDescription());
         return new ReconcileResponse.ExclusionJson(id, "profile", reason);
+    }
+
+    /** Per clearing account, the sum of its real legs' amounts — the movements it absorbed (§6.10). */
+    private static Map<String, Long> clearingRealAmounts(List<trex.v2.core.derive.TransferRow> transfers,
+                                                         List<Fact> facts) {
+        Map<String, Fact> byId = new HashMap<>();
+        for (Fact f : facts) {
+            byId.put(f.externalId(), f);
+        }
+        Map<String, Long> out = new HashMap<>();
+        for (trex.v2.core.derive.TransferRow t : transfers) {
+            if (t.clearingAccount() == null) {
+                continue;
+            }
+            String realId = t.clearingAccount().equals(t.fromLeg()) ? t.toLeg() : t.fromLeg();
+            Fact real = byId.get(realId);
+            if (real != null) {
+                out.merge(t.clearingAccount(), real.amount(), Long::sum);
+            }
+        }
+        return out;
     }
 
     // ---- eyeball markers (V2-PROPOSAL.md §9.4) ----------------------------------------------

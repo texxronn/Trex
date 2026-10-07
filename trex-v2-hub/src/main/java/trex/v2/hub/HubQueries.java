@@ -330,6 +330,25 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /** The derived transfers as core models, for openings and the clearing check (§6.10). */
+    public List<trex.v2.core.derive.TransferRow> transferRows() {
+        return read(conn -> {
+            List<trex.v2.core.derive.TransferRow> rows = new ArrayList<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.TRANSFERS_SELECT)) {
+                while (rs.next()) {
+                    long decisionN = rs.getLong(6);
+                    boolean nullDecision = rs.wasNull();
+                    rows.add(new trex.v2.core.derive.TransferRow(rs.getString(1), rs.getString(2),
+                        rs.getString(3), trex.v2.core.derive.Confidence.valueOf(rs.getString(4)),
+                        rs.getString(5), nullDecision ? null : decisionN,
+                        trex.v2.core.Rail.fromWire(rs.getString(7)), Instant.parse(rs.getString(9)),
+                        rs.getString(8)));
+                }
+            }
+            return rows;
+        });
+    }
+
     /** Projectable units, enriched for the egress (V2-PROPOSAL.md §11.2, §11.6). */
     public List<trex.v2.hub.api.ProjectionUnit> projectionUnits() {
         return read(conn -> {

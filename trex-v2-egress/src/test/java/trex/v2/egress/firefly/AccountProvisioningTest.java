@@ -34,7 +34,8 @@ class AccountProvisioningTest {
             AccountMap resolved = map.resolved(Map.of("ING Savings", "1"));   // card is missing
 
             Map<String, OpeningState> openings = Map.of("ing-card",
-                new OpeningState("ing-card", "AUD", false, 0, 12345, 0, 0, java.time.LocalDate.of(2026, 9, 1)));
+                new OpeningState("ing-card", "AUD", false, 0, 12345, 0, 0,
+                    java.time.LocalDate.of(2026, 9, 1), false));
             List<String> created = AccountProvisioning.createMissing(
                 new FireflyClient(fake.url(), "token"), map, resolved, openings);
 
