@@ -1867,9 +1867,11 @@ Evaluation order, first match wins:
    Received`), and a leg is judged only by the lists of the account it sits in. Patterns
    are ordered and the **first match wins** — the account's own entries first, then
    `default` — and the match decides both shape and rail. That ordering separates "Osko to
-   self" (a transfer) from "Osko to anyone else" (an expense): the self pattern precedes
-   the generic rail-only one. Sign and account do not determine shape — they qualify a
-   candidate. Only shaped legs enter the pool; the
+   self" (a transfer) from "Osko to anyone else" (an expense), and the same holds for
+   BPAY: paying our own BankWest card is a transfer, a BPAY payment to any other biller is
+   an expense. A shaping pattern always names a self counterpart — own name, own account
+   number, own card; a bare rail (`Osko Payment`, `BPAY`, `PayID`) is rail-only. Sign and
+   account do not determine shape — they qualify a candidate. Only shaped legs enter the pool; the
    pre-filter is what keeps ordinary rows out of it, whatever the amount/date coincidence.
 3. **Pool and ladder.** The matcher runs `(date, n)` order over the pool of shaped,
    undecided legs and takes the first tier that fires:
@@ -1912,22 +1914,23 @@ Evaluation order, first match wins:
    windowDays: 4          # T3
    holdWindowDays: 30     # UNMATCHED_LEG
    transferPatterns:
+     # Bare rails: tags only, never potted. A pattern that names a self
+     # counterpart (own name, own account, own card) shapes instead.
      default:
+       - { match: 'Osko Payment', rail: OSKO,  shape: false }
+       - { match: 'BPAY',         rail: BPAY,  shape: false }
+       - { match: 'PayID',        rail: PAYID, shape: false }
+     ing-orange:                     # the other ING accounts repeat this self block
        - { match: 'Internal Transfer', rail: BANK_TRANSFER }
        - { match: 'To my account',     rail: BANK_TRANSFER }
        - { match: 'From my account',   rail: BANK_TRANSFER }
-       # Osko to self is a transfer; Osko to anyone else is an expense.
        - { match: '^Rohan Machado - Osko Payment to', rail: OSKO }
-       - { match: 'Osko Payment to',                  rail: OSKO, shape: false }
-     ing-orange:
+       # Paying our own BankWest card is a transfer; other BPAY billers are expenses.
        - { match: 'Bankwest Auto Pay',          rail: BPAY }
        - { match: 'BANKWEST CREDIT CARD.*BPAY', rail: BPAY }
      cba-smartaccess:
        - { match: 'Fast Transfer',       rail: BANK_TRANSFER }
        - { match: 'Transfer from xx\d+', rail: BANK_TRANSFER }
-       # Person-to-person PayID: a rail, not a transfer candidate.
-       - { match: 'Fast Transfer From .+ to PayID', rail: PAYID, shape: false }
-       - { match: 'Transfer To .+ PayID',           rail: PAYID, shape: false }
      cba-netsaver:
        - { match: 'Transfer to xx\d+', rail: BANK_TRANSFER }
      bw-credit-card:

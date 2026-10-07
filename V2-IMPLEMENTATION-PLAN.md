@@ -324,7 +324,8 @@ the genuine receipt pairs — all same-day, equal amount — keep pairing. The 1
 (17 `Fast Transfer From … to PayID` receipts from people, 2 `Transfer To … PayID`
 payments) carry the `PAYID` rail with `IN` / `OUT` from their signs and leave the pool as
 rail-only, so they cannot open `UNMATCHED_LEG`; the Osko payer legs read `OSKO · OUT`, the
-card payments `BPAY · OUT`, and the CBA internals `BANK_TRANSFER · IN/OUT`. An Osko
+card payments `BPAY · OUT` (while a BPAY payment to a non-self biller carries the same
+rail and stays `EXTERNAL`), and the CBA internals `BANK_TRANSFER · IN/OUT`. An Osko
 payment to a non-self name (e.g. `GLEN MACHADO … to +61-412658030`) is `EXTERNAL` with
 rail `OSKO · OUT` on the first derive — an expense, not a held leg — while a self Osko
 whose contra is missing (the pre-CBA-history cases) stays `HELD` as a transfer awaiting
