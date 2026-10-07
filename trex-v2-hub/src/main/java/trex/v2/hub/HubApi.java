@@ -41,6 +41,9 @@ interface HubApi {
 
     ReconcileResponse reconcile();
 
+    /** The §6.9 chain health: forks per account and a per-side noop preview. */
+    trex.v2.hub.api.ChainsResponse chains(String account);
+
     OpeningResponse opening();
 
     List<AckJson> acks();

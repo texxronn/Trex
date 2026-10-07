@@ -7,6 +7,7 @@ import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.hub.api.ChainsResponse;
 import trex.v2.hub.api.ReconcileResponse;
 import trex.v2.log.JsonlJournal;
 
@@ -92,6 +93,40 @@ class HubReconcileTest {
             assertEquals("fee", ex.externalId());
             assertEquals("decision 4", ex.classifiedBy());
             assertEquals("decided by a person", ex.reason());
+        }
+    }
+
+    @Test
+    void chainsExposeForksAndPerSidePreviews(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir, false);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "a", -100, 900, "Opening spend"),
+                fact(2, "b", 300, 1200, "Deposit"),
+                fact(3, "c", 50, 950, "Extra movement")));
+        }
+
+        Path index = dir.resolve("trex.sqlite");
+        try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 3L);
+            ChainsResponse chains = hub.chains("ing-savings");
+            assertEquals(1, chains.accounts().size());
+            ChainsResponse.AccountJson acct = chains.accounts().getFirst();
+            assertEquals("broken", acct.status());
+            assertEquals(1, acct.forks().size());
+            assertEquals("OPENING", acct.forks().getFirst().side());
+            assertEquals(900, acct.forks().getFirst().value());
+            assertEquals(List.of("b", "c"), acct.forks().getFirst().externalIds());
+
+            // Each contesting row is previewed: nooping c closes the chain, and it says so.
+            assertEquals(2, acct.previews().size());
+            ChainsResponse.PreviewJson noopC = acct.previews().stream()
+                .filter(p -> p.externalId().equals("c")).findFirst().orElseThrow();
+            assertTrue(noopC.reconciled());
+            assertEquals(1000, noopC.opening());
+            assertEquals(1200, noopC.closing());
         }
     }
 

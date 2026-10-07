@@ -354,3 +354,11 @@ button.warn:hover { background: var(--warn-soft); }
 .wk:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .legend { display: inline-flex; align-items: center; gap: 0.25rem; }
 .legend .wk { width: 12px; min-width: 12px; height: 12px; }
+
+/* ---- Chains: forks and per-side preview --------------------------------- */
+
+.fork { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.65rem;
+  margin: 0.5rem 0; background: var(--surface); }
+.fork-value { font-size: 12px; color: var(--warn); margin-bottom: 0.3rem; letter-spacing: 0.03em; }
+.fork-side { display: flex; gap: 0.6rem; align-items: center; padding: 0.15rem 0; }
+.fork-side .mono { font-family: var(--mono); font-size: 12px; }

@@ -34,6 +34,8 @@ export const api = {
   units: () => request('GET', '/api/units'),
   projection: () => request('GET', '/api/projection'),
   reconcile: () => request('GET', '/api/reconcile'),
+  chains: (account) => request('GET', '/api/chains'
+    + (account ? '?' + new URLSearchParams({ account }) : '')),
   acks: () => request('GET', '/api/acks'),
   eyeball: (period, user, opts = {}) => request('GET', '/api/eyeball?' + new URLSearchParams({
     period,

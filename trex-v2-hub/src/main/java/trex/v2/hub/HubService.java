@@ -12,6 +12,7 @@ import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.User;
+import trex.v2.core.derive.ChainHealth;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.Opening;
@@ -23,6 +24,7 @@ import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
+import trex.v2.hub.api.ChainsResponse;
 import trex.v2.hub.api.CursorRequest;
 import trex.v2.hub.api.CursorResponse;
 import trex.v2.hub.api.DecisionRequest;
@@ -258,13 +260,55 @@ public final class HubService implements HubApi, AutoCloseable {
         return new OpeningResponse(Opening.of(reads.currentFacts(), refresher.config().registry()));
     }
 
-    @Override
-    public ReconcileResponse reconcile() {
-        DeriveConfig c = refresher.config();
-        Set<String> declared = c.registry().accounts().values().stream()
+    private static Set<String> declaredAccounts(DeriveConfig c) {
+        return c.registry().accounts().values().stream()
             .filter(a -> a.balanceSource() == BalanceSource.DECLARED)
             .map(Account::ref)
             .collect(Collectors.toCollection(TreeSet::new));
+    }
+
+    @Override
+    public ChainsResponse chains(String account) {
+        DeriveConfig c = refresher.config();
+        Set<String> declared = declaredAccounts(c);
+        List<Fact> transactions = reads.currentFacts();
+        List<Fact> noops = reads.currentNoops();
+        Map<String, ChainHealth.Account> health = ChainHealth.of(transactions, noops, declared);
+        List<ChainsResponse.AccountJson> accounts = new ArrayList<>();
+        for (ChainHealth.Account a : health.values()) {
+            if (account != null && !account.equals(a.accountRef())) {
+                continue;
+            }
+            // Preview every row named by a fork; the resolver never picks which side for you.
+            Set<String> candidates = new TreeSet<>();
+            a.forks().forEach(f -> candidates.addAll(f.externalIds()));
+            List<ChainsResponse.PreviewJson> previews = new ArrayList<>();
+            for (String id : candidates) {
+                ChainHealth.Preview p = ChainHealth.preview(transactions, noops, declared, id);
+                if (p != null) {
+                    previews.add(new ChainsResponse.PreviewJson(p.externalId(), statusWire(p.status()),
+                        p.reconciled(), p.opening(), p.closing(), forksJson(p.remainingForks())));
+                }
+            }
+            accounts.add(new ChainsResponse.AccountJson(a.accountRef(), statusWire(a.status()), a.reconciled(),
+                a.opening(), a.closing(), a.sum(), a.gap(), a.exclusions(), forksJson(a.forks()), previews));
+        }
+        return new ChainsResponse(accounts);
+    }
+
+    private static String statusWire(Reconciliation.Status status) {
+        return status.name().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static List<ChainsResponse.ForkJson> forksJson(List<ChainHealth.Fork> forks) {
+        return forks.stream().map(f -> new ChainsResponse.ForkJson(f.value(), f.side().name(),
+            f.externalIds())).toList();
+    }
+
+    @Override
+    public ReconcileResponse reconcile() {
+        DeriveConfig c = refresher.config();
+        Set<String> declared = declaredAccounts(c);
         List<Fact> noops = reads.currentNoops();
         Map<String, Fact> noopById = new HashMap<>();
         for (Fact f : noops) {
