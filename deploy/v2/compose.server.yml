@@ -199,12 +199,15 @@ services:
       - ${TREX_FIREFLY_URL:?set TREX_FIREFLY_URL}
       - --accounts
       - /etc/trex/firefly.yaml
+      - --journal
+      - /var/lib/trex/journal/trex.jsonl
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
       FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
       TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
     volumes:
       - config:/etc/trex:ro
+      - journal:/var/lib/trex/journal:ro
       - staging:/var/lib/trex/staging
       - ${TREX_CSV_DIR:-./}:/statements:ro
       - evidence:/var/lib/trex/evidence
