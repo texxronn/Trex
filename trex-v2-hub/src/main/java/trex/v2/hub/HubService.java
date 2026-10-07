@@ -668,7 +668,10 @@ public final class HubService implements HubApi, AutoCloseable {
             }
             case DISMISS -> {
                 String e = checkItem(d.item());
-                yield e != null ? e : checkIds(d.externalIds(), "externalIds");
+                // BALANCE_BREAK is subject on an account ref, not a fact id (§6.9).
+                yield e != null ? e : (ReviewItem.BALANCE_BREAK.equals(d.item())
+                    ? checkAccounts(d.externalIds(), cfg)
+                    : checkIds(d.externalIds(), "externalIds"));
             }
             case PIN -> precheckPin(d, cfg);
             case UNPIN -> checkIds(d.externalIds(), "externalIds");
@@ -759,9 +762,23 @@ public final class HubService implements HubApi, AutoCloseable {
         return null;
     }
 
+    /** A list of declared account refs; the subject shape of a BALANCE_BREAK (§6.9). */
+    private String checkAccounts(List<String> ids, DeriveConfig cfg) {
+        if (ids == null || ids.isEmpty()) {
+            return "externalIds is required";
+        }
+        for (String id : ids) {
+            if (id == null || !cfg.registry().accounts().containsKey(id)) {
+                return "externalIds names an unknown account '" + id + "'";
+            }
+        }
+        return null;
+    }
+
     private static String checkItem(String item) {
         return item != null && Set.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER",
-            "AMBIGUOUS_SETTLEMENT", "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION").contains(item)
+            "AMBIGUOUS_SETTLEMENT", "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION",
+            "BALANCE_BREAK").contains(item)
             ? null
             : "item must be a review kind, not '" + item + "'";
     }

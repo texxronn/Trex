@@ -118,6 +118,6 @@ final class HubSql {
 
     static List<String> reviewKinds() {
         return List.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER", "AMBIGUOUS_SETTLEMENT",
-            "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION");
+            "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION", "BALANCE_BREAK");
     }
 }

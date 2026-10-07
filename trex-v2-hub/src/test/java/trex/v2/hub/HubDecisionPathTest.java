@@ -79,6 +79,16 @@ class HubDecisionPathTest {
                 .statusCode());
             assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n).add(pin("a", "NOPE")).json())
                 .statusCode());
+
+            // A BALANCE_BREAK's subject is an account ref, not a fact id (§6.9).
+            DecisionDraft dismissAccount = draft("DISMISS", "user", "ron", null, null, "BALANCE_BREAK",
+                List.of("ing-savings"));
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n).add(dismissAccount).json())
+                .statusCode());
+            DecisionDraft dismissGhost = draft("DISMISS", "user", "ron", null, null, "BALANCE_BREAK",
+                List.of("ghost"));
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n).add(dismissGhost).json())
+                .statusCode());
         }
 
         try (HubService readOnly = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {

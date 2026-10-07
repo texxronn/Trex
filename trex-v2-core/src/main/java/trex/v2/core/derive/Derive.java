@@ -809,8 +809,11 @@ public final class Derive {
         private List<ReviewItem> reviewItems() {
             List<ReviewItem> items = new ArrayList<>(pairingReview);
             items.addAll(pendingReview);
+            items.addAll(balanceReview());
             Map<String, Long> newestFactBySubject = new TreeMap<>();
+            Map<String, Long> newestFactByAccount = new TreeMap<>();
             for (Fact f : facts) {
+                newestFactByAccount.merge(f.accountRef(), f.n(), Math::max);
                 String subject = resolve(f.externalId());
                 if (subject != null) {
                     newestFactBySubject.merge(subject, f.n(), Math::max);
@@ -884,6 +887,17 @@ public final class Derive {
             for (Decision d : effective) {
                 if (d instanceof Decision.Dismiss dis) {
                     for (String raw : dis.externalIds()) {
+                        // A BALANCE_BREAK's subject is an account ref, not a fact id; every other
+                        // kind names a fact (or the decision n), resolved through supersession.
+                        if (ReviewItem.BALANCE_BREAK.equals(dis.item())) {
+                            if (!config.registry().accounts().containsKey(raw)) {
+                                ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                    "DISMISS names an unknown account " + raw));
+                                continue;
+                            }
+                            dismissN.merge(dis.item() + "|" + raw, d.n(), Math::max);
+                            continue;
+                        }
                         String id = resolve(raw);
                         if (id == null) {
                             ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
@@ -911,7 +925,10 @@ public final class Derive {
                     continue;
                 }
                 Long dn = dismissN.get(item.kind() + "|" + item.subject());
-                long newest = newestFactBySubject.getOrDefault(item.subject(), 0L);
+                // A fact subject ages on its newest fact; a BALANCE_BREAK's account subject ages on
+                // the newest fact of that account, so the item returns once the chain moves again.
+                long newest = newestFactBySubject.getOrDefault(item.subject(),
+                    newestFactByAccount.getOrDefault(item.subject(), 0L));
                 if (dn != null && dn > newest) {
                     continue; // silenced: the DISMISS post-dates the newest fact for the subject
                 }
@@ -919,6 +936,48 @@ public final class Derive {
             }
             kept.sort(Comparator.comparing(ReviewItem::kind).thenComparing(ReviewItem::subject));
             return kept;
+        }
+
+        /**
+         * A {@code BALANCE_BREAK} per account whose transaction chain does not close (§6.9): a fork
+         * with no explanation. The chain runs over {@code transaction} rows only; a {@code noop}
+         * exclusion is not a break, it is named by the reconcile result. The subject is the account
+         * ref — the item is dismissed by account, not by row.
+         */
+        private List<ReviewItem> balanceReview() {
+            Set<String> declared = new TreeSet<>();
+            for (Account a : config.registry().accounts().values()) {
+                if (a.balanceSource() == BalanceSource.DECLARED) {
+                    declared.add(a.ref());
+                }
+            }
+            List<Fact> transactions = new ArrayList<>();
+            List<Fact> noops = new ArrayList<>();
+            for (CurrentFact c : current) {
+                (c.role() == Role.NOOP ? noops : transactions).add(c.fact());
+            }
+            List<ReviewItem> out = new ArrayList<>();
+            for (Reconciliation.AccountResult r : Reconciliation.reconcile(transactions, noops, declared).values()) {
+                if (r.status() != Reconciliation.Status.BROKEN) {
+                    continue;
+                }
+                String detail = "chain does not close (sum " + r.sum() + ")";
+                out.add(new ReviewItem(r.accountRef(), ReviewItem.BALANCE_BREAK, detail, null,
+                    newestIngested(r.accountRef()),
+                    Hashes.sha256(ReviewItem.BALANCE_BREAK + "|" + r.accountRef() + "|" + detail)));
+            }
+            return out;
+        }
+
+        /** The newest fact ingest time on an account — a stable anchor for a derived item's age. */
+        private Instant newestIngested(String accountRef) {
+            Instant newest = Instant.EPOCH;
+            for (CurrentFact c : current) {
+                if (c.fact().accountRef().equals(accountRef) && c.fact().ingestedAt().isAfter(newest)) {
+                    newest = c.fact().ingestedAt();
+                }
+            }
+            return newest;
         }
 
         /** One review item per (subject, kind): subject the smallest id, a readable detail. */

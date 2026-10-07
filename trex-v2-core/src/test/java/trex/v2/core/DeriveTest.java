@@ -298,6 +298,55 @@ class DeriveTest {
     }
 
     @Test
+    void aBrokenChainOpensABalanceBreakNamedByAccount() {
+        Derivation d = Derive.derive(List.of(
+            balanceFact(1, "a", -100, 900, "COLES 1234"),
+            balanceFact(2, "b", 500, 2000, "SOMETHING ELSE")), List.of(), config(), ASOF);
+
+        List<trex.v2.core.derive.ReviewItem> breaks = d.review().stream()
+            .filter(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.BALANCE_BREAK)).toList();
+        assertEquals(1, breaks.size(), d.review().toString());
+        assertEquals("ing-savings", breaks.getFirst().subject());
+    }
+
+    @Test
+    void aBalanceBreakIsDismissedByAccountAndReturnsOnANewerFact() {
+        List<Fact> facts = new ArrayList<>(List.of(
+            balanceFact(1, "a", -100, 900, "COLES 1234"),
+            balanceFact(2, "b", 500, 2000, "SOMETHING ELSE")));
+        Decision.Dismiss dismiss = new Decision.Dismiss(3, trex.v2.core.derive.ReviewItem.BALANCE_BREAK,
+            List.of("ing-savings"), "known bank quirk", Actor.USER, "ron", ASOF);
+
+        Derivation silenced = Derive.derive(facts, List.of(dismiss), config(), ASOF);
+        assertTrue(silenced.review().stream()
+            .noneMatch(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.BALANCE_BREAK)),
+            silenced.review().toString());
+
+        // A newer fact on the account ages past the DISMISS, so the item returns.
+        facts.add(balanceFact(4, "c", -200, 1800, "LATER SPEND"));
+        Derivation back = Derive.derive(facts, List.of(dismiss), config(), ASOF);
+        assertTrue(back.review().stream()
+            .anyMatch(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.BALANCE_BREAK)),
+            back.review().toString());
+    }
+
+    @Test
+    void aBalanceBreakDismissNamingAnUnknownAccountIsIneffective() {
+        Derivation d = Derive.derive(List.of(
+            balanceFact(1, "a", -100, 900, "COLES 1234"),
+            balanceFact(2, "b", 500, 2000, "SOMETHING ELSE")),
+            List.of(new Decision.Dismiss(3, trex.v2.core.derive.ReviewItem.BALANCE_BREAK,
+                List.of("cash-nobody"), "typo", Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertTrue(d.ineffective().stream().anyMatch(i -> i.action().equals(Action.DISMISS.wire())),
+            d.ineffective().toString());
+    }
+
+    private static Fact balanceFact(long n, String id, long amount, long balance, String raw) {
+        return new Fact(n, id, "ing-savings", LocalDate.of(2026, 9, (int) n), amount, balance, raw, null, 0,
+            Observation.POSTED, "test", Provenance.BANK, null, "test/1", Instant.parse("2026-09-30T00:00:00Z"));
+    }
+
+    @Test
     void aDismissNamingAnUnknownIdIsSurfacedAsIneffective() {
         List<Fact> facts = List.of(fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0));
         Decision.Dismiss typo = new Decision.Dismiss(2, trex.v2.core.derive.ReviewItem.POTENTIAL_DUP,
