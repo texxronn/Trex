@@ -309,7 +309,7 @@ different launch arguments:
 | Archive mirror | `trex egress archive` | `--journal`, `--archive` |
 | Firefly projection | `trex egress firefly` (`--plan` / `--apply` / `--verify`) | `--hub-url`, `--firefly-url`, `--accounts`; retry and seeding flags (§11.1) |
 | Job runner | `trex runner` | `--hub-url`, `--sequencer-url`, `--config`, `--statements`, `--staging`; loopback only |
-| Tools | `trex ingest`, `trex index`, `trex reflow`, `trex verify`, `trex export` | flags |
+| Tools | `trex ingest`, `trex index`, `trex reflow`, `trex verify`, `trex export`, `trex decisions` (export/replay) | flags |
 
 Compose: one `image:` with a `command:` per service. systemd: one jar path and a
 different `ExecStart=` per unit. An upgrade is one artifact swap plus a restart of the
@@ -347,8 +347,8 @@ archive mirror.
 
 `trex runner` is the on-demand dispatcher. It exposes a small loopback HTTP API and a Jobs
 view in the hub UI (the **hub** proxies to it; the runner is never published). A job is an
-invocation of an existing subcommand — `ingest`, `egress firefly --plan/--verify/--apply` —
-never new logic: the runner starts the same process a person would, streams its output and
+invocation of an existing subcommand — `ingest`, `egress firefly --plan/--verify/--apply`,
+`decisions export|replay` — never new logic: the runner starts the same process a person would, streams its output and
 records its exit code. It is a dispatcher, not a daemon in the §11 sense — it never polls,
 and the passes it starts are the same one-shot batches.
 
@@ -2564,9 +2564,32 @@ The system is a habit, not a program. Make the habit cheap:
 | Before a rule edit | `trex reflow --preview` | Diff reviewed, then save; read rows flag automatically if they moved |
 | Timer (plan) | `trex egress firefly --plan` / `--verify`; `--apply` on instruction | Firefly convergence known; nothing half-tuned projected |
 | On demand (Jobs view) | `trex runner`: `ingest`, `egress firefly --plan` / `--verify` / `--apply`; upload to the staging inbox | The same batches, started and watched from one page; `--apply` confirmed against a plan |
+| Promotion (dev → prod) | `trex decisions` export on dev, replay on the host | The curation lands on the prod log; identity resolves 1:1; `REVOKE`s remapped; each log keeps its own `env` |
 | Nightly | `trex egress archive` + backup | Log + evidence on a second disk |
 | Weekly | `trex runner` → journal snapshot + `prune-archive` | A dated gzip copy of the log; old snapshots pruned explicitly |
 | Monthly | `trex verify` | Framing, reconciliation, index equivalence (rebuild into a scratch file), evidence hashes, egress plan all green |
+
+### 14.1 Promotion is replay, not a copy
+
+A dev log and a prod log are both legitimate, but they are not interchangeable files: every
+line carries the `env` and `source` of the process that wrote it, and a copied line would
+lie about its origin. Promotion instead exploits determinism — the same statement bytes at
+the same parser and config revision mint the same `externalId`s — so the prod log is built
+natively and the **decisions** are replayed onto it:
+
+```sh
+trex decisions export --journal journal/trex.jsonl --out decisions.jsonl   # on dev
+trex decisions replay --file decisions.jsonl --sequencer-url http://…      # on prod
+```
+
+The export carries each decision's action, fields, actor, user and `at` — never `n`, `env`
+or `source` — plus a manifest naming the source's facts head and config revision, so a
+mismatch is reported before anything is posted. Replay walks the decisions in order, skips
+ones already identical on the target (same action, subject and `at`), remaps `REVOKE`
+targets from the source's `n`s to the target's as it goes, and stops on the first rejection
+with the offending decision named. A dry run checks every foreign key against the target
+first. Facts and ingest events are never replayed this way: they come from the statements
+and the evidence store, so the prod log documents its own ingest.
 
 **Deployment is one image.** The rhythms above are commands of the same artifact; only
 the sequencer mounts the journal read-write, and every other role gets it `:ro`. Compose

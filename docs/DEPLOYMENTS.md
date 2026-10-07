@@ -96,6 +96,29 @@ To start over — day 0 again — wipe the volumes and re-seed:
 cd /opt/trex && docker compose down -v && docker compose up -d && ./ingest-all.sh
 ```
 
+### Promoting dev curation to prod
+
+Dev is where rules and reviews are iterated; prod is cut over by **rebuilding and replaying**,
+never by copying a journal (its `env`/`source` would name the wrong origin, and its `n`s are
+dev's). Pin one release and one config for both sides first.
+
+1. **Back up the host** (journal, evidence, config) — the old v1 journal is private and may be
+   the only copy. See *Back up* below.
+2. **Review to done in dev**, then export the decisions:
+   `trex decisions export --journal <dev journal> --out decisions.jsonl`, or the runner's
+   `decisions` job with `mode=export`. Treat the file as private: comments can quote descriptions.
+3. **Deploy the same image and config** to the host, and on cutover reset to day 0
+   (`docker compose down -v && docker compose up -d`).
+4. **Re-seed** from the private statement store (*Seeding and testing* above).
+5. **Replay** the decisions on the host:
+   `trex decisions replay --file decisions.jsonl --sequencer-url http://127.0.0.1:8080 --dry-run`,
+   then again without `--dry-run` (or the runner's `decisions` job, `mode=replay`). Identity
+   resolves 1:1 because both logs were built from the same statements; `REVOKE`s are remapped.
+6. **Verify**: `/api/status` counts match dev apart from ingest events, `reconcile` is
+   identical, the review queue matches, `trex verify` is green.
+7. **Project** when ready: `egress firefly --plan` → review → `--apply` (locked without
+   `--allow-apply`).
+
 ### Back up (volume → tarball)
 
 The journal, evidence and config volumes are the only irreplaceable state; the index is rebuilt.
