@@ -62,7 +62,7 @@ final class Sql {
         + "line_v, at_ms, env, source, target, role, rail, leg, transfer_id, category, category_origin, rule_id, "
         + "state_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_TRANSFER = "INSERT INTO transfer(transfer_id, from_leg, to_leg, confidence, origin, "
-        + "decision_n, method, matched_at) VALUES(?,?,?,?,?,?,?,?)";
+        + "decision_n, method, clearing_account, matched_at) VALUES(?,?,?,?,?,?,?,?,?)";
     static final String INSERT_PENDING = "INSERT INTO pending(external_id, fact_n, account_ref, date, amount, "
         + "settled_by, state) VALUES(?,?,?,?,?,?,?)";
     static final String INSERT_REVIEW_ITEM = "INSERT INTO review_item(subject, kind, detail, amount_stake, "

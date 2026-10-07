@@ -398,7 +398,7 @@ public final class Derive {
                         Fact fb = byId.get(b).fact();
                         String tid = uniqueTransferId(rows, mintTransferId(fa, fb), byId.get(a), byId.get(b));
                         rows.put(tid, new TransferRow(tid, a, b, Confidence.MANUAL, "decision", p.n(),
-                            transferMethod(fa, fb), p.at()));
+                            transferMethod(fa, fb), p.at(), null));
                         livePairLegs.add(a);
                         livePairLegs.add(b);
                     }
@@ -437,6 +437,13 @@ public final class Derive {
                 CurrentFact f = eligible.get(i);
                 if (!isShaped(f.fact(), shapedReceipts)) {
                     legState.put(f.externalId(), LegState.EXTERNAL);
+                    continue;
+                }
+                // A clearing pattern names its counterparty: the leg pairs directly with that
+                // account — no contra fact, no window, no ambiguity (§6.10).
+                String clearing = config.transfers().clearingFor(f.fact().accountRef(), f.fact().rawDescription());
+                if (clearing != null) {
+                    pairClearing(rows, paired, i, f, clearing);
                     continue;
                 }
                 int window = config.transfers().windowDays();
@@ -556,12 +563,26 @@ public final class Derive {
             return theirs.size() == 1 && theirs.getFirst() == self ? j : AMBIGUOUS;
         }
 
+        /** Pair a leg with a clearing account: one real leg, an account side, direction structural. */
+        private void pairClearing(Map<String, TransferRow> rows, boolean[] paired, int i, CurrentFact f,
+                                  String clearingAccount) {
+            Fact real = f.fact();
+            String tid = Ids.transferId(real.externalId(), clearingAccount);
+            boolean out = real.amount() < 0;
+            Rail method = railFor(real);
+            rows.put(tid, new TransferRow(tid, out ? real.externalId() : clearingAccount,
+                out ? clearingAccount : real.externalId(), Confidence.EXACT, "derived", null,
+                method == null ? Rail.BANK_TRANSFER : method, real.ingestedAt(), clearingAccount));
+            paired[i] = true;
+            legState.put(real.externalId(), LegState.MATCHED);
+        }
+
         private void pairT1(Map<String, TransferRow> rows, boolean[] paired, List<CurrentFact> eligible,
                             int i, int j, CurrentFact f) {
             CurrentFact g = eligible.get(j);
             String tid = uniqueTransferId(rows, Ids.transferId(f.fact().receipt()), f, g);
             rows.put(tid, new TransferRow(tid, f.externalId(), g.externalId(), Confidence.EXACT, "derived",
-                null, transferMethod(f.fact(), g.fact()), laterIngested(f.fact(), g.fact())));
+                null, transferMethod(f.fact(), g.fact()), laterIngested(f.fact(), g.fact()), null));
             paired[i] = true;
             paired[j] = true;
             legState.put(f.externalId(), LegState.MATCHED);
@@ -573,7 +594,7 @@ public final class Derive {
             CurrentFact g = eligible.get(j);
             String tid = uniqueTransferId(rows, mintTransferId(f.fact(), g.fact()), f, g);
             rows.put(tid, new TransferRow(tid, f.externalId(), g.externalId(), confidence, "derived",
-                null, transferMethod(f.fact(), g.fact()), laterIngested(f.fact(), g.fact())));
+                null, transferMethod(f.fact(), g.fact()), laterIngested(f.fact(), g.fact()), null));
             paired[i] = true;
             paired[j] = true;
             legState.put(f.externalId(), LegState.MATCHED);
@@ -1151,6 +1172,18 @@ public final class Derive {
             for (TransferRow t : transfers) {
                 CurrentFact from = currentById().get(t.fromLeg());
                 CurrentFact to = currentById().get(t.toLeg());
+                if (t.clearingAccount() != null) {
+                    // One real leg and an account side (§6.10): the unit is carried by the real leg.
+                    CurrentFact real = from != null ? from : to;
+                    if (real == null) {
+                        continue;
+                    }
+                    out.add(new Unit(t.transferId(), Unit.KIND_TRANSFER, real.fact().accountRef(),
+                        real.fact().date(), Math.abs(real.fact().amount()),
+                        config.registry().account(real.fact().accountRef()).currency(),
+                        RuleSet.TRANSFER, CategoryOrigin.STRUCTURAL, LegState.MATCHED, false, false));
+                    continue;
+                }
                 if (from == null || to == null) {
                     continue;
                 }

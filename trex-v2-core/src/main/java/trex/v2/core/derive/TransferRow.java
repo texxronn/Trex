@@ -13,6 +13,11 @@ import java.time.Instant;
  * <p>{@code method} is the payer leg's rail method, falling back to the payee's and then
  * {@code BANK_TRANSFER}. Direction is structural — from the negative leg to the positive one — so
  * nothing extra is stored.
+ *
+ * <p>{@code clearingAccount} is non-null for a transfer with a clearing counterpart (§6.10): one
+ * real leg (the other of {@code fromLeg}/{@code toLeg}) and an account side. The account occupies
+ * the leg on the side its balance moves, so direction stays structural.
  */
 public record TransferRow(String transferId, String fromLeg, String toLeg, Confidence confidence,
-                          String origin, Long decisionN, Rail method, Instant matchedAt) {}
+                          String origin, Long decisionN, Rail method, Instant matchedAt,
+                          String clearingAccount) {}

@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS transfer (
   origin      TEXT NOT NULL,
   decision_n  INTEGER,
   method      TEXT NOT NULL,
+  clearing_account TEXT,
   matched_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS transfer_from ON transfer(from_leg);

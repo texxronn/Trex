@@ -33,8 +33,16 @@ public record TransferRules(int windowDays, int dupTolerance, int amountToleranc
     /** The reserved key for patterns that apply to every account, tried after the account's own. */
     public static final String ANY_ACCOUNT = "default";
 
-    /** One pattern: a case-insensitive {@code find} over the cleaned description, a rail and shape. */
-    public record TransferPattern(String match, Pattern compiled, Rail rail, boolean shape) {}
+    /**
+     * One pattern: a case-insensitive {@code find} over the cleaned description, a rail and shape,
+     * and an optional {@code clearing} account the leg pairs with directly (§6.10).
+     */
+    public record TransferPattern(String match, Pattern compiled, Rail rail, boolean shape, String clearing) {
+        /** A pattern with no clearing counterpart. */
+        public TransferPattern(String match, Pattern compiled, Rail rail, boolean shape) {
+            this(match, compiled, rail, shape, null);
+        }
+    }
 
     public TransferRules {
         if (windowDays < 0) {
@@ -107,5 +115,11 @@ public record TransferRules(int windowDays, int dupTolerance, int amountToleranc
     public Rail railFor(String accountRef, String rawDescription) {
         TransferPattern p = patternFor(accountRef, rawDescription);
         return p == null ? null : p.rail();
+    }
+
+    /** The clearing account the first matching pattern declares, or null (§6.10). */
+    public String clearingFor(String accountRef, String rawDescription) {
+        TransferPattern p = patternFor(accountRef, rawDescription);
+        return p == null ? null : p.clearing();
     }
 }

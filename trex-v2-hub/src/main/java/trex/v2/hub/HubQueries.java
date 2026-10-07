@@ -323,7 +323,7 @@ public final class HubQueries implements AutoCloseable {
                     long decisionN = rs.getLong(6);
                     rows.add(new TransferJson(rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rs.getString(5), rs.wasNull() ? null : decisionN,
-                        rs.getString(7), Instant.parse(rs.getString(8))));
+                        rs.getString(7), rs.getString(8), Instant.parse(rs.getString(9))));
                 }
             }
             return rows;

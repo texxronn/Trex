@@ -63,7 +63,16 @@ public final class ConfigLoader {
             BalanceSource source = BalanceSource.fromWire(e.balanceSource());
             int settlement = e.settlementWindowDays() == null
                 ? DEFAULT_SETTLEMENT_WINDOW_DAYS : e.settlementWindowDays();
-            Account account = new Account(e.ref(), e.currency(), source, settlement);
+            java.time.LocalDate closedAt = null;
+            if (e.closedAt() != null && !e.closedAt().isBlank()) {
+                try {
+                    closedAt = java.time.LocalDate.parse(e.closedAt());
+                } catch (java.time.format.DateTimeParseException ex) {
+                    throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref()
+                        + "' closedAt must be an ISO date, not '" + e.closedAt() + "'");
+                }
+            }
+            Account account = new Account(e.ref(), e.currency(), source, settlement, e.closingBalance(), closedAt);
             if (accountMap.putIfAbsent(account.ref(), account) != null) {
                 throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref() + "' is declared twice");
             }
@@ -210,10 +219,26 @@ public final class ConfigLoader {
                     Rail rail = e.rail() == null || e.rail().isBlank()
                         ? Rail.BANK_TRANSFER : Rail.fromWire(e.rail());
                     boolean shape = e.shape() == null || e.shape();
+                    String clearing = e.clearing() == null || e.clearing().isBlank() ? null : e.clearing();
+                    if (clearing != null) {
+                        Account target = accounts.get(clearing);
+                        if (target == null) {
+                            throw new IllegalArgumentException(source + ": pattern '" + e.match()
+                                + "' names unknown clearing account '" + clearing + "'");
+                        }
+                        if (target.balanceSource() != BalanceSource.CLEARING) {
+                            throw new IllegalArgumentException(source + ": pattern '" + e.match()
+                                + "' names '" + clearing + "', which is not balanceSource: clearing");
+                        }
+                        if (!shape) {
+                            throw new IllegalArgumentException(source + ": pattern '" + e.match()
+                                + "' names a clearing account but is shape: false");
+                        }
+                    }
                     try {
                         list.add(new TransferRules.TransferPattern(e.match(),
                             Pattern.compile(e.match(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE),
-                            rail, shape));
+                            rail, shape, clearing));
                     } catch (PatternSyntaxException ex) {
                         throw new IllegalArgumentException(source + ": pattern '" + e.match()
                             + "' is not a valid regex: " + ex.getDescription());
@@ -263,7 +288,8 @@ public final class ConfigLoader {
 
     public record AccountsFile(List<AccountEntry> accounts) {}
 
-    public record AccountEntry(String ref, String currency, String balanceSource, Integer settlementWindowDays) {}
+    public record AccountEntry(String ref, String currency, String balanceSource, Integer settlementWindowDays,
+                               Long closingBalance, String closedAt) {}
 
     public record UsersFile(List<UserEntry> users) {}
 
@@ -280,8 +306,8 @@ public final class ConfigLoader {
                                Integer amountTolerance, Integer holdWindowDays, Double restatementOverlap,
                                Map<String, List<TransferPatternEntry>> transferPatterns) {}
 
-    /** {@code transferPatterns}: one ordered pattern — a match, a rail method and whether it shapes. */
-    public record TransferPatternEntry(String match, String rail, Boolean shape) {}
+    /** {@code transferPatterns}: a match, a rail, whether it shapes, and an optional clearing account. */
+    public record TransferPatternEntry(String match, String rail, Boolean shape, String clearing) {}
 
     /** {@code profiles.yaml}: account-scoped role rules (V2-PROPOSAL.md §6.9). */
     public record ProfilesFile(Map<String, ProfileEntry> profiles) {}

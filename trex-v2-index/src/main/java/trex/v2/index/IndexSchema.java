@@ -39,7 +39,8 @@ final class IndexSchema {
                 st.execute("DROP TABLE txn_current");
                 clearDerivedMeta(st);
             }
-            if (hasTable(st, "transfer") && !hasColumn(st, "transfer", "method")) {
+            if (hasTable(st, "transfer")
+                && (!hasColumn(st, "transfer", "method") || !hasColumn(st, "transfer", "clearing_account"))) {
                 st.execute("DROP TABLE transfer");
                 clearDerivedMeta(st);
             }

@@ -364,7 +364,8 @@ public final class Indexer implements AutoCloseable {
                     ps.setLong(6, t.decisionN());
                 }
                 ps.setString(7, t.method().name());
-                ps.setString(8, t.matchedAt().toString());
+                ps.setString(8, t.clearingAccount());
+                ps.setString(9, t.matchedAt().toString());
                 ps.addBatch();
             }
             ps.executeBatch();
