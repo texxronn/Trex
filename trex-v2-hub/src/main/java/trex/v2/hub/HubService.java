@@ -11,8 +11,10 @@ import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
+import trex.v2.core.config.TransferRules;
 import trex.v2.core.config.User;
 import trex.v2.core.derive.ChainHealth;
+import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.Opening;
@@ -44,6 +46,7 @@ import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
+import trex.v2.hub.api.TransferPreview;
 import trex.v2.hub.api.UnitsResponse;
 import trex.v2.index.IndexLock;
 import trex.v2.index.Indexer;
@@ -625,6 +628,103 @@ public final class HubService implements HubApi, AutoCloseable {
         try {
             Path tmp = file.resolveSibling("categories.yaml.tmp");
             Files.writeString(tmp, categoriesYaml);
+            Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            return new DecisionOutcome(500, new ErrorResponse("cannot write " + file + ": " + e.getMessage()));
+        }
+        return new DecisionOutcome(200, Map.of("saved", true));
+    }
+
+    // ---- transfer-pattern preview (V2-PROPOSAL.md §9.3, §9.9.C) -----------------------------
+
+    /** Run {@code derive()} against a candidate {@code transfers.yaml}; writes nothing. */
+    @Override
+    public DecisionOutcome transfersPreview(String transfersYaml) {
+        if (transfersYaml == null || transfersYaml.isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("transfers is required"));
+        }
+        DeriveConfig current = refresher.config();
+        TransferRules candidate;
+        try {
+            candidate = ConfigLoader.compileTransferRules(transfersYaml, current.registry());
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return new DecisionOutcome(422, new ErrorResponse(
+                "candidate transfers failed to parse: " + e.getOriginalMessage()));
+        } catch (IllegalArgumentException e) {
+            return new DecisionOutcome(422, new ErrorResponse(e.getMessage()));
+        }
+        DeriveConfig candidateConfig = new DeriveConfig(current.registry(), current.categories(),
+            candidate, current.profiles(), Hashes.sha256(transfersYaml));
+
+        Instant now = Instant.now();
+        Derivation before = indexer.deriveWith(current, now, Long.MAX_VALUE);
+        Derivation after = indexer.deriveWith(candidateConfig, now, Long.MAX_VALUE);
+
+        Map<String, String> b = legById(before);
+        Map<String, String> a = legById(after);
+        Set<String> ids = new TreeSet<>(b.keySet());
+        ids.addAll(a.keySet());
+        List<TransferPreview.MovedLeg> moved = new ArrayList<>();
+        for (String id : ids) {
+            String from = b.get(id);
+            String to = a.get(id);
+            if (!java.util.Objects.equals(from, to)) {
+                moved.add(new TransferPreview.MovedLeg(id, from, to));
+            }
+        }
+        Set<String> beforeTransfers = before.transfers().stream()
+            .map(trex.v2.core.derive.TransferRow::transferId).collect(Collectors.toSet());
+        Set<String> afterTransfers = after.transfers().stream()
+            .map(trex.v2.core.derive.TransferRow::transferId).collect(Collectors.toSet());
+        int pairsAdded = (int) afterTransfers.stream().filter(t -> !beforeTransfers.contains(t)).count();
+        int pairsRemoved = (int) beforeTransfers.stream().filter(t -> !afterTransfers.contains(t)).count();
+        Set<String> beforeReview = reviewKeys(before);
+        Set<String> afterReview = reviewKeys(after);
+        int reviewOpened = (int) afterReview.stream().filter(r -> !beforeReview.contains(r)).count();
+        int reviewCleared = (int) beforeReview.stream().filter(r -> !afterReview.contains(r)).count();
+
+        return new DecisionOutcome(200, new TransferPreview(current.configRevision(),
+            candidateConfig.configRevision(), pairsAdded, pairsRemoved, reviewOpened, reviewCleared, moved));
+    }
+
+    private static Map<String, String> legById(Derivation d) {
+        Map<String, String> out = new TreeMap<>();
+        for (CurrentFact c : d.current()) {
+            out.put(c.externalId(), c.leg().name());
+        }
+        return out;
+    }
+
+    /** The current {@code transfers.yaml} text, for the pattern editor. */
+    @Override
+    public Optional<String> transfersYaml() {
+        Path file = config.configDir().resolve("transfers.yaml");
+        try {
+            return Files.exists(file) ? Optional.of(Files.readString(file)) : Optional.empty();
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** Validate a candidate {@code transfers.yaml} and write it atomically; the watcher re-derives. */
+    @Override
+    public DecisionOutcome saveTransfers(String transfersYaml) {
+        if (transfersYaml == null || transfersYaml.isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("transfers is required"));
+        }
+        try {
+            ConfigLoader.compileTransferRules(transfersYaml, refresher.config().registry());
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return new DecisionOutcome(422, new ErrorResponse(
+                "candidate transfers failed to parse: " + e.getOriginalMessage()));
+        } catch (IllegalArgumentException e) {
+            return new DecisionOutcome(422, new ErrorResponse(e.getMessage()));
+        }
+        Path file = config.configDir().resolve("transfers.yaml");
+        try {
+            Path tmp = file.resolveSibling("transfers.yaml.tmp");
+            Files.writeString(tmp, transfersYaml);
             Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                 java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {

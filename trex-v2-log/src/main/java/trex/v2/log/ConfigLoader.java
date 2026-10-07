@@ -104,15 +104,7 @@ public final class ConfigLoader {
             }
         }
 
-        Map<String, List<TransferRules.TransferPattern>> patterns = loadTransferPatterns(transfersFile, transfers,
-            accountMap);
-        TransferRules transferRules = new TransferRules(
-            transfers.windowDays(),
-            transfers.dupTolerance() == null ? TransferRules.DEFAULT_DUP_TOLERANCE : transfers.dupTolerance(),
-            transfers.amountTolerance() == null ? TransferRules.DEFAULT_AMOUNT_TOLERANCE : transfers.amountTolerance(),
-            transfers.holdWindowDays() == null ? TransferRules.DEFAULT_HOLD_WINDOW_DAYS : transfers.holdWindowDays(),
-            transfers.restatementOverlap() == null ? TransferRules.DEFAULT_RESTATEMENT_OVERLAP : transfers.restatementOverlap(),
-            patterns);
+        TransferRules transferRules = transferRules(transfers, transfersFile.getFileName().toString(), accountMap);
 
         String configRevision = configRevision(configDir, accountsFile, categoriesFile, transfersFile, refdataFile,
             profilesFile);
@@ -169,27 +161,50 @@ public final class ConfigLoader {
     }
 
     /**
+     * Compile a candidate {@code transfers.yaml} for the reflow preview (V2-PROPOSAL.md §9.3),
+     * without touching the loaded config. Throws {@code JacksonException} or
+     * {@code IllegalArgumentException} on a bad candidate.
+     */
+    public static TransferRules compileTransferRules(String yaml, Registry registry)
+            throws com.fasterxml.jackson.core.JacksonException {
+        TransfersFile parsed = Yaml.mapper().readValue(yaml, TransfersFile.class);
+        return transferRules(parsed, "candidate transfers.yaml", registry.accounts());
+    }
+
+    /** The {@link TransferRules} for a parsed {@code transfers.yaml}, with the defaults applied. */
+    private static TransferRules transferRules(TransfersFile transfers, String source,
+                                               Map<String, Account> accounts) {
+        return new TransferRules(
+            transfers.windowDays(),
+            transfers.dupTolerance() == null ? TransferRules.DEFAULT_DUP_TOLERANCE : transfers.dupTolerance(),
+            transfers.amountTolerance() == null ? TransferRules.DEFAULT_AMOUNT_TOLERANCE : transfers.amountTolerance(),
+            transfers.holdWindowDays() == null ? TransferRules.DEFAULT_HOLD_WINDOW_DAYS : transfers.holdWindowDays(),
+            transfers.restatementOverlap() == null ? TransferRules.DEFAULT_RESTATEMENT_OVERLAP : transfers.restatementOverlap(),
+            transferPatterns(source, transfers, accounts));
+    }
+
+    /**
      * {@code transfers.yaml} transfer vocabulary (V2-PROPOSAL.md §9.9.C): per-account ordered
      * patterns plus a {@code default} list; the account's own entries are tried first, then the
-     * default. An unknown account, a missing match or an unknown rail is a startup error. The
-     * legacy top-level {@code allowlist} is accepted and mapped to default {@code BANK_TRANSFER}
-     * patterns that shape.
+     * default. An unknown account, a missing match or an unknown rail is an error. The legacy
+     * top-level {@code allowlist} is accepted and mapped to default {@code BANK_TRANSFER} patterns
+     * that shape.
      */
-    private static Map<String, List<TransferRules.TransferPattern>> loadTransferPatterns(
-            Path file, TransfersFile transfers, Map<String, Account> accounts) {
+    private static Map<String, List<TransferRules.TransferPattern>> transferPatterns(
+            String source, TransfersFile transfers, Map<String, Account> accounts) {
         Map<String, List<TransferRules.TransferPattern>> out = new LinkedHashMap<>();
         if (transfers.transferPatterns() != null) {
             for (Map.Entry<String, List<TransferPatternEntry>> entry : transfers.transferPatterns().entrySet()) {
                 String accountRef = entry.getKey();
                 if (!TransferRules.ANY_ACCOUNT.equals(accountRef) && !accounts.containsKey(accountRef)) {
-                    throw new IllegalArgumentException(file.getFileName()
+                    throw new IllegalArgumentException(source
                         + ": transfer pattern names unknown account '" + accountRef + "'");
                 }
                 List<TransferRules.TransferPattern> list = new ArrayList<>();
                 List<TransferPatternEntry> declared = entry.getValue() == null ? List.of() : entry.getValue();
                 for (TransferPatternEntry e : declared) {
                     if (e.match() == null || e.match().isBlank()) {
-                        throw new IllegalArgumentException(file.getFileName() + ": a transfer pattern under '"
+                        throw new IllegalArgumentException(source + ": a transfer pattern under '"
                             + accountRef + "' has no match");
                     }
                     Rail rail = e.rail() == null || e.rail().isBlank()
@@ -200,7 +215,7 @@ public final class ConfigLoader {
                             Pattern.compile(e.match(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE),
                             rail, shape));
                     } catch (PatternSyntaxException ex) {
-                        throw new IllegalArgumentException(file.getFileName() + ": pattern '" + e.match()
+                        throw new IllegalArgumentException(source + ": pattern '" + e.match()
                             + "' is not a valid regex: " + ex.getDescription());
                     }
                 }
@@ -292,7 +307,8 @@ public final class ConfigLoader {
         Path file = configDir.resolve("sequencer.yaml");
         SequencerFile parsed = Yaml.read(file, SequencerFile.class);
         if (parsed.journal() == null || parsed.journal().source() == null || parsed.journal().target() == null) {
-            throw new IllegalArgumentException(file.getFileName() + ": 'journal' needs both 'source' and 'target'");
+            throw new IllegalArgumentException(file.getFileName()
+                + ": 'journal' needs both 'source' and 'target'");
         }
         String host = parsed.bindHost() == null || parsed.bindHost().isBlank() ? "127.0.0.1" : parsed.bindHost();
         int port = parsed.bindPort() == null ? 8080 : parsed.bindPort();

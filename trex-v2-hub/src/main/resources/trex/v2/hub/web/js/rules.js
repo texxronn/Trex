@@ -12,6 +12,9 @@ let editor;
 let summary;
 let workbookHost;
 let errorBar;
+let transfersEditor;
+let transfersSummary;
+let transfersError;
 
 export function mount(container, context) {
   host = container;
@@ -27,12 +30,22 @@ function render() {
   editor = el('textarea', { spellcheck: 'false' });
   summary = el('div', { class: 'muted' });
   workbookHost = el('div');
+  transfersEditor = el('textarea', { spellcheck: 'false' });
+  transfersSummary = el('div', { class: 'muted' });
+  transfersError = el('div', { class: 'error', hidden: true });
   host.append(errorBar,
     el('div', { class: 'toolbar' },
       button('Preview diff', preview, 'primary'),
       button('Save', save)),
     editor,
     summary,
+    el('h2', {}, 'Transfer patterns'),
+    transfersError,
+    el('div', { class: 'toolbar' },
+      button('Preview diff', previewTransfers, 'primary'),
+      button('Save', saveTransfers)),
+    transfersEditor,
+    transfersSummary,
     el('h2', {}, 'Workbook'),
     workbookHost);
 }
@@ -43,6 +56,12 @@ async function load() {
   } catch (error) {
     errorBar.textContent = 'cannot load categories.yaml: ' + (error.message || error);
     errorBar.hidden = false;
+  }
+  try {
+    transfersEditor.value = await api.transfersYaml();
+  } catch (error) {
+    transfersError.textContent = 'cannot load transfers.yaml: ' + (error.message || error);
+    transfersError.hidden = false;
   }
   await refreshWorkbook();
 }
@@ -128,6 +147,41 @@ async function save() {
       reportError(error);
     }
   }
+}
+
+async function previewTransfers() {
+  try {
+    renderTransferSummary(await api.transfersPreview(transfersEditor.value));
+    transfersError.hidden = true;
+  } catch (error) {
+    transfersError.textContent = error.message || 'preview failed';
+    transfersError.hidden = false;
+  }
+}
+
+async function saveTransfers() {
+  try {
+    await api.saveTransfers(transfersEditor.value);
+    toast('Saved; the watcher will re-derive');
+    transfersError.hidden = true;
+  } catch (error) {
+    if (error.status === 422) {
+      transfersError.textContent = error.message;
+      transfersError.hidden = false;
+    } else {
+      reportError(error);
+    }
+  }
+}
+
+function renderTransferSummary(p) {
+  clear(transfersSummary);
+  transfersSummary.append(
+    el('div', {}, `pairs: ${p.pairsAdded} new, ${p.pairsRemoved} removed`),
+    el('div', {}, `review: ${p.reviewOpened} opened, ${p.reviewCleared} cleared`),
+    el('div', {}, `legs moved: ${p.moved.length}`),
+    el('ul', {}, ...p.moved.slice(0, 50).map((m) =>
+      el('li', {}, `${m.externalId.slice(0, 8)}: ${m.from || '\u2014'} \u2192 ${m.to || '\u2014'}`))));
 }
 
 function renderSummary(previewResult) {

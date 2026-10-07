@@ -11,6 +11,7 @@ import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.ReflowRequest;
+import trex.v2.hub.api.TransferRequest;
 import trex.v2.log.Json;
 
 import java.io.IOException;
@@ -162,6 +163,35 @@ final class HubHttpApi {
             }
         });
         route(server, "/api/config/categories", configCategories);
+
+        route(server, "/api/reflow/preview/transfers", "POST", ex -> {
+            try {
+                TransferRequest request = Json.mapper().readValue(readBody(ex), TransferRequest.class);
+                DecisionOutcome outcome = api.transfersPreview(request.transfers());
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
+        Map<String, Handler> configTransfers = new LinkedHashMap<>();
+        configTransfers.put("GET", ex -> {
+            Optional<String> yaml = api.transfersYaml();
+            if (yaml.isEmpty()) {
+                sendError(ex, 404, "no transfers.yaml");
+            } else {
+                writeText(ex, 200, "text/yaml", yaml.get());
+            }
+        });
+        configTransfers.put("PUT", ex -> {
+            try {
+                TransferRequest request = Json.mapper().readValue(readBody(ex), TransferRequest.class);
+                DecisionOutcome outcome = api.saveTransfers(request.transfers());
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
+        route(server, "/api/config/transfers", configTransfers);
 
         server.createContext("/", ex -> serveStaticOrNotFound(ex));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());

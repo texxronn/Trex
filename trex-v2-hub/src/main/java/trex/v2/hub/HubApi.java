@@ -55,9 +55,16 @@ interface HubApi {
 
     DecisionOutcome reflowPreview(String categoriesYaml);
 
+    /** The §9.9.C counterpart: what a candidate {@code transfers.yaml} would pot or pair. */
+    DecisionOutcome transfersPreview(String transfersYaml);
+
     java.util.Optional<String> categoriesYaml();
 
     DecisionOutcome saveCategories(String categoriesYaml);
+
+    java.util.Optional<String> transfersYaml();
+
+    DecisionOutcome saveTransfers(String transfersYaml);
 
     Workbook.Report workbook();
 
