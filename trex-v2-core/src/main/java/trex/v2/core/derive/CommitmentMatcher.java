@@ -5,7 +5,6 @@ import trex.v2.core.Clean;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -31,12 +30,11 @@ import java.util.regex.PatternSyntaxException;
  *
  * <p>Assignment is global and deterministic: facts are processed in {@code (date, n)} order, pins
  * first, then the rules, where a fact matching several commitments goes to the latest declaration
- * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. A rule fact is
- * allocated oldest-first across the commitment's open occurrences — the arrears clear from the
- * front and a surplus pre-pays the materialised future; a pin satisfies the nearest open
- * occurrence within one full cadence; anything left over is an {@code off_schedule} occurrence at
- * the fact's date. The output is ordered by commitment id then due date, and no iteration depends
- * on input order.
+ * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. Every matching
+ * fact — by rule or by pin — is allocated oldest-first across the commitment's open occurrences:
+ * the arrears clear from the front and a surplus pre-pays the materialised future; anything left
+ * over is an {@code off_schedule} occurrence at the fact's date. The output is ordered by
+ * commitment id then due date, and no iteration depends on input order.
  */
 final class CommitmentMatcher {
 
@@ -268,27 +266,17 @@ final class CommitmentMatcher {
     }
 
     /**
-     * Allocate each assigned fact (§2.9). A rule fact goes to the commitment's open occurrences
-     * ({@code due}, {@code missed}, {@code partial}) oldest first, each taking up to its expected
-     * amount — the backlog clears from the front, and a surplus pre-pays the future occurrences
-     * already materialised. A pinned fact satisfies the nearest open occurrence within one full
-     * cadence and never re-anchors (§10.15). Whatever is left over becomes an {@code off_schedule}
-     * occurrence at the fact's date: nothing is swallowed.
+     * Allocate each assigned fact (§2.9). Every matching fact — by rule or by pin, right sign —
+     * goes to the commitment's open occurrences ({@code due}, {@code missed}, {@code partial})
+     * oldest first, each taking up to its expected amount: the backlog clears from the front and
+     * a surplus pre-pays the future occurrences already materialised. A fact that finds no open
+     * occurrence at all becomes an {@code off_schedule} occurrence at its own date — nothing is
+     * swallowed and a pin never re-anchors.
      */
     private static void allocate(Commitment commitment, List<Assigned> facts, List<Slot> slots) {
         for (Assigned assigned : facts) {
             CurrentFact fact = assigned.fact;
             long remaining = Math.abs(fact.fact().amount());
-            if (BY_PIN.equals(assigned.matchedBy)) {
-                Slot nearest = nearestOpen(slots, commitment.cadence().days(), fact.fact().date());
-                if (nearest != null) {
-                    remaining = allocateTo(commitment, nearest, assigned, remaining);
-                }
-                if (remaining > 0) {
-                    offSchedule(assigned, slots, remaining);
-                }
-                continue;
-            }
             for (Slot slot : slots) {
                 if (remaining == 0) {
                     break;
@@ -340,27 +328,6 @@ final class CommitmentMatcher {
             slot.allocated = total;
         }
         return remaining - take;
-    }
-
-    /** The nearest open occurrence within one full cadence of the pinned fact (§10.15). */
-    private static Slot nearestOpen(List<Slot> slots, int cadenceDays, LocalDate date) {
-        Slot found = null;
-        long best = Long.MAX_VALUE;
-        for (Slot slot : slots) {
-            if (!slot.open()) {
-                continue;
-            }
-            long distance = Math.abs(ChronoUnit.DAYS.between(slot.dueDate, date));
-            if (distance > cadenceDays) {
-                continue;
-            }
-            if (found == null || distance < best
-                || (distance == best && slot.dueDate.isBefore(found.dueDate))) {
-                best = distance;
-                found = slot;
-            }
-        }
-        return found;
     }
 
     /**

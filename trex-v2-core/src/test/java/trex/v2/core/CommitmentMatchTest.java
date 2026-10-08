@@ -239,24 +239,27 @@ class CommitmentMatchTest {
     }
 
     @Test
-    void anOffSchedulePinNeverMovesTheAnchor() {
+    void aPinAllocatesLikeARuleOldestFirst() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
-            LocalDate.of(2026, 3, 15), -10000L, 1);
-        CurrentFact bpay = fact(1, "cba-netsaver", LocalDate.of(2026, 1, 20), -10000L,
-            "BPAY 999888");
+            LocalDate.of(2026, 1, 10), -10000L, 1);
+        CurrentFact lump = fact(1, "cba-netsaver", LocalDate.of(2026, 4, 3), -30000L,
+            "BPAY 123456");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(bpay),
+        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(lump),
             List.of(new CommitmentPin("id-1", "bill")), List.of(),
-            Instant.parse("2026-05-01T00:00:00Z"));
+            Instant.parse("2026-04-05T00:00:00Z"));
 
-        CommitmentOccurrence off = at(match, "bill", LocalDate.of(2026, 1, 20));
-        assertTrue(off.offSchedule());
-        assertEquals(OccurrenceStatus.OCCURRED, off.status());
-        assertEquals("pin", off.matchedBy());
-        assertNull(off.windowStart());
-        assertEquals(List.of(LocalDate.of(2026, 3, 15), LocalDate.of(2026, 4, 15),
-            LocalDate.of(2026, 5, 15), LocalDate.of(2026, 6, 15), LocalDate.of(2026, 7, 15)),
-            scheduled(match, "bill"), "the scheduled dates still run from the anchor");
+        for (LocalDate due : List.of(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10),
+                LocalDate.of(2026, 3, 10))) {
+            CommitmentOccurrence occurrence = at(match, "bill", due);
+            assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
+            assertEquals("pin", occurrence.matchedBy());
+            assertEquals("id-1", occurrence.matchedExternalId());
+            assertEquals(-10000L, occurrence.amount().longValue(),
+                "the one fact covers three periods, oldest first");
+        }
+        assertEquals(OccurrenceStatus.DUE, at(match, "bill", LocalDate.of(2026, 4, 10)).status());
+        assertEquals(0, arrears(match, "bill").count());
     }
 
     @Test
@@ -520,23 +523,29 @@ class CommitmentMatchTest {
     }
 
     @Test
-    void aPinPaysTheNearestOccurrenceAndItsSurplusIsOffSchedule() {
+    void aPinWithNoOpenOccurrenceIsOffSchedule() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
-            LocalDate.of(2026, 3, 15), -10000L, 1);
-        CurrentFact overpaid = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 18), -15000L,
-            "BPAY 777");
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        CurrentFact bpay = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L,
+            "BPAY 999888");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(overpaid),
-            List.of(new CommitmentPin("id-1", "bill")), List.of(),
+        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(bpay),
+            List.of(new CommitmentPin("id-1", "bill")),
+            List.of(new CommitmentSettle("bill", LocalDate.of(2026, 3, 10), 7),
+                new CommitmentSettle("bill", LocalDate.of(2026, 4, 10), 8),
+                new CommitmentSettle("bill", LocalDate.of(2026, 5, 10), 9),
+                new CommitmentSettle("bill", LocalDate.of(2026, 6, 10), 10)),
             Instant.parse("2026-04-05T00:00:00Z"));
 
-        CommitmentOccurrence march = at(match, "bill", LocalDate.of(2026, 3, 15));
-        assertEquals(OccurrenceStatus.OCCURRED, march.status());
-        assertEquals("pin", march.matchedBy());
-        assertEquals(-10000L, march.amount().longValue(), "up to the expected amount");
-        CommitmentOccurrence surplus = at(match, "bill", LocalDate.of(2026, 3, 18));
-        assertTrue(surplus.offSchedule());
-        assertEquals(-5000L, surplus.amount().longValue());
+        CommitmentOccurrence off = at(match, "bill", LocalDate.of(2026, 3, 20));
+        assertTrue(off.offSchedule(), "every occurrence is settled; nothing is open");
+        assertEquals(OccurrenceStatus.OCCURRED, off.status());
+        assertEquals("pin", off.matchedBy());
+        assertEquals(-10000L, off.amount().longValue());
+        assertNull(off.windowStart());
+        assertEquals(List.of(LocalDate.of(2026, 3, 10), LocalDate.of(2026, 4, 10),
+            LocalDate.of(2026, 5, 10), LocalDate.of(2026, 6, 10)), scheduled(match, "bill"),
+            "the pin never moves the anchor");
         assertEquals(0, arrears(match, "bill").count());
     }
 

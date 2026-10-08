@@ -158,9 +158,9 @@ annotated with a `NOTE` against the matched fact, or on the commitment's own thr
   `missed` and no arrears, and it is never dormant.
 - **Precedence: pins first, then rules.** An effective `PIN_COMMITMENT` places its fact with the
   named commitment before rule matching runs; `UNPIN_COMMITMENT` releases it. A pinned fact
-  satisfies the nearest open occurrence of its commitment (within a wider pin window, one full
-  cadence; §10.15); when there is none it becomes an occurrence at its own date flagged
-  `off_schedule` — "charged twice this month" is a true statement, never a silent match.
+  allocates exactly like a rule match (§2.9); when there is no open occurrence it becomes an
+  occurrence at its own date flagged `off_schedule` — "charged twice this month" is a true
+  statement, never a silent match.
 - **A pin never re-anchors.** A schedule that genuinely changed is a **new commitment**: retire
   the old, declare the new (operator, 2026-10-08). A pin marks what happened; it does not move the
   calendar.
@@ -761,9 +761,9 @@ for the record.
     `MerchantStem.stem`; a commitment's multiple rules cover every descriptor variation, and what
     the stem does not merge is merged at confirm (the leftover candidate is suppressed by rule
     coverage).
-15. **Pin window** — resolved: a pinned fact satisfies the nearest occurrence within one full
-    cadence and beyond that is `off_schedule`; a pin never re-anchors, and any re-anchor needs a
-    new commitment.
+15. **Pin allocation** — resolved: a pinned fact allocates exactly like a rule match (§2.9), the
+    oldest open occurrence first; with no open occurrence it is `off_schedule` at its own date. A
+    pin never re-anchors, and any re-anchor needs a new commitment.
 
 ## 11. Rollback
 
