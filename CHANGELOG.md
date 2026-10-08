@@ -36,12 +36,14 @@ everything is under **Unreleased**.
   distribution — and shows `+n one-off(s)` on the candidate row and in its review detail.
   **Flagging only**: the series, steps and cost are unchanged; a person excludes a fact with
   `EXCLUDE_COMMITMENT` (`INCLUDE_COMMITMENT` to restore) in the next stage.
-- **Two more commitment kinds: `services` and `loan`.** The kind face is now
-  `subscription · services · bill · insurance · fee · tax · income · loan · other` (§6.11),
-  so a gym, childcare or education commitment need not sit in `other`, and a mortgage or
-  personal-loan repayment — the canonical transfer-leg commitment — has its own label. Kind is a
-  label only: no derivation reads it, existing decisions keep parsing, and an existing row is
-  reclassified with **Re-declare**.
+- **More commitment kinds: `services`, `loan`, `interest_earned` and `interest_paid`.** The kind
+  face is now
+  `subscription · services · bill · insurance · fee · tax · income · interest_earned ·
+  interest_paid · loan · other` (§6.11), so a gym, childcare or education commitment need not sit
+  in `other`, a mortgage or personal-loan repayment — the canonical transfer-leg commitment — has
+  its own label, and credit interest is told apart from interest charged. Kind is a label only: no
+  derivation reads it, existing decisions keep parsing, and an existing row is reclassified with
+  **Re-declare**.
 - **Every commitment row opens the same Actions… menu, with its full transaction history.** The
   menu is a stacked two-pane view — a price timeseries over a transactions table — with its
   curation actions: Review/Confirm/Ignore for a candidate, Re-declare/Retire/Note/Settle for a

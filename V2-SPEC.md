@@ -171,7 +171,7 @@ its `clearing:` account — one real leg and an account side, no window, no ambi
 records the payer leg's rail method; the rail direction is the sign.
 
 **Commitments.** A commitment is a named expectation of a recurring money movement (subscription,
-services, bill, insurance, fee, tax, income, loan, other), and its stage is a **sibling of categorisation**: it reads
+services, bill, insurance, fee, tax, income, interest_earned, interest_paid, loan, other), and its stage is a **sibling of categorisation**: it reads
 the same current facts and no category output — categorisation reads none of it — so their order is
 incidental and a complex rule may be duplicated in both. The nine curation decisions (§5) are
 folded; candidates are detected over the current facts (transfer legs included, `noop` excluded) by
