@@ -1340,13 +1340,13 @@ or a declaration's rules cover every fact of its group.
 
 **Occurrences** are generated from cadence and anchor with `java.time` calendar arithmetic — a
 monthly bill on the 30th clamps in February, never "add 30 days" — for the recent past and a
-forward horizon, and are as disposable as the rest. A due occurrence takes the nearest
-unassigned fact that matches one of the commitment's rules (or is pinned to it), has the
-commitment's sign, falls inside the date window (± half the cadence, capped at ±7 days) and fits
-the expected amount; facts are consumed in `(date, n)` order and each belongs to at most one
-occurrence. Status is `occurred` (a fact satisfied it, with the fact id), `settled` (a person
-concluded it without a fact), `due`, `partial` (a fact covered part; the remainder is arrears)
-or `missed`. An `irregular` commitment generates no dates: each matching fact becomes an
+forward horizon, and are as disposable as the rest. A fact that matches one of the commitment's
+rules (or is pinned to it) and has the commitment's sign is allocated to the open occurrences
+oldest first (below); the window decides status, not admission — a window that closes unmatched is
+`missed`, and a later fact catches it up. Facts are consumed in `(date, n)` order and each belongs
+to at most one occurrence. Status is `occurred` (a fact satisfied it, with the fact id), `settled`
+(a person concluded it without a fact), `due`, `partial` (a fact covered part; the remainder is
+arrears) or `missed`. An `irregular` commitment generates no dates: each matching fact becomes an
 occurrence at its own date — tracked by observation, never predicted, never missed, never in
 arrears, never dormant. A pin never re-anchors; a pinned fact with no open occurrence is an
 `off_schedule` occurrence at its own date — "charged twice this month" is a true statement,
