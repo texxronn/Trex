@@ -26,10 +26,12 @@ export function commitmentChip(row) {
 }
 
 /**
- * The declaration form, one shape for a candidate confirm and a re-declare. {@code prefill}:
- * {@code commitmentId}, {@code name}, {@code kind}, {@code direction}, {@code cadence},
- * {@code amountKind}, {@code amount} (cents, magnitude), {@code anchor}, {@code matches}
- * ({@code {match, account}}), {@code fromCandidate} and {@code idLocked}.
+ * The declaration form, one shape for a hand declaration, a candidate confirm and a re-declare.
+ * {@code prefill}: {@code commitmentId}, {@code name}, {@code kind}, {@code direction},
+ * {@code cadence}, {@code amountKind}, {@code amount} (cents, magnitude), {@code anchor},
+ * {@code matches} ({@code {match, account}}), {@code fromCandidate} and {@code idLocked}. An
+ * empty prefill is the declare-by-hand path: the id follows the name until it is edited, a regular
+ * cadence defaults its anchor to today, and {@code irregular} hides the anchor (never sent).
  */
 export function openDeclare(ctx, prefill, onDone) {
   const p = prefill || {};
@@ -42,7 +44,9 @@ export function openDeclare(ctx, prefill, onDone) {
   const amountKindSelect = selectOf(AMOUNT_KINDS, p.amountKind || 'fixed');
   const amountInput = el('input', { type: 'number', step: '0.01', min: '0',
     value: p.amount == null ? '' : (p.amount / 100).toFixed(2) });
-  const anchorInput = el('input', { type: 'date', value: p.anchor || '' });
+  const regular = cadenceSelect.value !== 'irregular';
+  const anchorInput = el('input', { type: 'date', value: p.anchor || (regular ? todayIso() : '') });
+  const anchorRow = row('Anchor', anchorInput);
   const rulesInput = el('textarea', { rows: '3',
     placeholder: 'one regex per line; append "@ account" to scope it' }, formatRules(p.matches));
   const commentInput = el('input', { type: 'text', value: p.comment || '' });
@@ -56,7 +60,7 @@ export function openDeclare(ctx, prefill, onDone) {
     row('Cadence', cadenceSelect),
     row('Amount kind', amountKindSelect),
     row('Amount ($)', amountInput),
-    row('Anchor', anchorInput),
+    anchorRow,
     row('Rules', rulesInput),
     row('Comment', commentInput),
     el('div', { class: 'actions' },
@@ -67,6 +71,27 @@ export function openDeclare(ctx, prefill, onDone) {
   document.body.append(overlay);
   nameInput.focus();
   document.addEventListener('keydown', onKey);
+
+  // The id follows the name until the person edits the id (or it is a locked re-declare).
+  let idTouched = false;
+  idInput.addEventListener('input', () => { idTouched = true; });
+  nameInput.addEventListener('input', () => {
+    if (!p.idLocked && !idTouched) {
+      idInput.value = nameInput.value.trim() ? slugify(nameInput.value) : '';
+    }
+  });
+
+  // An irregular commitment predicts nothing, so it carries no anchor (§2.1, §2.5).
+  cadenceSelect.addEventListener('change', syncAnchor);
+  syncAnchor();
+
+  function syncAnchor() {
+    const isRegular = cadenceSelect.value !== 'irregular';
+    anchorRow.hidden = !isRegular;
+    if (isRegular && !anchorInput.value) {
+      anchorInput.value = todayIso();
+    }
+  }
 
   function close() {
     overlay.remove();
@@ -82,7 +107,7 @@ export function openDeclare(ctx, prefill, onDone) {
     const name = nameInput.value.trim();
     const matches = parseRules(rulesInput.value);
     const cadence = cadenceSelect.value;
-    const anchor = anchorInput.value || null;
+    const anchor = cadence === 'irregular' ? null : (anchorInput.value || null);
     if (!/^[a-z0-9-]{1,64}$/.test(commitmentId)) {
       toast('Id must be a slug of a-z, 0-9 and "-", max 64 chars', 'bad');
       return;
@@ -122,7 +147,7 @@ export function openDeclare(ctx, prefill, onDone) {
 /** Retire a commitment: an end date (today by default) and the reason that goes on the record. */
 export function openRetire(ctx, target, onDone) {
   const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
-  const dateInput = el('input', { type: 'date', value: new Date().toISOString().slice(0, 10) });
+  const dateInput = el('input', { type: 'date', value: todayIso() });
   const reasonInput = el('input', { type: 'text', placeholder: 'cancelled, past, provider move…' });
   const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': 'Retire' },
     el('h3', {}, 'Retire commitment'),
@@ -290,6 +315,11 @@ export function escapeRegex(text) {
 }
 
 // ---- dialog bits ------------------------------------------------------------------------------
+
+/** Today in ISO form, the dialog's default date. */
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function selectOf(options, value) {
   return el('select', {}, ...options.map((o) =>

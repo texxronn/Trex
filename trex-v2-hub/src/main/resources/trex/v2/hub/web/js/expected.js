@@ -194,7 +194,12 @@ function registrySection() {
     el('th', { class: 'amount' }, 'Current'), el('th', {}, 'Last'), el('th', {}, 'Next'),
     el('th', { class: 'amount' }, 'Arrears'), el('th', {}, ''));
   return el('section', { class: 'mode-section' },
-    el('h3', {}, 'Registry', el('span', { class: 'muted' }, ` · ${registry.length}`)),
+    el('h3', {}, 'Registry', el('span', { class: 'muted' }, ` · ${registry.length}`),
+      el('button', { type: 'button', class: 'ghost title-action',
+        onclick: () => openDeclare(ctx, {
+          summary: 'A commitment declared by hand: a manual-cadence bill, an income, anything '
+            + 'detection did not propose.',
+        }, load) }, 'Declare commitment')),
     registry.length
       ? scroll(el('table', {}, el('thead', {}, head),
           el('tbody', {}, ...registry.map(registryRow))))
