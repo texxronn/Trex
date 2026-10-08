@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { accountChip } from './account.js';
 import { decisions } from './decisions.js';
 import { openAnnotate } from './annotate.js';
+import { direction } from './direction.js';
 import { openPrompt, openSelect } from './dialog.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
@@ -74,7 +75,7 @@ function renderRows(rows) {
   }
   const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'Account'), el('th', {}, 'Date'),
     el('th', {}, 'Subject'), el('th', {}, 'Detail'), el('th', { class: 'amount' }, 'Stake'),
-    el('th', {}, 'Opened'), el('th', {}));
+    el('th', {}, 'Direction'), el('th', {}, 'Opened'), el('th', {}));
   const body = rows.map((row) => {
     const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
     return el('tr', {},
@@ -84,6 +85,7 @@ function renderRows(rows) {
       el('td', { class: 'desc', title: row.subject }, row.subjectDescription || shortId(row.subject)),
       memberCell(row),
       el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
+      el('td', {}, direction(row.amount)),
       el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),
       el('td', {},
         canDismiss

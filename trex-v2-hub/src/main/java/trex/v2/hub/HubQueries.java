@@ -332,7 +332,8 @@ public final class HubQueries implements AutoCloseable {
                         rows.add(new ReviewRow(subject, rowKind, rs.getString(3),
                             rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6),
                             description == null ? null : trex.v2.core.Clean.clean(description),
-                            date == null ? null : LocalDate.parse(date), members, rs.getString(9)));
+                            date == null ? null : LocalDate.parse(date), members, rs.getString(9),
+                            rs.getObject(10) == null ? null : rs.getLong(10)));
                     }
                 }
             }
