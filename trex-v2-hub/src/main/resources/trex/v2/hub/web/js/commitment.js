@@ -6,8 +6,7 @@
 import { api } from './api.js';
 import { decisions } from './decisions.js';
 import { openChoice, openPrompt, openSelect } from './dialog.js';
-import { el, clear } from './dom.js';
-import { direction } from './direction.js';
+import { el, clear, svgEl } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
@@ -345,53 +344,102 @@ export function ignoreCandidate(ctx, candidate, onDone) {
 }
 
 /**
- * A candidate row's menu: the series' own transactions, then confirm it here, hand it to Review,
- * or ignore it for good. The facts load on open — the registry payload stays lean.
+ * A candidate row's menu: the series' transactions in a table and a rudimentary price
+ * timeseries, then confirm it here, hand it to Review, or ignore it for good. The facts load on
+ * open — the registry payload stays lean.
  */
 export function openCandidateActions(ctx, candidate, onDone) {
-  const facts = el('div', { class: 'tx-list' },
-    el('p', { class: 'muted' }, 'Loading transactions…'));
+  const txPane = el('div', { class: 'tx-pane' }, el('p', { class: 'muted' }, 'Loading…'));
+  const chartPane = el('div', { class: 'chart-pane' }, el('p', { class: 'muted' }, 'Loading…'));
   openChoice({
     title: candidate.stem || shortId(candidate.commitmentId),
     summary: candidate.detail || 'Detected recurring series',
-    body: facts,
-    wide: true,
+    body: el('div', { class: 'popup-split' },
+      el('div', { class: 'popup-pane' }, el('h4', {}, 'Transactions'), txPane),
+      el('div', { class: 'popup-pane' }, el('h4', {}, 'Price'), chartPane)),
+    xwide: true,
   }, [
     { label: 'Review', onPick: () => { location.hash = '#review?kind=SUSPECTED_RECURRING'; } },
     { label: 'Ignore…', class: 'warn', onPick: () => ignoreCandidate(ctx, candidate, onDone) },
     { label: 'Confirm…', class: 'primary', onPick: () => confirmCandidate(ctx, candidate, onDone) },
   ]);
-  loadCandidateFacts(candidate, facts);
+  loadCandidateFacts(candidate, txPane, chartPane);
 }
 
 /** The series behind the candidate: the same lens the detector grouped with (§7 Stage 2). */
-async function loadCandidateFacts(candidate, host) {
+async function loadCandidateFacts(candidate, txPane, chartPane) {
   let facts;
   try {
     facts = await api.candidateFacts(candidate.stem);
   } catch (error) {
-    clear(host);
-    host.append(el('p', { class: 'error' }, error.message || 'failed to load transactions'));
+    clear(txPane);
+    clear(chartPane);
+    const message = error.message || 'failed to load transactions';
+    txPane.append(el('p', { class: 'error' }, message));
+    chartPane.append(el('p', { class: 'muted' }, '—'));
     return;
   }
-  clear(host);
+  clear(txPane);
+  clear(chartPane);
   if (!facts.length) {
-    host.append(el('p', { class: 'muted' }, 'No current transactions for this series.'));
+    txPane.append(el('p', { class: 'muted' }, 'No current transactions.'));
+    chartPane.append(el('p', { class: 'muted' }, 'No price points.'));
     return;
   }
-  host.append(
-    el('div', { class: 'muted tx-count' },
-      `${facts.length} transaction${facts.length === 1 ? '' : 's'}, oldest first`),
-    el('div', { class: 'tx-rows' }, ...facts.map(candidateFactRow)));
+  txPane.append(factsTable(facts));
+  chartPane.append(priceChart(facts));
 }
 
-function candidateFactRow(f) {
-  return el('div', { class: 'tx-row' },
-    el('span', { class: 'tx-date' }, f.date),
-    direction(f.amount),
-    el('span', { class: 'tx-amount' }, money(f.amount)),
-    el('span', { class: 'tx-account muted', title: f.accountRef }, f.accountRef),
-    el('span', { class: 'tx-desc muted', title: f.rawDescription }, f.rawDescription));
+/** The transactions as a compact table: date, account, signed amount, raw description. */
+function factsTable(facts) {
+  return el('table', { class: 'tx-table' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
+      el('th', {}, 'Description'))),
+    el('tbody', {}, ...facts.map((f) => el('tr', {},
+      el('td', { class: 'tx-date' }, f.date),
+      el('td', { class: 'tx-account muted', title: f.accountRef }, f.accountRef),
+      el('td', { class: 'amount ' + (f.amount < 0 ? 'tx-out' : 'tx-in') }, money(f.amount)),
+      el('td', { class: 'tx-desc muted', title: f.rawDescription }, f.rawDescription)))));
+}
+
+/**
+ * A rudimentary price timeseries: same-day facts sum (detection's collapse), magnitudes plot
+ * against a zero baseline, and each point carries its signed value on hover.
+ */
+function priceChart(facts) {
+  const byDate = new Map();
+  for (const f of facts) {
+    byDate.set(f.date, (byDate.get(f.date) || 0) + f.amount);
+  }
+  const points = [...byDate.entries()]
+    .map(([date, amount]) => ({ date, amount }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const W = 360, H = 240, pad = 30;
+  const at = (date) => Date.parse(date + 'T00:00:00Z');
+  const minT = at(points[0].date);
+  const maxT = at(points[points.length - 1].date);
+  const maxV = Math.max(...points.map((p) => Math.abs(p.amount))) * 1.1 || 1;
+  const x = (date) => minT === maxT ? W / 2
+    : pad + ((at(date) - minT) / (maxT - minT)) * (W - 2 * pad);
+  const y = (amount) => H - pad - (Math.abs(amount) / maxV) * (H - 2 * pad);
+  return el('div', {},
+    svgEl('svg', { class: 'price-chart', viewBox: `0 0 ${W} ${H}`,
+        preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Price over time' },
+      svgEl('line', { class: 'axis', x1: pad, y1: H - pad, x2: W - pad, y2: H - pad }),
+      svgEl('line', { class: 'axis', x1: pad, y1: pad, x2: pad, y2: H - pad }),
+      svgEl('text', { class: 'lbl', x: pad, y: pad - 10 }, money(Math.round(maxV))),
+      svgEl('text', { class: 'lbl', x: pad, y: H - pad + 14 }, points[0].date),
+      svgEl('text', { class: 'lbl end', x: W - pad, y: H - pad + 14 }, points[points.length - 1].date),
+      points.length > 1
+        ? svgEl('polyline', { class: 'line',
+            points: points.map((p) => `${x(p.date).toFixed(1)},${y(p.amount).toFixed(1)}`).join(' ') })
+        : null,
+      ...(points.length <= 80 ? points.map((p) =>
+        svgEl('circle', { class: 'dot', cx: x(p.date), cy: y(p.amount), r: 3 },
+          svgEl('title', {}, `${p.date} \u00b7 ${money(p.amount)}`))) : [])),
+    el('div', { class: 'muted chart-note' },
+      `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day facts summed`));
 }
 
 // ---- shared transformations -------------------------------------------------------------------

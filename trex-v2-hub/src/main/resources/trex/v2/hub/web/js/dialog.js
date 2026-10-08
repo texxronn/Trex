@@ -72,9 +72,10 @@ export function openSelect(options, onSave) {
 
 /** A choice dialog: one button per action, for a row menu that needs a sentence of context. */
 export function openChoice(options, choices) {
-  const { title, summary, body, wide } = options;
+  const { title, summary, body, wide, xwide } = options;
+  const size = xwide ? ' xwide' : wide ? ' wide' : '';
   const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
-  const dialog = el('div', { class: 'dialog' + (wide ? ' wide' : ''), role: 'dialog', 'aria-label': title },
+  const dialog = el('div', { class: 'dialog' + size, role: 'dialog', 'aria-label': title },
     el('h3', {}, title),
     summary ? el('p', { class: 'muted' }, summary) : null,
     body || null,

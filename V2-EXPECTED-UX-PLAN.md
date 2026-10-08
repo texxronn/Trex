@@ -125,7 +125,8 @@ migration, `trex verify` stays green and is not part of this acceptance.
     same prefill as Review, shared from `commitment.js`) and **Ignore…** (a reason required).
     The dialog lists the series' own transactions, fetched on open from
     `GET /api/commitments/facts?stem=…` — the same lens the detector grouped with, oldest
-    first — so the decision is made against the evidence.
+    first — so the decision is made against the evidence: a transactions table on the left and a
+    rudimentary price timeseries on the right (same-day facts summed).
   - **Filters.** Inside the Commitments section: All | Candidates | Declared, status,
     direction, text search and sort; all rows show by default (operator, 2026-10-08); the
     header count follows the filter (`n of total` when filtered).

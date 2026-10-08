@@ -231,13 +231,7 @@ function registrySection() {
 
 function registryFilters() {
   return el('div', { class: 'toolbar' },
-    el('div', { class: 'tabs' },
-      ...[['all', 'All'], ['detected', 'Candidates'], ['declared', 'Declared']].map(([value, label]) =>
-        el('button', {
-          type: 'button',
-          class: 'tab' + (filters.origin === value ? ' active' : ''),
-          onclick: () => { filters.origin = value; refreshRegistry(); },
-        }, label))),
+    originTabs(),
     field('Status', filterSelect([['', 'all'], ['active', 'active'], ['dormant', 'dormant'],
       ['ended', 'ended']], filters.status, (v) => { filters.status = v; refreshRegistry(); })),
     field('Direction', filterSelect([['', 'all'], ['in', 'in'], ['out', 'out']], filters.direction,
@@ -482,6 +476,28 @@ function fold(id, head, body) {
 function filterSelect(options, value, onChange) {
   return el('select', { onchange: (e) => onChange(e.target.value) },
     ...options.map(([v, label]) => el('option', { value: v, selected: v === value }, label)));
+}
+
+/**
+ * The origin selector. A click repaints the tabs in place (a full re-render would jump the
+ * scroll); the list and the header count refresh behind it.
+ */
+function originTabs() {
+  const entries = [['all', 'All'], ['detected', 'Candidates'], ['declared', 'Declared']];
+  const host = el('div', { class: 'tabs' });
+  entries.forEach(([value, label]) => {
+    host.append(el('button', {
+      type: 'button',
+      class: 'tab' + (filters.origin === value ? ' active' : ''),
+      onclick: () => {
+        filters.origin = value;
+        [...host.children].forEach((button, i) =>
+          button.classList.toggle('active', entries[i][0] === value));
+        refreshRegistry();
+      },
+    }, label));
+  });
+  return host;
 }
 
 function currentOf(commitmentId) {

@@ -419,18 +419,39 @@ tbody tr.noop:hover td { opacity: .8; }
 .dialog .field textarea { flex: 1 1 auto; max-width: 60%; min-height: 5.5rem; font-size: 12px; }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 
-/* The candidate menu's transaction list (V2-EXPECTED-UX-PLAN.md §7 Stage 2). */
-.tx-count { font-size: 11px; margin: 0.5rem 0 0.25rem; }
-.tx-rows { max-height: 38vh; overflow: auto; border: 1px solid var(--line);
+/* The candidate menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): transactions left, price right. */
+.dialog.xwide { width: min(920px, 100%); }
+.popup-split { display: flex; gap: 0.8rem; align-items: flex-start; margin-top: 0.6rem; }
+.popup-pane { flex: 1 1 50%; min-width: 0; }
+.popup-pane h4 { margin: 0 0 0.3rem; font-size: 12px; color: var(--muted); font-weight: 600; }
+.tx-pane { max-height: 42vh; overflow: auto; border: 1px solid var(--line);
   border-radius: var(--radius-sm); }
-.tx-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid var(--line); font-size: 12px; }
-.tx-row:last-child { border-bottom: 0; }
+.tx-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.tx-table th { font-size: 11px; color: var(--muted); text-align: left; padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid var(--line-strong); position: sticky; top: 0; background: var(--surface); }
+.tx-table td { font-size: 12px; padding: 0.25rem 0.4rem; border-bottom: 1px solid var(--line);
+  vertical-align: top; }
+.tx-table th:nth-child(1), .tx-table td:nth-child(1) { width: 5.2rem; }
+.tx-table th:nth-child(2), .tx-table td:nth-child(2) { width: 7rem; }
+.tx-table th:nth-child(3), .tx-table td:nth-child(3) { width: 4.8rem; }
 .tx-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tx-amount { min-width: 5rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-.tx-account { min-width: 8rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
-.tx-desc { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.tx-account { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-desc { overflow-wrap: anywhere; }
+td.tx-out { color: #ef4444; font-weight: 600; }
+td.tx-in { color: var(--good); font-weight: 600; }
+.chart-pane { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0.3rem; }
+.price-chart { display: block; width: 100%; height: auto; }
+.price-chart .axis { stroke: var(--line-strong); stroke-width: 1; }
+.price-chart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.price-chart .dot { fill: var(--accent); }
+.price-chart .lbl { fill: var(--muted); font-size: 10px; }
+.price-chart .lbl.end { text-anchor: end; }
+.chart-note { font-size: 11px; margin-top: 0.25rem; }
+@media (max-width: 720px) {
+  .popup-split { flex-direction: column; }
+  .popup-pane { flex: 1 1 auto; width: 100%; }
+  .tx-pane { max-height: 32vh; }
+}
 
 /* ---- Eyeball read / unread ---------------------------------------------- */
 
