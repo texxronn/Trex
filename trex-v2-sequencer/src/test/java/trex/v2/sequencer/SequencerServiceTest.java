@@ -93,7 +93,7 @@ class SequencerServiceTest {
             HttpResponse<byte[]> decisions = postGzip(client, base.resolve("/decisions"),
                 new DecisionBatch(List.of(new DecisionDraft("MARK_EXTERNAL", "user", "ron",
                     Instant.parse("2026-09-29T08:00:00Z"), "ordinary", null, null, id, null, null, null, null,
-                    null, null, null, null, null, null, null, null, null, null))));
+                    null, null, null, null, null, null, null, null, null, null, null))));
             assertEquals(200, decisions.statusCode());
             assertEquals(RowResult.RESOLVED,
                 Json.mapper().readValue(body(decisions), BatchResponse.class).results().getFirst().outcome());

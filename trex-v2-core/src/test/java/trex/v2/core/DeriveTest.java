@@ -150,6 +150,26 @@ class DeriveTest {
     }
 
     @Test
+    void attachAccountPairsALegWithAClearingAccount() {
+        java.util.Map<String, Account> accounts = new java.util.LinkedHashMap<>();
+        accounts.put("ing-savings", new Account("ing-savings", "AUD", BalanceSource.STATEMENT, 7));
+        accounts.put("bw-legacy", new Account("bw-legacy", "AUD", BalanceSource.CLEARING, 7, 0L, null));
+        DeriveConfig cfg = new DeriveConfig(new Registry(accounts, registry().users()), rules(),
+            TransferRules.defaults(List.of("Internal Transfer", "Transfer")),
+            trex.v2.core.config.Profiles.empty(), "sha256:cfg1");
+        List<Fact> facts = List.of(fact(1, "a", "ing-savings", LocalDate.of(2026, 8, 1), -1000,
+            "Transfer to Card 1234", null, 0));
+        Derivation d = Derive.derive(facts,
+            List.of(new Decision.AttachAccount(2, List.of("a"), "bw-legacy", "card pre-2024",
+                Actor.USER, "ron", ASOF)), cfg, ASOF);
+        assertEquals(1, d.transfers().size());
+        assertEquals("bw-legacy", d.transfers().getFirst().clearingAccount());
+        assertEquals(LegState.MATCHED, d.current("a").orElseThrow().leg());
+        assertTrue(d.review().stream().noneMatch(
+            r -> r.kind().equals(trex.v2.core.derive.ReviewItem.UNMATCHED_LEG)));
+    }
+
+    @Test
     void decisionsWinOverRules() {
         List<Fact> facts = List.of(fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0));
         Derivation pinned = Derive.derive(facts, List.of(pin(2, "FOO", "a")), config(), ASOF);

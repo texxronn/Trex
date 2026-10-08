@@ -39,5 +39,7 @@ public record DecisionDraft(
     String hashVersion,
     String stateHash,
     // NOTE
-    String text
+    String text,
+    // ATTACH_ACCOUNT
+    String account
 ) {}

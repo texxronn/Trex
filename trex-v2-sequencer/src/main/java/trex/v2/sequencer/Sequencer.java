@@ -499,7 +499,24 @@ public final class Sequencer implements AutoCloseable {
             case USER_UNACK -> new Decision.UserUnack(envelope, requireFact(d.externalId(), "externalId"),
                 d.comment(), actor, user);
             case NOTE -> new Decision.Note(envelope, d.externalId(), require(d.text(), "text"), actor, user);
+            case ATTACH_ACCOUNT -> new Decision.AttachAccount(envelope,
+                requireFacts(d.externalIds(), "externalIds"), requireClearingAccount(d.account()),
+                d.comment(), actor, user);
         };
+    }
+
+    private String requireClearingAccount(String ref) {
+        if (ref == null || ref.isBlank()) {
+            throw new IllegalArgumentException("account is required");
+        }
+        var account = registry.findAccount(ref);
+        if (account.isEmpty()) {
+            throw new IllegalArgumentException("unknown account '" + ref + "'");
+        }
+        if (!account.get().clearing()) {
+            throw new IllegalArgumentException("ATTACH_ACCOUNT must name a clearing account, not '" + ref + "'");
+        }
+        return ref;
     }
 
     private static Actor require(Actor actor, String name) {

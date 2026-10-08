@@ -122,6 +122,11 @@ public final class LogCodec {
                 array(o, "externalIds", up.externalIds());
                 putNullable(o, "comment", up.comment());
             }
+            case Decision.AttachAccount aa -> {
+                array(o, "externalIds", aa.externalIds());
+                o.put("account", aa.account());
+                putNullable(o, "comment", aa.comment());
+            }
             case Decision.Supersede sup -> {
                 o.put("fromId", sup.fromId());
                 o.put("toId", sup.toId());
@@ -242,6 +247,8 @@ public final class LogCodec {
             case DISMISS -> new Decision.Dismiss(e, text(n, "item"), list(n, "externalIds"), opt(n, "comment"), actor, user);
             case PIN -> new Decision.Pin(e, list(n, "externalIds"), text(n, "category"), opt(n, "comment"), actor, user);
             case UNPIN -> new Decision.Unpin(e, list(n, "externalIds"), opt(n, "comment"), actor, user);
+            case ATTACH_ACCOUNT -> new Decision.AttachAccount(e, list(n, "externalIds"),
+                text(n, "account"), opt(n, "comment"), actor, user);
             case SUPERSEDE -> new Decision.Supersede(e, text(n, "fromId"), text(n, "toId"), text(n, "reason"), actor, user);
             case RETIRE -> new Decision.Retire(e, text(n, "externalId"), text(n, "reason"), actor, user);
             case MARK_NOOP -> new Decision.MarkNoop(e, text(n, "externalId"), text(n, "reason"), actor, user);

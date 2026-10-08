@@ -23,7 +23,8 @@ import java.util.Objects;
 public sealed interface Decision extends LogLine
     permits Decision.Pair, Decision.Unpair, Decision.MarkExternal, Decision.Settle,
             Decision.Dismiss, Decision.Pin, Decision.Unpin, Decision.Supersede,
-            Decision.Retire, Decision.MarkNoop, Decision.UnmarkNoop, Decision.Revoke,
+            Decision.Retire, Decision.MarkNoop, Decision.UnmarkNoop, Decision.AttachAccount,
+            Decision.Revoke,
             Decision.UserAck, Decision.UserUnack, Decision.Note {
 
     /** The namespaced wire kind. */
@@ -353,6 +354,34 @@ public sealed interface Decision extends LogLine
         @Override
         public Action action() {
             return Action.NOTE;
+        }
+    }
+
+    /**
+     * These transfer-shaped legs are transfers to/from {@code account}; the contra is not held
+     * (V2-PROPOSAL.md §6.10). A conclusion a person reaches when a counterparty's statements are
+     * gone, so the leg is a transfer with an account side — never an invented fact. The account must
+     * be a clearing account.
+     */
+    record AttachAccount(Envelope envelope, List<String> externalIds, String account, String comment,
+                         Actor actor, String user) implements Decision {
+        public AttachAccount {
+            Envelope.require(envelope);
+            Objects.requireNonNull(externalIds, "externalIds");
+            externalIds = List.copyOf(externalIds);
+            require(!externalIds.isEmpty(), "externalIds must not be empty");
+            require(account, "account");
+            require(actor, "actor");
+        }
+
+        public AttachAccount(long n, List<String> externalIds, String account, String comment, Actor actor,
+                             String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), externalIds, account, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.ATTACH_ACCOUNT;
         }
     }
 

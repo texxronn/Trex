@@ -270,7 +270,7 @@ public final class V1Importer {
         DecisionDraft build() {
             return new DecisionDraft(action, actor, null, at, comment, legA, legB, externalId, null, null,
                 item, externalIds, category, fromId, toId, reason, null,
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         }
     }
 }
