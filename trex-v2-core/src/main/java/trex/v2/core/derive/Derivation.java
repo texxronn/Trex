@@ -29,7 +29,11 @@ public record Derivation(
     List<ReviewItem> review,
     List<IneffectiveDecision> ineffective,
     List<Unit> units,
-    List<UserAckRow> userAcks) {
+    List<UserAckRow> userAcks,
+    List<Commitment> commitments,
+    List<CommitmentRule> commitmentRules,
+    List<CommitmentOccurrence> commitmentOccurrences,
+    List<CommitmentNote> commitmentNotes) {
 
     public Derivation {
         chainResolved = Map.copyOf(new TreeMap<>(chainResolved));
@@ -45,6 +49,10 @@ public record Derivation(
         ineffective = List.copyOf(ineffective);
         units = List.copyOf(units);
         userAcks = List.copyOf(userAcks);
+        commitments = List.copyOf(commitments);
+        commitmentRules = List.copyOf(commitmentRules);
+        commitmentOccurrences = List.copyOf(commitmentOccurrences);
+        commitmentNotes = List.copyOf(commitmentNotes);
     }
 
     public Optional<CurrentFact> current(String externalId) {

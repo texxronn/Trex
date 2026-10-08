@@ -106,9 +106,9 @@ public final class Commitments {
     /**
      * The trailing window for a variable commitment's annualised figure (§2.4): the last twelve
      * occurrences — twelve months of a monthly series, and the same window as the irregular
-     * commitment's trailing 12-month total.
+     * commitment's trailing 12-month total. The fold's cost face uses it too (§6.11).
      */
-    private static final int TRAILING_WINDOW = 12;
+    static final int TRAILING_WINDOW = 12;
 
     /**
      * The foreign-currency price marker (§2.3.5, resolved question §10.6): the AUD charge varies
@@ -370,7 +370,12 @@ public final class Commitments {
         return bestDistance <= tolerance(best.days()) ? best : null;
     }
 
-    private static double tolerance(int bucketDays) {
+    /**
+     * The gap tolerance of a cadence, in days: {@code max(2, 20%)}. Shared with the fold, which
+     * measures a declared commitment's dormancy with the same tolerance detection classifies with
+     * (§2.3.4, §6.11).
+     */
+    static double tolerance(int bucketDays) {
         return Math.max(TOLERANCE_MIN_DAYS, TOLERANCE_FRACTION * bucketDays);
     }
 
@@ -384,21 +389,22 @@ public final class Commitments {
             : (sorted.get(middle - 1) + sorted.get(middle)) / 2.0;
     }
 
-    /** A consecutive change is a step at {@code |Δ| ≥ 5%} or {@code |Δ| ≥ 50¢}. */
-    private static boolean isStep(long previous, long current) {
+    /** A consecutive change is a step at {@code |Δ| ≥ 5%} or {@code |Δ| ≥ 50¢} (also §6.11 cost). */
+    static boolean isStep(long previous, long current) {
         long delta = Math.abs(current) - Math.abs(previous);
         long base = Math.abs(previous);
         return Math.abs(delta) >= STEP_MIN_CENTS
             || Math.abs(delta) >= base * STEP_MIN_FRACTION;
     }
 
-    private static double changePct(long previous, long current) {
+    /** The signed percentage change of a step, measured against the previous amount (§2.4). */
+    static double changePct(long previous, long current) {
         long base = Math.abs(previous);
         return 100.0 * (Math.abs(current) - base) / base;
     }
 
     /** Annualisation factors (§2.4): {@code 52/26/12/6/4/2/1} × the amount. */
-    private static int perYear(Cadence cadence) {
+    static int perYear(Cadence cadence) {
         return switch (cadence) {
             case WEEKLY -> 52;
             case FORTNIGHTLY -> 26;
@@ -418,11 +424,20 @@ public final class Commitments {
         for (int i = from; i < occurrences.size(); i++) {
             amounts.add(occurrences.get(i).amount);
         }
-        amounts.sort(null);
-        int middle = amounts.size() / 2;
-        return amounts.size() % 2 == 1
-            ? amounts.get(middle)
-            : Math.round((amounts.get(middle - 1) + amounts.get(middle)) / 2.0);
+        return amountMedian(amounts);
+    }
+
+    /** The median of a list of signed amounts; an even count rounds half up (used by §2.4). */
+    static long amountMedian(List<Long> amounts) {
+        List<Long> sorted = new ArrayList<>(amounts);
+        sorted.sort(null);
+        if (sorted.isEmpty()) {
+            return 0;
+        }
+        int middle = sorted.size() / 2;
+        return sorted.size() % 2 == 1
+            ? sorted.get(middle)
+            : Math.round((sorted.get(middle - 1) + sorted.get(middle)) / 2.0);
     }
 
     /**

@@ -187,6 +187,69 @@ CREATE TABLE IF NOT EXISTS ineffective_decision (
   reason     TEXT NOT NULL
 );
 
+-- Commitments and Expected (V2-PROPOSAL.md §6.11): the registry, its effective rules, the
+-- materialised occurrences and the note thread. All derived; decisions live in the log.
+CREATE TABLE IF NOT EXISTS commitment (
+  commitment_id    TEXT PRIMARY KEY,
+  name             TEXT,
+  origin           TEXT NOT NULL,
+  direction        TEXT NOT NULL,
+  cadence          TEXT NOT NULL,
+  amount_kind      TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  status           TEXT NOT NULL,
+  first_date       TEXT,
+  last_date        TEXT,
+  anchor_date      TEXT,
+  current_amount   INTEGER,
+  previous_amount  INTEGER,
+  change_pct       REAL,
+  change_date      TEXT,
+  occurrence_count INTEGER NOT NULL,
+  regularity       REAL,
+  variable         INTEGER NOT NULL,
+  arrears_count    INTEGER NOT NULL,
+  arrears_amount   INTEGER,
+  declared_n       INTEGER,
+  retired_n        INTEGER,
+  ended_at         TEXT,
+  state_hash       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS commitment_rule (
+  commitment_id TEXT NOT NULL,
+  match         TEXT NOT NULL,
+  account_ref   TEXT,
+  decision_n    INTEGER NOT NULL,
+  PRIMARY KEY (commitment_id, match, account_ref)
+);
+
+CREATE TABLE IF NOT EXISTS commitment_occurrence (
+  commitment_id       TEXT NOT NULL,
+  due_date            TEXT NOT NULL,
+  status              TEXT NOT NULL,
+  window_start        TEXT,
+  window_end          TEXT,
+  matched_external_id TEXT,
+  matched_date        TEXT,
+  matched_by          TEXT,
+  off_schedule        INTEGER NOT NULL,
+  settle_n            INTEGER,
+  amount              INTEGER,
+  state_hash          TEXT,
+  PRIMARY KEY (commitment_id, due_date)
+);
+CREATE INDEX IF NOT EXISTS commitment_occurrence_due ON commitment_occurrence(due_date, status);
+
+CREATE TABLE IF NOT EXISTS commitment_note (
+  decision_n    INTEGER PRIMARY KEY,
+  commitment_id TEXT NOT NULL,
+  text          TEXT NOT NULL,
+  user_id       TEXT,
+  at            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS commitment_note_commitment ON commitment_note(commitment_id);
+
 CREATE TABLE IF NOT EXISTS unit (
   unit_id     TEXT PRIMARY KEY,
   unit_kind   TEXT NOT NULL,

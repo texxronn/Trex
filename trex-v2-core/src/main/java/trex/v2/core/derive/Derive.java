@@ -16,6 +16,8 @@ import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.RuleSubject;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,7 +41,8 @@ import java.util.TreeSet;
  *
  * <p>Stages run in the §9.9 order and each reads only earlier stages: replay is the caller's
  * (it hands us the folded facts and decisions), then effective decisions, supersession, current
- * facts, pairing, pending (P4 — empty for now), category, review items and units.
+ * facts, pairing, pending (P4 — empty for now), category, commitments (a sibling of category,
+ * V2-COMMITMENTS-PLAN.md §2), review items and units.
  */
 public final class Derive {
 
@@ -73,6 +76,18 @@ public final class Derive {
         List<ReviewItem> pendingReview = new ArrayList<>();
         List<PendingRow> pending = List.of();
 
+        // The commitment stage's output (P10): folded declarations, detected candidates, matched
+        // occurrences and the review items they raise.
+        List<Commitment> commitmentRows = List.of();
+        List<CommitmentRule> commitmentRules = List.of();
+        List<CommitmentOccurrence> commitmentOccurrences = List.of();
+        List<CommitmentNote> commitmentNotes = List.of();
+        List<ReviewItem> commitmentReview = List.of();
+        Set<String> commitmentIds = new TreeSet<>();
+        Set<String> candidateKeys = new TreeSet<>();
+        Map<String, Long> newestFactByStem = new TreeMap<>();
+        Map<String, Long> newestFactByCommitment = new TreeMap<>();
+
         Ctx(List<Fact> facts, List<Decision> decisions, DeriveConfig config, Instant asOf) {
             this.facts = facts.stream().sorted(Comparator.comparingLong(Fact::n)).toList();
             this.decisions = decisions.stream().sorted(Comparator.comparingLong(Decision::n)).toList();
@@ -100,6 +115,8 @@ public final class Derive {
                     .thenComparingLong(c -> c.fact().n()))
                 .toList();
 
+            commitments();
+
             pending = pendingSettlement();
             List<ReviewItem> review = reviewItems();
             List<Unit> units = units();
@@ -121,7 +138,11 @@ public final class Derive {
                 review,
                 ineffective,
                 units,
-                userAcks());
+                userAcks(),
+                commitmentRows,
+                commitmentRules,
+                commitmentOccurrences,
+                commitmentNotes);
         }
 
         /** The latest effective USER_ACK/USER_UNACK per (user, row) (V2-PROPOSAL.md §9.4). */
@@ -871,6 +892,551 @@ public final class Derive {
             return c.withStateHash(StateHash.forRow(c, currency(c)));
         }
 
+        // ---- P10: commitments (a sibling of the category stage; V2-COMMITMENTS-PLAN.md §2) -----
+
+        /**
+         * Fold the seven commitment actions, detect and match over the same current facts the
+         * category stage sees, and assemble the commitment tables and their review items. The stage
+         * is a sibling of category: it reads no category output and category reads none of it, so
+         * their order is incidental (§2.2). Curation is decisions; candidates, rules, occurrences,
+         * prices, arrears and dormancy are derived. {@code asOf} is the only notion of "now".
+         */
+        private void commitments() {
+            LocalDate asOfDate = asOf.atZone(ZoneOffset.UTC).toLocalDate();
+
+            // The posted frontier per account at asOf: dormancy is judged against it, never a wall
+            // clock, so a closed account's silence is not read as an ending (§2.3.7).
+            Map<String, LocalDate> frontier = new TreeMap<>();
+            for (CurrentFact c : current) {
+                if (!c.fact().date().isAfter(asOfDate)) {
+                    frontier.merge(c.fact().accountRef(), c.fact().date(),
+                        (a, b) -> a.isAfter(b) ? a : b);
+                }
+            }
+
+            // The seven actions folded in n order. A declare sets or replaces the commitment and
+            // revives a retired one (family inverse); a retire marks it ended. A note and a settle
+            // may name a retired commitment — both are conclusions about the past — but a pin may
+            // not: a pin naming a retired or unknown commitment is ineffective and visible. Ids a
+            // pin names resolve through the supersession map; commitment ids are decision-local.
+            Map<String, DeclaredCommitment> declared = new TreeMap<>();
+            Set<String> ignored = new TreeSet<>();
+            Map<String, Decision.PinCommitment> pinByFact = new TreeMap<>();
+            List<CommitmentNote> notes = new ArrayList<>();
+            Map<String, TreeMap<LocalDate, Long>> settles = new TreeMap<>();
+            for (Decision d : effective) {
+                if (d instanceof Decision.DeclareCommitment dc) {
+                    String bad = badMatch(dc);
+                    if (bad == null) {
+                        declared.put(dc.commitmentId(), new DeclaredCommitment(dc, null, null));
+                    } else {
+                        // The hub prechecks rules (§2.2); a line from another writer must not
+                        // fail the derivation — the declaration is ineffective and visible, and
+                        // an earlier or later good declaration of the id still stands.
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "DECLARE_COMMITMENT rule does not compile: " + bad));
+                    }
+                } else if (d instanceof Decision.RetireCommitment rc) {
+                    DeclaredCommitment existing = declared.get(rc.commitmentId());
+                    if (existing == null) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "RETIRE_COMMITMENT names an undeclared commitment " + rc.commitmentId()));
+                    } else {
+                        declared.put(rc.commitmentId(), existing.ended(rc.n(), rc.endedAt()));
+                    }
+                } else if (d instanceof Decision.IgnoreRecurring ir) {
+                    ignored.add(ir.candidate());
+                } else if (d instanceof Decision.PinCommitment pc) {
+                    boolean bad = false;
+                    List<String> ids = new ArrayList<>();
+                    for (String raw : pc.externalIds()) {
+                        String id = resolve(raw);
+                        if (id == null) {
+                            bad = true;
+                        } else {
+                            ids.add(id);
+                        }
+                    }
+                    DeclaredCommitment target = declared.get(pc.commitmentId());
+                    if (target == null || target.retired()) {
+                        bad = true; // a pin to a retired or unknown commitment is a visible no-op
+                    }
+                    if (bad) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "PIN_COMMITMENT could not apply ("
+                                + String.join(",", pc.externalIds()) + " -> " + pc.commitmentId() + ")"));
+                    } else {
+                        for (String id : ids) {
+                            pinByFact.put(id, pc);
+                        }
+                    }
+                } else if (d instanceof Decision.UnpinCommitment uc) {
+                    for (String raw : uc.externalIds()) {
+                        String id = resolve(raw);
+                        if (id == null) {
+                            ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                "UNPIN_COMMITMENT names an unknown id " + raw));
+                        } else {
+                            pinByFact.remove(id); // harmless when the fact was not pinned
+                        }
+                    }
+                } else if (d instanceof Decision.NoteCommitment nc) {
+                    if (!declared.containsKey(nc.commitmentId())) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "NOTE_COMMITMENT names an undeclared commitment " + nc.commitmentId()));
+                    } else {
+                        notes.add(new CommitmentNote(nc.n(), nc.commitmentId(), nc.text(),
+                            nc.user(), nc.at()));
+                    }
+                } else if (d instanceof Decision.SettleOccurrence so) {
+                    if (!declared.containsKey(so.commitmentId())) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "SETTLE_OCCURRENCE names an undeclared commitment " + so.commitmentId()));
+                    } else {
+                        TreeMap<LocalDate, Long> byDate =
+                            settles.computeIfAbsent(so.commitmentId(), k -> new TreeMap<>());
+                        for (LocalDate due : so.dueDates()) {
+                            byDate.merge(due, d.n(), Math::max);
+                        }
+                    }
+                }
+            }
+            commitmentIds.addAll(declared.keySet());
+
+            // Rules come only from the latest effective declaration, in its own match order; a
+            // blank account scope is "any account", and an identical match/scope pair collapses so
+            // the derived table's key cannot collide (§2.2, §2.7).
+            Map<String, List<CommitmentRule>> rulesById = new TreeMap<>();
+            Map<String, List<CommitmentMatcher.CompiledRule>> compiledById = new TreeMap<>();
+            for (Map.Entry<String, DeclaredCommitment> e : declared.entrySet()) {
+                LinkedHashMap<String, CommitmentRule> dedup = new LinkedHashMap<>();
+                for (Decision.Match m : e.getValue().matches()) {
+                    String account = m.account() == null || m.account().isBlank() ? null : m.account();
+                    String key = m.match() + '\u0000' + account;
+                    dedup.putIfAbsent(key, new CommitmentRule(e.getKey(), m.match(), account,
+                        e.getValue().declaredN()));
+                }
+                List<CommitmentRule> rules = List.copyOf(dedup.values());
+                rulesById.put(e.getKey(), rules);
+                List<CommitmentMatcher.CompiledRule> compiled = new ArrayList<>(rules.size());
+                for (CommitmentRule rule : rules) {
+                    compiled.add(CommitmentMatcher.compile(rule));
+                }
+                compiledById.put(e.getKey(), compiled);
+            }
+
+            // Candidates over the same current facts, grouped by the frozen stem. A candidate is
+            // suppressed by an effective ignore, a declaration that named it, or a declaration
+            // whose rules cover every fact of its group (§2.3.8); detection itself is Stage 1.
+            List<Commitment> detected = Commitments.detect(current, asOf);
+            Map<String, List<CurrentFact>> groups = new TreeMap<>();
+            for (CurrentFact c : current) {
+                if (c.role() == Role.NOOP) {
+                    continue;
+                }
+                String key = MerchantStem.stem(c.fact().rawDescription());
+                if (!key.isEmpty()) {
+                    groups.computeIfAbsent(key, k -> new ArrayList<>()).add(c);
+                    newestFactByStem.merge(key, c.fact().n(), Math::max);
+                }
+            }
+            for (Commitment c : detected) {
+                candidateKeys.add(c.candidateKey());
+            }
+            Set<String> namedCandidates = new TreeSet<>();
+            for (DeclaredCommitment d : declared.values()) {
+                if (d.fromCandidate() != null && !d.fromCandidate().isBlank()) {
+                    namedCandidates.add(d.fromCandidate());
+                }
+            }
+            List<Commitment> candidates = new ArrayList<>();
+            for (Commitment candidate : detected) {
+                String key = candidate.candidateKey();
+                if (ignored.contains(key) || namedCandidates.contains(key)
+                    || coveredByDeclaration(compiledById, groups.getOrDefault(key, List.of()))) {
+                    continue;
+                }
+                candidates.add(candidate);
+            }
+
+            // Matching over the declared commitments. A regular commitment with no anchor has no
+            // schedule to generate and stays a registry row without occurrences (the writer accepts
+            // an optional anchor; the hub's dialog always sends one).
+            List<Commitment> tracked = new ArrayList<>();
+            for (DeclaredCommitment d : declared.values()) {
+                if (d.cadence().regular() && d.anchor() == null) {
+                    continue;
+                }
+                tracked.add(d.row());
+            }
+            List<CommitmentRule> allRules = new ArrayList<>();
+            for (List<CommitmentRule> rules : rulesById.values()) {
+                allRules.addAll(rules);
+            }
+            List<CommitmentPin> pins = new ArrayList<>();
+            for (Map.Entry<String, Decision.PinCommitment> e : pinByFact.entrySet()) {
+                pins.add(new CommitmentPin(e.getKey(), e.getValue().commitmentId()));
+            }
+            List<CommitmentSettle> settleList = new ArrayList<>();
+            for (Map.Entry<String, TreeMap<LocalDate, Long>> e : settles.entrySet()) {
+                for (Map.Entry<LocalDate, Long> due : e.getValue().entrySet()) {
+                    settleList.add(new CommitmentSettle(e.getKey(), due.getKey(), due.getValue()));
+                }
+            }
+            CommitmentMatch match = Commitments.match(tracked, allRules, current, pins, settleList, asOf);
+
+            Map<String, List<CommitmentOccurrence>> occurrences = new TreeMap<>();
+            for (CommitmentOccurrence o : match.occurrences()) {
+                occurrences.computeIfAbsent(o.commitmentId(), k -> new ArrayList<>()).add(o);
+            }
+            Map<String, CommitmentArrears> arrears = new TreeMap<>();
+            for (CommitmentArrears a : match.arrears()) {
+                arrears.put(a.commitmentId(), a);
+            }
+            Map<String, CurrentFact> byId = currentById();
+
+            // Assemble the rows: candidates as detected, declared rows with the folded faces and
+            // the cost figures their matches imply. Every list is ordered by id (§4).
+            List<Commitment> rows = new ArrayList<>(candidates);
+            List<ReviewItem> items = new ArrayList<>();
+            for (Commitment candidate : candidates) {
+                if (candidate.status() != CommitmentStatus.ENDED) {
+                    items.add(suspected(candidate, groups.getOrDefault(candidate.candidateKey(), List.of())));
+                }
+            }
+            for (DeclaredCommitment d : declared.values()) {
+                List<CommitmentOccurrence> own = occurrences.getOrDefault(d.commitmentId(), List.of());
+                CommitmentArrears behind = arrears.getOrDefault(d.commitmentId(),
+                    new CommitmentArrears(d.commitmentId(), 0, 0, false));
+                for (CommitmentOccurrence o : own) {
+                    if (o.matchedExternalId() != null) {
+                        Fact f = latestById.get(o.matchedExternalId());
+                        if (f != null) {
+                            newestFactByCommitment.merge(d.commitmentId(), f.n(), Math::max);
+                        }
+                    }
+                }
+                Dormancy dormancy = dormancy(d, own, byId, frontier, rulesById.get(d.commitmentId()));
+                rows.add(declaredRow(d, own, behind, dormancy));
+                if (dormancy != null) {
+                    items.add(dormantItem(d, dormancy, own, byId));
+                }
+                if (behind.count() > 0) {
+                    items.add(arrearsItem(d, behind, own, byId));
+                }
+            }
+            rows.sort(Comparator.comparing(Commitment::commitmentId));
+            commitmentRows = rows;
+            commitmentRules = List.copyOf(allRules);
+            commitmentOccurrences = match.occurrences();
+            commitmentNotes = List.copyOf(notes);
+            commitmentReview = items;
+        }
+
+        /**
+         * The first match of a declaration that does not compile, or null when the rule set is
+         * usable. Compilation goes through the matcher's own convention, so the fold and the
+         * matcher can never disagree about what a valid rule is (§2.2); the hub's 422 precheck is
+         * the first line, this is the defence for a line from another writer.
+         */
+        private static String badMatch(Decision.DeclareCommitment dc) {
+            for (Decision.Match m : dc.matches()) {
+                String account = m.account() == null || m.account().isBlank() ? null : m.account();
+                try {
+                    CommitmentMatcher.compile(new CommitmentRule(dc.commitmentId(), m.match(),
+                        account, dc.n()));
+                } catch (IllegalArgumentException e) {
+                    return m.match();
+                }
+            }
+            return null;
+        }
+
+        /** True when some declaration's rules match every fact of a candidate's group (§2.3.8). */
+        private static boolean coveredByDeclaration(
+                Map<String, List<CommitmentMatcher.CompiledRule>> compiledById, List<CurrentFact> group) {
+            if (group.isEmpty()) {
+                return false;
+            }
+            for (List<CommitmentMatcher.CompiledRule> rules : compiledById.values()) {
+                if (rules.isEmpty()) {
+                    continue;
+                }
+                boolean all = true;
+                for (CurrentFact fact : group) {
+                    boolean any = false;
+                    for (CommitmentMatcher.CompiledRule rule : rules) {
+                        if (rule.matches(fact)) {
+                            any = true;
+                            break;
+                        }
+                    }
+                    if (!any) {
+                        all = false;
+                        break;
+                    }
+                }
+                if (all) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * The dormancy question (§2.1, §2.8): a tracked, non-retired, regular commitment whose most
+         * recent satisfied occurrence — a matched fact or a settle, both engagement — is more than
+         * one cadence plus tolerance behind the posted frontier of the accounts it matched on (or,
+         * before any match, the accounts its rules name). A commitment that never matched is not
+         * dormant: it is in arrears. Silence is judged against the frontier, never a wall clock; an
+         * irregular or retired commitment is never dormant.
+         */
+        private Dormancy dormancy(DeclaredCommitment d, List<CommitmentOccurrence> occurrences,
+                                  Map<String, CurrentFact> byId, Map<String, LocalDate> frontier,
+                                  List<CommitmentRule> rules) {
+            if (d.retired() || !d.cadence().regular()) {
+                return null;
+            }
+            LocalDate last = null;
+            for (CommitmentOccurrence o : occurrences) {
+                if (o.matchedExternalId() != null || o.status() == OccurrenceStatus.SETTLED) {
+                    if (last == null || o.dueDate().isAfter(last)) {
+                        last = o.dueDate();
+                    }
+                }
+            }
+            if (last == null) {
+                return null;
+            }
+            Set<String> accounts = new TreeSet<>();
+            for (CommitmentOccurrence o : occurrences) {
+                if (o.matchedExternalId() == null) {
+                    continue;
+                }
+                CurrentFact fact = byId.get(o.matchedExternalId());
+                if (fact != null) {
+                    accounts.add(fact.fact().accountRef());
+                }
+            }
+            if (accounts.isEmpty()) {
+                for (CommitmentRule rule : rules) {
+                    if (rule.accountRef() != null && !rule.accountRef().isBlank()) {
+                        accounts.add(rule.accountRef());
+                    }
+                }
+            }
+            LocalDate newest = null;
+            for (String account : accounts) {
+                LocalDate date = frontier.get(account);
+                if (date != null && (newest == null || date.isAfter(newest))) {
+                    newest = date;
+                }
+            }
+            if (newest == null) {
+                return null;
+            }
+            long silent = ChronoUnit.DAYS.between(last, newest);
+            if (silent <= d.cadence().days() + Commitments.tolerance(d.cadence().days())) {
+                return null;
+            }
+            return new Dormancy(last, newest);
+        }
+
+        /** A declared commitment's derived row: the folded faces plus the cost its matches imply. */
+        private Commitment declaredRow(DeclaredCommitment d, List<CommitmentOccurrence> occurrences,
+                                       CommitmentArrears arrears, Dormancy dormancy) {
+            List<CommitmentOccurrence> observed = new ArrayList<>();
+            for (CommitmentOccurrence o : occurrences) {
+                if (o.matchedExternalId() != null) {
+                    observed.add(o);
+                }
+            }
+            List<Commitment.PriceStep> steps = new ArrayList<>();
+            long cost = 0;
+            for (int i = 0; i < observed.size(); i++) {
+                CommitmentOccurrence o = observed.get(i);
+                long amount = o.amount() == null ? 0 : o.amount();
+                cost += amount;
+                if (i == 0) {
+                    steps.add(new Commitment.PriceStep(o.matchedDate(), amount, null, null));
+                } else {
+                    long previous = observed.get(i - 1).amount();
+                    if (Commitments.isStep(previous, amount)) {
+                        steps.add(new Commitment.PriceStep(o.matchedDate(), amount, previous,
+                            Commitments.changePct(previous, amount)));
+                    }
+                }
+            }
+            Commitment.PriceStep lastStep = steps.size() > 1 ? steps.getLast() : null;
+            Long declared = signedAmount(d);
+            Long current = observed.isEmpty() ? declared : observed.getLast().amount();
+            CommitmentStatus status = d.retired() ? CommitmentStatus.ENDED
+                : dormancy != null ? CommitmentStatus.DORMANT : CommitmentStatus.ACTIVE;
+            LocalDate first = observed.isEmpty() ? d.anchor() : observed.getFirst().dueDate();
+            LocalDate last = observed.isEmpty() ? d.anchor() : observed.getLast().dueDate();
+            return new Commitment(
+                d.commitmentId(),
+                null,
+                d.name(),
+                CommitmentOrigin.DECLARED,
+                d.direction(),
+                d.cadence(),
+                d.amountKind(),
+                d.kind(),
+                status,
+                first,
+                last,
+                d.anchor(),
+                current,
+                lastStep == null ? null : lastStep.previousAmount(),
+                lastStep == null ? null : lastStep.changePct(),
+                lastStep == null ? null : lastStep.date(),
+                steps,
+                cost,
+                annualised(d, observed, current),
+                observed.size(),
+                regularity(d.cadence(), observed),
+                d.amountKind() == AmountKind.VARIABLE,
+                arrears.count(),
+                arrears.amount(),
+                d.declaredN(),
+                d.retiredN(),
+                d.endedAt());
+        }
+
+        /**
+         * The annualised figure (§2.4): the cadence factor times the current amount (a variable
+         * commitment's trailing median instead); an irregular commitment has no cadence, so it is
+         * the trailing twelve-month total.
+         */
+        private Long annualised(DeclaredCommitment d, List<CommitmentOccurrence> observed, Long current) {
+            if (d.cadence() == Cadence.IRREGULAR) {
+                LocalDate from = asOf.atZone(ZoneOffset.UTC).toLocalDate().minusMonths(12);
+                LocalDate at = asOf.atZone(ZoneOffset.UTC).toLocalDate();
+                long total = 0;
+                for (CommitmentOccurrence o : observed) {
+                    if (!o.dueDate().isBefore(from) && !o.dueDate().isAfter(at)) {
+                        total += o.amount() == null ? 0 : o.amount();
+                    }
+                }
+                return total;
+            }
+            if (current == null) {
+                return null;
+            }
+            long basis = current;
+            if (d.amountKind() == AmountKind.VARIABLE && !observed.isEmpty()) {
+                List<Long> amounts = new ArrayList<>();
+                int from = Math.max(0, observed.size() - Commitments.TRAILING_WINDOW);
+                for (int i = from; i < observed.size(); i++) {
+                    amounts.add(observed.get(i).amount());
+                }
+                basis = Commitments.amountMedian(amounts);
+            }
+            return (long) Commitments.perYear(d.cadence()) * basis;
+        }
+
+        /** The observed regularity of a declared commitment: in-tolerance gaps ÷ gaps (§2.3.4). */
+        private Double regularity(Cadence cadence, List<CommitmentOccurrence> observed) {
+            if (!cadence.regular()) {
+                return null;
+            }
+            List<LocalDate> dates = new ArrayList<>();
+            for (CommitmentOccurrence o : observed) {
+                if (o.windowStart() != null) {
+                    dates.add(o.dueDate());
+                }
+            }
+            if (dates.size() < 2) {
+                return null;
+            }
+            long within = 0;
+            for (int i = 1; i < dates.size(); i++) {
+                long gap = ChronoUnit.DAYS.between(dates.get(i - 1), dates.get(i));
+                if (Math.abs(gap - cadence.days()) <= Commitments.tolerance(cadence.days())) {
+                    within++;
+                }
+            }
+            return (double) within / (dates.size() - 1);
+        }
+
+        /** One candidate's review item: subject the grouping stem, the detail a person reads (§2.8). */
+        private ReviewItem suspected(Commitment candidate, List<CurrentFact> group) {
+            String detail = candidate.cadence().wire() + " \u00b7 " + candidate.occurrenceCount()
+                + "\u00d7 \u00b7 " + candidate.firstDate() + "\u2192" + candidate.lastDate()
+                + " \u00b7 last " + candidate.currentAmount()
+                + (candidate.previousAmount() == null ? "" : " (was " + candidate.previousAmount() + ")")
+                + " \u00b7 regularity " + candidate.regularity();
+            Instant opened = Instant.EPOCH;
+            for (CurrentFact c : group) {
+                if (c.fact().ingestedAt().isAfter(opened)) {
+                    opened = c.fact().ingestedAt();
+                }
+            }
+            return new ReviewItem(candidate.candidateKey(), ReviewItem.SUSPECTED_RECURRING, detail,
+                candidate.currentAmount() == null ? null : Math.abs(candidate.currentAmount()),
+                opened,
+                Hashes.sha256(ReviewItem.SUSPECTED_RECURRING + "|" + candidate.candidateKey() + "|" + detail));
+        }
+
+        private ReviewItem dormantItem(DeclaredCommitment d, Dormancy dormancy,
+                                       List<CommitmentOccurrence> occurrences, Map<String, CurrentFact> byId) {
+            String detail = "no charge since " + dormancy.since() + " (frontier " + dormancy.frontier() + ")";
+            return new ReviewItem(d.commitmentId(), ReviewItem.DORMANT_COMMITMENT, detail,
+                commitmentStake(d, occurrences), commitmentOpenedAt(d, occurrences, byId),
+                Hashes.sha256(ReviewItem.DORMANT_COMMITMENT + "|" + d.commitmentId() + "|" + detail));
+        }
+
+        private ReviewItem arrearsItem(DeclaredCommitment d, CommitmentArrears arrears,
+                                       List<CommitmentOccurrence> occurrences, Map<String, CurrentFact> byId) {
+            String detail = arrears.count() + (arrears.count() == 1
+                ? " occurrence behind, total " : " occurrences behind, total ") + arrears.amount();
+            return new ReviewItem(d.commitmentId(), ReviewItem.COMMITMENT_ARREARS, detail,
+                Math.abs(arrears.amount()), commitmentOpenedAt(d, occurrences, byId),
+                Hashes.sha256(ReviewItem.COMMITMENT_ARREARS + "|" + d.commitmentId() + "|" + detail));
+        }
+
+        /** The commitment's latest known amount as a positive stake, or null when none is known. */
+        private Long commitmentStake(DeclaredCommitment d, List<CommitmentOccurrence> occurrences) {
+            for (int i = occurrences.size() - 1; i >= 0; i--) {
+                CommitmentOccurrence o = occurrences.get(i);
+                if (o.matchedExternalId() != null && o.amount() != null) {
+                    return Math.abs(o.amount());
+                }
+            }
+            Long declared = signedAmount(d);
+            return declared == null ? null : Math.abs(declared);
+        }
+
+        /**
+         * The item's age anchor: the newest ingest time among the commitment's matched facts, or the
+         * declaring decision's instant when it has none — a never-paid commitment still ages from
+         * its declaration.
+         */
+        private Instant commitmentOpenedAt(DeclaredCommitment d, List<CommitmentOccurrence> occurrences,
+                                           Map<String, CurrentFact> byId) {
+            Instant newest = null;
+            for (CommitmentOccurrence o : occurrences) {
+                if (o.matchedExternalId() == null) {
+                    continue;
+                }
+                CurrentFact fact = byId.get(o.matchedExternalId());
+                if (fact != null && (newest == null || fact.fact().ingestedAt().isAfter(newest))) {
+                    newest = fact.fact().ingestedAt();
+                }
+            }
+            return newest != null ? newest : decisionAt(d.declaredN());
+        }
+
+        /** The declaration amount signed by the direction; the wire amount is a magnitude. */
+        private static Long signedAmount(DeclaredCommitment d) {
+            if (d.amount() == null) {
+                return null;
+            }
+            long magnitude = Math.abs(d.amount());
+            return Commitment.OUT.equals(d.direction()) ? -magnitude : magnitude;
+        }
+
         // ---- P8: pending settlement and staleness (V2-PROPOSAL.md §9.9.D) --------------------
 
         /**
@@ -954,12 +1520,13 @@ public final class Derive {
             return out;
         }
 
-        // ---- P10: review items --------------------------------------------------------------
+        // ---- P11: review items --------------------------------------------------------------
 
         private List<ReviewItem> reviewItems() {
             List<ReviewItem> items = new ArrayList<>(pairingReview);
             items.addAll(pendingReview);
             items.addAll(balanceReview());
+            items.addAll(commitmentReview);
             Map<String, Long> newestFactBySubject = new TreeMap<>();
             Map<String, Long> newestFactByAccount = new TreeMap<>();
             for (Fact f : facts) {
@@ -1048,6 +1615,27 @@ public final class Derive {
                             dismissN.merge(dis.item() + "|" + raw, d.n(), Math::max);
                             continue;
                         }
+                        // A SUSPECTED_RECURRING's subject is the grouping stem, not a fact id; a
+                        // DORMANT_COMMITMENT/COMMITMENT_ARREARS subject is the commitment id.
+                        if (ReviewItem.SUSPECTED_RECURRING.equals(dis.item())) {
+                            if (!candidateKeys.contains(raw)) {
+                                ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                    "DISMISS names an unknown candidate " + raw));
+                                continue;
+                            }
+                            dismissN.merge(dis.item() + "|" + raw, d.n(), Math::max);
+                            continue;
+                        }
+                        if (ReviewItem.DORMANT_COMMITMENT.equals(dis.item())
+                            || ReviewItem.COMMITMENT_ARREARS.equals(dis.item())) {
+                            if (!commitmentIds.contains(raw)) {
+                                ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                    "DISMISS names an unknown commitment " + raw));
+                                continue;
+                            }
+                            dismissN.merge(dis.item() + "|" + raw, d.n(), Math::max);
+                            continue;
+                        }
                         String id = resolve(raw);
                         if (id == null) {
                             ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
@@ -1077,8 +1665,18 @@ public final class Derive {
                 Long dn = dismissN.get(item.kind() + "|" + item.subject());
                 // A fact subject ages on its newest fact; a BALANCE_BREAK's account subject ages on
                 // the newest fact of that account, so the item returns once the chain moves again.
-                long newest = newestFactBySubject.getOrDefault(item.subject(),
-                    newestFactByAccount.getOrDefault(item.subject(), 0L));
+                // A SUSPECTED_RECURRING ages on the candidate's facts (its stem group); a
+                // commitment item ages on the facts the commitment matched.
+                long newest;
+                if (ReviewItem.SUSPECTED_RECURRING.equals(item.kind())) {
+                    newest = newestFactByStem.getOrDefault(item.subject(), 0L);
+                } else if (ReviewItem.DORMANT_COMMITMENT.equals(item.kind())
+                    || ReviewItem.COMMITMENT_ARREARS.equals(item.kind())) {
+                    newest = newestFactByCommitment.getOrDefault(item.subject(), 0L);
+                } else {
+                    newest = newestFactBySubject.getOrDefault(item.subject(),
+                        newestFactByAccount.getOrDefault(item.subject(), 0L));
+                }
                 if (dn != null && dn > newest) {
                     continue; // silenced: the DISMISS post-dates the newest fact for the subject
                 }
@@ -1218,7 +1816,7 @@ public final class Derive {
                 .orElse(Instant.EPOCH);
         }
 
-        // ---- P11: units ---------------------------------------------------------------------
+        // ---- P12: units ---------------------------------------------------------------------
 
         /**
          * The counterpart of every clearing transfer (§6.10), materialised as a derived leg so a
@@ -1319,6 +1917,46 @@ public final class Derive {
             return byId;
         }
     }
+
+    /**
+     * A declared commitment while the fold is built (V2-COMMITMENTS-PLAN.md §2.6): the latest
+     * effective declaration's fields plus the latest effective retirement, if any. Not a derived
+     * row — the cost face comes back from matching, so the matcher gets the declared amount as the
+     * expectation and no observed steps.
+     */
+    private record DeclaredCommitment(String commitmentId, String name, String direction, Cadence cadence,
+                                      AmountKind amountKind, CommitmentKind kind, List<Decision.Match> matches,
+                                      Long amount, LocalDate anchor, String fromCandidate, long declaredN,
+                                      Long retiredN, LocalDate endedAt) {
+
+        DeclaredCommitment(Decision.DeclareCommitment dc, Long retiredN, LocalDate endedAt) {
+            this(dc.commitmentId(), dc.name(), dc.direction(), dc.cadence(), dc.amountKind(),
+                dc.commitmentKind(), dc.matches(), dc.amount(), dc.anchor(), dc.fromCandidate(),
+                dc.n(), retiredN, endedAt);
+        }
+
+        boolean retired() {
+            return retiredN != null;
+        }
+
+        DeclaredCommitment ended(long n, LocalDate at) {
+            return new DeclaredCommitment(commitmentId, name, direction, cadence, amountKind, kind,
+                matches, amount, anchor, fromCandidate, declaredN, n, at);
+        }
+
+        /** The declaration-shaped row the matcher needs: the declared amount is the expectation. */
+        Commitment row() {
+            Long signed = amount == null ? null
+                : (Commitment.OUT.equals(direction) ? -Math.abs(amount) : Math.abs(amount));
+            return new Commitment(commitmentId, null, name, CommitmentOrigin.DECLARED, direction,
+                cadence, amountKind, kind, retired() ? CommitmentStatus.ENDED : CommitmentStatus.ACTIVE,
+                null, null, anchor, signed, null, null, null, List.of(), null, null, 0, null,
+                amountKind == AmountKind.VARIABLE, 0, null, declaredN, retiredN, endedAt);
+        }
+    }
+
+    /** A dormant commitment's silence window: the last satisfied occurrence and the frontier. */
+    private record Dormancy(LocalDate since, LocalDate frontier) {}
 
     static boolean oppositeSign(long a, long b) {
         return (a < 0 && b > 0) || (a > 0 && b < 0);

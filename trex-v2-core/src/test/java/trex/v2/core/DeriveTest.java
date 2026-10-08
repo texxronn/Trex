@@ -8,12 +8,24 @@ import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.TransferRules;
 import trex.v2.core.config.User;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
 import trex.v2.core.derive.CategoryOrigin;
+import trex.v2.core.derive.Commitment;
+import trex.v2.core.derive.CommitmentKind;
+import trex.v2.core.derive.CommitmentNote;
+import trex.v2.core.derive.CommitmentOccurrence;
+import trex.v2.core.derive.CommitmentOrigin;
+import trex.v2.core.derive.CommitmentRule;
+import trex.v2.core.derive.CommitmentStatus;
 import trex.v2.core.derive.Confidence;
 import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.Derive;
+import trex.v2.core.derive.IneffectiveDecision;
 import trex.v2.core.derive.LegState;
+import trex.v2.core.derive.OccurrenceStatus;
+import trex.v2.core.derive.ReviewItem;
 import trex.v2.core.derive.TransferRow;
 
 import java.time.Instant;
@@ -21,10 +33,12 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -447,5 +461,486 @@ class DeriveTest {
             r.kind().equals(trex.v2.core.derive.ReviewItem.INEFFECTIVE_DECISION) && r.subject().equals("2")),
             d.review().toString());
         assertTrue(d.ineffective().stream().anyMatch(x -> x.decisionN() == 2L));
+    }
+
+    // ---- commitments (Stage 4; V2-COMMITMENTS-PLAN.md §2, §7) --------------------------------
+
+    private static Decision.DeclareCommitment declare(long n, String id, String name, String direction,
+                                                      long amount, LocalDate anchor, String... matches) {
+        List<Decision.Match> rules = new ArrayList<>();
+        for (String match : matches) {
+            rules.add(new Decision.Match(match, null));
+        }
+        return new Decision.DeclareCommitment(n, id, name, direction, Cadence.MONTHLY, AmountKind.FIXED,
+            CommitmentKind.BILL, rules, amount, anchor, null, null, Actor.USER, "ron", ASOF);
+    }
+
+    private static Commitment commitment(Derivation d, String id) {
+        return d.commitments().stream().filter(c -> c.commitmentId().equals(id)).findFirst()
+            .orElseThrow(() -> new AssertionError("no commitment " + id + ": " + d.commitments()));
+    }
+
+    private static List<CommitmentOccurrence> occurrences(Derivation d, String id) {
+        return d.commitmentOccurrences().stream().filter(o -> o.commitmentId().equals(id)).toList();
+    }
+
+    private static CommitmentOccurrence at(List<CommitmentOccurrence> occurrences, LocalDate due) {
+        return occurrences.stream().filter(o -> o.dueDate().equals(due)).findFirst()
+            .orElseThrow(() -> new AssertionError("no occurrence at " + due + ": " + occurrences));
+    }
+
+    private static Optional<ReviewItem> item(Derivation d, String kind, String subject) {
+        return d.review().stream()
+            .filter(r -> r.kind().equals(kind) && r.subject().equals(subject)).findFirst();
+    }
+
+    /** Six monthly ACME charges (Jan–Jun 2026) plus a later COLES fact to advance the frontier. */
+    private static List<Fact> acmeFacts() {
+        List<Fact> facts = new ArrayList<>();
+        LocalDate date = LocalDate.of(2026, 1, 15);
+        for (int i = 0; i < 6; i++) {
+            facts.add(fact(i + 1, "acme-" + (i + 1), "ing-savings", date, -10000, "ACME BILL", null, 0));
+            date = date.plusMonths(1);
+        }
+        facts.add(fact(7, "coles", "ing-savings", LocalDate.of(2026, 9, 25), -1234, "COLES 1234", null, 0));
+        return facts;
+    }
+
+    /** The same fixture with the loan-leg patterns off (false) or on (true) in transfers.yaml. */
+    private static DeriveConfig pairingConfig(boolean shaped) {
+        TransferRules transfers;
+        if (shaped) {
+            transfers = new TransferRules(TransferRules.DEFAULT_WINDOW_DAYS, 0, 0,
+                TransferRules.DEFAULT_HOLD_WINDOW_DAYS, TransferRules.DEFAULT_RESTATEMENT_OVERLAP,
+                Map.of(
+                    "ing-orange", List.of(new TransferRules.TransferPattern("HOME LOAN REPAYMENT",
+                        java.util.regex.Pattern.compile("HOME LOAN REPAYMENT"), trex.v2.core.Rail.BANK_TRANSFER, true)),
+                    "ing-savings", List.of(new TransferRules.TransferPattern("TRANSFER FROM OFFSET",
+                        java.util.regex.Pattern.compile("TRANSFER FROM OFFSET"), trex.v2.core.Rail.BANK_TRANSFER, true))));
+        } else {
+            transfers = TransferRules.defaults(List.of("Internal Transfer", "Transfer"));
+        }
+        return new DeriveConfig(registry(), rules(), transfers, trex.v2.core.config.Profiles.empty(), "sha256:cfg1");
+    }
+
+    @Test
+    void aDeclarationMatchesItsFactsAndRaisesTheArrearsAndDormancyItems() {
+        List<Fact> facts = acmeFacts();
+        Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
+        Derivation d = Derive.derive(facts, List.of(declare), config(), ASOF);
+
+        Commitment acme = commitment(d, "acme");
+        assertEquals(CommitmentOrigin.DECLARED, acme.origin());
+        assertEquals(CommitmentStatus.DORMANT, acme.status(), "last paid June, frontier September");
+        assertEquals(6, acme.occurrenceCount());
+        assertEquals(-60000L, acme.costToDate().longValue());
+        assertEquals(-120000L, acme.annualised().longValue());
+        assertEquals(3, acme.arrearsCount());
+        assertEquals(-30000L, acme.arrearsAmount().longValue());
+        assertEquals(List.of(new CommitmentRule("acme", "ACME", null, 10L)), d.commitmentRules());
+
+        List<CommitmentOccurrence> bills = occurrences(d, "acme");
+        assertEquals(OccurrenceStatus.OCCURRED, at(bills, LocalDate.of(2026, 6, 15)).status());
+        assertEquals(OccurrenceStatus.MISSED, at(bills, LocalDate.of(2026, 7, 15)).status());
+        assertEquals(OccurrenceStatus.DUE, at(bills, LocalDate.of(2026, 10, 15)).status());
+        assertTrue(bills.stream().allMatch(o -> o.stateHash() != null));
+
+        // The detected candidate is suppressed by rule coverage and never reaches Review.
+        assertTrue(d.commitments().stream().noneMatch(c -> c.origin() == CommitmentOrigin.DETECTED));
+        assertTrue(d.review().stream().noneMatch(r -> r.kind().equals(ReviewItem.SUSPECTED_RECURRING)));
+        assertTrue(item(d, ReviewItem.COMMITMENT_ARREARS, "acme").isPresent(), d.review().toString());
+        assertTrue(item(d, ReviewItem.DORMANT_COMMITMENT, "acme").isPresent(), d.review().toString());
+        assertTrue(item(d, ReviewItem.COMMITMENT_ARREARS, "acme").orElseThrow().detail().contains("3"));
+    }
+
+    @Test
+    void reDeclaringReplacesRulesAndHistoryUnderTheSameId() {
+        List<Fact> facts = new ArrayList<>();
+        LocalDate date = LocalDate.of(2026, 1, 15);
+        for (int i = 0; i < 4; i++) {
+            facts.add(fact(i + 1, "other-" + (i + 1), "ing-savings", date, -20000, "OTHER BILL", null, 0));
+            date = date.plusMonths(1);
+        }
+        facts.add(fact(9, "coles", "ing-savings", LocalDate.of(2026, 9, 25), -1, "COLES 1234", null, 0));
+
+        Derivation d = Derive.derive(facts, List.of(
+            declare(10, "plan", "Old plan", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"),
+            declare(11, "plan", "New plan", "out", 20000, LocalDate.of(2026, 1, 15), "OTHER")),
+            config(), ASOF);
+
+        assertEquals(1, d.commitments().stream().filter(c -> c.commitmentId().equals("plan")).count());
+        Commitment plan = commitment(d, "plan");
+        assertEquals("New plan", plan.name());
+        assertEquals(-20000L, plan.currentAmount().longValue());
+        assertEquals(4, plan.occurrenceCount(), "the history is the new declaration's matches");
+        assertEquals(List.of(new CommitmentRule("plan", "OTHER", null, 11L)), d.commitmentRules());
+        assertTrue(occurrences(d, "plan").stream()
+            .filter(o -> o.matchedExternalId() != null)
+            .allMatch(o -> o.matchedExternalId().startsWith("other-")));
+    }
+
+    @Test
+    void aDeclarationWithAnUncompilableRuleIsIneffectiveAndALaterGoodOneTakesOver() {
+        List<Fact> facts = acmeFacts();
+        Decision.DeclareCommitment bad = new Decision.DeclareCommitment(10, "acme", "Acme", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            List.of(new Decision.Match("ACME[", null)), 10000L, LocalDate.of(2026, 1, 15),
+            null, null, Actor.USER, "ron", ASOF);
+
+        Derivation d = Derive.derive(facts, List.of(bad), config(), ASOF);
+        assertTrue(d.commitments().stream().noneMatch(c -> c.commitmentId().equals("acme")),
+            d.commitments().toString());
+        assertTrue(d.commitmentRules().isEmpty());
+        assertTrue(d.ineffective().stream()
+            .anyMatch(i -> i.action().equals(Action.DECLARE_COMMITMENT.wire())
+                && i.reason().contains("ACME[")), d.ineffective().toString());
+        assertTrue(d.review().stream().anyMatch(r -> r.kind().equals(ReviewItem.INEFFECTIVE_DECISION)
+            && r.subject().equals("10")), d.review().toString());
+
+        // A later effective good declaration of the same id takes over.
+        Derivation fixed = Derive.derive(facts, List.of(bad,
+            declare(11, "acme", "Acme fixed", "out", 10000, LocalDate.of(2026, 1, 15), "ACME")),
+            config(), ASOF);
+        assertEquals("Acme fixed", commitment(fixed, "acme").name());
+        assertEquals(List.of(new CommitmentRule("acme", "ACME", null, 11L)), fixed.commitmentRules());
+
+        // An earlier good declaration survives a later bad one: ineffective means no effect.
+        Decision.DeclareCommitment badLater = new Decision.DeclareCommitment(13, "acme", "Acme", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            List.of(new Decision.Match("ACME[", null)), 10000L, LocalDate.of(2026, 1, 15),
+            null, null, Actor.USER, "ron", ASOF);
+        Derivation kept = Derive.derive(facts, List.of(
+            declare(12, "acme", "Acme good", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"), badLater),
+            config(), ASOF);
+        assertEquals("Acme good", commitment(kept, "acme").name());
+        assertEquals(List.of(new CommitmentRule("acme", "ACME", null, 12L)), kept.commitmentRules());
+    }
+
+    @Test
+    void aRetirementStopsFutureOccurrencesClearsDormancyAndKeepsArrears() {
+        List<Fact> facts = acmeFacts();
+        Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
+        Decision retire = new Decision.RetireCommitment(11, "acme", LocalDate.of(2026, 9, 15),
+            "cancelled", Actor.USER, "ron", ASOF);
+
+        Derivation ended = Derive.derive(facts, List.of(declare, retire), config(), ASOF);
+        Commitment row = commitment(ended, "acme");
+        assertEquals(CommitmentStatus.ENDED, row.status());
+        assertEquals(LocalDate.of(2026, 9, 15), row.endedAt());
+        assertEquals(11L, row.retiredN().longValue());
+        assertTrue(occurrences(ended, "acme").stream()
+            .noneMatch(o -> o.dueDate().isAfter(LocalDate.of(2026, 9, 15))), "no occurrence after endedAt");
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(ended, "acme"), LocalDate.of(2026, 9, 15)).status(),
+            "the occurrence on endedAt still counts");
+        assertTrue(item(ended, ReviewItem.DORMANT_COMMITMENT, "acme").isEmpty(), "ended commits are never dormant");
+        assertTrue(item(ended, ReviewItem.COMMITMENT_ARREARS, "acme").isPresent(), "arrears stay visible");
+        assertEquals(3, row.arrearsCount());
+
+        // A declare after a retire revives it; the fields are the new declaration's.
+        Derivation revived = Derive.derive(facts, List.of(declare, retire,
+            declare(12, "acme", "Acme revived", "out", 10000, LocalDate.of(2026, 1, 15), "ACME")),
+            config(), ASOF);
+        Commitment again = commitment(revived, "acme");
+        assertEquals("Acme revived", again.name());
+        assertNull(again.retiredN());
+        assertNull(again.endedAt());
+        assertEquals(CommitmentStatus.DORMANT, again.status());
+        assertTrue(item(revived, ReviewItem.DORMANT_COMMITMENT, "acme").isPresent());
+
+        // REVOKE of the retire restores it too.
+        Derivation restored = Derive.derive(facts, List.of(declare, retire,
+            new Decision.Revoke(13, 11, "it was still live", Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertNull(commitment(restored, "acme").retiredN());
+
+        // A settle on a retired commitment is allowed: a conclusion about the past.
+        Derivation settledEnded = Derive.derive(facts, List.of(declare, retire,
+            new Decision.SettleOccurrence(14, "acme",
+                List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 15)),
+                "paid in cash", Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertEquals(CommitmentStatus.ENDED, commitment(settledEnded, "acme").status());
+        assertEquals(0, commitment(settledEnded, "acme").arrearsCount());
+        assertTrue(item(settledEnded, ReviewItem.COMMITMENT_ARREARS, "acme").isEmpty());
+    }
+
+    @Test
+    void ignoreRecurringRemovesTheCandidateAndItStaysGoneUntilRevoked() {
+        List<Fact> facts = new ArrayList<>();
+        LocalDate date = LocalDate.of(2026, 4, 15);
+        for (int i = 0; i < 6; i++) {
+            facts.add(fact(i + 1, "spotify-" + (i + 1), "ing-orange", date, -1299, "SPOTIFY", null, 0));
+            date = date.plusMonths(1);
+        }
+        Decision ignore = new Decision.IgnoreRecurring(20, "SPOTIFY", "cancelled", Actor.USER, "ron", ASOF);
+
+        Derivation before = Derive.derive(facts, List.of(), config(), ASOF);
+        assertTrue(before.commitments().stream().anyMatch(c -> "SPOTIFY".equals(c.candidateKey())));
+        assertTrue(item(before, ReviewItem.SUSPECTED_RECURRING, "SPOTIFY").isPresent());
+
+        Derivation ignored = Derive.derive(facts, List.of(ignore), config(), ASOF);
+        assertTrue(ignored.commitments().stream().noneMatch(c -> "SPOTIFY".equals(c.candidateKey())));
+        assertTrue(item(ignored, ReviewItem.SUSPECTED_RECURRING, "SPOTIFY").isEmpty());
+
+        // A newer fact does not reopen an ignored candidate — that is what REVOKE is for.
+        List<Fact> newer = new ArrayList<>(facts);
+        newer.add(fact(21, "spotify-7", "ing-orange", LocalDate.of(2026, 9, 20), -1299, "SPOTIFY", null, 0));
+        Derivation stillGone = Derive.derive(newer, List.of(ignore), config(), ASOF);
+        assertTrue(stillGone.commitments().stream().noneMatch(c -> "SPOTIFY".equals(c.candidateKey())));
+
+        Derivation restored = Derive.derive(newer, List.of(ignore,
+            new Decision.Revoke(22, 20, "it is back", Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertTrue(restored.commitments().stream().anyMatch(c -> "SPOTIFY".equals(c.candidateKey())),
+            restored.commitments().toString());
+        assertTrue(item(restored, ReviewItem.SUSPECTED_RECURRING, "SPOTIFY").isPresent());
+    }
+
+    @Test
+    void aPinPlacesAFactTheRulesMissAndUnpinReleasesIt() {
+        List<Fact> facts = List.of(fact(1, "bpay", "ing-savings", LocalDate.of(2026, 6, 20),
+            -10000, "BPAY 123456", null, 0));
+        Decision declare = declare(10, "bills", "Bills", "out", 10000, LocalDate.of(2026, 3, 15), "ACME");
+        Decision pin = new Decision.PinCommitment(20, "bills", List.of("bpay"),
+            "the rules miss this", Actor.USER, "ron", ASOF);
+
+        Derivation byRule = Derive.derive(facts, List.of(declare), config(), ASOF);
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(byRule, "bills"), LocalDate.of(2026, 3, 15)).status());
+        assertNull(at(occurrences(byRule, "bills"), LocalDate.of(2026, 3, 15)).matchedExternalId());
+
+        // A pin allocates like a rule match: the oldest open occurrence takes the fact (§2.9).
+        Derivation pinned = Derive.derive(facts, List.of(declare, pin), config(), ASOF);
+        CommitmentOccurrence march = at(occurrences(pinned, "bills"), LocalDate.of(2026, 3, 15));
+        assertEquals(OccurrenceStatus.OCCURRED, march.status());
+        assertEquals("bpay", march.matchedExternalId());
+        assertEquals("pin", march.matchedBy());
+
+        Derivation unpinned = Derive.derive(facts, List.of(declare, pin,
+            new Decision.UnpinCommitment(21, List.of("bpay"), "back to the rules", Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(unpinned, "bills"), LocalDate.of(2026, 3, 15)).status());
+        assertTrue(unpinned.ineffective().stream()
+            .noneMatch(i -> i.action().equals(Action.UNPIN_COMMITMENT.wire())), "not pinned is harmless");
+    }
+
+    @Test
+    void unknownOrRetiredCommitmentTargetsAreIneffective() {
+        List<Fact> facts = List.of(fact(1, "bpay", "ing-savings", LocalDate.of(2026, 6, 20),
+            -10000, "BPAY 123456", null, 0));
+        Derivation unknown = Derive.derive(facts, List.of(
+            new Decision.RetireCommitment(2, "ghost", LocalDate.of(2026, 6, 1), "gone", Actor.USER, "ron", ASOF),
+            new Decision.NoteCommitment(3, "ghost", "hello", Actor.USER, "ron", ASOF),
+            new Decision.SettleOccurrence(4, "ghost", List.of(LocalDate.of(2026, 6, 15)), null,
+                Actor.USER, "ron", ASOF),
+            new Decision.PinCommitment(5, "ghost", List.of("bpay"), null, Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertEquals(List.of(Action.RETIRE_COMMITMENT.wire(), Action.NOTE_COMMITMENT.wire(),
+            Action.SETTLE_OCCURRENCE.wire(), Action.PIN_COMMITMENT.wire()),
+            unknown.ineffective().stream().map(IneffectiveDecision::action).toList());
+        assertTrue(unknown.commitments().isEmpty());
+        assertEquals(4, unknown.review().stream()
+            .filter(r -> r.kind().equals(ReviewItem.INEFFECTIVE_DECISION)).count(), unknown.review().toString());
+
+        // A pin naming a retired commitment is ineffective too.
+        Derivation retired = Derive.derive(facts, List.of(
+            declare(10, "bills", "Bills", "out", 10000, LocalDate.of(2026, 3, 15), "ACME"),
+            new Decision.RetireCommitment(11, "bills", LocalDate.of(2026, 6, 30), "done",
+                Actor.USER, "ron", ASOF),
+            new Decision.PinCommitment(12, "bills", List.of("bpay"), null, Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertTrue(retired.ineffective().stream()
+            .anyMatch(i -> i.action().equals(Action.PIN_COMMITMENT.wire())), retired.ineffective().toString());
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(retired, "bills"), LocalDate.of(2026, 6, 15)).status());
+    }
+
+    @Test
+    void aPinIssuedBeforeARetirementKeepsItsHistoricalPlacement() {
+        List<Fact> facts = List.of(fact(1, "bpay", "ing-savings", LocalDate.of(2026, 6, 20),
+            -10000, "BPAY 123456", null, 0));
+        Derivation d = Derive.derive(facts, List.of(
+            declare(10, "bills", "Bills", "out", 10000, LocalDate.of(2026, 3, 15), "ACME"),
+            new Decision.PinCommitment(11, "bills", List.of("bpay"), null, Actor.USER, "ron", ASOF),
+            new Decision.RetireCommitment(12, "bills", LocalDate.of(2026, 6, 20), "closed",
+                Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        CommitmentOccurrence march = at(occurrences(d, "bills"), LocalDate.of(2026, 3, 15));
+        assertEquals(OccurrenceStatus.OCCURRED, march.status(), "the pin predates the retirement");
+        assertEquals("pin", march.matchedBy());
+        assertTrue(d.ineffective().stream()
+            .noneMatch(i -> i.action().equals(Action.PIN_COMMITMENT.wire())));
+        assertEquals(CommitmentStatus.ENDED, commitment(d, "bills").status());
+    }
+
+    @Test
+    void commitmentNotesAccumulateRevokeAndMayNameARetiredCommitment() {
+        Derivation d = Derive.derive(List.of(), List.of(
+            declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"),
+            new Decision.NoteCommitment(11, "acme", "first", Actor.USER, "ron", ASOF),
+            new Decision.NoteCommitment(12, "acme", "second", Actor.USER, "mel", ASOF),
+            new Decision.RetireCommitment(13, "acme", LocalDate.of(2026, 6, 30), "done",
+                Actor.USER, "ron", ASOF),
+            new Decision.NoteCommitment(14, "acme", "cancelled after price rise", Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertEquals(List.of("first", "second", "cancelled after price rise"),
+            d.commitmentNotes().stream().map(CommitmentNote::text).toList());
+        assertEquals(List.of(11L, 12L, 14L),
+            d.commitmentNotes().stream().map(CommitmentNote::decisionN).toList());
+
+        Derivation revoked = Derive.derive(List.of(), List.of(
+            declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"),
+            new Decision.NoteCommitment(11, "acme", "first", Actor.USER, "ron", ASOF),
+            new Decision.NoteCommitment(12, "acme", "second", Actor.USER, "mel", ASOF),
+            new Decision.NoteCommitment(14, "acme", "third", Actor.USER, "ron", ASOF),
+            new Decision.Revoke(15, 12, "typo", Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertEquals(List.of("first", "third"),
+            revoked.commitmentNotes().stream().map(CommitmentNote::text).toList());
+
+        Derivation bad = Derive.derive(List.of(), List.of(
+            new Decision.NoteCommitment(2, "ghost", "nowhere", Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertTrue(bad.commitmentNotes().isEmpty());
+        assertTrue(bad.ineffective().stream()
+            .anyMatch(i -> i.action().equals(Action.NOTE_COMMITMENT.wire())));
+    }
+
+    @Test
+    void settleOccurrenceClearsArrearsAndRevokeReturnsThem() {
+        List<Fact> facts = acmeFacts();
+        Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
+        Decision settle = new Decision.SettleOccurrence(20, "acme",
+            List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 15)),
+            "paid in cash", Actor.USER, "ron", ASOF);
+
+        Derivation settled = Derive.derive(facts, List.of(declare, settle), config(), ASOF);
+        assertEquals(0, commitment(settled, "acme").arrearsCount());
+        assertTrue(item(settled, ReviewItem.COMMITMENT_ARREARS, "acme").isEmpty());
+        assertEquals(CommitmentStatus.ACTIVE, commitment(settled, "acme").status(),
+            "a settled occurrence is engagement, not silence");
+        CommitmentOccurrence july = at(occurrences(settled, "acme"), LocalDate.of(2026, 7, 15));
+        assertEquals(OccurrenceStatus.SETTLED, july.status());
+        assertEquals(20L, july.settleN().longValue());
+
+        Derivation revoked = Derive.derive(facts, List.of(declare, settle,
+            new Decision.Revoke(21, 20, "not actually", Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertEquals(3, commitment(revoked, "acme").arrearsCount());
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(revoked, "acme"), LocalDate.of(2026, 7, 15)).status());
+        assertTrue(item(revoked, ReviewItem.COMMITMENT_ARREARS, "acme").isPresent());
+    }
+
+    @Test
+    void aDismissedCandidateReopensWhenANewerFactLandsForTheSeries() {
+        List<Fact> facts = new ArrayList<>();
+        LocalDate date = LocalDate.of(2026, 4, 15);
+        for (int i = 0; i < 6; i++) {
+            facts.add(fact(i + 1, "spotify-" + (i + 1), "ing-orange", date, -1299, "SPOTIFY", null, 0));
+            date = date.plusMonths(1);
+        }
+        Decision dismiss = new Decision.Dismiss(20, ReviewItem.SUSPECTED_RECURRING,
+            List.of("SPOTIFY"), "keep an eye on it", Actor.USER, "ron", ASOF);
+
+        Derivation silenced = Derive.derive(facts, List.of(dismiss), config(), ASOF);
+        assertTrue(item(silenced, ReviewItem.SUSPECTED_RECURRING, "SPOTIFY").isEmpty(),
+            silenced.review().toString());
+
+        List<Fact> newer = new ArrayList<>(facts);
+        newer.add(fact(21, "spotify-7", "ing-orange", LocalDate.of(2026, 9, 20), -1299, "SPOTIFY", null, 0));
+        Derivation reopened = Derive.derive(newer, List.of(dismiss), config(), ASOF);
+        assertTrue(item(reopened, ReviewItem.SUSPECTED_RECURRING, "SPOTIFY").isPresent(),
+            "a newer fact for the series re-opens the question");
+
+        Derivation typo = Derive.derive(facts, List.of(new Decision.Dismiss(22,
+            ReviewItem.SUSPECTED_RECURRING, List.of("SPOTFIY"), "typo", Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertTrue(typo.ineffective().stream().anyMatch(i -> i.action().equals(Action.DISMISS.wire())));
+    }
+
+    @Test
+    void aDismissedCommitmentItemReopensWhenTheCommitmentMatchesANewerFact() {
+        List<Fact> facts = acmeFacts();
+        Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
+        Decision dismiss = new Decision.Dismiss(20, ReviewItem.DORMANT_COMMITMENT, List.of("acme"),
+            "keep tracking", Actor.USER, "ron", ASOF);
+
+        Derivation silenced = Derive.derive(facts, List.of(declare, dismiss), config(), ASOF);
+        assertTrue(item(silenced, ReviewItem.DORMANT_COMMITMENT, "acme").isEmpty());
+        assertTrue(item(silenced, ReviewItem.COMMITMENT_ARREARS, "acme").isPresent(),
+            "a different kind is not silenced by a DORMANT_COMMITMENT dismiss");
+
+        List<Fact> paid = new ArrayList<>(facts);
+        paid.add(fact(21, "acme-7", "ing-savings", LocalDate.of(2026, 7, 15), -10000, "ACME BILL", null, 0));
+        Derivation reopened = Derive.derive(paid, List.of(declare, dismiss), config(), ASOF);
+        assertTrue(item(reopened, ReviewItem.DORMANT_COMMITMENT, "acme").isPresent(),
+            "a newer matched fact re-opens the question");
+
+        Derivation typo = Derive.derive(facts, List.of(declare, new Decision.Dismiss(22,
+            ReviewItem.COMMITMENT_ARREARS, List.of("ghost"), "typo", Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertTrue(typo.ineffective().stream().anyMatch(i -> i.action().equals(Action.DISMISS.wire())));
+    }
+
+    @Test
+    void aCommitmentMatchedOnATransferLegDoesNotMoveWhenPairingChanges() {
+        List<Fact> facts = List.of(
+            fact(1, "loan-1", "ing-orange", LocalDate.of(2026, 7, 5), -250000, "HOME LOAN REPAYMENT 9876", null, 0),
+            fact(2, "contra-1", "ing-savings", LocalDate.of(2026, 7, 5), 250000, "TRANSFER FROM OFFSET 9876", null, 0),
+            fact(3, "loan-2", "ing-orange", LocalDate.of(2026, 8, 5), -250000, "HOME LOAN REPAYMENT 9876", null, 0),
+            fact(4, "contra-2", "ing-savings", LocalDate.of(2026, 8, 5), 250000, "TRANSFER FROM OFFSET 9876", null, 0),
+            fact(5, "loan-3", "ing-orange", LocalDate.of(2026, 9, 5), -250000, "HOME LOAN REPAYMENT 9876", null, 0),
+            fact(6, "contra-3", "ing-savings", LocalDate.of(2026, 9, 5), 250000, "TRANSFER FROM OFFSET 9876", null, 0));
+        Decision declare = declare(10, "home-loan", "Home loan", "out", 250000, LocalDate.of(2026, 7, 5),
+            "HOME LOAN REPAYMENT");
+
+        Derivation matched = Derive.derive(facts, List.of(declare), pairingConfig(true), ASOF);
+        Derivation external = Derive.derive(facts, List.of(declare), pairingConfig(false), ASOF);
+
+        assertEquals(LegState.MATCHED, matched.current("loan-1").orElseThrow().leg());
+        assertEquals(3, matched.transfers().size());
+        assertEquals(LegState.EXTERNAL, external.current("loan-1").orElseThrow().leg());
+        assertTrue(external.transfers().isEmpty());
+        assertEquals(occurrences(matched, "home-loan"), occurrences(external, "home-loan"),
+            "the commitment saw core fields; a pairing change never moves it");
+        assertEquals("loan-1",
+            at(occurrences(matched, "home-loan"), LocalDate.of(2026, 7, 5)).matchedExternalId());
+    }
+
+    @Test
+    void aCatchUpLumpClearsTheArrearsAndTheReviewItem() {
+        List<Fact> facts = new ArrayList<>(acmeFacts());
+        facts.add(fact(8, "lump", "ing-savings", LocalDate.of(2026, 9, 28), -30000, "ACME BILL", null, 0));
+
+        Derivation d = Derive.derive(facts,
+            List.of(declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME")),
+            config(), ASOF);
+        assertEquals(0, commitment(d, "acme").arrearsCount(), "the backlog cleared from the front");
+        assertTrue(item(d, ReviewItem.COMMITMENT_ARREARS, "acme").isEmpty());
+        for (LocalDate due : List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15),
+                LocalDate.of(2026, 9, 15))) {
+            CommitmentOccurrence occurrence = at(occurrences(d, "acme"), due);
+            assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
+            assertEquals("lump", occurrence.matchedExternalId(), "one payment covered three periods");
+        }
+        assertEquals(CommitmentStatus.ACTIVE, commitment(d, "acme").status(),
+            "the catch-up is engagement, not silence");
+    }
+
+    @Test
+    void commitmentDerivationIsPureAndOrdered() {
+        List<Fact> facts = acmeFacts();
+        Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
+        Decision note = new Decision.NoteCommitment(11, "acme", "hello", Actor.USER, "ron", ASOF);
+        Derivation first = Derive.derive(facts, List.of(declare, note), config(), ASOF);
+        Derivation second = Derive.derive(facts, List.of(declare, note), config(), ASOF);
+        assertEquals(first, second);
+
+        List<String> ids = first.commitments().stream().map(Commitment::commitmentId).toList();
+        assertEquals(ids.stream().sorted().toList(), ids);
+        List<CommitmentOccurrence> sorted = first.commitmentOccurrences().stream()
+            .sorted(java.util.Comparator.comparing(CommitmentOccurrence::commitmentId)
+                .thenComparing(CommitmentOccurrence::dueDate))
+            .toList();
+        assertEquals(sorted, first.commitmentOccurrences());
+        assertEquals(1, first.commitmentNotes().size());
     }
 }

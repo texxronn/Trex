@@ -1259,6 +1259,118 @@ Stated plainly: the computed opening absorbs everything the journal cannot know 
 pre-history purchases, a loan's interest split. That is the price of clean flows; a later
 statement ingest replaces the approximation with the real chain.
 
+### 6.11 Commitments and expected transactions
+
+The ledger answers "what happened"; a commitment answers "what is coming". A **commitment** is
+a named expectation of a recurring money movement — a subscription, a bill, insurance, a fee,
+tax, income — with a cadence, a direction and a set of match rules. It is derived state of the
+same significance as categorization: curation is journaled, the derivation is pure, the tables
+are disposable, and **Expected** is a first-class mode (§10.1).
+
+**The unit and its faces.**
+
+| Face | Values |
+|---|---|
+| origin | `detected` (a predictable cadence found in the facts) · `declared` (a person said so) |
+| direction | `out` (−) · `in` (+ income) |
+| cadence | `weekly · fortnightly · monthly · bimonthly · quarterly · semiannual · annual · irregular` |
+| amount | `fixed` · `variable` (usage) · `range` (declared floor/ceiling) |
+| kind | `subscription · bill · insurance · fee · tax · income · other` |
+| rules | an ordered set of match rules (§6.2) |
+| lifecycle | `candidate · active · dormant · ended`; `lapsed` is an overlay, not a lifecycle |
+| id | `commitmentId`, a slug frozen in the declaring decision; never rewritten |
+
+`candidate` is detected and not yet declared or ignored; `active` expects occurrences; `dormant`
+is silence against an advancing account frontier; `ended` is a `RETIRE_COMMITMENT` — or, for a
+candidate only, the detector's coverage test. An `irregular` commitment has no cadence and is
+never dormant. `lapsed` colours the current expected occurrence while older misses accumulate
+as **arrears**.
+
+**Rules, not vendors.** There is no vendor entity. A commitment is exactly a name, its faces
+and its rules; a rule is `{match: <regex>, account?: <ref>}` evaluated against
+`clean(rawDescription)` with the same pattern semantics and lint as `categories.yaml` /
+`transfers.yaml` (a bad rule is a `422`, §9.3). A rule that does not compile and still reaches
+the log through another writer makes its declaration ineffective and visible
+(`INEFFECTIVE_DECISION` naming the rule) rather than failing the derivation; an earlier or later
+good declaration of the id stands. Descriptor churn is just another rule
+(`ANTHROPIC`, `ANTHROPIC* CLAUDE SUB`, `CLAUDE.AI SUBSCRIPTION` are three rules on one
+commitment), and a provider move is a workflow, not a link: `RETIRE_COMMITMENT` ends the old
+series and `DECLARE_COMMITMENT` starts the new one; the two histories stand alone.
+
+**Core fields only.** A rule, and the domain it runs over, may use `rawDescription`, `account`,
+`amount`/sign and `date` — fact fields — and never a derived one (`leg`, `pairing`, `category`,
+`role`, `synthetic`). A later reflow may change a pairing or a category; a commitment must not
+move with it. Internal movements are commitments like any other: a matched transfer leg (a
+home-loan repayment) is in scope and counts. The one conclusion that removes a fact from the
+domain is `noop`; pending observations and synthetic clearing rows are not facts at all.
+
+**Curation is decisions** — the §6.2 actions, append-only, attributed and `REVOKE`-able:
+
+- `DECLARE_COMMITMENT` declares, or confirms a detected candidate (`fromCandidate`). A
+  re-declare with the same id replaces the curated fields and the whole rule set, latest
+  effective wins; a declare after a retire revives it, family-inverse style. Cadence and anchor
+  are not edited in place: a schedule that genuinely changed is retire + declare.
+- `RETIRE_COMMITMENT` ends it (cancelled, past, provider move), with the date it ended at.
+- `IGNORE_RECURRING` silences a detected candidate for good; newer facts do not reopen it — that
+  is what `REVOKE` is for.
+- `PIN_COMMITMENT`/`UNPIN_COMMITMENT` place a fact the rules miss on a commitment — the category
+  `PIN` gesture, per fact, latest effective wins. A pin naming a commitment that is unknown or
+  retired at the time is ineffective and visible; a later retirement does not unwrite a pin that
+  predates it.
+- `NOTE_COMMITMENT` is a free-annotation thread on a commitment, removed only by `REVOKE`,
+  never edited; notes on a retired commitment remain part of its history.
+- `SETTLE_OCCURRENCE` states that occurrences were paid (or received) off-journal: a conclusion
+  with no fact, attributed and revocable. When the money should appear on an account, the honest
+  path is an authored fact (§12.4), matched like any other.
+
+Fact ids a decision names resolve through the supersession map as every decision does;
+commitment ids are decision-local and never touch the fact chain. A decision naming an unknown
+commitment is ineffective and surfaces as `INEFFECTIVE_DECISION`, never dropped.
+
+**Detection** is pure and deterministic over the current posted facts — every account, matched
+transfer legs included. Facts group by the frozen `MerchantStem.stem`; a series needs at least
+three occurrences and at least 70% of its gaps within the nearest bucket of
+`{7, 14, 30, 61, 91, 182, 365}` days (tolerance `max(2 days, 20%)`). Same-day repeats collapse
+into one occurrence, a refund nets against the charge it reverses, and a change of at least 5%
+or 50¢ between consecutive occurrences is a price step; residual variation flags a `variable`
+amount. Coverage is relative to the accounts' posted frontier, never a clock: active inside one
+cadence plus tolerance, ended beyond two periods, otherwise dormant. A candidate is suppressed
+when an effective `IGNORE_RECURRING` names its key, a declaration named it as `fromCandidate`,
+or a declaration's rules cover every fact of its group.
+
+**Occurrences** are generated from cadence and anchor with `java.time` calendar arithmetic — a
+monthly bill on the 30th clamps in February, never "add 30 days" — for the recent past and a
+forward horizon, and are as disposable as the rest. A due occurrence takes the nearest
+unassigned fact that matches one of the commitment's rules (or is pinned to it), has the
+commitment's sign, falls inside the date window (± half the cadence, capped at ±7 days) and fits
+the expected amount; facts are consumed in `(date, n)` order and each belongs to at most one
+occurrence. Status is `occurred` (a fact satisfied it, with the fact id), `settled` (a person
+concluded it without a fact), `due`, `partial` (a fact covered part; the remainder is arrears)
+or `missed`. An `irregular` commitment generates no dates: each matching fact becomes an
+occurrence at its own date — tracked by observation, never predicted, never missed, never in
+arrears, never dormant. A pin never re-anchors; a pinned fact with no open occurrence is an
+`off_schedule` occurrence at its own date — "charged twice this month" is a true statement,
+never a silent match.
+
+**Arrears and catch-up.** An occurrence is in arrears while it is `missed`, or `partial` with a
+remainder; an `irregular` commitment has no due dates and therefore none. A matching fact is
+allocated oldest-first across the commitment's open occurrences — each takes up to its expected
+amount, a surplus pre-pays already-materialised future occurrences, and anything left is
+`off_schedule`. The backlog is visible until a fact or a `SETTLE_OCCURRENCE` clears it: nothing
+is auto-forgiven and nothing is auto-retired.
+
+**Dormancy is a review question.** A tracked, non-retired, regular commitment whose last
+satisfied occurrence is more than one cadence plus tolerance behind the frontier of the accounts
+it matched on (or its rules name) is dormant. It raises `DORMANT_COMMITMENT`, is ended by a
+person (`RETIRE_COMMITMENT`) or kept by a `DISMISS`, and the next matched fact re-opens the
+question. A commitment that has never matched is not dormant: it is in arrears.
+
+**Nothing here is a property of a transaction.** Candidates, rules, assignments, occurrences,
+prices, arrears and the dormancy question are all derived from `(facts, decisions, config,
+asOf)`; the four tables (§7.1) are materialised like every other derived table, and
+`trex index --rebuild` reproduces them. `occurred` (evidence) is never conflated with `settled`
+(a conclusion); no `externalId` is ever rewritten and no journal line is ever edited.
+
 ---
 
 ## 7. The derived read model
@@ -1268,7 +1380,8 @@ statement ingest replaces the approximation with the real chain.
 1. **Mirror tables** — the log, row for row: `fact`, `decision`, plus the indexer's
    offset. No derived columns; rebuildable from the log alone.
 2. **Derived tables/views** — `supersession`, `txn_current`, `pending`, `transfer`,
-   `review_item`, `category_current`, `pin_current`, `projection_state`, `user_ack`,
+   `review_item`, `category_current`, `pin_current`, `commitment`, `commitment_rule`,
+   `commitment_occurrence`, `commitment_note`, `projection_state`, `user_ack`,
    `source_cursor`, `evidence`. Rebuildable from level 1 + config + `asOf`.
 
 Splitting the two means the indexer is an ordinary follower: apply new lines and the
@@ -1281,7 +1394,9 @@ time-relative statuses (stale badges, ages), and those never enter a `stateHash`
 
 The level-1 mirrors, the derived tables and the fold are **as built**: the normative DDL is
 `trex-v2-index/src/main/resources/trex/v2/index/schema.sql`, summarised in `V2-SPEC.md` §7 and
-§2. The point is not the columns:
+§2. The commitment tables (`commitment`, `commitment_rule`, `commitment_occurrence`,
+`commitment_note`, §6.11) are derived like the rest: candidates and declared rows, the effective
+rule set, the materialised occurrences and the note thread. The point is not the columns:
 
 > **Every table here can be dropped.** The UI never queries the log, the log is never written
 > from here, and `trex index --rebuild` is the recovery.
@@ -1737,9 +1852,19 @@ Then, per question:
   is an `AMBIGUOUS_SETTLEMENT` item, and `SETTLE` beats derivation (§12.3).
 - **Category.** `PIN`/`UNPIN`, latest effective naming an id wins; then the first
   matching rule; then `UNCATEGORIZED`. A structural `TRANSFER` leg is never categorised.
-- **Review.** `DISMISS` silences an item while no newer fact lands for any of its ids;
-  `REVOKE` of a `DISMISS` re-opens it. `INEFFECTIVE_DECISION` is cleared by revoking or
-  replacing the offending decision, not by `DISMISS`.
+- **Commitments.** `DECLARE_COMMITMENT`/`RETIRE_COMMITMENT`, latest effective per id wins, and
+  a declare after a retire revives it (family inverse); `IGNORE_RECURRING` silences a candidate
+  key until `REVOKE`d. `PIN_COMMITMENT`/`UNPIN_COMMITMENT` assign per fact, latest effective
+  wins, ids resolved through the supersession map; commitment ids are decision-local and never
+  resolve. Notes accumulate; `SETTLE_OCCURRENCE` is latest per `(commitmentId, dueDate)`. A pin
+  naming a commitment that is unknown or retired at the time, and any retire/note/settle naming
+  an unknown commitment, are ineffective and surfaced; a later retirement does not unwrite an
+  earlier pin, and a settle on a retired commitment is allowed — it is a conclusion about the
+  past.
+- **Review.** `DISMISS` silences an item while no newer fact lands for its subject — an id in
+  the chain, an account, a candidate's series or a commitment (§9.9.F); `REVOKE` of a `DISMISS`
+  re-opens it. `INEFFECTIVE_DECISION` is cleared by revoking or replacing the offending
+  decision, not by `DISMISS`.
 - **Supersession.** `SUPERSEDE`/`RETIRE`, latest effective per `from` id wins; a chain
   that would close a cycle, or a `toId` that is itself retired, is ineffective and
   surfaced.
@@ -1758,7 +1883,7 @@ again.
 
 #### A. The pipeline
 
-Eleven stages, run in order; each may read only earlier stages. P1–P4 are log-only and
+Twelve stages, run in order; each may read only earlier stages. P1–P4 are log-only and
 are the whole of `trex verify`'s rebuild.
 
 | # | Stage | Produces |
@@ -1772,8 +1897,9 @@ are the whole of `trex verify`'s rebuild.
 | P7 | **Transfer shape and pairing.** §9.9.C. | leg states, `transfer` |
 | P8 | **Pending settlement and staleness.** §9.9.D. | `pending`, `AMBIGUOUS_SETTLEMENT` |
 | P9 | **Category.** §9.9.E. | `category_current`, `pin_current` |
-| P10 | **Review items.** §9.9.F — derived causes, minus effective `DISMISS`es. | `review_item` |
-| P11 | **Projection units and state hashes.** §9.9.G. | projectable units, `stateHash` inputs |
+| P10 | **Commitments and occurrences.** §6.11: fold the commitment curation, detect candidates and match declared commitments over the current facts. A sibling of category (§9.9.E): it reads neither its output nor writes into it, so their order is incidental. | `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note` |
+| P11 | **Review items.** §9.9.F — derived causes, minus effective `DISMISS`es. | `review_item` |
+| P12 | **Projection units and state hashes.** §9.9.G. | projectable units, `stateHash` inputs |
 
 #### B. Ordering, and the one ambiguity
 
@@ -1939,7 +2065,11 @@ is a lie, §9.3) and, if it reaches the log, is ineffective.
 
 Each kind is a predicate over the current state; an item is open when its predicate holds
 and no effective `DISMISS` for that `(kind, subject)` post-dates the newest fact for the
-subject. Subjects are the ids in the chain (so a re-parse re-opens, §9.8).
+subject. A subject is usually an id in the chain (so a re-parse re-opens, §9.8); a
+`BALANCE_BREAK` subject is an account and ages on the account's newest fact; a
+`SUSPECTED_RECURRING` subject is a grouping stem and ages on the facts of that series; a
+`DORMANT_COMMITMENT`/`COMMITMENT_ARREARS` subject is a commitment id and ages on the facts the
+commitment matched.
 
 | Kind | Predicate |
 |---|---|
@@ -1950,6 +2080,9 @@ subject. Subjects are the ids in the chain (so a re-parse re-opens, §9.8).
 | `UNMATCHED_LEG` | A shaped leg that has been `HELD` past `transfers.yaml holdWindowDays` (default 30) measured on `asOf`. HELD itself never ages; only the *item* does. |
 | `STALE_PENDING` | From P8. |
 | `INEFFECTIVE_DECISION` | From P4/P5: a decision naming an unresolvable id, or a supersession cycle. |
+| `SUSPECTED_RECURRING` | From P10: a detected candidate that is neither suppressed nor ended (§6.11); subject the grouping stem, detail the cadence, span, occurrence count and amounts. |
+| `DORMANT_COMMITMENT` | From P10: a tracked, non-retired, regular commitment whose last satisfied occurrence is more than one cadence plus tolerance behind the frontier of the accounts it matched on (or its rules name). An `irregular` commitment is never dormant; an ended one is never dormant either and keeps only its arrears. |
+| `COMMITMENT_ARREARS` | From P10: a commitment with a backlog — `missed` or `partial` occurrences (§6.11); subject the commitment id, detail the count and the expected total still short. |
 
 An item's `state_hash` is the hash of its `detail` payload, so the item survives a
 rebuild identically and the "changed since reviewed" check has something stable to
