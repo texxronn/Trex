@@ -131,8 +131,8 @@ function renderTable() {
   }
   // Exactly the Blotter's columns, plus per-row read/unread and categorise; no batch bar.
   const head = el('tr', {},
-    el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
-    el('th', {}, 'Direction'),
+    el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', {}, 'Direction'),
+    el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'),
     el('th', {}, 'Category'), el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'),
     el('th', {}, ''), el('th', {}, ''));
@@ -141,8 +141,8 @@ function renderTable() {
     return el('tr', { class: isRead ? 'read' : 'unread' },
       el('td', {}, row.date),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
-      el('td', { class: 'amount' }, money(row.amount)),
       el('td', {}, direction(row.amount)),
+      el('td', { class: 'amount' }, money(row.amount)),
       el('td', { class: 'amount' }, money(row.balance)),
       el('td', { class: 'desc' }, row.rawDescription,
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),

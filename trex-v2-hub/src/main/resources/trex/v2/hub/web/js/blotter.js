@@ -112,8 +112,8 @@ async function load() {
 function renderRows() {
   clear(tableHost);
   const head = el('tr', {},
-    el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
-    el('th', {}, 'Direction'),
+    el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', {}, 'Direction'),
+    el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
     el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'), el('th', {}, 'n'), el('th', {}, 'id'),
     el('th', {}));
@@ -130,8 +130,8 @@ function renderRows() {
       el('td', {}, checkbox),
       el('td', {}, row.date),
       el('td', {}, accountChip(refdata, row.accountRef)),
-      el('td', { class: 'amount' }, money(row.amount)),
       el('td', {}, direction(row.amount)),
+      el('td', { class: 'amount' }, money(row.amount)),
       el('td', { class: 'amount' }, money(row.balance)),
       el('td', { class: 'desc' }, row.rawDescription,
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),

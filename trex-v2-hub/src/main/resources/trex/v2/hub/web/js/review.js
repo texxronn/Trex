@@ -74,18 +74,18 @@ function renderRows(rows) {
     return;
   }
   const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'Account'), el('th', {}, 'Date'),
-    el('th', {}, 'Subject'), el('th', {}, 'Detail'), el('th', { class: 'amount' }, 'Stake'),
-    el('th', {}, 'Direction'), el('th', {}, 'Opened'), el('th', {}));
+    el('th', {}, 'Direction'), el('th', { class: 'amount' }, 'Stake'),
+    el('th', {}, 'Subject'), el('th', {}, 'Detail'), el('th', {}, 'Opened'), el('th', {}));
   const body = rows.map((row) => {
     const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
     return el('tr', {},
       el('td', {}, el('span', { class: 'badge ' + row.kind }, KIND_LABEL[row.kind] || row.kind)),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
       el('td', {}, row.date || ''),
+      el('td', {}, direction(row.amount)),
+      el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
       el('td', { class: 'desc', title: row.subject }, row.subjectDescription || shortId(row.subject)),
       memberCell(row),
-      el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
-      el('td', {}, direction(row.amount)),
       el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),
       el('td', {},
         canDismiss
