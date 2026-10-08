@@ -10,7 +10,7 @@
 // preference, like the window.
 
 import { api } from './api.js';
-import { openCommitmentActions, openSettle } from './commitment.js';
+import { openCommitmentActions, openDeclare, openSettle } from './commitment.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
