@@ -27,7 +27,9 @@ public enum Action {
     PIN_COMMITMENT,
     UNPIN_COMMITMENT,
     NOTE_COMMITMENT,
-    SETTLE_OCCURRENCE;
+    SETTLE_OCCURRENCE,
+    EXCLUDE_COMMITMENT,
+    INCLUDE_COMMITMENT;
 
     public String wire() {
         return name();

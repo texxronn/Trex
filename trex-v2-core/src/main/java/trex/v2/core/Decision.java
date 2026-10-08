@@ -33,7 +33,7 @@ public sealed interface Decision extends LogLine
             Decision.UserAck, Decision.UserUnack, Decision.Note,
             Decision.DeclareCommitment, Decision.RetireCommitment, Decision.IgnoreRecurring,
             Decision.PinCommitment, Decision.UnpinCommitment, Decision.NoteCommitment,
-            Decision.SettleOccurrence {
+            Decision.SettleOccurrence, Decision.ExcludeCommitment, Decision.IncludeCommitment {
 
     /** The namespaced wire kind. */
     String KIND = "trex.decision";
@@ -524,6 +524,57 @@ public sealed interface Decision extends LogLine
         @Override
         public Action action() {
             return Action.UNPIN_COMMITMENT;
+        }
+    }
+
+    /**
+     * A fact is not part of a commitment (V2-COMMITMENT-EXCLUSIONS-PLAN.md §4): the person's
+     * conclusion that a rule-matched movement is a one-off. An excluded pair is never claimed by
+     * the commitment — a pin falls through to the rules and a rule scan skips it — so it shapes
+     * neither occurrences nor cost; the fact itself is untouched.
+     */
+    record ExcludeCommitment(Envelope envelope, String commitmentId, List<String> externalIds,
+                             String comment, Actor actor, String user) implements Decision {
+        public ExcludeCommitment {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            Objects.requireNonNull(externalIds, "externalIds");
+            externalIds = List.copyOf(externalIds);
+            require(!externalIds.isEmpty(), "externalIds must not be empty");
+            require(actor, "actor");
+        }
+
+        public ExcludeCommitment(long n, String commitmentId, List<String> externalIds, String comment,
+                                 Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, externalIds, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.EXCLUDE_COMMITMENT;
+        }
+    }
+
+    /** Undo an exclusion; the family inverse of {@code EXCLUDE_COMMITMENT}. */
+    record IncludeCommitment(Envelope envelope, String commitmentId, List<String> externalIds,
+                             String comment, Actor actor, String user) implements Decision {
+        public IncludeCommitment {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            Objects.requireNonNull(externalIds, "externalIds");
+            externalIds = List.copyOf(externalIds);
+            require(!externalIds.isEmpty(), "externalIds must not be empty");
+            require(actor, "actor");
+        }
+
+        public IncludeCommitment(long n, String commitmentId, List<String> externalIds, String comment,
+                                 Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, externalIds, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.INCLUDE_COMMITMENT;
         }
     }
 

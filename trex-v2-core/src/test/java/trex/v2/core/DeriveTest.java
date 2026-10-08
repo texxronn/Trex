@@ -12,6 +12,7 @@ import trex.v2.core.derive.AmountKind;
 import trex.v2.core.derive.Cadence;
 import trex.v2.core.derive.CategoryOrigin;
 import trex.v2.core.derive.Commitment;
+import trex.v2.core.derive.CommitmentExclusion;
 import trex.v2.core.derive.CommitmentKind;
 import trex.v2.core.derive.CommitmentNote;
 import trex.v2.core.derive.CommitmentOccurrence;
@@ -907,6 +908,45 @@ class DeriveTest {
             "the commitment saw core fields; a pairing change never moves it");
         assertEquals("loan-1",
             at(occurrences(matched, "home-loan"), LocalDate.of(2026, 7, 5)).matchedExternalId());
+    }
+
+    @Test
+    void anExcludedFactLeavesTheCommitmentAndIncludeRestoresIt() {
+        List<Fact> facts = List.of(
+            fact(1, "acme-1", "ing-savings", LocalDate.of(2026, 1, 15), -10000, "ACME BILL", null, 0),
+            fact(2, "acme-2", "ing-savings", LocalDate.of(2026, 2, 15), -10000, "ACME BILL", null, 0),
+            fact(3, "acme-3", "ing-savings", LocalDate.of(2026, 3, 15), -10000, "ACME BILL", null, 0));
+        Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15),
+            "ACME");
+        Decision exclude = new Decision.ExcludeCommitment(11, "acme", List.of("acme-2"),
+            "one-off", Actor.USER, "ron", ASOF);
+
+        Derivation d = Derive.derive(facts, List.of(declare, exclude), config(), ASOF);
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(d, "acme"), LocalDate.of(2026, 2, 15)).status(),
+            "the excluded fact never attaches");
+        assertTrue(d.ineffective().isEmpty(), d.ineffective().toString());
+        assertEquals(List.of("acme-2"), d.commitmentExclusions().stream()
+            .map(CommitmentExclusion::externalId).toList());
+
+        // The family inverse restores the claim; the effective set is empty again.
+        Derivation back = Derive.derive(facts, List.of(declare, exclude,
+            new Decision.IncludeCommitment(12, "acme", List.of("acme-2"), "wrong row",
+                Actor.USER, "ron", ASOF)), config(), ASOF);
+        assertEquals(OccurrenceStatus.OCCURRED,
+            at(occurrences(back, "acme"), LocalDate.of(2026, 2, 15)).status());
+        assertTrue(back.commitmentExclusions().isEmpty());
+
+        // Unknown targets are ineffective and visible, never dropped.
+        Derivation bad = Derive.derive(facts, List.of(declare,
+            new Decision.ExcludeCommitment(11, "ghost", List.of("acme-2"), null, Actor.USER, "ron",
+                ASOF),
+            new Decision.ExcludeCommitment(12, "acme", List.of("nope"), null, Actor.USER, "ron",
+                ASOF)), config(), ASOF);
+        assertTrue(bad.commitmentExclusions().isEmpty());
+        assertEquals(2, bad.ineffective().stream()
+            .filter(i -> i.action().equals(Action.EXCLUDE_COMMITMENT.wire())).count(),
+            bad.ineffective().toString());
     }
 
     @Test

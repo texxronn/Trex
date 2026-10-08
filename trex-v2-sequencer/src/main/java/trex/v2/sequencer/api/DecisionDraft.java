@@ -11,7 +11,8 @@ import java.util.List;
  *
  * <p>The commitment actions (V2-COMMITMENTS-PLAN.md §2.6) reuse the flat shape: a declaration
  * carries {@code commitmentId}, {@code name}, the faces, {@code matches} and its optional fields;
- * {@code PIN_COMMITMENT}/{@code UNPIN_COMMITMENT} reuse {@code externalIds},
+ * {@code PIN_COMMITMENT}/{@code UNPIN_COMMITMENT} and
+ * {@code EXCLUDE_COMMITMENT}/{@code INCLUDE_COMMITMENT} reuse {@code externalIds},
  * {@code NOTE_COMMITMENT} reuses {@code text}, and {@code SETTLE_OCCURRENCE} reuses
  * {@code dueDates}.
  */
