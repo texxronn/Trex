@@ -25,7 +25,7 @@ transferPatterns:
     # Closed counterparties (§6.10). These movements come from whichever ING account paid them,
     # so the patterns are universal: they pair directly with the clearing account, no contra.
     - { match: 'NAB Fixed Payments', rail: BANK_TRANSFER, clearing: nab-fixed }
-    - { match: 'Nab Offset',         rail: BANK_TRANSFER, clearing: nab-offset }
+    - { match: 'Nab Offset',         rail: BANK_TRANSFER, clearing: nab-variable }
     - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
         rail: BPAY, clearing: westpac-card }
     - { match: 'MR ROHAN JOSEPH MACHADO.*Osko Payment', rail: OSKO }

@@ -98,12 +98,33 @@ accounts:
     chip_color: slate
     closingBalance: 0
     closedAt: "2023-09-30"
-  - ref: "nab-offset"
+  # The NAB variable-rate facility (retrofit of the mis-named 'nab-offset'; the 'Nab Offset'
+  # payments in transfers.yaml land here).
+  - ref: "nab-variable"
     currency: "AUD"
     balanceSource: clearing
     chip_color: zinc
     closingBalance: 0
     closedAt: "2023-02-28"
+
+  # The real previous NAB offset account: the source of the large inbound Oskos in 2022, landed by
+  # an ATTACH_ACCOUNT decision. Its closing is unknown, so the computed opening absorbs the position.
+  - ref: "nab-offset"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: gray
+    closingBalance: 0
+    closedAt: "2023-02-28"
+
+  # The carryover book (§6.10): a holding account for genuinely one-sided movements — a transfer
+  # whose contra cannot be identified, or a knowingly-unbalanced entry (hidden/cash) with no
+  # statement. It holds no facts and is never chained; the derived opening absorbs the position.
+  # Attribution is a decision (ATTACH_ACCOUNT), reversible when the real counterparty is found.
+  - ref: "carryover"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: gray
+    closingBalance: 0
 
   # Legacy clearing positions (V2-PROPOSAL.md §6.10): the counterparty *before* the statements we
   # hold, whose earlier history was pruned and is unobtainable. They hold no facts; the pre-coverage
