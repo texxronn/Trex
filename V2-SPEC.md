@@ -279,7 +279,8 @@ cluster can be annotated in one fan-out, `SUSPECTED_RECURRING` offers Confirm/Ig
 (`occurred`) or red cross (`missed`), the committed totals split out/in, the **Catch up** panel of
 every occurrence in arrears, oldest first, with a running total and Settle/Assign, and the
 commitment registry — candidates named by their stem with their series evidence and an
-**Actions** menu (Review/Confirm/Ignore) listing the series' own transactions, filters over
+**Actions** menu (Review/Confirm/Ignore) whose two panes show the series' transactions as a table
+and a rudimentary price timeseries, filters over
 origin/status/direction/text, declared rows
 with retire, re-declare, note, settle — and a rule lint panel; the four sections fold, their headers
 carrying the live figures (`V2-EXPECTED-UX-PLAN.md`); the tab is walked as part of the regular

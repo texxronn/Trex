@@ -20,6 +20,11 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **The candidate menu is a two-pane view, and the registry tabs repaint.** **Actions…** now
+  splits horizontally: the series' transactions as a table on the left (date, account, signed
+  amount, description) and a rudimentary price timeseries on the right (same-day facts summed,
+  magnitudes from zero, each point carrying its signed value). The origin tabs (All / Candidates /
+  Declared) highlight the selection on click rather than keeping All active.
 - **Arrears are manual** (`V2-MANUAL-ARREARS-PLAN.md`; `derive/10`). A matching fact now attaches
   to the occurrence whose window contains its date — several facts in a window sum, and the
   occurrence is `occurred` at the amount that actually moved. A window that closes with no fact is
