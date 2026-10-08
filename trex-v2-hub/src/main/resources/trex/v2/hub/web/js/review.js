@@ -52,8 +52,16 @@ function render() {
     field('Account', el('select', {
       onchange: (e) => { account = e.target.value; load(); },
     }, el('option', { value: '', selected: account === '' }, 'all'),
-      ...accounts.map((a) => el('option', { value: a, selected: a === account }, a))))),
+      ...accounts.map((a) => el('option', { value: a, selected: a === account }, a)))),
+    el('button', { type: 'button', class: 'ghost', onclick: clearFilters }, 'Clear filters')),
     listHost);
+}
+
+function clearFilters() {
+  kind = '';
+  account = '';
+  render();
+  load();
 }
 
 async function load() {

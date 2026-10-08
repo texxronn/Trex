@@ -20,7 +20,7 @@ function item(label, value, cls = '') {
 export async function refresh() {
   if (!host) return;
   try {
-    const [status, reconcile] = await Promise.all([api.status(), api.reconcile()]);
+    const status = await api.status();
     clear(host);
     const review = total(status.reviewByKind);
     host.append(
@@ -30,23 +30,12 @@ export async function refresh() {
       item('transfers', status.counts.transfer ?? 0),
       item('review', review, review > 0 ? 'bad' : 'good'),
       item('pending', status.counts.pending ?? 0),
-      reconcileBadges(reconcile),
       revisions(status),
       userSelect(),
     );
   } catch {
     // transient: the next delta retries
   }
-}
-
-function reconcileBadges(reconcile) {
-  const accounts = (reconcile && reconcile.accounts) || [];
-  if (accounts.length === 0) return el('span', { class: 'muted' }, 'reconcile —');
-  return el('span', {}, 'reconcile ',
-    ...accounts.map((a) => el('span', {
-      class: 'tag ' + (a.status === 'broken' ? 'NONE' : ''),
-      title: `${a.accountRef}: opening ${a.opening}, closing ${a.closing}, sum ${a.sum}, gap ${a.gap}`,
-    }, a.accountRef)));
 }
 
 function revisions(status) {
