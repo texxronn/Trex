@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS ineffective_decision (
 -- materialised occurrences and the note thread. All derived; decisions live in the log.
 CREATE TABLE IF NOT EXISTS commitment (
   commitment_id    TEXT PRIMARY KEY,
+  candidate_key    TEXT,
   name             TEXT,
   origin           TEXT NOT NULL,
   direction        TEXT NOT NULL,

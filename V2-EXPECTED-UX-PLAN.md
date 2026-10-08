@@ -6,7 +6,8 @@
 > no derivation, no API and no invariant. Proposal §10.6 keeps its composition and
 > vocabulary; no proposal amendment is proposed.
 
-**Status:** Stage 1 (the accordion) implemented; Stage 2 (registry affordances, deep links) parked.
+**Status:** Stage 1 (the accordion) implemented; Stage 2 (the registry curation surface) in
+progress; Stage 2b parked.
 **Authority:** `V2-PROPOSAL.md` §10.1 (the Expected mode), §10.6 (the composition and the
 vocabulary); `V2-COMMITMENTS-PLAN.md` §2.8, §10.12 (names locked: **Commitments** = the
 registry, **Expected** = the forward view); `V2-SPEC.md` (as built); `AGENTS.md`.
@@ -61,7 +62,7 @@ no extra requests):
 |---|---|---|
 | Occurrences | `Occurrences · <window label> · <n>` | open |
 | Catch up | `Catch up · <n> behind · <money total>` (warn tint when non-empty); `Catch up · nothing in arrears` when empty | open |
-| Commitments | `Commitments · <n> · <candidates> candidates` | collapsed |
+| Commitments | `Commitments · <n> · <candidates> candidates`; filtered counts follow §7 Stage 2 | collapsed |
 | Lint | `Lint · <n> overlaps` (or `no overlaps`) | collapsed |
 
 - Labels: **Occurrences** stays the domain term (the table shows the window's whole
@@ -111,10 +112,22 @@ migration, `trex verify` stays green and is not part of this acceptance.
 
 - **Stage 0 — this plan.** Land as its own docs PR (one commit).
 - **Stage 1 — the accordion.** `expected.js` + `app.css` only, one PR. Acceptance §8.
-- **Stage 2 (parked) — registry affordances, if curation volume demands it:** filter by
-  origin/status/direction, text search, sort by next due, candidates-only toggle; or the
-  sub-tab migration (each section then gets a full view and a count badge). Decide from
-  real curation data, not now.
+- **Stage 2 — the registry becomes a curation surface** (promoted 2026-10-08, operator):
+  - **Identity.** The candidate stem (`candidate_key`) joins the derived `commitment` table
+    (disposable; `IndexSchema` carries the shape guard) and is exposed as `stem` in
+    `CommitmentJson`: a candidate shows its stem where a declared row shows its name; the
+    hash id is the hover title only.
+  - **Evidence.** The row gains a series line — occurrence count, span, regularity,
+    `variable` — and the price change date; kind `other` renders as `—` for candidates
+    (a default, not a conclusion).
+  - **Actions.** Candidates get an **Actions…** dialog: **Review** (deep-links
+    `#review?kind=SUSPECTED_RECURRING`; Review learns `ctx.modeQuery`), **Confirm…** (the
+    same prefill as Review, shared from `commitment.js`) and **Ignore…** (a reason required).
+  - **Filters.** Inside the Commitments section: All | Candidates | Declared, status,
+    direction, text search and sort; all rows show by default (operator, 2026-10-08); the
+    header count follows the filter (`n of total` when filtered).
+  - Parked in 2b: the price timeline (`steps`), cost-to-date and annualised; per-candidate
+    observed descriptors/accounts; the sub-tab migration if volume demands it.
 
 ## 8. Acceptance (Stage 1)
 
@@ -134,6 +147,10 @@ migration, `trex verify` stays green and is not part of this acceptance.
 1. Accordion (collapsible sections), not sub-tabs.
 2. Top-level tab name stays **Expected**.
 3. Record this plan as a repo document before building.
+4. The registry stage (Stage 2) covers identity, evidence, actions and filters; the price
+   timeline, cost-to-date and observed descriptors stay parked (2b).
+5. A candidate row offers an **Actions…** dialog with **Review / Confirm / Ignore**.
+6. Ended candidates show by default; filtering is available but not the default.
 
 ## 10. Rollback
 
