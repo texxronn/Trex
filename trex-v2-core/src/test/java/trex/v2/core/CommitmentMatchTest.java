@@ -324,14 +324,16 @@ class CommitmentMatchTest {
             fact(1, "bw-credit-card", LocalDate.of(2026, 1, 7), -5000L, "COUNCIL NOTICE ONE"),
             fact(2, "bw-credit-card", LocalDate.of(2026, 3, 19), -5000L, "COUNCIL NOTICE TWO"),
             fact(3, "bw-credit-card", LocalDate.of(2026, 5, 31), -5000L, "COUNCIL NOTICE THREE"),
-            fact(4, "bw-credit-card", LocalDate.of(2026, 4, 1), -1000L, "COLES 1234"));
+            fact(4, "bw-credit-card", LocalDate.of(2026, 4, 1), -1000L, "COLES 1234"),
+            fact(5, "bw-credit-card", LocalDate.of(2024, 2, 1), -5000L, "COUNCIL NOTICE ZERO"));
 
         CommitmentMatch match = run(List.of(notice), List.of(noticeRule), facts,
             Instant.parse("2026-06-01T00:00:00Z"));
 
-        assertEquals(List.of(LocalDate.of(2026, 1, 7), LocalDate.of(2026, 3, 19),
-            LocalDate.of(2026, 5, 31)),
-            match.occurrences().stream().map(CommitmentOccurrence::dueDate).toList());
+        assertEquals(List.of(LocalDate.of(2024, 2, 1), LocalDate.of(2026, 1, 7),
+            LocalDate.of(2026, 3, 19), LocalDate.of(2026, 5, 31)),
+            match.occurrences().stream().map(CommitmentOccurrence::dueDate).toList(),
+            "irregular keeps every matching fact — no calendar to bound against");
         for (CommitmentOccurrence occurrence : match.occurrences()) {
             assertEquals("notice", occurrence.commitmentId());
             assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
@@ -557,6 +559,25 @@ class CommitmentMatchTest {
             LocalDate.of(2026, 5, 10), LocalDate.of(2026, 6, 10)), scheduled(match, "bill"),
             "the pin never moves the anchor");
         assertEquals(0, arrears(match, "bill").count());
+    }
+
+    @Test
+    void aFactBeforeTheMaterialisedSpanIsNotAssigned() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        CurrentFact old = fact(1, "bw-credit-card", LocalDate.of(2025, 12, 20), -10000L,
+            "ACME BILL");
+
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(old),
+            Instant.parse("2026-04-05T00:00:00Z"));
+
+        CommitmentOccurrence january = at(match, "bill", LocalDate.of(2026, 1, 15));
+        assertEquals(OccurrenceStatus.MISSED, january.status(),
+            "history outside the materialised span does not satisfy a recent occurrence");
+        assertNull(january.matchedExternalId());
+        assertTrue(match.occurrences().stream()
+            .noneMatch(o -> "id-1".equals(o.matchedExternalId())), "the old fact is not placed");
+        assertEquals(3, arrears(match, "bill").count(), "January, February and March");
     }
 
     @Test

@@ -34,8 +34,10 @@ import java.util.regex.PatternSyntaxException;
  * fact — by rule or by pin — is allocated oldest-first across the commitment's open occurrences:
  * the arrears clear from the front and a surplus pre-pays the materialised future; anything left
  * over is an {@code off_schedule} occurrence at the fact's date. A {@code variable} commitment
- * instead keeps one fact per occurrence: its range is too wide to infer multiples. The output is
- * ordered by commitment id then due date, and no iteration depends on input order.
+ * instead keeps one fact per occurrence: its range is too wide to infer multiples. A regular
+ * commitment also ignores facts that predate its first materialised window — history outside the
+ * occurrence set is never folded onto the oldest occurrence. The output is ordered by commitment
+ * id then due date, and no iteration depends on input order.
  */
 final class CommitmentMatcher {
 
@@ -145,21 +147,40 @@ final class CommitmentMatcher {
                 .add(new CompiledRule(rule, compile(rule)));
         }
 
+        // Materialise every regular schedule before assignment: its first window starts the span
+        // of occurrences a fact may land on, so a fact before it is history the occurrence set
+        // does not hold — never folded onto the oldest materialised occurrence. An irregular
+        // commitment has no calendar to bound against.
+        Map<String, List<Slot>> slotsByCommitment = new TreeMap<>();
+        Map<String, LocalDate> spanStart = new TreeMap<>();
+        for (Commitment commitment : tracked) {
+            List<Slot> slots = new ArrayList<>();
+            if (commitment.cadence() != Cadence.IRREGULAR) {
+                materialise(commitment, asOfDate, slots);
+            }
+            slotsByCommitment.put(commitment.commitmentId(), slots);
+            if (!slots.isEmpty()) {
+                spanStart.put(commitment.commitmentId(), slots.getFirst().windowStart);
+            }
+        }
+
         // Claim each fact for at most one commitment: the pin first, then the latest declaration
-        // whose rules and sign match.
+        // whose rules, sign and materialised span admit it.
         Map<String, List<Assigned>> assignedByCommitment = new TreeMap<>();
         for (CurrentFact fact : facts) {
             String pinnedTo = pinByFact.get(fact.externalId());
             if (pinnedTo != null) {
                 Commitment pinned = committedById.get(pinnedTo);
-                if (pinned != null && signMatches(pinned, fact)) {
+                if (pinned != null && signMatches(pinned, fact)
+                    && !beforeSpan(spanStart.get(pinnedTo), fact)) {
                     assignedByCommitment.computeIfAbsent(pinnedTo, k -> new ArrayList<>())
                         .add(new Assigned(fact, BY_PIN));
                     continue;
                 }
             }
             for (Commitment candidate : byDeclaration) {
-                if (!signMatches(candidate, fact)) {
+                if (!signMatches(candidate, fact)
+                    || beforeSpan(spanStart.get(candidate.commitmentId()), fact)) {
                     continue;
                 }
                 List<CompiledRule> candidateRules = rulesByCommitment.get(candidate.commitmentId());
@@ -177,11 +198,10 @@ final class CommitmentMatcher {
         for (Commitment commitment : tracked) {
             List<Assigned> assigned =
                 assignedByCommitment.getOrDefault(commitment.commitmentId(), List.of());
-            List<Slot> slots = new ArrayList<>();
+            List<Slot> slots = slotsByCommitment.get(commitment.commitmentId());
             if (commitment.cadence() == Cadence.IRREGULAR) {
                 irregular(assigned, slots);
             } else {
-                materialise(commitment, asOfDate, slots);
                 applySettles(commitment, settleByCommitment.get(commitment.commitmentId()), slots);
                 allocate(commitment, assigned, slots);
                 slots.sort(Comparator.comparing((Slot s) -> s.dueDate)
@@ -193,6 +213,15 @@ final class CommitmentMatcher {
             arrears.add(arrears(commitment, slots, asOfDate));
         }
         return new CommitmentMatch(occurrences, arrears);
+    }
+
+    /**
+     * True when the fact predates a regular schedule's first materialised window: it is history
+     * outside the occurrence set and must not satisfy an occurrence. A null bound — no
+     * materialised occurrence, or an irregular commitment — excludes nothing.
+     */
+    private static boolean beforeSpan(LocalDate spanStart, CurrentFact fact) {
+        return spanStart != null && fact.fact().date().isBefore(spanStart);
     }
 
     // ---- generation ---------------------------------------------------------------------------
