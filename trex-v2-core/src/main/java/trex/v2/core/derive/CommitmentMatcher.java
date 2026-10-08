@@ -34,9 +34,11 @@ import java.util.regex.PatternSyntaxException;
  * fact — by rule or by pin — is allocated oldest-first across the commitment's open occurrences:
  * the arrears clear from the front and a surplus pre-pays the materialised future; anything left
  * over is an {@code off_schedule} occurrence at the fact's date. A {@code variable} commitment
- * instead keeps one fact per occurrence: its range is too wide to infer multiples. A regular
- * commitment also ignores facts that predate its first materialised window — history outside the
- * occurrence set is never folded onto the oldest occurrence. The output is ordered by commitment
+ * instead keeps one fact per occurrence: its range is too wide to infer multiples. A regular commitment also ignores facts that predate its first materialised
+ * window — history outside the occurrence set is never folded onto the oldest occurrence. A
+ * retired commitment ({@code endedAt} set) stops generating occurrences after it ended (an
+ * occurrence on {@code endedAt} still counts) and takes no fact dated after it; its historical
+ * occurrences and arrears remain visible. The output is ordered by commitment
  * id then due date, and no iteration depends on input order.
  */
 final class CommitmentMatcher {
@@ -144,7 +146,7 @@ final class CommitmentMatcher {
                 continue;
             }
             rulesByCommitment.computeIfAbsent(rule.commitmentId(), k -> new ArrayList<>())
-                .add(new CompiledRule(rule, compile(rule)));
+                .add(compile(rule));
         }
 
         // Materialise every regular schedule before assignment: its first window starts the span
@@ -172,7 +174,8 @@ final class CommitmentMatcher {
             if (pinnedTo != null) {
                 Commitment pinned = committedById.get(pinnedTo);
                 if (pinned != null && signMatches(pinned, fact)
-                    && !beforeSpan(spanStart.get(pinnedTo), fact)) {
+                    && !beforeSpan(spanStart.get(pinnedTo), fact)
+                    && !afterLife(pinned, fact, spanStart.get(pinnedTo))) {
                     assignedByCommitment.computeIfAbsent(pinnedTo, k -> new ArrayList<>())
                         .add(new Assigned(fact, BY_PIN));
                     continue;
@@ -180,7 +183,8 @@ final class CommitmentMatcher {
             }
             for (Commitment candidate : byDeclaration) {
                 if (!signMatches(candidate, fact)
-                    || beforeSpan(spanStart.get(candidate.commitmentId()), fact)) {
+                    || beforeSpan(spanStart.get(candidate.commitmentId()), fact)
+                    || afterLife(candidate, fact, spanStart.get(candidate.commitmentId()))) {
                     continue;
                 }
                 List<CompiledRule> candidateRules = rulesByCommitment.get(candidate.commitmentId());
@@ -224,6 +228,18 @@ final class CommitmentMatcher {
         return spanStart != null && fact.fact().date().isBefore(spanStart);
     }
 
+    /**
+     * True when a retired commitment does not take this fact: a fact dated after {@code endedAt}
+     * is outside the commitment's life, and a retirement older than the materialised window has no
+     * occurrence set left to land on. An ending on {@code endedAt} itself still counts (§6.11).
+     */
+    private static boolean afterLife(Commitment commitment, CurrentFact fact, LocalDate spanStart) {
+        if (commitment.endedAt() == null) {
+            return false;
+        }
+        return fact.fact().date().isAfter(commitment.endedAt()) || spanStart == null;
+    }
+
     // ---- generation ---------------------------------------------------------------------------
 
     /**
@@ -241,6 +257,9 @@ final class CommitmentMatcher {
         LocalDate past = asOfDate.minusMonths(PAST_MONTHS);
         LocalDate from = anchor.isAfter(past) ? anchor : past;
         LocalDate horizon = asOfDate.plusDays(HORIZON_DAYS);
+        // A retired commitment stops at endedAt: no occurrence is due after it, but the one on
+        // endedAt itself still counts (§2.6, §6.11).
+        LocalDate end = commitment.endedAt();
         int offset = Math.min(commitment.cadence().days() / 2, WINDOW_MAX_DAYS);
 
         long k = 0;
@@ -249,7 +268,7 @@ final class CommitmentMatcher {
             k++;
             due = addPeriods(anchor, commitment.cadence(), k);
         }
-        while (!due.isAfter(horizon)) {
+        while (!due.isAfter(horizon) && (end == null || !due.isAfter(end))) {
             LocalDate windowEnd = due.plusDays(offset);
             slots.add(new Slot(due, due.minusDays(offset), windowEnd,
                 windowEnd.isBefore(asOfDate) ? OccurrenceStatus.MISSED : OccurrenceStatus.DUE));
@@ -513,9 +532,10 @@ final class CommitmentMatcher {
     }
 
     /** The {@code categories.yaml} pattern convention ({@code RuleSet.compile}). */
-    private static Pattern compile(CommitmentRule rule) {
+    static CompiledRule compile(CommitmentRule rule) {
         try {
-            return Pattern.compile(rule.match(), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            return new CompiledRule(rule, Pattern.compile(rule.match(),
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
         } catch (PatternSyntaxException e) {
             throw new IllegalArgumentException("commitment '" + rule.commitmentId()
                 + "': bad regex '" + rule.match() + "': " + e.getDescription(), e);
@@ -526,7 +546,7 @@ final class CommitmentMatcher {
     private record Assigned(CurrentFact fact, String matchedBy) {}
 
     /** One rule with its compiled pattern, matched over {@link Clean#clean}. */
-    private record CompiledRule(CommitmentRule rule, Pattern pattern) {
+    record CompiledRule(CommitmentRule rule, Pattern pattern) {
 
         boolean matches(CurrentFact fact) {
             if (rule.accountRef() != null && !rule.accountRef().isBlank()
