@@ -426,6 +426,16 @@ The full action set — small on purpose:
 | `USER_ACK` | `externalId`, `stateHash`, `configRevision`, `deriveVersion`, `hashVersion`, `comment?` | "I have read this row; its derived content was X." One line per row per user; the `user` is on the line and other users' markers are untouched. |
 | `USER_UNACK` | `externalId`, `comment?` | Release that row's read marker for this user; the family inverse of `USER_ACK`. |
 | `NOTE` | `externalId`, `text` | Free annotation; one per target row; a group is a batch of `NOTE`s. They accumulate as a thread, are removed only by `REVOKE`, and are never edited. Never identity, never logic. |
+| `DECLARE_COMMITMENT` | `commitmentId`, `name`, `direction`, `cadence`, `amountKind`, `commitmentKind`, `matches[]` (`{match, account?}`), `amount?`, `anchor?`, `fromCandidate?`, `comment?` | Declare a commitment; confirm a detected candidate (`fromCandidate` = its key; the UI prefills `matches` from its descriptors). A re-declare with the same id is the edit. |
+| `RETIRE_COMMITMENT` | `commitmentId`, `endedAt`, `reason` | End it (cancelled, past, provider move). |
+| `IGNORE_RECURRING` | `candidate`, `reason` | Silence a detected candidate for good (revocable; newer facts do not reopen it). |
+| `PIN_COMMITMENT` | `commitmentId`, `externalIds`, `comment?` | Those facts are occurrences of that commitment, whatever its rules say — the category `PIN` gesture. |
+| `UNPIN_COMMITMENT` | `externalIds`, `comment?` | Release those facts back to rule matching; the family inverse of `PIN_COMMITMENT`. |
+| `NOTE_COMMITMENT` | `commitmentId`, `text` | Free annotation on a commitment; accumulates as a thread, removed only by `REVOKE`, never edited — the `NOTE` gesture, targeted at a commitment. |
+| `SETTLE_OCCURRENCE` | `commitmentId`, `dueDates[]`, `comment?` | Those occurrences are paid (or received): a conclusion, no fact — the off-journal settle. |
+
+The commitment's kind is `commitmentKind` on the wire, not `kind`: the envelope already owns
+`kind` (§6). Commitment curation is `V2-COMMITMENTS-PLAN.md` §2.6.
 
 Every decision carries `actor` (`user`, `migrated`, `system`), a `user` id when a person
 acted, and `at`. Nothing here is a full copy of anything. The complete catalogue with an
@@ -655,8 +665,15 @@ its body.
 | 17 | `UNPIN` | `POST /decisions` | `decision` | A person returns a row to the rules |
 | 18 | `MARK_NOOP` | `POST /decisions` | `decision` | The row is recorded but is not a posting of this account (§6.9) |
 | 19 | `UNMARK_NOOP` | `POST /decisions` | `decision` | Return the row to its profile's default |
-| 20 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
-| 21 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
+| 20 | `DECLARE_COMMITMENT` | `POST /decisions` | `decision` | Declare a commitment, or confirm a detected candidate |
+| 21 | `RETIRE_COMMITMENT` | `POST /decisions` | `decision` | End a commitment (cancelled, past, provider move) |
+| 22 | `IGNORE_RECURRING` | `POST /decisions` | `decision` | Silence a detected candidate for good |
+| 23 | `PIN_COMMITMENT` | `POST /decisions` | `decision` | Those facts are occurrences of that commitment |
+| 24 | `UNPIN_COMMITMENT` | `POST /decisions` | `decision` | Release those facts back to rule matching |
+| 25 | `NOTE_COMMITMENT` | `POST /decisions` | `decision` | Annotate a commitment |
+| 26 | `SETTLE_OCCURRENCE` | `POST /decisions` | `decision` | Those occurrences were paid without a fact |
+| 27 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
+| 28 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
 
 **Facts (1–4)**
 
@@ -716,7 +733,7 @@ its body.
  "at":"2026-09-29T18:03:02.000Z"}
 ```
 
-**Decisions (5–17).** All share the envelope of §6 and the body fields `action`, `actor`
+**Decisions (5–26).** All share the envelope of §6 and the body fields `action`, `actor`
 (`user | migrated | system`), `user` when a person acted, and the optional `at`. `source` is
 the process that submitted the decision.
 
@@ -855,12 +872,79 @@ the process that submitted the decision.
  "actor":"user","user":"ron","at":"2026-09-29T19:16:00.000Z"}
 ```
 
+```json
+// 20 · DECLARE_COMMITMENT — confirm a detected candidate; the rules come from its descriptors
+{"n":8440,"kind":"trex.decision","v":1,"atMs":1790709480000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"DECLARE_COMMITMENT","commitmentId":"netflix","name":"Netflix",
+ "direction":"out","cadence":"monthly","amountKind":"fixed","commitmentKind":"subscription",
+ "matches":[{"match":"PAYPAL \\*NETFLIX AUS","account":"ing-savings"},
+            {"match":"NETFLIX\\.COM","account":null}],
+ "amount":999,"anchor":"2025-09-15","fromCandidate":"PAYPAL NETFLIX AUS",
+ "comment":"confirmed from the detected series",
+ "actor":"user","user":"ron","at":"2026-09-29T19:18:00.000Z"}
+```
+
+```json
+// 21 · RETIRE_COMMITMENT — a provider move: AGL ends here; Origin is a new commitment
+{"n":8441,"kind":"trex.decision","v":1,"atMs":1790709540000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"RETIRE_COMMITMENT","commitmentId":"agl","endedAt":"2026-08-01",
+ "reason":"provider move to Origin; the two histories stand alone",
+ "actor":"user","user":"ron","at":"2026-09-29T19:19:00.000Z"}
+```
+
+```json
+// 22 · IGNORE_RECURRING — a candidate silenced for good; REVOKE is the way back
+{"n":8442,"kind":"trex.decision","v":1,"atMs":1790709600000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"IGNORE_RECURRING","candidate":"YOUTUBEPREMIUM",
+ "reason":"cancelled; newer facts must not reopen it",
+ "actor":"user","user":"ron","at":"2026-09-29T19:20:00.000Z"}
+```
+
+```json
+// 23 · PIN_COMMITMENT — a person places a fact the rules miss; the latest pin wins
+{"n":8443,"kind":"trex.decision","v":1,"atMs":1790709720000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"PIN_COMMITMENT","commitmentId":"netflix","externalIds":["9e546cc0260ead1e"],
+ "comment":"BPAY payment; the descriptor never reaches a rule",
+ "actor":"user","user":"ron","at":"2026-09-29T19:22:00.000Z"}
+```
+
+```json
+// 24 · UNPIN_COMMITMENT — release the facts back to the rules (the family inverse of PIN_COMMITMENT)
+{"n":8444,"kind":"trex.decision","v":1,"atMs":1790709780000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"UNPIN_COMMITMENT","externalIds":["9e546cc0260ead1e"],
+ "comment":"the rule now covers this descriptor",
+ "actor":"user","user":"ron","at":"2026-09-29T19:23:00.000Z"}
+```
+
+```json
+// 25 · NOTE_COMMITMENT — a thread on the commitment; removed only by REVOKE, never edited
+{"n":8445,"kind":"trex.decision","v":1,"atMs":1790709900000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"NOTE_COMMITMENT","commitmentId":"netflix",
+ "text":"price rise 2025-09: 7.99 to 9.99",
+ "actor":"user","user":"ron","at":"2026-09-29T19:25:00.000Z"}
+```
+
+```json
+// 26 · SETTLE_OCCURRENCE — off-journal paid: a conclusion, no fact
+{"n":8446,"kind":"trex.decision","v":1,"atMs":1790710020000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"SETTLE_OCCURRENCE","commitmentId":"netflix",
+ "dueDates":["2026-07-15","2026-08-15"],"comment":"paid in cash",
+ "actor":"user","user":"ron","at":"2026-09-29T19:27:00.000Z"}
+```
+
 Migration writes the same decision shapes with `actor:"migrated"` — a `PAIR` for every
 transfer the v1 journal had resolved, a `MARK_EXTERNAL` for every leg it had marked,
 no `user` — so the migrated state is exactly what v1 had (§16).
 
 **What is deliberately not an event.** No request batch header — a `POST /facts` batch is a
-request, not a line (the *ingest workflow* around it emits `ingest` events, 20–21); no state
+request, not a line (the *ingest workflow* around it emits `ingest` events, 27–28); no state
 transitions (derived); no TRANSFER lines (derived); no control or watermark lines (removed in
 v1); no edits (a correction is a `SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never
 rewritten); no period review state (a period is only the view the Eyeball buckets rows by,

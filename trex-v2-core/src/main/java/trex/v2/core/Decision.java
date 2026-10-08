@@ -1,6 +1,11 @@
 package trex.v2.core;
 
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
+
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 
@@ -25,7 +30,10 @@ public sealed interface Decision extends LogLine
             Decision.Dismiss, Decision.Pin, Decision.Unpin, Decision.Supersede,
             Decision.Retire, Decision.MarkNoop, Decision.UnmarkNoop, Decision.AttachAccount,
             Decision.Revoke,
-            Decision.UserAck, Decision.UserUnack, Decision.Note {
+            Decision.UserAck, Decision.UserUnack, Decision.Note,
+            Decision.DeclareCommitment, Decision.RetireCommitment, Decision.IgnoreRecurring,
+            Decision.PinCommitment, Decision.UnpinCommitment, Decision.NoteCommitment,
+            Decision.SettleOccurrence {
 
     /** The namespaced wire kind. */
     String KIND = "trex.decision";
@@ -382,6 +390,183 @@ public sealed interface Decision extends LogLine
         @Override
         public Action action() {
             return Action.ATTACH_ACCOUNT;
+        }
+    }
+
+    /** One match rule of a declaration: a regex over the description, optionally account-scoped. */
+    record Match(String match, String account) {
+        public Match {
+            require(match, "match");
+        }
+    }
+
+    /**
+     * Declare a commitment, or confirm a detected candidate (V2-COMMITMENTS-PLAN.md §2.6,
+     * {@code DECLARE_COMMITMENT}). A re-declare with the same id is the edit: it replaces the
+     * curated fields and the rule set, latest effective wins.
+     */
+    record DeclareCommitment(Envelope envelope, String commitmentId, String name, String direction,
+                             Cadence cadence, AmountKind amountKind, CommitmentKind commitmentKind,
+                             List<Match> matches, Long amount, LocalDate anchor, String fromCandidate,
+                             String comment, Actor actor, String user) implements Decision {
+        public DeclareCommitment {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            require(name, "name");
+            require(direction, "direction");
+            if (!"in".equals(direction) && !"out".equals(direction)) {
+                throw new IllegalArgumentException("direction must be 'in' or 'out', not '" + direction + "'");
+            }
+            Objects.requireNonNull(cadence, "cadence");
+            Objects.requireNonNull(amountKind, "amountKind");
+            Objects.requireNonNull(commitmentKind, "kind");
+            Objects.requireNonNull(matches, "matches");
+            matches = List.copyOf(matches);
+            require(!matches.isEmpty(), "matches must not be empty");
+            require(actor, "actor");
+        }
+
+        public DeclareCommitment(long n, String commitmentId, String name, String direction,
+                                 Cadence cadence, AmountKind amountKind, CommitmentKind commitmentKind,
+                                 List<Match> matches, Long amount, LocalDate anchor, String fromCandidate,
+                                 String comment, Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, name, direction, cadence, amountKind,
+                commitmentKind, matches, amount, anchor, fromCandidate, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.DECLARE_COMMITMENT;
+        }
+    }
+
+    /** End a commitment (cancelled, past, provider move; V2-COMMITMENTS-PLAN.md §2.6). */
+    record RetireCommitment(Envelope envelope, String commitmentId, LocalDate endedAt, String reason,
+                            Actor actor, String user) implements Decision {
+        public RetireCommitment {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            require(endedAt, "endedAt");
+            require(reason, "reason");
+            require(actor, "actor");
+        }
+
+        public RetireCommitment(long n, String commitmentId, LocalDate endedAt, String reason,
+                                Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, endedAt, reason, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.RETIRE_COMMITMENT;
+        }
+    }
+
+    /** Silence a detected candidate for good; revocable, and newer facts do not reopen it (§2.6). */
+    record IgnoreRecurring(Envelope envelope, String candidate, String reason, Actor actor, String user)
+        implements Decision {
+        public IgnoreRecurring {
+            Envelope.require(envelope);
+            require(candidate, "candidate");
+            require(reason, "reason");
+            require(actor, "actor");
+        }
+
+        public IgnoreRecurring(long n, String candidate, String reason, Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), candidate, reason, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.IGNORE_RECURRING;
+        }
+    }
+
+    /** Those facts are occurrences of that commitment, whatever its rules say (§2.6). */
+    record PinCommitment(Envelope envelope, String commitmentId, List<String> externalIds, String comment,
+                         Actor actor, String user) implements Decision {
+        public PinCommitment {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            Objects.requireNonNull(externalIds, "externalIds");
+            externalIds = List.copyOf(externalIds);
+            require(!externalIds.isEmpty(), "externalIds must not be empty");
+            require(actor, "actor");
+        }
+
+        public PinCommitment(long n, String commitmentId, List<String> externalIds, String comment,
+                             Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, externalIds, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.PIN_COMMITMENT;
+        }
+    }
+
+    /** Release those facts back to rule matching; the family inverse of {@code PIN_COMMITMENT}. */
+    record UnpinCommitment(Envelope envelope, List<String> externalIds, String comment, Actor actor,
+                           String user) implements Decision {
+        public UnpinCommitment {
+            Envelope.require(envelope);
+            Objects.requireNonNull(externalIds, "externalIds");
+            externalIds = List.copyOf(externalIds);
+            require(!externalIds.isEmpty(), "externalIds must not be empty");
+            require(actor, "actor");
+        }
+
+        public UnpinCommitment(long n, List<String> externalIds, String comment, Actor actor, String user,
+                               Instant at) {
+            this(Envelope.stamped(n, KIND, at), externalIds, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.UNPIN_COMMITMENT;
+        }
+    }
+
+    /** Free annotation on a commitment; a thread, never identity, never logic (§2.6). */
+    record NoteCommitment(Envelope envelope, String commitmentId, String text, Actor actor, String user)
+        implements Decision {
+        public NoteCommitment {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            require(text, "text");
+            require(actor, "actor");
+        }
+
+        public NoteCommitment(long n, String commitmentId, String text, Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, text, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.NOTE_COMMITMENT;
+        }
+    }
+
+    /** Those occurrences are paid (or received): a conclusion, no fact — the off-journal settle (§2.9). */
+    record SettleOccurrence(Envelope envelope, String commitmentId, List<LocalDate> dueDates,
+                            String comment, Actor actor, String user) implements Decision {
+        public SettleOccurrence {
+            Envelope.require(envelope);
+            require(commitmentId, "commitmentId");
+            Objects.requireNonNull(dueDates, "dueDates");
+            dueDates = List.copyOf(dueDates);
+            require(!dueDates.isEmpty(), "dueDates must not be empty");
+            require(actor, "actor");
+        }
+
+        public SettleOccurrence(long n, String commitmentId, List<LocalDate> dueDates, String comment,
+                                Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, dueDates, comment, actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.SETTLE_OCCURRENCE;
         }
     }
 

@@ -27,6 +27,8 @@ final class SequencerState {
     final Set<ObsKey> observations = new HashSet<>();
     final Map<String, Fact> latestById = new HashMap<>();
     final Set<Long> decisionNs = new HashSet<>();
+    final Set<String> declaredCommitments = new HashSet<>();
+    final Set<String> retiredCommitments = new HashSet<>();
     final Map<String, List<Fact>> factsByDay = new HashMap<>();
 
     /** The dedup key: the whole observation minus source/operational metadata (§6.5). */
@@ -46,7 +48,7 @@ final class SequencerState {
             if (line instanceof Fact fact) {
                 state.observe(fact);
             } else if (line instanceof Decision decision) {
-                state.decisionNs.add(decision.n());
+                state.observe(decision);
             }
         });
         return state;
@@ -56,6 +58,16 @@ final class SequencerState {
         observations.add(ObsKey.of(fact));
         latestById.merge(fact.externalId(), fact, (a, b) -> a.n() >= b.n() ? a : b);
         factsByDay.computeIfAbsent(dayKey(fact.accountRef(), fact.date()), k -> new ArrayList<>()).add(fact);
+    }
+
+    /** Bookkeeping for a recorded decision: its {@code n} and the commitment ids it names. */
+    void observe(Decision decision) {
+        decisionNs.add(decision.n());
+        if (decision instanceof Decision.DeclareCommitment dc) {
+            declaredCommitments.add(dc.commitmentId());
+        } else if (decision instanceof Decision.RetireCommitment rc) {
+            retiredCommitments.add(rc.commitmentId());
+        }
     }
 
     static String dayKey(String accountRef, LocalDate date) {

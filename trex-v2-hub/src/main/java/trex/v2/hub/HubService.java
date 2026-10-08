@@ -13,7 +13,10 @@ import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.TransferRules;
 import trex.v2.core.config.User;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
 import trex.v2.core.derive.ChainHealth;
+import trex.v2.core.derive.CommitmentKind;
 import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.CategoryRow;
@@ -21,6 +24,7 @@ import trex.v2.core.derive.Opening;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.Reconciliation;
 import trex.v2.core.derive.ReviewItem;
+import trex.v2.core.workbook.CatastrophicRegex;
 import trex.v2.core.workbook.Workbook;
 import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckJson;
@@ -73,6 +77,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -92,6 +97,9 @@ public final class HubService implements HubApi, AutoCloseable {
 
     /** The Accounts window choices: months back, or {@code all} for every fact on record. */
     private static final Set<String> ACCOUNT_WINDOWS = Set.of("3m", "6m", "12m", "24m", "all");
+
+    /** The commitment id slug (V2-COMMITMENTS-PLAN.md §2.1): lowercase, hyphenated, frozen. */
+    private static final Pattern COMMITMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]*");
 
     private final HubConfig config;
     private final IndexLock lock;
@@ -920,7 +928,109 @@ public final class HubService implements HubApi, AutoCloseable {
                 yield account.isEmpty() ? "unknown account '" + d.account() + "'"
                     : (account.get().clearing() ? null : "ATTACH_ACCOUNT must name a clearing account");
             }
+            case DECLARE_COMMITMENT -> precheckDeclare(d);
+            case RETIRE_COMMITMENT -> {
+                String e = required(d.commitmentId(), "commitmentId");
+                yield e != null ? e : (d.endedAt() == null ? "endedAt is required" : null);
+            }
+            case IGNORE_RECURRING -> {
+                String e = required(d.candidate(), "candidate");
+                yield e != null ? e : required(d.reason(), "reason");
+            }
+            case PIN_COMMITMENT -> {
+                String e = checkIds(d.externalIds(), "externalIds");
+                yield e != null ? e : required(d.commitmentId(), "commitmentId");
+            }
+            case UNPIN_COMMITMENT -> checkIds(d.externalIds(), "externalIds");
+            case NOTE_COMMITMENT -> {
+                String e = required(d.commitmentId(), "commitmentId");
+                if (e != null) {
+                    yield e;
+                }
+                if (d.text() == null || d.text().isBlank()) {
+                    yield "text is required";
+                }
+                yield d.text().length() > 2000 ? "text is too long (max 2000 characters)" : null;
+            }
+            case SETTLE_OCCURRENCE -> {
+                String e = required(d.commitmentId(), "commitmentId");
+                yield e != null ? e : (d.dueDates() == null || d.dueDates().isEmpty()
+                    ? "dueDates is required" : null);
+            }
         };
+    }
+
+    /** The declaration shape (V2-COMMITMENTS-PLAN.md §2.6, §2.2): id, faces and a usable rule set. */
+    private String precheckDeclare(DecisionDraft d) {
+        String id = d.commitmentId();
+        if (id == null || id.isBlank()) {
+            return "commitmentId is required";
+        }
+        if (id.length() > 64 || !COMMITMENT_ID.matcher(id).matches()) {
+            return "commitmentId must be a slug of a-z0-9 and '-', max 64 chars: '" + id + "'";
+        }
+        String e = required(d.name(), "name");
+        if (e != null) {
+            return e;
+        }
+        String direction = d.direction();
+        if (direction == null || direction.isBlank()) {
+            return "direction is required";
+        }
+        if (!direction.equals("in") && !direction.equals("out")) {
+            return "direction must be 'in' or 'out', not '" + direction + "'";
+        }
+        e = checkWire("cadence", d.cadence(), Cadence::fromWire);
+        if (e == null) {
+            e = checkWire("amountKind", d.amountKind(), AmountKind::fromWire);
+        }
+        if (e == null) {
+            e = checkWire("kind", d.kind(), CommitmentKind::fromWire);
+        }
+        if (e == null) {
+            e = checkMatches(d.matches());
+        }
+        if (e == null && d.fromCandidate() != null && d.fromCandidate().isBlank()) {
+            e = "fromCandidate must not be blank";
+        }
+        return e;
+    }
+
+    private static String checkWire(String name, String wire, java.util.function.Function<String, ?> parse) {
+        if (wire == null || wire.isBlank()) {
+            return name + " is required";
+        }
+        try {
+            parse.apply(wire);
+            return null;
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    /** Each rule compiles case-insensitively and passes the catastrophic-backtracking lint (§2.2). */
+    private static String checkMatches(List<DecisionDraft.MatchDraft> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return "matches is required";
+        }
+        for (DecisionDraft.MatchDraft m : matches) {
+            if (m == null || m.match() == null || m.match().isBlank()) {
+                return "each match must name a regex";
+            }
+            try {
+                Pattern.compile(m.match(), Pattern.CASE_INSENSITIVE);
+            } catch (java.util.regex.PatternSyntaxException e) {
+                return "match '" + m.match() + "' is not a valid regex: " + e.getDescription();
+            }
+            if (CatastrophicRegex.risky(m.match())) {
+                return "match '" + m.match() + "' is risky for backtracking";
+            }
+        }
+        return null;
+    }
+
+    private static String required(String value, String name) {
+        return value == null || value.isBlank() ? name + " is required" : null;
     }
 
     private String precheckPin(DecisionDraft d, DeriveConfig cfg) {

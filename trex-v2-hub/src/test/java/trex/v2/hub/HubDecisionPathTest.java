@@ -49,17 +49,7 @@ class HubDecisionPathTest {
         }
 
         AtomicReference<String> forwarded = new AtomicReference<>();
-        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        stub.createContext("/decisions", ex -> {
-            forwarded.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            byte[] body = "{\"batchHandle\":\"stub\",\"batchStatus\":\"COMMITTED\",\"results\":[]}"
-                .getBytes(StandardCharsets.UTF_8);
-            ex.getResponseHeaders().set("Content-Type", "application/json");
-            ex.sendResponseHeaders(200, body.length);
-            try (OutputStream out = ex.getResponseBody()) {
-                out.write(body);
-            }
-        });
+        HttpServer stub = stubServer(forwarded);
         stub.start();
         String stubUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
 
@@ -100,7 +90,82 @@ class HubDecisionPathTest {
         stub.stop(0);
     }
 
+    @Test
+    void commitmentPrechecksRejectBadShapesAndForwardAGoodOne(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(new Fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, 0,
+                "NETFLIX", null, 0, Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", AT)));
+        }
+
+        AtomicReference<String> forwarded = new AtomicReference<>();
+        HttpServer stub = stubServer(forwarded);
+        stub.start();
+        String stubUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
+
+        Path index = dir.resolve("trex.sqlite");
+        try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50,
+                stubUrl))) {
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+            long n = hub.status().n();
+
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("Bad-Slug", "monthly", List.of(match("NETFLIX")))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "daily", List.of(match("NETFLIX")))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "monthly", List.of(match(" ")))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "monthly", List.of(match("(a+)+")))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(settle("netflix", List.of())).json()).statusCode());
+
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "monthly", List.of(match("NETFLIX")))).json()).statusCode());
+            assertTrue(forwarded.get().contains("\"action\":\"DECLARE_COMMITMENT\""), forwarded.get());
+            assertTrue(forwarded.get().contains("\"commitmentId\":\"netflix\""), forwarded.get());
+        }
+        stub.stop(0);
+    }
+
     // ---- request body construction ----------------------------------------------------------
+
+    private static HttpServer stubServer(AtomicReference<String> forwarded) throws java.io.IOException {
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/decisions", ex -> {
+            forwarded.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = "{\"batchHandle\":\"stub\",\"batchStatus\":\"COMMITTED\",\"results\":[]}"
+                .getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().set("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, body.length);
+            try (OutputStream out = ex.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        return stub;
+    }
+
+    private static DecisionDraft.MatchDraft match(String regex) {
+        return new DecisionDraft.MatchDraft(regex, null);
+    }
+
+    private static DecisionDraft declare(String commitmentId, String cadence,
+                                         List<DecisionDraft.MatchDraft> matches) {
+        return new DecisionDraft("DECLARE_COMMITMENT", "user", "ron", AT, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+            commitmentId, "Netflix", "out", cadence, "fixed", "subscription", matches, null, null,
+            null, null, null, null);
+    }
+
+    private static DecisionDraft settle(String commitmentId, List<LocalDate> dueDates) {
+        return new DecisionDraft("SETTLE_OCCURRENCE", "user", "ron", AT, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+            commitmentId, null, null, null, null, null, null, null, null, null, null, null, dueDates);
+    }
 
     private static final class DecisionRequestJson {
         private Long asOf;
@@ -134,7 +199,8 @@ class HubDecisionPathTest {
     private static DecisionDraft draft(String action, String actor, String user, String externalId,
                                        String category, String item, List<String> ids) {
         return new DecisionDraft(action, actor, user, AT, "test", null, null, externalId, null, null,
-            item, ids.isEmpty() ? null : ids, category, null, null, null, null, null, null, null, null, null, null);
+            item, ids.isEmpty() ? null : ids, category, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static HttpResponse<String> post(HttpClient client, URI base, String body) throws Exception {
