@@ -6,8 +6,9 @@
 import { api } from './api.js';
 import { decisions } from './decisions.js';
 import { openChoice, openPrompt, openSelect } from './dialog.js';
-import { el } from './dom.js';
-import { shortId } from './format.js';
+import { el, clear } from './dom.js';
+import { direction } from './direction.js';
+import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
 export const CADENCES = ['weekly', 'fortnightly', 'monthly', 'bimonthly', 'quarterly',
@@ -343,16 +344,54 @@ export function ignoreCandidate(ctx, candidate, onDone) {
   });
 }
 
-/** A candidate row's menu: confirm it here, hand it to Review, or ignore it for good. */
+/**
+ * A candidate row's menu: the series' own transactions, then confirm it here, hand it to Review,
+ * or ignore it for good. The facts load on open — the registry payload stays lean.
+ */
 export function openCandidateActions(ctx, candidate, onDone) {
+  const facts = el('div', { class: 'tx-list' },
+    el('p', { class: 'muted' }, 'Loading transactions…'));
   openChoice({
     title: candidate.stem || shortId(candidate.commitmentId),
     summary: candidate.detail || 'Detected recurring series',
+    body: facts,
+    wide: true,
   }, [
     { label: 'Review', onPick: () => { location.hash = '#review?kind=SUSPECTED_RECURRING'; } },
     { label: 'Ignore…', class: 'warn', onPick: () => ignoreCandidate(ctx, candidate, onDone) },
     { label: 'Confirm…', class: 'primary', onPick: () => confirmCandidate(ctx, candidate, onDone) },
   ]);
+  loadCandidateFacts(candidate, facts);
+}
+
+/** The series behind the candidate: the same lens the detector grouped with (§7 Stage 2). */
+async function loadCandidateFacts(candidate, host) {
+  let facts;
+  try {
+    facts = await api.candidateFacts(candidate.stem);
+  } catch (error) {
+    clear(host);
+    host.append(el('p', { class: 'error' }, error.message || 'failed to load transactions'));
+    return;
+  }
+  clear(host);
+  if (!facts.length) {
+    host.append(el('p', { class: 'muted' }, 'No current transactions for this series.'));
+    return;
+  }
+  host.append(
+    el('div', { class: 'muted tx-count' },
+      `${facts.length} transaction${facts.length === 1 ? '' : 's'}, oldest first`),
+    el('div', { class: 'tx-rows' }, ...facts.map(candidateFactRow)));
+}
+
+function candidateFactRow(f) {
+  return el('div', { class: 'tx-row' },
+    el('span', { class: 'tx-date' }, f.date),
+    direction(f.amount),
+    el('span', { class: 'tx-amount' }, money(f.amount)),
+    el('span', { class: 'tx-account muted', title: f.accountRef }, f.accountRef),
+    el('span', { class: 'tx-desc muted', title: f.rawDescription }, f.rawDescription));
 }
 
 // ---- shared transformations -------------------------------------------------------------------

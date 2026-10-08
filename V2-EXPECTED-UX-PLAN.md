@@ -123,11 +123,14 @@ migration, `trex verify` stays green and is not part of this acceptance.
   - **Actions.** Candidates get an **Actions…** dialog: **Review** (deep-links
     `#review?kind=SUSPECTED_RECURRING`; Review learns `ctx.modeQuery`), **Confirm…** (the
     same prefill as Review, shared from `commitment.js`) and **Ignore…** (a reason required).
+    The dialog lists the series' own transactions, fetched on open from
+    `GET /api/commitments/facts?stem=…` — the same lens the detector grouped with, oldest
+    first — so the decision is made against the evidence.
   - **Filters.** Inside the Commitments section: All | Candidates | Declared, status,
     direction, text search and sort; all rows show by default (operator, 2026-10-08); the
     header count follows the filter (`n of total` when filtered).
-  - Parked in 2b: the price timeline (`steps`), cost-to-date and annualised; per-candidate
-    observed descriptors/accounts; the sub-tab migration if volume demands it.
+  - Parked in 2b: the price timeline (`steps`), cost-to-date and annualised; the sub-tab
+    migration if volume demands it.
 
 ## 8. Acceptance (Stage 1)
 
@@ -151,6 +154,8 @@ migration, `trex verify` stays green and is not part of this acceptance.
    timeline, cost-to-date and observed descriptors stay parked (2b).
 5. A candidate row offers an **Actions…** dialog with **Review / Confirm / Ignore**.
 6. Ended candidates show by default; filtering is available but not the default.
+7. The candidate dialog lists the series' own current transactions (fetched on open), so
+   Confirm/Ignore are made against the evidence.
 
 ## 10. Rollback
 

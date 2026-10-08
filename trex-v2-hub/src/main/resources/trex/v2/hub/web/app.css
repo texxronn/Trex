@@ -419,6 +419,19 @@ tbody tr.noop:hover td { opacity: .8; }
 .dialog .field textarea { flex: 1 1 auto; max-width: 60%; min-height: 5.5rem; font-size: 12px; }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 
+/* The candidate menu's transaction list (V2-EXPECTED-UX-PLAN.md §7 Stage 2). */
+.tx-count { font-size: 11px; margin: 0.5rem 0 0.25rem; }
+.tx-rows { max-height: 38vh; overflow: auto; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); }
+.tx-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--line); font-size: 12px; }
+.tx-row:last-child { border-bottom: 0; }
+.tx-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tx-amount { min-width: 5rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tx-account { min-width: 8rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.tx-desc { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
 /* ---- Eyeball read / unread ---------------------------------------------- */
 
 .hint { font-size: 12px; margin: -0.2rem 0 0.6rem; }

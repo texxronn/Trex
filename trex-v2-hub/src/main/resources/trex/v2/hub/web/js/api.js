@@ -42,6 +42,7 @@ export const api = {
   dismissals: () => request('GET', '/api/dismissals'),
   units: () => request('GET', '/api/units'),
   commitments: () => request('GET', '/api/commitments'),
+  candidateFacts: (stem) => request('GET', '/api/commitments/facts?' + new URLSearchParams({ stem })),
   expected: (window) => request('GET', '/api/expected'
     + (window ? '?' + new URLSearchParams({ window }) : '')),
   projection: () => request('GET', '/api/projection'),

@@ -231,6 +231,11 @@ public final class HubService implements HubApi, AutoCloseable {
         return reads.commitments();
     }
 
+    @Override
+    public List<trex.v2.hub.api.CandidateFactJson> candidateFacts(String stem) {
+        return reads.candidateFacts(stem);
+    }
+
     /**
      * The Expected view (§2.8): the window is a calendar period, spelled with the same grains as
      * every other mode — today is one day, week is the ISO week, month the calendar month — and the

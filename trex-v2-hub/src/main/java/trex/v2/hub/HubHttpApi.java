@@ -59,6 +59,14 @@ final class HubHttpApi {
             write(ex, 200, api.review(param(query, "kind"), param(query, "account")));
         });
         route(server, "/api/commitments", "GET", ex -> write(ex, 200, api.commitments()));
+        route(server, "/api/commitments/facts", "GET", ex -> {
+            String stem = param(ex.getRequestURI().getQuery(), "stem");
+            if (stem == null || stem.isBlank()) {
+                sendError(ex, 422, "stem is required");
+                return;
+            }
+            write(ex, 200, api.candidateFacts(stem));
+        });
         route(server, "/api/expected", "GET", ex -> {
             try {
                 String query = ex.getRequestURI().getQuery();

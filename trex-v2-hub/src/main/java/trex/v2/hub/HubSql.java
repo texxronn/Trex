@@ -99,6 +99,16 @@ final class HubSql {
     static final String COMMITMENT_NOTES_SELECT =
         "SELECT decision_n, commitment_id, text, user_id, at FROM commitment_note ORDER BY decision_n";
 
+    /**
+     * The current facts a candidate grouped over (V2-EXPECTED-UX-PLAN.md §7 Stage 2): synthetic
+     * clearing legs are not facts the detector saw, and a {@code noop} row is the one exclusion —
+     * the grouping itself happens in {@code MerchantStem.stem}, so the caller matches the stem.
+     */
+    static final String CANDIDATE_FACTS = """
+        SELECT external_id, date, account_ref, amount, raw_description
+        FROM txn_current WHERE synthetic = 0 AND role != 'noop'
+        ORDER BY date, n""";
+
     /** The window's occurrences joined to their commitment, oldest first (§2.8). */
     static final String EXPECTED_OCCURRENCES = """
         SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,

@@ -1,5 +1,6 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.CandidateFactJson;
 import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
 import trex.v2.hub.api.ExpectedResponse;
@@ -558,6 +559,28 @@ public final class HubQueries implements AutoCloseable {
                         nullableLong(rs, 20), nullableLong(rs, 21), nullableLong(rs, 22),
                         nullableDate(rs.getString(23)), rules.getOrDefault(id, List.of()),
                         nullableDate(rs.getString(25)), notes.getOrDefault(id, List.of())));
+                }
+            }
+            return out;
+        });
+    }
+
+    /**
+     * A detected candidate's observed facts (V2-EXPECTED-UX-PLAN.md §7 Stage 2): the current facts
+     * whose frozen {@code MerchantStem.stem} equals the candidate's key — the same lens the
+     * detector grouped with (synthetic legs and {@code noop} rows excluded), oldest first.
+     */
+    public List<CandidateFactJson> candidateFacts(String stem) {
+        return read(conn -> {
+            List<CandidateFactJson> out = new ArrayList<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.CANDIDATE_FACTS)) {
+                while (rs.next()) {
+                    if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
+                        out.add(new CandidateFactJson(rs.getString(1),
+                            LocalDate.parse(rs.getString(2)), rs.getString(3), rs.getLong(4),
+                            rs.getString(5)));
+                    }
                 }
             }
             return out;

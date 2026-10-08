@@ -20,6 +20,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **The candidate menu lists the series' transactions.** **Actions…** now fetches
+  `GET /api/commitments/facts?stem=…` — the current facts grouped by the same frozen
+  `MerchantStem.stem` the detector used (synthetic clearing legs and `noop` rows excluded,
+  oldest first) — and shows each date, direction, amount, account and description before
+  Confirm/Ignore. Read-only derived data; no log, decision or derivation change
+  (`V2-EXPECTED-UX-PLAN.md` §7 Stage 2).
 - **The commitment registry names its candidates and gives them actions**
   (`V2-EXPECTED-UX-PLAN.md` §7 Stage 2). A detected candidate carries its grouping **stem**
   (`/api/commitments` gained `stem`; the derived `commitment` table gained `candidate_key`), so a
