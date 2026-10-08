@@ -7,7 +7,9 @@ import java.time.LocalDate;
  * series — for a detected candidate via its frozen stem, for a declared commitment via its
  * effective rules across **all history** (life-bounded at its end date when retired), so nothing
  * is limited to the twelve-month occurrence window. {@code matchedBy} is {@code rule} for a
- * declared match, null for a candidate group. Oldest first; amounts are signed as the facts are.
+ * declared match, null for a candidate group; {@code excluded} marks a fact the person excluded
+ * from that commitment (V2-COMMITMENT-EXCLUSIONS-PLAN.md §4). Oldest first; amounts are signed as
+ * the facts are.
  */
 public record ActivityJson(LocalDate date, String accountRef, Long amount, String rawDescription,
-                           String externalId, String matchedBy) {}
+                           String externalId, String matchedBy, boolean excluded) {}

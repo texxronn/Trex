@@ -433,6 +433,8 @@ The full action set — small on purpose:
 | `UNPIN_COMMITMENT` | `externalIds`, `comment?` | Release those facts back to rule matching; the family inverse of `PIN_COMMITMENT`. |
 | `NOTE_COMMITMENT` | `commitmentId`, `text` | Free annotation on a commitment; accumulates as a thread, removed only by `REVOKE`, never edited — the `NOTE` gesture, targeted at a commitment. |
 | `SETTLE_OCCURRENCE` | `commitmentId`, `dueDates[]`, `comment?` | Those occurrences are paid (or received): a conclusion, no fact — the off-journal settle. |
+| `EXCLUDE_COMMITMENT` | `commitmentId`, `externalIds`, `comment?` | Those facts are not part of that commitment: a one-off, not the series. The pair is never claimed (a pin falls through to the rules); the fact itself is untouched. |
+| `INCLUDE_COMMITMENT` | `commitmentId`, `externalIds`, `comment?` | Undo an exclusion; the family inverse of `EXCLUDE_COMMITMENT`. |
 
 The commitment's kind is `commitmentKind` on the wire, not `kind`: the envelope already owns
 `kind` (§6). Commitment curation is `V2-COMMITMENTS-PLAN.md` §2.6.
@@ -672,8 +674,10 @@ its body.
 | 24 | `UNPIN_COMMITMENT` | `POST /decisions` | `decision` | Release those facts back to rule matching |
 | 25 | `NOTE_COMMITMENT` | `POST /decisions` | `decision` | Annotate a commitment |
 | 26 | `SETTLE_OCCURRENCE` | `POST /decisions` | `decision` | Those occurrences were paid without a fact |
-| 27 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
-| 28 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
+| 27 | `EXCLUDE_COMMITMENT` | `POST /decisions` | `decision` | Those facts are one-offs, not part of that commitment |
+| 28 | `INCLUDE_COMMITMENT` | `POST /decisions` | `decision` | Undo an exclusion (the family inverse) |
+| 29 | Ingest started | `POST /ingest` | `ingest` (`start`) | An ingest begins: evidence stored, facts about to be sent |
+| 30 | Ingest completed | `POST /ingest` | `ingest` (`complete`) | The ingest ends, with counts and status |
 
 **Facts (1–4)**
 
@@ -937,6 +941,20 @@ the process that submitted the decision.
  "action":"SETTLE_OCCURRENCE","commitmentId":"netflix",
  "dueDates":["2026-07-15","2026-08-15"],"comment":"paid in cash",
  "actor":"user","user":"ron","at":"2026-09-29T19:27:00.000Z"}
+
+// 27 · EXCLUDE_COMMITMENT — a one-off is not the series; the fact stays a fact
+{"n":8447,"kind":"trex.decision","v":1,"atMs":1790710080000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"EXCLUDE_COMMITMENT","commitmentId":"nrma-ltd",
+ "externalIds":["1f4a2c9be7d30855"],"comment":"windscreen claim, not the premium",
+ "actor":"user","user":"ron","at":"2026-09-29T19:28:00.000Z"}
+
+// 28 · INCLUDE_COMMITMENT — undo the exclusion (the family inverse)
+{"n":8448,"kind":"trex.decision","v":1,"atMs":1790710140000,
+ "env":"Dev1    ","source":"HUB_0001","target":"        ",
+ "action":"INCLUDE_COMMITMENT","commitmentId":"nrma-ltd",
+ "externalIds":["1f4a2c9be7d30855"],"comment":"wrong row",
+ "actor":"user","user":"ron","at":"2026-09-29T19:29:00.000Z"}
 ```
 
 Migration writes the same decision shapes with `actor:"migrated"` — a `PAIR` for every
@@ -944,7 +962,7 @@ transfer the v1 journal had resolved, a `MARK_EXTERNAL` for every leg it had mar
 no `user` — so the migrated state is exactly what v1 had (§16).
 
 **What is deliberately not an event.** No request batch header — a `POST /facts` batch is a
-request, not a line (the *ingest workflow* around it emits `ingest` events, 27–28); no state
+request, not a line (the *ingest workflow* around it emits `ingest` events, 29–30); no state
 transitions (derived); no TRANSFER lines (derived); no control or watermark lines (removed in
 v1); no edits (a correction is a `SUPERSEDE`, `RETIRE` or `REVOKE` — lines are never
 rewritten); no period review state (a period is only the view the Eyeball buckets rows by,
@@ -1317,6 +1335,11 @@ domain is `noop`; pending observations and synthetic clearing rows are not facts
   `PIN` gesture, per fact, latest effective wins. A pin naming a commitment that is unknown or
   retired at the time is ineffective and visible; a later retirement does not unwrite a pin that
   predates it.
+- `EXCLUDE_COMMITMENT`/`INCLUDE_COMMITMENT` declare a fact not part of a commitment — a one-off
+  inside a series (`V2-COMMITMENT-EXCLUSIONS-PLAN.md`) — per (commitment, fact), latest effective
+  wins. An excluded pair is never claimed: a pin falls through to the rules and a rule scan skips
+  it; the fact itself is untouched, and `INCLUDE_COMMITMENT` (or `REVOKE`) restores it. A decision
+  naming an unknown commitment or an unresolvable fact is ineffective and visible.
 - `NOTE_COMMITMENT` is a free-annotation thread on a commitment, removed only by `REVOKE`,
   never edited; notes on a retired commitment remain part of its history.
 - `SETTLE_OCCURRENCE` states that occurrences were paid (or received) off-journal: a conclusion
@@ -1368,7 +1391,7 @@ question. A commitment that has never matched is not dormant: it is in arrears.
 
 **Nothing here is a property of a transaction.** Candidates, rules, assignments, occurrences,
 prices, arrears and the dormancy question are all derived from `(facts, decisions, config,
-asOf)`; the four tables (§7.1) are materialised like every other derived table, and
+asOf)`; the five tables (§7.1) are materialised like every other derived table, and
 `trex index --rebuild` reproduces them. `occurred` (evidence) is never conflated with `settled`
 (a conclusion); no `externalId` is ever rewritten and no journal line is ever edited.
 
@@ -2779,11 +2802,11 @@ v1's tests are good; v2 adds invariants that only exist once derivation is separ
     is shown to depend on intra-day order); a forward/backward gap is reported as "the
     journal is short", never posted as zeros; a liability is seeded negative; category
     seeding fills empty notes only and never overwrites typed ones.
-22. **Commitments are curated by decisions and disposable in every other part.** The seven
+22. **Commitments are curated by decisions and disposable in every other part.** The nine
     §6.11 actions are latest-effective-wins — per id, per candidate key, per fact, per
-    `(commitment, dueDate)` — and revocable; a decision naming an unknown target is
+    `(commitment, dueDate)`, per (commitment, fact) — and revocable; a decision naming an unknown target is
     ineffective and surfaced. Candidates, rules, occurrences, prices, arrears and the
-    dormancy question come from `(facts, decisions, config, asOf)`, and the four tables join
+    dormancy question come from `(facts, decisions, config, asOf)`, and the five tables join
     rebuild equivalence: `trex verify` covers them (`IndexerTest`), and a rebuild reproduces
     the same rows. `occurred` (a fact) is never conflated with `settled` (a conclusion).
 23. **Commitment detection and matching are deterministic and core-fields-only.** At the same

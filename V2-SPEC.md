@@ -73,7 +73,8 @@ migrated from.
   `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `MARK_NOOP`,
   `UNMARK_NOOP`, `ATTACH_ACCOUNT`, `REVOKE`, `USER_ACK`, `USER_UNACK`, `NOTE`,
   `DECLARE_COMMITMENT`, `RETIRE_COMMITMENT`, `IGNORE_RECURRING`, `PIN_COMMITMENT`,
-  `UNPIN_COMMITMENT`, `NOTE_COMMITMENT`, `SETTLE_OCCURRENCE`. On the wire, `REVOKE`'s target is
+  `UNPIN_COMMITMENT`, `NOTE_COMMITMENT`, `SETTLE_OCCURRENCE`, `EXCLUDE_COMMITMENT`,
+  `INCLUDE_COMMITMENT`. On the wire, `REVOKE`'s target is
   `revokes` and a commitment's kind is `commitmentKind` — the envelope owns `target` and `kind`.
 - **Ingest events** (`IngestEvent`): `phase` (`start | complete`) and `batch`; a `start` also carries
   `evidence`/`file`/`account`/`sourceType`/`parser`, a `complete` the `appended`/`duplicate`/`flagged`
@@ -115,7 +116,7 @@ content rows each take `0`.
 - **Attached transfers.** `ATTACH_ACCOUNT` names transfer-shaped legs and a clearing account: the
   legs are transfers with an account side, not a contra fact (a pruned counterparty, §6.10). The
   account must be `clearing`; the decision is id-scoped and `REVOKE` releases the legs to the matcher.
-- **Commitment curation.** Seven actions curate commitments (§6.11). `DECLARE_COMMITMENT` declares
+- **Commitment curation.** Nine actions curate commitments (§6.11). `DECLARE_COMMITMENT` declares
   one, or confirms a detected candidate (`fromCandidate`); the rules are embedded, and a re-declare
   with the same id replaces the curated fields and the rule set — the edit — while cadence and anchor
   are not edited in place (a schedule change is retire + declare). `RETIRE_COMMITMENT` ends it at
@@ -123,7 +124,10 @@ content rows each take `0`.
   only `REVOKE` does. `PIN_COMMITMENT`/`UNPIN_COMMITMENT` place facts on a commitment or release them
   to its rules — the category `PIN` gesture, one fact each, latest effective wins, ids resolved
   through the supersession map; a pin naming a retired or unknown commitment is ineffective and
-  visible. `NOTE_COMMITMENT` accumulates a thread on a commitment (the `NOTE` gesture, targeted; a
+  visible. `EXCLUDE_COMMITMENT`/`INCLUDE_COMMITMENT` declare a fact not part of a commitment — a
+  one-off inside a series — per (commitment, fact), latest effective wins; an excluded pair is
+  never claimed (a pin falls through to the rules) and the fact itself is untouched.
+  `NOTE_COMMITMENT` accumulates a thread on a commitment (the `NOTE` gesture, targeted; a
   note may name a retired commitment). `SETTLE_OCCURRENCE` concludes that occurrences were paid (or
   received) off-journal — a conclusion with no fact, attributed and revocable, rendered `settled`,
   never `occurred`. Commitment ids are decision-local and never touch the fact chain; a decision
@@ -168,7 +172,7 @@ records the payer leg's rail method; the rail direction is the sign.
 **Commitments.** A commitment is a named expectation of a recurring money movement (subscription,
 services, bill, insurance, fee, tax, income, loan, other), and its stage is a **sibling of categorisation**: it reads
 the same current facts and no category output — categorisation reads none of it — so their order is
-incidental and a complex rule may be duplicated in both. The seven curation decisions (§5) are
+incidental and a complex rule may be duplicated in both. The nine curation decisions (§5) are
 folded; candidates are detected over the current facts (transfer legs included, `noop` excluded) by
 grouping on the frozen `MerchantStem.stem`: at least three occurrences; gaps within
 `max(2 days, 20%)` of `{7, 14, 30, 61, 91, 182, 365}` days; regularity ≥ 0.7; same-day repeats
@@ -446,7 +450,7 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 - `trex runner`, the Jobs UI, `trex snapshot`, and the archive layout (post-proposal);
 - `REVOKE`'s wire field renamed `target` → `revokes` (the envelope owns `target`);
 - the commitments feature (§6.11): rules, not vendors; core-fields-only matching with transfer legs
-  in scope; the seven curation actions; the four derived tables; the three review kinds with their
+  in scope; the nine curation actions; the five derived tables; the three review kinds with their
   own dismissal aging; the **Expected** mode; and **manual arrears** — a fact attaches to its own
   window, holes are the backlog, and clearing is a decision (V2-MANUAL-ARREARS-PLAN.md) —
   post-proposal, with no v1 counterpart (pinned by `CommitmentsTest`, `CommitmentMatchTest`,

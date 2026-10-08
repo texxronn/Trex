@@ -33,6 +33,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -47,7 +49,8 @@ public final class HubQueries implements AutoCloseable {
     private static final List<String> STATUS_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
         "pending", "review_item", "category_current", "pin_current", "ineffective_decision",
-        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note", "unit", "evidence");
+        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
+        "commitment_exclusion", "unit", "evidence");
 
     private final BlockingQueue<Connection> pool;
     private final int size;
@@ -592,6 +595,7 @@ public final class HubQueries implements AutoCloseable {
             }
             List<ActivityJson> out = new ArrayList<>();
             List<CommitmentRules.CompiledRule> rules = new ArrayList<>();
+            Set<String> excludedIds = new TreeSet<>();
             if (stem == null) {
                 try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULES_FOR)) {
                     ps.setString(1, commitmentId);
@@ -605,6 +609,14 @@ public final class HubQueries implements AutoCloseable {
                 if (rules.isEmpty()) {
                     return out;
                 }
+                try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_EXCLUSIONS_FOR)) {
+                    ps.setString(1, commitmentId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            excludedIds.add(rs.getString(1));
+                        }
+                    }
+                }
             }
             boolean outgoing = !"in".equals(direction);
             try (Statement st = conn.createStatement();
@@ -614,7 +626,8 @@ public final class HubQueries implements AutoCloseable {
                     if (stem != null) {
                         if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
                             out.add(new ActivityJson(LocalDate.parse(rs.getString(2)),
-                                rs.getString(3), amount, rs.getString(5), rs.getString(1), null));
+                                rs.getString(3), amount, rs.getString(5), rs.getString(1), null,
+                                false));
                         }
                         continue;
                     }
@@ -627,7 +640,8 @@ public final class HubQueries implements AutoCloseable {
                     }
                     if (CommitmentRules.anyMatch(rules, rs.getString(5), rs.getString(3), amount)) {
                         out.add(new ActivityJson(date, rs.getString(3), amount,
-                            rs.getString(5), rs.getString(1), "rule"));
+                            rs.getString(5), rs.getString(1), "rule",
+                            excludedIds.contains(rs.getString(1))));
                     }
                 }
             }

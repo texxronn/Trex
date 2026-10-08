@@ -6,6 +6,7 @@ import trex.v2.core.derive.Cadence;
 import trex.v2.core.derive.CategoryOrigin;
 import trex.v2.core.derive.Commitment;
 import trex.v2.core.derive.CommitmentArrears;
+import trex.v2.core.derive.CommitmentExclusion;
 import trex.v2.core.derive.CommitmentKind;
 import trex.v2.core.derive.CommitmentMatch;
 import trex.v2.core.derive.CommitmentOccurrence;
@@ -92,7 +93,14 @@ class CommitmentMatchTest {
 
     private static CommitmentMatch run(List<Commitment> commitments, List<CommitmentRule> rules,
                                        List<CurrentFact> facts, Instant asOf) {
-        return Commitments.match(commitments, rules, facts, List.of(), List.of(), asOf);
+        return matched(commitments, rules, facts, List.of(), List.of(), asOf);
+    }
+
+    /** The matcher without exclusions; a test calls {@link Commitments#match} directly for those. */
+    private static CommitmentMatch matched(List<Commitment> commitments, List<CommitmentRule> rules,
+                                           List<CurrentFact> facts, List<CommitmentPin> pins,
+                                           List<CommitmentSettle> settles, Instant asOf) {
+        return Commitments.match(commitments, rules, facts, pins, settles, List.of(), asOf);
     }
 
     private static CommitmentOccurrence at(CommitmentMatch match, String commitmentId,
@@ -237,7 +245,7 @@ class CommitmentMatchTest {
         CurrentFact charge = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 11), -10000L,
             "BPAY 123456");
 
-        CommitmentMatch match = Commitments.match(List.of(rulesBill, pinnedBill),
+        CommitmentMatch match = matched(List.of(rulesBill, pinnedBill),
             List.of(rule("rules-bill", "BPAY")), List.of(charge),
             List.of(new CommitmentPin("id-1", "pinned-bill")), List.of(), ASOF);
 
@@ -256,7 +264,7 @@ class CommitmentMatchTest {
         CurrentFact lump = fact(1, "cba-netsaver", LocalDate.of(2026, 4, 3), -30000L,
             "BPAY 123456");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(lump),
+        CommitmentMatch match = matched(List.of(bill), List.of(), List.of(lump),
             List.of(new CommitmentPin("id-1", "bill")), List.of(),
             Instant.parse("2026-04-05T00:00:00Z"));
 
@@ -283,12 +291,12 @@ class CommitmentMatchTest {
         CurrentFact charge = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L,
             "BPAY 123456");
 
-        CommitmentMatch pinned = Commitments.match(List.of(rulesBill, pinnedBill),
+        CommitmentMatch pinned = matched(List.of(rulesBill, pinnedBill),
             List.of(rule("rules-bill", "BPAY")), List.of(charge),
             List.of(new CommitmentPin("id-1", "pinned-bill")), List.of(), ASOF);
         assertEquals("pin", at(pinned, "pinned-bill", LocalDate.of(2026, 3, 15)).matchedBy());
 
-        CommitmentMatch unpinned = Commitments.match(List.of(rulesBill, pinnedBill),
+        CommitmentMatch unpinned = matched(List.of(rulesBill, pinnedBill),
             List.of(rule("rules-bill", "BPAY")), List.of(charge), List.of(), List.of(), ASOF);
         CommitmentOccurrence byRule = at(unpinned, "rules-bill", LocalDate.of(2026, 3, 15));
         assertEquals(OccurrenceStatus.OCCURRED, byRule.status());
@@ -304,7 +312,7 @@ class CommitmentMatchTest {
     void aSettleMarksTheOccurrenceSettledAndClearsArrears() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 1, 15), -10000L, 1);
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(),
+        CommitmentMatch match = matched(List.of(bill), List.of(), List.of(),
             List.of(), List.of(new CommitmentSettle("bill", LocalDate.of(2026, 1, 15), 7),
                 new CommitmentSettle("bill", LocalDate.of(2026, 2, 15), 8)), ASOF);
 
@@ -384,8 +392,8 @@ class CommitmentMatchTest {
         List<CommitmentSettle> settles = new ArrayList<>(
             List.of(new CommitmentSettle("b-income", LocalDate.of(2026, 1, 20), 9)));
 
-        CommitmentMatch first = Commitments.match(commitments, rules, facts, pins, settles, ASOF);
-        CommitmentMatch second = Commitments.match(commitments, rules, facts, pins, settles, ASOF);
+        CommitmentMatch first = matched(commitments, rules, facts, pins, settles, ASOF);
+        CommitmentMatch second = matched(commitments, rules, facts, pins, settles, ASOF);
         assertEquals(first, second);
         assertEquals(first.occurrences().stream().map(CommitmentOccurrence::stateHash).toList(),
             second.occurrences().stream().map(CommitmentOccurrence::stateHash).toList());
@@ -395,7 +403,7 @@ class CommitmentMatchTest {
         Collections.reverse(facts);
         Collections.reverse(pins);
         Collections.reverse(settles);
-        assertEquals(first, Commitments.match(commitments, rules, facts, pins, settles, ASOF),
+        assertEquals(first, matched(commitments, rules, facts, pins, settles, ASOF),
             "input order must not matter");
         for (CommitmentOccurrence occurrence : first.occurrences()) {
             assertEquals("sha256:".length() + 64, occurrence.stateHash().length());
@@ -480,7 +488,7 @@ class CommitmentMatchTest {
         CurrentFact payment = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 30), -15000L,
             "BILL PAYMENT");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(rule("bill", "BILL")),
+        CommitmentMatch match = matched(List.of(bill), List.of(rule("bill", "BILL")),
             List.of(payment), List.of(),
             List.of(new CommitmentSettle("bill", LocalDate.of(2026, 1, 15), 7),
                 new CommitmentSettle("bill", LocalDate.of(2026, 2, 15), 8)),
@@ -528,7 +536,7 @@ class CommitmentMatchTest {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 1, 15), -10000L, 1);
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(),
+        CommitmentMatch match = matched(List.of(bill), List.of(), List.of(),
             List.of(),
             List.of(new CommitmentSettle("bill", LocalDate.of(2026, 1, 15), 7),
                 new CommitmentSettle("bill", LocalDate.of(2026, 3, 15), 8)),
@@ -548,7 +556,7 @@ class CommitmentMatchTest {
         CurrentFact bpay = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L,
             "BPAY 999888");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(bpay),
+        CommitmentMatch match = matched(List.of(bill), List.of(), List.of(bpay),
             List.of(new CommitmentPin("id-1", "bill")), List.of(),
             Instant.parse("2026-04-05T00:00:00Z"));
 
@@ -572,7 +580,7 @@ class CommitmentMatchTest {
         CurrentFact first = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L, "BPAY 111111");
         CurrentFact second = fact(2, "cba-netsaver", LocalDate.of(2026, 3, 20), -2500L, "BPAY 222222");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(),
+        CommitmentMatch match = matched(List.of(bill), List.of(),
             List.of(first, second),
             List.of(new CommitmentPin("id-1", "bill"), new CommitmentPin("id-2", "bill")),
             List.of(new CommitmentSettle("bill", LocalDate.of(2026, 3, 10), 7),
@@ -598,7 +606,7 @@ class CommitmentMatchTest {
         CurrentFact covered = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 10), -10000L, "BILL PAYMENT");
         CurrentFact extra = fact(2, "cba-netsaver", LocalDate.of(2026, 3, 10), -5000L, "BPAY 999888");
 
-        CommitmentMatch match = Commitments.match(List.of(bill), List.of(rule("bill", "BILL|BPAY")),
+        CommitmentMatch match = matched(List.of(bill), List.of(rule("bill", "BILL|BPAY")),
             List.of(covered, extra), List.of(),
             List.of(new CommitmentSettle("bill", LocalDate.of(2026, 4, 10), 7),
                 new CommitmentSettle("bill", LocalDate.of(2026, 5, 10), 8),
@@ -660,6 +668,48 @@ class CommitmentMatchTest {
         assertEquals(OccurrenceStatus.DUE, at(match, "aws", LocalDate.of(2026, 4, 5)).status(),
             "nothing is split across or pre-paid to the next period");
         assertEquals(0, arrears(match, "aws").count());
+    }
+
+    // ---- exclusions ---------------------------------------------------------------------------
+
+    @Test
+    void anExcludedFactIsNotClaimed() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 10), -10000L, 1);
+        CurrentFact january = fact(1, "cba-netsaver", LocalDate.of(2026, 1, 10), -10000L, "BILL");
+        CurrentFact february = fact(2, "cba-netsaver", LocalDate.of(2026, 2, 12), -12000L, "BILL");
+        List<CommitmentExclusion> exclusions = List.of(new CommitmentExclusion("bill", "id-2", 9));
+
+        CommitmentMatch match = Commitments.match(List.of(bill), List.of(rule("bill", "BILL")),
+            List.of(january, february), List.of(), List.of(), exclusions,
+            Instant.parse("2026-03-05T00:00:00Z"));
+
+        assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 1, 10)).status());
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 2, 10)).status(),
+            "the excluded fact never attaches");
+        assertEquals(-10000L, arrears(match, "bill").amount(), "only the hole is behind");
+    }
+
+    @Test
+    void anExcludedPinFallsThroughToTheRules() {
+        Commitment rulesBill = declared("rules-bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        Commitment pinnedBill = declared("pinned-bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 12), -10000L, 2);
+        CurrentFact charge = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 11), -10000L,
+            "BPAY 123456");
+        List<CommitmentExclusion> exclusions =
+            List.of(new CommitmentExclusion("pinned-bill", "id-1", 9));
+
+        CommitmentMatch match = Commitments.match(List.of(rulesBill, pinnedBill),
+            List.of(rule("rules-bill", "BPAY")), List.of(charge),
+            List.of(new CommitmentPin("id-1", "pinned-bill")), List.of(), exclusions, ASOF);
+
+        assertEquals("rule", at(match, "rules-bill", LocalDate.of(2026, 3, 10)).matchedBy(),
+            "an excluded pin is released back to the rules");
+        assertNull(at(match, "pinned-bill", LocalDate.of(2026, 3, 12)).matchedExternalId());
+        assertEquals(OccurrenceStatus.MISSED,
+            at(match, "pinned-bill", LocalDate.of(2026, 3, 12)).status());
     }
 
     // ---- input validation ---------------------------------------------------------------------

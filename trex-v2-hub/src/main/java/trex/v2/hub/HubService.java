@@ -970,6 +970,10 @@ public final class HubService implements HubApi, AutoCloseable {
                 yield e != null ? e : checkCommitmentTarget(d.commitmentId(), true);
             }
             case UNPIN_COMMITMENT -> checkIds(d.externalIds(), "externalIds");
+            case EXCLUDE_COMMITMENT, INCLUDE_COMMITMENT -> {
+                String e = checkIds(d.externalIds(), "externalIds");
+                yield e != null ? e : checkCommitmentTarget(d.commitmentId(), true);
+            }
             case NOTE_COMMITMENT -> {
                 String e = checkCommitmentTarget(d.commitmentId(), false);
                 if (e != null) {

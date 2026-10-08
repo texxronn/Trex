@@ -569,6 +569,12 @@ public final class Sequencer implements AutoCloseable {
                 requireFacts(d.externalIds(), "externalIds"), d.comment(), actor, user);
             case UNPIN_COMMITMENT -> new Decision.UnpinCommitment(envelope,
                 requireFacts(d.externalIds(), "externalIds"), d.comment(), actor, user);
+            case EXCLUDE_COMMITMENT -> new Decision.ExcludeCommitment(envelope,
+                requireDeclaredCommitment(d.commitmentId(), declaredCommitments),
+                requireFacts(d.externalIds(), "externalIds"), d.comment(), actor, user);
+            case INCLUDE_COMMITMENT -> new Decision.IncludeCommitment(envelope,
+                requireDeclaredCommitment(d.commitmentId(), declaredCommitments),
+                requireFacts(d.externalIds(), "externalIds"), d.comment(), actor, user);
             case NOTE_COMMITMENT -> new Decision.NoteCommitment(envelope,
                 requireDeclaredCommitment(d.commitmentId(), declaredCommitments),
                 require(d.text(), "text"), actor, user);

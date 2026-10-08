@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * The pure occurrence matcher (V2-COMMITMENTS-PLAN.md §2.5, §2.9; Stage 2). It takes plain,
@@ -70,7 +72,8 @@ final class CommitmentMatcher {
 
     static CommitmentMatch match(List<Commitment> commitments, List<CommitmentRule> rules,
                                  List<CurrentFact> current, List<CommitmentPin> pins,
-                                 List<CommitmentSettle> settles, Instant asOf) {
+                                 List<CommitmentSettle> settles,
+                                 List<CommitmentExclusion> exclusions, Instant asOf) {
         LocalDate asOfDate = asOf.atZone(ZoneOffset.UTC).toLocalDate();
 
         // Only declarations expect occurrences; a detected candidate is a discovery, not a
@@ -114,6 +117,15 @@ final class CommitmentMatcher {
             .thenComparing(CommitmentPin::commitmentId));
         for (CommitmentPin pin : orderedPins) {
             pinByFact.putIfAbsent(pin.externalId(), pin.commitmentId());
+        }
+
+        // Excluded (commitment, fact) pairs (V2-COMMITMENT-EXCLUSIONS-PLAN.md §4): the person's
+        // conclusion that a rule-matched movement is a one-off. The pair is never claimed — a pin
+        // falls through to the rules and a rule scan skips it — so it shapes neither occurrences
+        // nor cost, while the fact itself stays untouched.
+        Set<String> excludedPairs = new TreeSet<>();
+        for (CommitmentExclusion exclusion : exclusions) {
+            excludedPairs.add(exclusion.commitmentId() + '\u0000' + exclusion.externalId());
         }
 
         // The effective settles, latest decision per occurrence wins; a settle naming an
@@ -166,7 +178,8 @@ final class CommitmentMatcher {
                 Commitment pinned = committedById.get(pinnedTo);
                 if (pinned != null && signMatches(pinned, fact)
                     && !beforeSpan(spanStart.get(pinnedTo), fact)
-                    && !afterLife(pinned, fact, spanStart.get(pinnedTo))) {
+                    && !afterLife(pinned, fact, spanStart.get(pinnedTo))
+                    && !excludedPairs.contains(pinnedTo + '\u0000' + fact.externalId())) {
                     assignedByCommitment.computeIfAbsent(pinnedTo, k -> new ArrayList<>())
                         .add(new Assigned(fact, BY_PIN));
                     continue;
@@ -175,7 +188,9 @@ final class CommitmentMatcher {
             for (Commitment candidate : byDeclaration) {
                 if (!signMatches(candidate, fact)
                     || beforeSpan(spanStart.get(candidate.commitmentId()), fact)
-                    || afterLife(candidate, fact, spanStart.get(candidate.commitmentId()))) {
+                    || afterLife(candidate, fact, spanStart.get(candidate.commitmentId()))
+                    || excludedPairs.contains(candidate.commitmentId() + '\u0000'
+                        + fact.externalId())) {
                     continue;
                 }
                 List<CommitmentRules.CompiledRule> candidateRules = rulesByCommitment.get(candidate.commitmentId());

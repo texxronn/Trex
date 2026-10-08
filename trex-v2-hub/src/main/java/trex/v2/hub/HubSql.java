@@ -118,6 +118,10 @@ final class HubSql {
         SELECT match, account_ref FROM commitment_rule
         WHERE commitment_id = ? ORDER BY decision_n, match, account_ref""";
 
+    /** The effective exclusions of one commitment (the activity read marks those rows). */
+    static final String COMMITMENT_EXCLUSIONS_FOR =
+        "SELECT external_id FROM commitment_exclusion WHERE commitment_id = ?";
+
     /** The window's occurrences joined to their commitment, oldest first (§2.8). */
     static final String EXPECTED_OCCURRENCES = """
         SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,

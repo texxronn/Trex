@@ -82,6 +82,7 @@ public final class Derive {
         List<CommitmentRule> commitmentRules = List.of();
         List<CommitmentOccurrence> commitmentOccurrences = List.of();
         List<CommitmentNote> commitmentNotes = List.of();
+        List<CommitmentExclusion> commitmentExclusions = List.of();
         List<ReviewItem> commitmentReview = List.of();
         Set<String> commitmentIds = new TreeSet<>();
         Set<String> candidateKeys = new TreeSet<>();
@@ -142,7 +143,8 @@ public final class Derive {
                 commitmentRows,
                 commitmentRules,
                 commitmentOccurrences,
-                commitmentNotes);
+                commitmentNotes,
+                commitmentExclusions);
         }
 
         /** The latest effective USER_ACK/USER_UNACK per (user, row) (V2-PROPOSAL.md §9.4). */
@@ -924,6 +926,7 @@ public final class Derive {
             Map<String, Decision.PinCommitment> pinByFact = new TreeMap<>();
             List<CommitmentNote> notes = new ArrayList<>();
             Map<String, TreeMap<LocalDate, Long>> settles = new TreeMap<>();
+            Map<String, TreeMap<String, Long>> exclusions = new TreeMap<>();
             for (Decision d : effective) {
                 if (d instanceof Decision.DeclareCommitment dc) {
                     String bad = badMatch(dc);
@@ -978,6 +981,50 @@ public final class Derive {
                                 "UNPIN_COMMITMENT names an unknown id " + raw));
                         } else {
                             pinByFact.remove(id); // harmless when the fact was not pinned
+                        }
+                    }
+                } else if (d instanceof Decision.ExcludeCommitment ec) {
+                    if (!declared.containsKey(ec.commitmentId())) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "EXCLUDE_COMMITMENT names an undeclared commitment " + ec.commitmentId()));
+                    } else {
+                        List<String> ids = new ArrayList<>();
+                        boolean bad = false;
+                        for (String raw : ec.externalIds()) {
+                            String id = resolve(raw);
+                            if (id == null) {
+                                bad = true;
+                            } else {
+                                ids.add(id);
+                            }
+                        }
+                        if (bad) {
+                            ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                "EXCLUDE_COMMITMENT could not apply ("
+                                    + String.join(",", ec.externalIds()) + " -> "
+                                    + ec.commitmentId() + ")"));
+                        } else {
+                            TreeMap<String, Long> byFact = exclusions.computeIfAbsent(
+                                ec.commitmentId(), k -> new TreeMap<>());
+                            for (String id : ids) {
+                                byFact.merge(id, ec.n(), Math::max);
+                            }
+                        }
+                    }
+                } else if (d instanceof Decision.IncludeCommitment ic) {
+                    if (!declared.containsKey(ic.commitmentId())) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "INCLUDE_COMMITMENT names an undeclared commitment " + ic.commitmentId()));
+                    } else {
+                        TreeMap<String, Long> byFact = exclusions.get(ic.commitmentId());
+                        for (String raw : ic.externalIds()) {
+                            String id = resolve(raw);
+                            if (id == null) {
+                                ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                    "INCLUDE_COMMITMENT names an unknown id " + raw));
+                            } else if (byFact != null) {
+                                byFact.remove(id); // harmless when the pair was not excluded
+                            }
                         }
                     }
                 } else if (d instanceof Decision.NoteCommitment nc) {
@@ -1083,7 +1130,15 @@ public final class Derive {
                     settleList.add(new CommitmentSettle(e.getKey(), due.getKey(), due.getValue()));
                 }
             }
-            CommitmentMatch match = Commitments.match(tracked, allRules, current, pins, settleList, asOf);
+            List<CommitmentExclusion> exclusionList = new ArrayList<>();
+            for (Map.Entry<String, TreeMap<String, Long>> e : exclusions.entrySet()) {
+                for (Map.Entry<String, Long> fact : e.getValue().entrySet()) {
+                    exclusionList.add(new CommitmentExclusion(e.getKey(), fact.getKey(),
+                        fact.getValue()));
+                }
+            }
+            CommitmentMatch match =
+                Commitments.match(tracked, allRules, current, pins, settleList, exclusionList, asOf);
 
             Map<String, List<CommitmentOccurrence>> occurrences = new TreeMap<>();
             for (CommitmentOccurrence o : match.occurrences()) {
@@ -1130,6 +1185,7 @@ public final class Derive {
             commitmentRules = List.copyOf(allRules);
             commitmentOccurrences = match.occurrences();
             commitmentNotes = List.copyOf(notes);
+            commitmentExclusions = List.copyOf(exclusionList);
             commitmentReview = items;
         }
 

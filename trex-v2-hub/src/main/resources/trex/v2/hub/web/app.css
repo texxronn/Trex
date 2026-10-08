@@ -431,6 +431,7 @@ tbody tr.noop:hover td { opacity: .8; }
   border-bottom: 1px solid var(--line-strong); position: sticky; top: 0; background: var(--surface); }
 .tx-table td { font-size: 12px; padding: 0.25rem 0.4rem; border-bottom: 1px solid var(--line);
   vertical-align: top; }
+.tx-table tr.excluded td { opacity: .45; }
 .tx-table th:nth-child(1), .tx-table td:nth-child(1) { width: 5.2rem; }
 .tx-table th:nth-child(2), .tx-table td:nth-child(2) { width: 7rem; }
 .tx-table th:nth-child(3), .tx-table td:nth-child(3) { width: 4.8rem; }

@@ -182,11 +182,13 @@ public final class Commitments {
      * @param current     all current facts; a fact whose role is {@code noop} is out of the domain
      * @param pins        resolved {@code (externalId, commitmentId)} pairs
      * @param settles     resolved {@code (commitmentId, dueDate, decisionN)} triples
+     * @param exclusions  resolved {@code (commitmentId, externalId, decisionN)} exclusions
      */
     public static CommitmentMatch match(List<Commitment> commitments, List<CommitmentRule> rules,
                                         List<CurrentFact> current, List<CommitmentPin> pins,
-                                        List<CommitmentSettle> settles, Instant asOf) {
-        return CommitmentMatcher.match(commitments, rules, current, pins, settles, asOf);
+                                        List<CommitmentSettle> settles,
+                                        List<CommitmentExclusion> exclusions, Instant asOf) {
+        return CommitmentMatcher.match(commitments, rules, current, pins, settles, exclusions, asOf);
     }
 
     /**

@@ -36,4 +36,8 @@ export const decisions = {
     ...envelope('NOTE_COMMITMENT', ctx, null), commitmentId, text }),
   settleOccurrence: (ctx, commitmentId, dueDates, comment) => ({
     ...envelope('SETTLE_OCCURRENCE', ctx, comment), commitmentId, dueDates }),
+  excludeCommitment: (ctx, commitmentId, externalIds, comment) => ({
+    ...envelope('EXCLUDE_COMMITMENT', ctx, comment), commitmentId, externalIds }),
+  includeCommitment: (ctx, commitmentId, externalIds, comment) => ({
+    ...envelope('INCLUDE_COMMITMENT', ctx, comment), commitmentId, externalIds }),
 };

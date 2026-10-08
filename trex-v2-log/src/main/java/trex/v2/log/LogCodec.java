@@ -207,6 +207,16 @@ public final class LogCodec {
                 dates(o, "dueDates", so.dueDates());
                 putNullable(o, "comment", so.comment());
             }
+            case Decision.ExcludeCommitment ec -> {
+                o.put("commitmentId", ec.commitmentId());
+                array(o, "externalIds", ec.externalIds());
+                putNullable(o, "comment", ec.comment());
+            }
+            case Decision.IncludeCommitment ic -> {
+                o.put("commitmentId", ic.commitmentId());
+                array(o, "externalIds", ic.externalIds());
+                putNullable(o, "comment", ic.comment());
+            }
         }
         o.put("actor", d.actor().wire());
         if (d.user() != null) {
@@ -320,6 +330,10 @@ public final class LogCodec {
                 text(n, "text"), actor, user);
             case SETTLE_OCCURRENCE -> new Decision.SettleOccurrence(e, text(n, "commitmentId"),
                 dateList(n, "dueDates"), opt(n, "comment"), actor, user);
+            case EXCLUDE_COMMITMENT -> new Decision.ExcludeCommitment(e, text(n, "commitmentId"),
+                list(n, "externalIds"), opt(n, "comment"), actor, user);
+            case INCLUDE_COMMITMENT -> new Decision.IncludeCommitment(e, text(n, "commitmentId"),
+                list(n, "externalIds"), opt(n, "comment"), actor, user);
         };
     }
 
