@@ -964,11 +964,11 @@ public final class HubService implements HubApi, AutoCloseable {
             }
             case PIN_COMMITMENT -> {
                 String e = checkIds(d.externalIds(), "externalIds");
-                yield e != null ? e : required(d.commitmentId(), "commitmentId");
+                yield e != null ? e : checkCommitmentTarget(d.commitmentId(), true);
             }
             case UNPIN_COMMITMENT -> checkIds(d.externalIds(), "externalIds");
             case NOTE_COMMITMENT -> {
-                String e = required(d.commitmentId(), "commitmentId");
+                String e = checkCommitmentTarget(d.commitmentId(), false);
                 if (e != null) {
                     yield e;
                 }
@@ -978,7 +978,7 @@ public final class HubService implements HubApi, AutoCloseable {
                 yield d.text().length() > 2000 ? "text is too long (max 2000 characters)" : null;
             }
             case SETTLE_OCCURRENCE -> {
-                String e = required(d.commitmentId(), "commitmentId");
+                String e = checkCommitmentTarget(d.commitmentId(), false);
                 yield e != null ? e : (d.dueDates() == null || d.dueDates().isEmpty()
                     ? "dueDates is required" : null);
             }
@@ -1058,6 +1058,31 @@ public final class HubService implements HubApi, AutoCloseable {
         return value == null || value.isBlank() ? name + " is required" : null;
     }
 
+    /**
+     * The commitment a decision names (V2-COMMITMENTS-PLAN.md §2.6): it must be declared — a
+     * candidate id or an unknown slug is ineffective in the fold and refused by the writer, so the
+     * hub says 422 first. A pin additionally refuses a retired commitment, because a pin to an
+     * ended commitment can never win; a note and a settle are conclusions about the past, so they
+     * may name one. A retire keeps its Stage 3 semantics: the writer decides, and an undeclared id
+     * surfaces as {@code INEFFECTIVE_DECISION}.
+     */
+    private String checkCommitmentTarget(String commitmentId, boolean mustBeUnretired) {
+        if (commitmentId == null || commitmentId.isBlank()) {
+            return "commitmentId is required";
+        }
+        HubQueries.CommitmentRef ref = reads.commitmentRef(commitmentId);
+        if (ref == null) {
+            return "commitmentId names an unknown commitment '" + commitmentId + "'";
+        }
+        if (!ref.declared()) {
+            return "commitmentId names an undeclared commitment '" + commitmentId + "'";
+        }
+        if (mustBeUnretired && ref.retired()) {
+            return "commitment '" + commitmentId + "' is retired";
+        }
+        return null;
+    }
+
     private String precheckPin(DecisionDraft d, DeriveConfig cfg) {
         String e = checkIds(d.externalIds(), "externalIds");
         if (e != null) {
@@ -1128,7 +1153,8 @@ public final class HubService implements HubApi, AutoCloseable {
     private static String checkItem(String item) {
         return item != null && Set.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER",
             "AMBIGUOUS_SETTLEMENT", "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION",
-            "BALANCE_BREAK").contains(item)
+            "BALANCE_BREAK", ReviewItem.SUSPECTED_RECURRING, ReviewItem.DORMANT_COMMITMENT,
+            ReviewItem.COMMITMENT_ARREARS).contains(item)
             ? null
             : "item must be a review kind, not '" + item + "'";
     }

@@ -614,20 +614,6 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
-    private static Long nullableLong(ResultSet rs, int column) throws SQLException {
-        long value = rs.getLong(column);
-        return rs.wasNull() ? null : value;
-    }
-
-    private static Double nullableDouble(ResultSet rs, int column) throws SQLException {
-        double value = rs.getDouble(column);
-        return rs.wasNull() ? null : value;
-    }
-
-    private static LocalDate nullableDate(String value) {
-        return value == null ? null : LocalDate.parse(value);
-    }
-
     public List<TransferJson> transfers() {
         return read(conn -> {
             List<TransferJson> rows = new ArrayList<>();
@@ -879,6 +865,30 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /**
+     * A commitment as the decision prechecks need it, or null when no row exists at all:
+     * {@code declared} is origin {@code declared} (a detected candidate is known but the fold
+     * cannot apply a pin/note/settle to it), {@code retired} is a set {@code retired_n}.
+     */
+    public CommitmentRef commitmentRef(String commitmentId) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_REF)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    boolean declared = "declared".equals(rs.getString(1));
+                    long retiredN = rs.getLong(2);
+                    return new CommitmentRef(declared, !rs.wasNull());
+                }
+            }
+        });
+    }
+
+    /** The two faces a commitment precheck asks about (§2.6). */
+    public record CommitmentRef(boolean declared, boolean retired) {}
+
     private boolean exists(String sql, String value) {
         return read(conn -> {
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -909,6 +919,23 @@ public final class HubQueries implements AutoCloseable {
             ps.setObject(index++, value);
         }
         return index;
+    }
+
+    /** A nullable INTEGER column; SQLite's {@code getLong} would coerce NULL to 0. */
+    private static Long nullableLong(ResultSet rs, int column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    /** A nullable REAL column. */
+    private static Double nullableDouble(ResultSet rs, int column) throws SQLException {
+        double value = rs.getDouble(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    /** A nullable ISO date column. */
+    private static LocalDate nullableDate(String value) {
+        return value == null ? null : LocalDate.parse(value);
     }
 
     /** The unit's projectable content, hashed so a content move (supersede, restatement) is visible. */

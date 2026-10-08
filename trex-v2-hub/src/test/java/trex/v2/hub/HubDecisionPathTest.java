@@ -3,9 +3,14 @@ package trex.v2.hub;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import trex.v2.core.Actor;
+import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 import trex.v2.log.Json;
 import trex.v2.log.JsonlJournal;
 import trex.v2.sequencer.api.DecisionDraft;
@@ -96,8 +101,14 @@ class HubDecisionPathTest {
         config(configDir);
         Path journal = dir.resolve("trex.jsonl");
         try (JsonlJournal j = new JsonlJournal(journal)) {
-            j.appendBatch(List.of(new Fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, 0,
-                "NETFLIX", null, 0, Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", AT)));
+            j.appendBatch(List.of(
+                new Fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, 0,
+                    "NETFLIX", null, 0, Observation.POSTED, "ing-csv", Provenance.BANK, null,
+                    "ing-csv/1", AT),
+                declared(2, "netflix", "NETFLIX"),
+                declared(3, "old", "OLD BILL"),
+                new Decision.RetireCommitment(4, "old", LocalDate.of(2026, 9, 1), "cancelled",
+                    Actor.USER, "ron", AT)));
         }
 
         AtomicReference<String> forwarded = new AtomicReference<>();
@@ -108,7 +119,8 @@ class HubDecisionPathTest {
         Path index = dir.resolve("trex.sqlite");
         try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50,
                 stubUrl))) {
-            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L
+                && hub.status().counts().getOrDefault("commitment", 0L) == 2L);
             HttpClient client = HttpClient.newHttpClient();
             URI base = URI.create("http://127.0.0.1:" + hub.port());
             long n = hub.status().n();
@@ -128,8 +140,33 @@ class HubDecisionPathTest {
                 .add(declare("netflix", "monthly", List.of(match("NETFLIX")))).json()).statusCode());
             assertTrue(forwarded.get().contains("\"action\":\"DECLARE_COMMITMENT\""), forwarded.get());
             assertTrue(forwarded.get().contains("\"commitmentId\":\"netflix\""), forwarded.get());
+
+            // An unknown commitment target is a 422 for pin, note and settle; a pin also refuses
+            // a retired one, while a note and a settle may name it (§2.6).
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(pinCommitment("a", "ghost")).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(noteCommitment("ghost", "hello")).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(settle("ghost", List.of(LocalDate.of(2026, 9, 1)))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(pinCommitment("a", "old")).json()).statusCode());
+
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(pinCommitment("a", "netflix")).json()).statusCode());
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(noteCommitment("old", "final note")).json()).statusCode());
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(settle("old", List.of(LocalDate.of(2026, 9, 1)))).json()).statusCode());
         }
         stub.stop(0);
+    }
+
+    /** A declaration in the journal (the hub prechecks read the derived table, not the draft). */
+    private static Decision.DeclareCommitment declared(long n, String id, String match) {
+        return new Decision.DeclareCommitment(n, id, id + " name", "out", Cadence.MONTHLY,
+            AmountKind.FIXED, CommitmentKind.BILL, List.of(new Decision.Match(match, null)), 1000L,
+            LocalDate.of(2026, 9, 1), null, null, Actor.USER, "ron", AT);
     }
 
     // ---- request body construction ----------------------------------------------------------
@@ -165,6 +202,19 @@ class HubDecisionPathTest {
         return new DecisionDraft("SETTLE_OCCURRENCE", "user", "ron", AT, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             commitmentId, null, null, null, null, null, null, null, null, null, null, null, dueDates);
+    }
+
+    private static DecisionDraft pinCommitment(String externalId, String commitmentId) {
+        return new DecisionDraft("PIN_COMMITMENT", "user", "ron", AT, null, null, null, null, null,
+            null, null, List.of(externalId), null, null, null, null, null, null, null, null, null,
+            null, null, commitmentId, null, null, null, null, null, null, null, null, null, null,
+            null, null);
+    }
+
+    private static DecisionDraft noteCommitment(String commitmentId, String text) {
+        return new DecisionDraft("NOTE_COMMITMENT", "user", "ron", AT, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, text, null,
+            commitmentId, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static final class DecisionRequestJson {
