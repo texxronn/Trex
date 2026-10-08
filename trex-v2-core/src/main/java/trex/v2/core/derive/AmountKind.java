@@ -16,4 +16,13 @@ public enum AmountKind {
     public String wire() {
         return name().toLowerCase(Locale.ROOT);
     }
+
+    public static AmountKind fromWire(String wire) {
+        return switch (wire) {
+            case "fixed" -> FIXED;
+            case "variable" -> VARIABLE;
+            case "range" -> RANGE;
+            default -> throw new IllegalArgumentException("unknown amount kind '" + wire + "'");
+        };
+    }
 }

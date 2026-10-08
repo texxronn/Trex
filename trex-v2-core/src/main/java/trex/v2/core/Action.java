@@ -20,7 +20,14 @@ public enum Action {
     REVOKE,
     USER_ACK,
     USER_UNACK,
-    NOTE;
+    NOTE,
+    DECLARE_COMMITMENT,
+    RETIRE_COMMITMENT,
+    IGNORE_RECURRING,
+    PIN_COMMITMENT,
+    UNPIN_COMMITMENT,
+    NOTE_COMMITMENT,
+    SETTLE_OCCURRENCE;
 
     public String wire() {
         return name();

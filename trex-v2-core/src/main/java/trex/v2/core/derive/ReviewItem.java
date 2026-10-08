@@ -19,4 +19,8 @@ public record ReviewItem(String subject, String kind, String detail, Long amount
     public static final String STALE_PENDING = "STALE_PENDING";
     public static final String INEFFECTIVE_DECISION = "INEFFECTIVE_DECISION";
     public static final String BALANCE_BREAK = "BALANCE_BREAK";
+    // Emitted by derivation in Stage 4; declared here so the writer can accept a DISMISS on them.
+    public static final String SUSPECTED_RECURRING = "SUSPECTED_RECURRING";
+    public static final String DORMANT_COMMITMENT = "DORMANT_COMMITMENT";
+    public static final String COMMITMENT_ARREARS = "COMMITMENT_ARREARS";
 }

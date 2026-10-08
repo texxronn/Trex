@@ -44,4 +44,18 @@ public enum Cadence {
     public String wire() {
         return name().toLowerCase(Locale.ROOT);
     }
+
+    public static Cadence fromWire(String wire) {
+        return switch (wire) {
+            case "weekly" -> WEEKLY;
+            case "fortnightly" -> FORTNIGHTLY;
+            case "monthly" -> MONTHLY;
+            case "bimonthly" -> BIMONTHLY;
+            case "quarterly" -> QUARTERLY;
+            case "semiannual" -> SEMIANNUAL;
+            case "annual" -> ANNUAL;
+            case "irregular" -> IRREGULAR;
+            default -> throw new IllegalArgumentException("unknown cadence '" + wire + "'");
+        };
+    }
 }

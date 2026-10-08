@@ -19,4 +19,17 @@ public enum CommitmentKind {
     public String wire() {
         return name().toLowerCase(Locale.ROOT);
     }
+
+    public static CommitmentKind fromWire(String wire) {
+        return switch (wire) {
+            case "subscription" -> SUBSCRIPTION;
+            case "bill" -> BILL;
+            case "insurance" -> INSURANCE;
+            case "fee" -> FEE;
+            case "tax" -> TAX;
+            case "income" -> INCOME;
+            case "other" -> OTHER;
+            default -> throw new IllegalArgumentException("unknown commitment kind '" + wire + "'");
+        };
+    }
 }

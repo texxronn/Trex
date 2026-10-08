@@ -13,6 +13,9 @@ import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 import trex.v2.core.derive.ReviewItem;
 import trex.v2.log.Journal;
 import trex.v2.log.LogCodec;
@@ -52,7 +55,8 @@ public final class Sequencer implements AutoCloseable {
     private static final Set<String> REVIEW_KINDS = Set.of(
         ReviewItem.POTENTIAL_DUP, ReviewItem.RESTATEMENT, ReviewItem.AMBIGUOUS_TRANSFER,
         ReviewItem.AMBIGUOUS_SETTLEMENT, ReviewItem.UNMATCHED_LEG, ReviewItem.STALE_PENDING,
-        ReviewItem.INEFFECTIVE_DECISION);
+        ReviewItem.INEFFECTIVE_DECISION, ReviewItem.BALANCE_BREAK,
+        ReviewItem.SUSPECTED_RECURRING, ReviewItem.DORMANT_COMMITMENT, ReviewItem.COMMITMENT_ARREARS);
 
     private final Journal journal;
     private final Registry registry;
@@ -147,6 +151,7 @@ public final class Sequencer implements AutoCloseable {
         long expected = state.headN + 1;
         Set<String> knownFacts = new HashSet<>(state.latestById.keySet());
         Set<Long> knownDecisions = new HashSet<>(state.decisionNs);
+        Set<String> knownCommitments = new HashSet<>(state.declaredCommitments);
         List<LogLine> toAppend = new ArrayList<>();
         Long stoppedAt = null;
         String error = null;
@@ -160,7 +165,7 @@ public final class Sequencer implements AutoCloseable {
                 stoppedAt = n;
                 break;
             }
-            String problem = validateStreamLine(line, n, knownFacts, knownDecisions);
+            String problem = validateStreamLine(line, n, knownFacts, knownDecisions, knownCommitments);
             if (problem != null) {
                 error = problem;
                 stoppedAt = n;
@@ -171,6 +176,9 @@ public final class Sequencer implements AutoCloseable {
                 knownFacts.add(f.externalId());
             } else if (line instanceof Decision d) {
                 knownDecisions.add(d.n());
+                if (d instanceof Decision.DeclareCommitment dc) {
+                    knownCommitments.add(dc.commitmentId());
+                }
             }
         }
         if (!toAppend.isEmpty()) {
@@ -179,7 +187,7 @@ public final class Sequencer implements AutoCloseable {
                 if (line instanceof Fact f) {
                     state.observe(f);
                 } else if (line instanceof Decision d) {
-                    state.decisionNs.add(d.n());
+                    state.observe(d);
                 }
             }
             state.headN = expected - 1 + toAppend.size();
@@ -188,7 +196,7 @@ public final class Sequencer implements AutoCloseable {
     }
 
     private String validateStreamLine(LogLine line, long n, Set<String> knownFacts,
-                                      Set<Long> knownDecisions) {
+                                      Set<Long> knownDecisions, Set<String> knownCommitments) {
         if (line instanceof Unknown) {
             return "line n=" + n + ": unknown kind '" + line.kind() + "'";
         }
@@ -208,12 +216,13 @@ public final class Sequencer implements AutoCloseable {
                 return "line n=" + n + ": externalId is required";
             }
         } else if (line instanceof Decision d) {
-            return decisionRefs(d, n, knownFacts, knownDecisions);
+            return decisionRefs(d, n, knownFacts, knownDecisions, knownCommitments);
         }
         return null;
     }
 
-    private String decisionRefs(Decision d, long n, Set<String> knownFacts, Set<Long> knownDecisions) {
+    private String decisionRefs(Decision d, long n, Set<String> knownFacts, Set<Long> knownDecisions,
+                                Set<String> knownCommitments) {
         List<String> refs = new ArrayList<>();
         if (d instanceof Decision.Pair p) {
             refs.add(p.legA());
@@ -255,6 +264,19 @@ public final class Sequencer implements AutoCloseable {
             refs.add(u.externalId());
         } else if (d instanceof Decision.Note note) {
             refs.add(note.externalId());
+        } else if (d instanceof Decision.PinCommitment pc) {
+            refs.addAll(pc.externalIds());
+            if (!knownCommitments.contains(pc.commitmentId())) {
+                return "line n=" + n + ": names an undeclared commitment '" + pc.commitmentId() + "'";
+            }
+        } else if (d instanceof Decision.NoteCommitment nc) {
+            if (!knownCommitments.contains(nc.commitmentId())) {
+                return "line n=" + n + ": names an undeclared commitment '" + nc.commitmentId() + "'";
+            }
+        } else if (d instanceof Decision.SettleOccurrence so) {
+            if (!knownCommitments.contains(so.commitmentId())) {
+                return "line n=" + n + ": names an undeclared commitment '" + so.commitmentId() + "'";
+            }
         } else if (d instanceof Decision.Revoke rv) {
             if (!knownDecisions.contains(rv.target())) {
                 return "line n=" + n + ": REVOKE names unknown decision n=" + rv.target();
@@ -395,14 +417,18 @@ public final class Sequencer implements AutoCloseable {
         boolean allOrNone = Boolean.TRUE.equals(batch.allOrNone());
         List<RowResult> results = new ArrayList<>();
         List<Decision> toAppend = new ArrayList<>();
+        Set<String> declaredCommitments = new HashSet<>(state.declaredCommitments);
         String[] errors = new String[drafts.size()];
         long next = state.headN;
         boolean anyRejected = false;
         for (int i = 0; i < drafts.size(); i++) {
             DecisionDraft d = drafts.get(i);
             try {
-                Decision decision = buildDecision(next + 1, d, source, target);
+                Decision decision = buildDecision(next + 1, d, source, target, declaredCommitments);
                 toAppend.add(decision);
+                if (decision instanceof Decision.DeclareCommitment dc) {
+                    declaredCommitments.add(dc.commitmentId());
+                }
                 next++;
                 results.add(new RowResult(ref(i, d), RowResult.RESOLVED, null, decision.n(), null));
             } catch (IllegalArgumentException e) {
@@ -423,7 +449,7 @@ public final class Sequencer implements AutoCloseable {
         }
         if (!toAppend.isEmpty()) {
             journal.appendBatch(new ArrayList<>(toAppend));
-            toAppend.forEach(dec -> state.decisionNs.add(dec.n()));
+            toAppend.forEach(state::observe);
             state.headN = next;
         }
         String status = anyRejected
@@ -432,7 +458,8 @@ public final class Sequencer implements AutoCloseable {
         return new BatchResponse(handle(), status, results);
     }
 
-    private Decision buildDecision(long n, DecisionDraft d, String source, String target) {
+    private Decision buildDecision(long n, DecisionDraft d, String source, String target,
+                                   Set<String> declaredCommitments) {
         if (d == null) {
             throw new IllegalArgumentException("missing decision");
         }
@@ -502,6 +529,28 @@ public final class Sequencer implements AutoCloseable {
             case ATTACH_ACCOUNT -> new Decision.AttachAccount(envelope,
                 requireFacts(d.externalIds(), "externalIds"), requireClearingAccount(d.account()),
                 d.comment(), actor, user);
+            case DECLARE_COMMITMENT -> new Decision.DeclareCommitment(envelope,
+                require(d.commitmentId(), "commitmentId"), require(d.name(), "name"),
+                requireDirection(d.direction()), requireCadence(d.cadence()),
+                requireAmountKind(d.amountKind()), requireCommitmentKind(d.kind()),  // wire field "kind"
+                requireMatches(d.matches()), d.amount(), d.anchor(), d.fromCandidate(), d.comment(),
+                actor, user);
+            case RETIRE_COMMITMENT -> new Decision.RetireCommitment(envelope,
+                require(d.commitmentId(), "commitmentId"), require(d.endedAt(), "endedAt"),
+                require(d.reason(), "reason"), actor, user);
+            case IGNORE_RECURRING -> new Decision.IgnoreRecurring(envelope,
+                require(d.candidate(), "candidate"), require(d.reason(), "reason"), actor, user);
+            case PIN_COMMITMENT -> new Decision.PinCommitment(envelope,
+                requireDeclaredCommitment(d.commitmentId(), declaredCommitments),
+                requireFacts(d.externalIds(), "externalIds"), d.comment(), actor, user);
+            case UNPIN_COMMITMENT -> new Decision.UnpinCommitment(envelope,
+                requireFacts(d.externalIds(), "externalIds"), d.comment(), actor, user);
+            case NOTE_COMMITMENT -> new Decision.NoteCommitment(envelope,
+                requireDeclaredCommitment(d.commitmentId(), declaredCommitments),
+                require(d.text(), "text"), actor, user);
+            case SETTLE_OCCURRENCE -> new Decision.SettleOccurrence(envelope,
+                requireDeclaredCommitment(d.commitmentId(), declaredCommitments),
+                requireDates(d.dueDates(), "dueDates"), d.comment(), actor, user);
         };
     }
 
@@ -538,6 +587,72 @@ public final class Sequencer implements AutoCloseable {
             throw new IllegalArgumentException(name + " is required");
         }
         return value;
+    }
+
+    private static LocalDate require(LocalDate value, String name) {
+        if (value == null) {
+            throw new IllegalArgumentException(name + " is required");
+        }
+        return value;
+    }
+
+    private static String requireDirection(String direction) {
+        require(direction, "direction");
+        if (!"in".equals(direction) && !"out".equals(direction)) {
+            throw new IllegalArgumentException("direction must be 'in' or 'out', not '" + direction + "'");
+        }
+        return direction;
+    }
+
+    private static Cadence requireCadence(String wire) {
+        require(wire, "cadence");
+        return Cadence.fromWire(wire);
+    }
+
+    private static AmountKind requireAmountKind(String wire) {
+        require(wire, "amountKind");
+        return AmountKind.fromWire(wire);
+    }
+
+    private static CommitmentKind requireCommitmentKind(String wire) {
+        require(wire, "kind");
+        return CommitmentKind.fromWire(wire);
+    }
+
+    /** The declaration's rules: a non-empty list of non-blank regexes; blank accounts normalise to null. */
+    private static List<Decision.Match> requireMatches(List<DecisionDraft.MatchDraft> matches) {
+        if (matches == null || matches.isEmpty()) {
+            throw new IllegalArgumentException("matches is required");
+        }
+        List<Decision.Match> out = new ArrayList<>();
+        for (DecisionDraft.MatchDraft m : matches) {
+            if (m == null) {
+                throw new IllegalArgumentException("each match must name a regex");
+            }
+            out.add(new Decision.Match(require(m.match(), "match"),
+                m.account() == null || m.account().isBlank() ? null : m.account()));
+        }
+        return List.copyOf(out);
+    }
+
+    private static List<LocalDate> requireDates(List<LocalDate> dates, String name) {
+        if (dates == null || dates.isEmpty()) {
+            throw new IllegalArgumentException(name + " is required");
+        }
+        for (LocalDate date : dates) {
+            if (date == null) {
+                throw new IllegalArgumentException(name + " must not contain a null date");
+            }
+        }
+        return List.copyOf(dates);
+    }
+
+    private static String requireDeclaredCommitment(String id, Set<String> declared) {
+        require(id, "commitmentId");
+        if (!declared.contains(id)) {
+            throw new IllegalArgumentException("commitmentId names an undeclared commitment '" + id + "'");
+        }
+        return id;
     }
 
     private String requireFact(String id, String name) {

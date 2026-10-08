@@ -13,6 +13,9 @@ import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -164,6 +167,46 @@ public final class LogCodec {
                 putNullable(o, "externalId", note.externalId());
                 o.put("text", note.text());
             }
+            case Decision.DeclareCommitment dc -> {
+                o.put("commitmentId", dc.commitmentId());
+                o.put("name", dc.name());
+                o.put("direction", dc.direction());
+                o.put("cadence", dc.cadence().wire());
+                o.put("amountKind", dc.amountKind().wire());
+                o.put("commitmentKind", dc.commitmentKind().wire());
+                matches(o, "matches", dc.matches());
+                putNullableLong(o, "amount", dc.amount());
+                putNullable(o, "anchor", dc.anchor() == null ? null : dc.anchor().toString());
+                putNullable(o, "fromCandidate", dc.fromCandidate());
+                putNullable(o, "comment", dc.comment());
+            }
+            case Decision.RetireCommitment rc -> {
+                o.put("commitmentId", rc.commitmentId());
+                o.put("endedAt", rc.endedAt().toString());
+                o.put("reason", rc.reason());
+            }
+            case Decision.IgnoreRecurring ir -> {
+                o.put("candidate", ir.candidate());
+                o.put("reason", ir.reason());
+            }
+            case Decision.PinCommitment pc -> {
+                o.put("commitmentId", pc.commitmentId());
+                array(o, "externalIds", pc.externalIds());
+                putNullable(o, "comment", pc.comment());
+            }
+            case Decision.UnpinCommitment uc -> {
+                array(o, "externalIds", uc.externalIds());
+                putNullable(o, "comment", uc.comment());
+            }
+            case Decision.NoteCommitment nc -> {
+                o.put("commitmentId", nc.commitmentId());
+                o.put("text", nc.text());
+            }
+            case Decision.SettleOccurrence so -> {
+                o.put("commitmentId", so.commitmentId());
+                dates(o, "dueDates", so.dueDates());
+                putNullable(o, "comment", so.comment());
+            }
         }
         o.put("actor", d.actor().wire());
         if (d.user() != null) {
@@ -259,6 +302,24 @@ public final class LogCodec {
                 text(n, "stateHash"), opt(n, "comment"), actor, user);
             case USER_UNACK -> new Decision.UserUnack(e, text(n, "externalId"), opt(n, "comment"), actor, user);
             case NOTE -> new Decision.Note(e, opt(n, "externalId"), text(n, "text"), actor, user);
+            case DECLARE_COMMITMENT -> new Decision.DeclareCommitment(e, text(n, "commitmentId"),
+                text(n, "name"), text(n, "direction"), Cadence.fromWire(text(n, "cadence")),
+                AmountKind.fromWire(text(n, "amountKind")),
+                CommitmentKind.fromWire(text(n, "commitmentKind")),
+                matchList(n, "matches"), optLong(n, "amount"), optDate(n, "anchor"),
+                opt(n, "fromCandidate"), opt(n, "comment"), actor, user);
+            case RETIRE_COMMITMENT -> new Decision.RetireCommitment(e, text(n, "commitmentId"),
+                LocalDate.parse(text(n, "endedAt")), text(n, "reason"), actor, user);
+            case IGNORE_RECURRING -> new Decision.IgnoreRecurring(e, text(n, "candidate"),
+                text(n, "reason"), actor, user);
+            case PIN_COMMITMENT -> new Decision.PinCommitment(e, text(n, "commitmentId"),
+                list(n, "externalIds"), opt(n, "comment"), actor, user);
+            case UNPIN_COMMITMENT -> new Decision.UnpinCommitment(e, list(n, "externalIds"),
+                opt(n, "comment"), actor, user);
+            case NOTE_COMMITMENT -> new Decision.NoteCommitment(e, text(n, "commitmentId"),
+                text(n, "text"), actor, user);
+            case SETTLE_OCCURRENCE -> new Decision.SettleOccurrence(e, text(n, "commitmentId"),
+                dateList(n, "dueDates"), opt(n, "comment"), actor, user);
         };
     }
 
@@ -291,6 +352,28 @@ public final class LogCodec {
     private static void array(ObjectNode o, String field, List<String> values) {
         ArrayNode a = o.putArray(field);
         values.forEach(a::add);
+    }
+
+    private static void matches(ObjectNode o, String field, List<Decision.Match> values) {
+        ArrayNode a = o.putArray(field);
+        for (Decision.Match m : values) {
+            ObjectNode mo = a.addObject();
+            mo.put("match", m.match());
+            putNullable(mo, "account", m.account());
+        }
+    }
+
+    private static void dates(ObjectNode o, String field, List<LocalDate> values) {
+        ArrayNode a = o.putArray(field);
+        values.forEach(d -> a.add(d.toString()));
+    }
+
+    private static void putNullableLong(ObjectNode o, String field, Long value) {
+        if (value == null) {
+            o.putNull(field);
+        } else {
+            o.put(field, value.longValue());
+        }
     }
 
     private static void putNullableInt(ObjectNode o, String field, Integer value) {
@@ -343,5 +426,37 @@ public final class LogCodec {
         List<String> out = new ArrayList<>();
         v.forEach(e -> out.add(e.asText()));
         return out;
+    }
+
+    private static List<Decision.Match> matchList(JsonNode n, String field) {
+        JsonNode v = n.get(field);
+        if (v == null || !v.isArray()) {
+            throw new JournalCorruptException("missing array field '" + field + "'", null);
+        }
+        List<Decision.Match> out = new ArrayList<>();
+        for (JsonNode e : v) {
+            out.add(new Decision.Match(text(e, "match"), opt(e, "account")));
+        }
+        return out;
+    }
+
+    private static List<LocalDate> dateList(JsonNode n, String field) {
+        JsonNode v = n.get(field);
+        if (v == null || !v.isArray()) {
+            throw new JournalCorruptException("missing array field '" + field + "'", null);
+        }
+        List<LocalDate> out = new ArrayList<>();
+        v.forEach(e -> out.add(LocalDate.parse(e.asText())));
+        return out;
+    }
+
+    private static Long optLong(JsonNode n, String field) {
+        JsonNode v = n.get(field);
+        return v == null || v.isNull() ? null : v.asLong();
+    }
+
+    private static LocalDate optDate(JsonNode n, String field) {
+        String v = opt(n, field);
+        return v == null ? null : LocalDate.parse(v);
     }
 }
