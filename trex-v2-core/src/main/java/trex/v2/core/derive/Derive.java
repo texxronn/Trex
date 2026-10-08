@@ -1007,7 +1007,7 @@ public final class Derive {
             // blank account scope is "any account", and an identical match/scope pair collapses so
             // the derived table's key cannot collide (§2.2, §2.7).
             Map<String, List<CommitmentRule>> rulesById = new TreeMap<>();
-            Map<String, List<CommitmentMatcher.CompiledRule>> compiledById = new TreeMap<>();
+            Map<String, List<CommitmentRules.CompiledRule>> compiledById = new TreeMap<>();
             for (Map.Entry<String, DeclaredCommitment> e : declared.entrySet()) {
                 LinkedHashMap<String, CommitmentRule> dedup = new LinkedHashMap<>();
                 for (Decision.Match m : e.getValue().matches()) {
@@ -1018,9 +1018,9 @@ public final class Derive {
                 }
                 List<CommitmentRule> rules = List.copyOf(dedup.values());
                 rulesById.put(e.getKey(), rules);
-                List<CommitmentMatcher.CompiledRule> compiled = new ArrayList<>(rules.size());
+                List<CommitmentRules.CompiledRule> compiled = new ArrayList<>(rules.size());
                 for (CommitmentRule rule : rules) {
-                    compiled.add(CommitmentMatcher.compile(rule));
+                    compiled.add(CommitmentRules.compile(rule));
                 }
                 compiledById.put(e.getKey(), compiled);
             }
@@ -1143,7 +1143,7 @@ public final class Derive {
             for (Decision.Match m : dc.matches()) {
                 String account = m.account() == null || m.account().isBlank() ? null : m.account();
                 try {
-                    CommitmentMatcher.compile(new CommitmentRule(dc.commitmentId(), m.match(),
+                    CommitmentRules.compile(new CommitmentRule(dc.commitmentId(), m.match(),
                         account, dc.n()));
                 } catch (IllegalArgumentException e) {
                     return m.match();
@@ -1154,18 +1154,18 @@ public final class Derive {
 
         /** True when some declaration's rules match every fact of a candidate's group (§2.3.8). */
         private static boolean coveredByDeclaration(
-                Map<String, List<CommitmentMatcher.CompiledRule>> compiledById, List<CurrentFact> group) {
+                Map<String, List<CommitmentRules.CompiledRule>> compiledById, List<CurrentFact> group) {
             if (group.isEmpty()) {
                 return false;
             }
-            for (List<CommitmentMatcher.CompiledRule> rules : compiledById.values()) {
+            for (List<CommitmentRules.CompiledRule> rules : compiledById.values()) {
                 if (rules.isEmpty()) {
                     continue;
                 }
                 boolean all = true;
                 for (CurrentFact fact : group) {
                     boolean any = false;
-                    for (CommitmentMatcher.CompiledRule rule : rules) {
+                    for (CommitmentRules.CompiledRule rule : rules) {
                         if (rule.matches(fact)) {
                             any = true;
                             break;

@@ -20,22 +20,22 @@ everything is under **Unreleased**.
 
 ### Changed
 
-- **Ended series can be recorded as ended, at the date they ended.** An ended candidate's menu
-  offers **Record ended…**: the declaration dialog prefilled as usual, plus an **Ended** field
-  defaulted to the detected last charge; saving posts `DECLARE_COMMITMENT` and
-  `RETIRE_COMMITMENT` in one atomic batch, so the commitment lands ended with no dormancy or
-  arrears. A dormant commitment retired from Review or the registry also defaults its end date to
-  the last charge instead of today.
-- **Every registry row opens the same Actions… menu.** Declared commitments now get the two-pane
-  view the candidates had — activity table and price chart — and their row actions (Re-declare,
-  Retire, Note, Settle when behind) moved into it, replacing the inline buttons. The activity read
-  is `GET /api/commitments/activity?id=…` (a candidate's facts, or a declared commitment's
-  occurrences with the fact each carries and its status), replacing the stem-keyed facts endpoint.
-- **The candidate menu is a two-pane view, and the registry tabs repaint.** **Actions…** now
-  splits horizontally: the series' transactions as a table on the left (date, account, signed
-  amount, description) and a rudimentary price timeseries on the right (same-day facts summed,
-  magnitudes from zero, each point carrying its signed value). The origin tabs (All / Candidates /
-  Declared) highlight the selection on click rather than keeping All active.
+- **Every commitment row opens the same Actions… menu, with its full transaction history.** The
+  menu is a stacked two-pane view — a price timeseries over a transactions table — with its
+  curation actions: Review/Confirm/Ignore for a candidate, Re-declare/Retire/Note/Settle for a
+  declared commitment. A candidate's history is its series facts (the detector's stem); a declared
+  commitment's is every fact its effective rules match **across all history**, not just the
+  twelve-month occurrence window, life-bounded at its end date. The rule convention is shared with
+  the derive (`CommitmentRules`), so the menu can never disagree with matching about what a rule
+  means. An **ended** candidate offers **Record ended…** — the declaration prefill plus an
+  **Ended** date defaulted to its last charge, saved as one atomic `DECLARE_COMMITMENT` +
+  `RETIRE_COMMITMENT` batch — and a commitment being retired defaults its end date to the last
+  charge the activity knows, so a series that stopped before the rolling window is closed at the
+  date it really stopped. The activity read is `GET /api/commitments/activity?id=…`; facts placed
+  only by a pin belong to the occurrence view, not this scan; the expected view keeps the
+  occurrence statuses.
+- **The registry's origin tabs repaint on click** (All / Candidates / Declared), and the list and
+  header count refresh without a full re-render.
 - **Arrears are manual** (`V2-MANUAL-ARREARS-PLAN.md`; `derive/10`). A matching fact now attaches
   to the occurrence whose window contains its date — several facts in a window sum, and the
   occurrence is `occurred` at the amount that actually moved. A window that closes with no fact is
@@ -44,12 +44,6 @@ everything is under **Unreleased**.
   The SAFE CUSTODY fee — declared at $37 over a $32 history — now derives with **zero arrears**,
   exactly as its charges say. The log grammar and every decision type are unchanged; the derived
   tables rebuild.
-- **The candidate menu lists the series' transactions.** **Actions…** now fetches
-  `GET /api/commitments/facts?stem=…` — the current facts grouped by the same frozen
-  `MerchantStem.stem` the detector used (synthetic clearing legs and `noop` rows excluded,
-  oldest first) — and shows each date, direction, amount, account and description before
-  Confirm/Ignore. Read-only derived data; no log, decision or derivation change
-  (`V2-EXPECTED-UX-PLAN.md` §7 Stage 2).
 - **The commitment registry names its candidates and gives them actions**
   (`V2-EXPECTED-UX-PLAN.md` §7 Stage 2). A detected candidate carries its grouping **stem**
   (`/api/commitments` gained `stem`; the derived `commitment` table gained `candidate_key`), so a

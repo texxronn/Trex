@@ -126,10 +126,12 @@ migration, `trex verify` stays green and is not part of this acceptance.
     An **ended** candidate instead offers **Record ended…** — the same prefill plus an
     **Ended** date defaulted to the detected last charge, saved as one atomic
     `DECLARE_COMMITMENT` + `RETIRE_COMMITMENT` batch — and **Ignore…**; a dormant declared
-    commitment's **Retire** defaults to its last charge too.
+    commitment's **Retire** defaults to the last charge the activity knows — the unbounded scan,
+    so an ended series is closed at the date it stopped, even before the rolling window.
     Every row opens the menu, fetched on open from `GET /api/commitments/activity?id=…` —
-    a candidate's series facts (the detector's own lens) or a declared commitment's occurrences
-    with the fact each carries — as a transactions table and a rudimentary price
+    a candidate's series facts (the detector's own lens) or a declared commitment's
+    rule-matched facts across all history (life-bounded at `endedAt`, never just the rolling
+    twelve months) — as a transactions table and a rudimentary price
     timeseries (same-day movements summed). The row's curation actions sit in the
     menu: Review/Confirm/Ignore or Record ended for a candidate, Re-declare/Retire/Note/Settle
     for a declared commitment.

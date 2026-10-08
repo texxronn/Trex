@@ -371,6 +371,7 @@ export function ignoreCandidate(ctx, candidate, onDone) {
 export function openCommitmentActions(ctx, c, onDone) {
   const txPane = el('div', { class: 'tx-pane' }, el('p', { class: 'muted' }, 'Loading…'));
   const chartPane = el('div', { class: 'chart-pane' }, el('p', { class: 'muted' }, 'Loading…'));
+  const activity = { rows: [] };
   openChoice({
     title: c.name || c.stem || shortId(c.commitmentId),
     summary: rowDetail(c),
@@ -378,8 +379,10 @@ export function openCommitmentActions(ctx, c, onDone) {
       el('div', { class: 'popup-pane' }, el('h4', {}, 'Price'), chartPane),
       el('div', { class: 'popup-pane' }, el('h4', {}, 'Transactions'), txPane)),
     xwide: true,
-  }, c.origin === 'detected' ? candidateChoices(ctx, c, onDone) : declaredChoices(ctx, c, onDone));
-  loadActivity(c, txPane, chartPane);
+  }, c.origin === 'detected'
+    ? candidateChoices(ctx, c, onDone)
+    : declaredChoices(ctx, c, onDone, activity));
+  loadActivity(c, txPane, chartPane, activity);
 }
 
 /** The registry row's faces as one line for the menu's subtitle. */
@@ -424,17 +427,21 @@ function candidateChoices(ctx, c, onDone) {
 }
 
 /** A declared commitment's actions: the row's curation gestures, in the menu. */
-function declaredChoices(ctx, c, onDone) {
+function declaredChoices(ctx, c, onDone, activity) {
   const choices = [
     { label: 'Re-declare', class: 'ghost',
       onPick: () => openDeclare(ctx, reDeclarePrefill(c), onDone) },
   ];
   if (c.retiredN == null) {
-    const dormant = c.status === 'dormant' && c.lastDate;
-    choices.push({ label: 'Retire', class: 'warn',
-      onPick: () => openRetire(ctx, { commitmentId: c.commitmentId, name: c.name,
-        endedAt: dormant ? c.lastDate : null,
-        summary: dormant ? `no charge since ${c.lastDate}` : null }, onDone) });
+    choices.push({ label: 'Retire', class: 'warn', onPick: () => {
+      // Suggest the end the facts show: the last charge from the activity (unbounded, so it works
+      // for a series that stopped before the rolling window). A live series keeps today.
+      const lastCharge = activity.rows.length ? activity.rows[activity.rows.length - 1].date : null;
+      const endedAt = (c.status === 'dormant' || c.arrearsCount)
+        ? (lastCharge || c.lastDate || null) : null;
+      openRetire(ctx, { commitmentId: c.commitmentId, name: c.name, endedAt,
+        summary: endedAt ? `last charge ${endedAt}` : null }, onDone);
+    } });
   }
   choices.push({ label: 'Note', class: 'ghost',
     onPick: () => openCommitmentNote(ctx, { commitmentId: c.commitmentId, name: c.name }, onDone) });
@@ -481,8 +488,8 @@ async function settleBacklog(ctx, c, onDone) {
   openSettle(ctx, { commitmentId: c.commitmentId, name: c.name, dueDates }, onDone);
 }
 
-/** The commitment's activity, by id: a candidate's facts, or a declared commitment's periods. */
-async function loadActivity(c, txPane, chartPane) {
+/** The commitment's activity, by id: a candidate's facts, or a declared commitment's history. */
+async function loadActivity(c, txPane, chartPane, activity) {
   let rows;
   try {
     rows = await api.activity(c.commitmentId);
@@ -494,6 +501,7 @@ async function loadActivity(c, txPane, chartPane) {
     chartPane.append(el('p', { class: 'muted' }, '\u2014'));
     return;
   }
+  activity.rows = rows;
   clear(txPane);
   clear(chartPane);
   if (!rows.length) {
@@ -506,37 +514,19 @@ async function loadActivity(c, txPane, chartPane) {
 }
 
 /**
- * The activity as a compact table: date, account, signed amount, description; a Status column
- * appears when the rows carry one (a declared commitment's occurrences).
+ * The activity as a compact table: date, account, signed amount, description — a transaction
+ * list for both a candidate's series and a declared commitment's full history.
  */
 function activityTable(rows) {
-  const withStatus = rows.some((r) => r.status);
   return el('table', { class: 'tx-table' },
     el('thead', {}, el('tr', {},
-      el('th', {}, 'Date'),
-      withStatus ? el('th', {}, 'Status') : null,
-      el('th', {}, 'Account'),
-      el('th', { class: 'amount' }, 'Amount'),
-      el('th', {}, 'Description'))),
+      el('th', {}, 'Date'), el('th', {}, 'Account'),
+      el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Description'))),
     el('tbody', {}, ...rows.map((r) => el('tr', {},
       el('td', { class: 'tx-date' }, r.date),
-      withStatus ? el('td', {}, statusLabel(r.status)) : null,
       el('td', { class: 'tx-account muted', title: r.accountRef || '' }, r.accountRef || '\u2014'),
-      el('td', { class: 'amount ' + (r.amount == null ? '' : r.amount < 0 ? 'tx-out' : 'tx-in') },
-        r.amount == null ? '\u2014' : money(r.amount)),
-      el('td', { class: 'tx-desc muted', title: r.rawDescription || '' },
-        r.rawDescription || '')))));
-}
-
-/** The occurrence states in the activity table, the same reading as the Expected view. */
-function statusLabel(status) {
-  switch (status) {
-    case 'occurred': return el('span', { class: 'tick' }, '\u2713 occurred');
-    case 'settled': return el('span', { class: 'occ-settled' }, '\u25c6 settled');
-    case 'missed': return el('span', { class: 'occ-missed' }, '\u2717 missed');
-    case 'due': return el('span', { class: 'muted' }, 'due');
-    default: return el('span', { class: 'muted' }, status || '');
-  }
+      el('td', { class: 'amount ' + (r.amount < 0 ? 'tx-out' : 'tx-in') }, money(r.amount)),
+      el('td', { class: 'tx-desc muted', title: r.rawDescription || '' }, r.rawDescription)))));
 }
 
 /**

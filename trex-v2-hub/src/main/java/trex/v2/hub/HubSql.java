@@ -100,27 +100,23 @@ final class HubSql {
         "SELECT decision_n, commitment_id, text, user_id, at FROM commitment_note ORDER BY decision_n";
 
     /**
-     * The current facts a candidate grouped over (V2-EXPECTED-UX-PLAN.md §7 Stage 2): synthetic
-     * clearing legs are not facts the detector saw, and a {@code noop} row is the one exclusion —
-     * the grouping itself happens in {@code MerchantStem.stem}, so the caller matches the stem.
+     * The current facts the commitment stage sees (V2-EXPECTED-UX-PLAN.md §7 Stage 2): synthetic
+     * clearing legs are not facts the detector saw, and a {@code noop} row is the one exclusion.
+     * The activity read scans it by a candidate's stem or a declared commitment's rules.
      */
-    static final String CANDIDATE_FACTS = """
+    static final String ACTIVITY_FACTS = """
         SELECT external_id, date, account_ref, amount, raw_description
         FROM txn_current WHERE synthetic = 0 AND role != 'noop'
         ORDER BY date, n""";
 
-    /** The candidate key of a detected registry row, to route an activity read. */
-    static final String COMMITMENT_STEM =
-        "SELECT candidate_key FROM commitment WHERE commitment_id = ? AND origin = 'detected'";
+    /** The registry row's routing fields for an activity read. */
+    static final String COMMITMENT_BY_ID =
+        "SELECT candidate_key, direction, ended_at FROM commitment WHERE commitment_id = ?";
 
-    /** A declared commitment's occurrences, each left-joined to the fact it carries. */
-    static final String COMMITMENT_ACTIVITY = """
-        SELECT o.due_date, o.status, o.amount, o.matched_external_id, o.matched_by,
-               f.account_ref, f.raw_description
-        FROM commitment_occurrence o
-        LEFT JOIN txn_current f ON f.external_id = o.matched_external_id
-        WHERE o.commitment_id = ?
-        ORDER BY o.due_date""";
+    /** The effective rules of one commitment, in declaration order (the activity scan). */
+    static final String COMMITMENT_RULES_FOR = """
+        SELECT match, account_ref FROM commitment_rule
+        WHERE commitment_id = ? ORDER BY decision_n, match, account_ref""";
 
     /** The window's occurrences joined to their commitment, oldest first (§2.8). */
     static final String EXPECTED_OCCURRENCES = """

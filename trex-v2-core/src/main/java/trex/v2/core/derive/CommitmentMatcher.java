@@ -1,7 +1,5 @@
 package trex.v2.core.derive;
 
-import trex.v2.core.Clean;
-
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -10,8 +8,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
 /**
  * The pure occurrence matcher (V2-COMMITMENTS-PLAN.md §2.5, §2.9; Stage 2). It takes plain,
@@ -135,13 +131,13 @@ final class CommitmentMatcher {
 
         // Compile each tracked commitment's rules once, with the categories.yaml convention: a
         // case-insensitive find over Clean.clean(rawDescription), optional account scope (§2.2).
-        Map<String, List<CompiledRule>> rulesByCommitment = new TreeMap<>();
+        Map<String, List<CommitmentRules.CompiledRule>> rulesByCommitment = new TreeMap<>();
         for (CommitmentRule rule : rules) {
             if (!committedById.containsKey(rule.commitmentId())) {
                 continue;
             }
             rulesByCommitment.computeIfAbsent(rule.commitmentId(), k -> new ArrayList<>())
-                .add(compile(rule));
+                .add(CommitmentRules.compile(rule));
         }
 
         // Materialise every regular schedule before assignment: its first window starts the span
@@ -182,7 +178,7 @@ final class CommitmentMatcher {
                     || afterLife(candidate, fact, spanStart.get(candidate.commitmentId()))) {
                     continue;
                 }
-                List<CompiledRule> candidateRules = rulesByCommitment.get(candidate.commitmentId());
+                List<CommitmentRules.CompiledRule> candidateRules = rulesByCommitment.get(candidate.commitmentId());
                 if (candidateRules == null || !anyMatch(candidateRules, fact)) {
                     continue;
                 }
@@ -460,8 +456,8 @@ final class CommitmentMatcher {
 
     // ---- small helpers ------------------------------------------------------------------------
 
-    private static boolean anyMatch(List<CompiledRule> rules, CurrentFact fact) {
-        for (CompiledRule rule : rules) {
+    private static boolean anyMatch(List<CommitmentRules.CompiledRule> rules, CurrentFact fact) {
+        for (CommitmentRules.CompiledRule rule : rules) {
             if (rule.matches(fact)) {
                 return true;
             }
@@ -475,31 +471,8 @@ final class CommitmentMatcher {
         return amount != 0 && commitment.outgoing() == (amount < 0);
     }
 
-    /** The {@code categories.yaml} pattern convention ({@code RuleSet.compile}). */
-    static CompiledRule compile(CommitmentRule rule) {
-        try {
-            return new CompiledRule(rule, Pattern.compile(rule.match(),
-                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
-        } catch (PatternSyntaxException e) {
-            throw new IllegalArgumentException("commitment '" + rule.commitmentId()
-                + "': bad regex '" + rule.match() + "': " + e.getDescription(), e);
-        }
-    }
-
     /** One assigned fact; {@code matchedBy} is {@code pin} or {@code rule}. */
     private record Assigned(CurrentFact fact, String matchedBy) {}
-
-    /** One rule with its compiled pattern, matched over {@link Clean#clean}. */
-    record CompiledRule(CommitmentRule rule, Pattern pattern) {
-
-        boolean matches(CurrentFact fact) {
-            if (rule.accountRef() != null && !rule.accountRef().isBlank()
-                && !rule.accountRef().equals(fact.fact().accountRef())) {
-                return false;
-            }
-            return pattern.matcher(Clean.clean(fact.fact().rawDescription())).find();
-        }
-    }
 
     /**
      * One occurrence while it is being built. {@code amount} is the summed movement of the facts
