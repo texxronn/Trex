@@ -9,6 +9,7 @@
 import { api } from './api.js';
 import { accountChip } from './account.js';
 import { openCategorize } from './categorize.js';
+import { commitmentChip, openAssignCommitment } from './commitment.js';
 import { openAnnotate } from './annotate.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
@@ -134,8 +135,8 @@ function renderTable() {
     el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', {}, 'Direction'),
     el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'),
-    el('th', {}, 'Category'), el('th', {}, 'Leg'), el('th', {}, 'n'), el('th', {}, 'id'),
-    el('th', {}, ''), el('th', {}, ''));
+    el('th', {}, 'Category'), el('th', {}, 'Commitment'), el('th', {}, 'Leg'), el('th', {}, 'n'),
+    el('th', {}, 'id'), el('th', {}, ''), el('th', {}, ''));
   const body = rows.map((row) => {
     const isRead = read.has(row.externalId);
     return el('tr', { class: isRead ? 'read' : 'unread' },
@@ -147,12 +148,14 @@ function renderTable() {
       el('td', { class: 'desc' }, row.rawDescription,
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
+      el('td', {}, commitmentChip(row)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
       el('td', {}, button(isRead ? 'Unack' : 'Ack', () => toggleAck(row))),
       el('td', {}, button('Categorize', () => openCategorize(ctx, row, categories, load)),
-        button('Note', () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load))));
+        button('Note', () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load)),
+        button(row.commitmentId ? 'Unassign' : 'Assign', () => openAssignCommitment(ctx, row, load))));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
