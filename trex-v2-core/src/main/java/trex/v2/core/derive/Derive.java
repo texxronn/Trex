@@ -103,6 +103,7 @@ public final class Derive {
             pending = pendingSettlement();
             List<ReviewItem> review = reviewItems();
             List<Unit> units = units();
+            List<NoteRow> notes = notes();
             ineffective.sort(Comparator.comparingLong(IneffectiveDecision::decisionN)
                 .thenComparing(IneffectiveDecision::action));
 
@@ -114,6 +115,7 @@ public final class Derive {
                 pending,
                 new ArrayList<>(categories.values()),
                 pins(),
+                notes,
                 review,
                 ineffective,
                 units,
@@ -803,6 +805,29 @@ public final class Derive {
             }
             latest.forEach((id, p) -> out.put(id, new PinRow(id, p.category(), p.n(), p.user(), p.comment())));
             return new ArrayList<>(out.values());
+        }
+
+        /**
+         * Every effective {@code NOTE}, ids resolved through the supersession map (V2-PROPOSAL.md
+         * §6.2). Unlike a pin, a note accumulates: one row per decision, ordered by {@code n}, so
+         * the thread is preserved. A note naming an unknown id is ineffective, never silently
+         * dropped.
+         */
+        private List<NoteRow> notes() {
+            List<NoteRow> out = new ArrayList<>();
+            for (Decision d : effective) {
+                if (d instanceof Decision.Note note) {
+                    String id = resolve(note.externalId());
+                    if (id == null) {
+                        ineffective.add(new IneffectiveDecision(d.n(), Action.NOTE.wire(),
+                            "unknown externalId"));
+                        continue;
+                    }
+                    out.add(new NoteRow(id, note.text(), note.n(), note.user(), note.at()));
+                }
+            }
+            out.sort(Comparator.comparingLong(NoteRow::decisionN));
+            return out;
         }
 
         private CurrentFact withCategory(CurrentFact c, CategoryRow row) {
