@@ -33,8 +33,9 @@ import java.util.regex.PatternSyntaxException;
  * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. Every matching
  * fact — by rule or by pin — is allocated oldest-first across the commitment's open occurrences:
  * the arrears clear from the front and a surplus pre-pays the materialised future; anything left
- * over is an {@code off_schedule} occurrence at the fact's date. The output is ordered by
- * commitment id then due date, and no iteration depends on input order.
+ * over is an {@code off_schedule} occurrence at the fact's date. A {@code variable} commitment
+ * instead keeps one fact per occurrence: its range is too wide to infer multiples. The output is
+ * ordered by commitment id then due date, and no iteration depends on input order.
  */
 final class CommitmentMatcher {
 
@@ -277,6 +278,22 @@ final class CommitmentMatcher {
         for (Assigned assigned : facts) {
             CurrentFact fact = assigned.fact;
             long remaining = Math.abs(fact.fact().amount());
+            if (commitment.amountKind() == AmountKind.VARIABLE) {
+                // A usage amount's range is too wide to infer multiples (§2.9): the whole fact
+                // satisfies the oldest open occurrence — no partial, no splitting, no
+                // pre-payment — and with nothing open it is off_schedule like any other fact.
+                Slot oldest = oldestOpen(slots);
+                if (oldest == null) {
+                    offSchedule(assigned, slots, remaining);
+                } else {
+                    oldest.status = OccurrenceStatus.OCCURRED;
+                    oldest.amount = fact.fact().amount();
+                    oldest.matchedExternalId = fact.externalId();
+                    oldest.matchedDate = fact.fact().date();
+                    oldest.matchedBy = assigned.matchedBy;
+                }
+                continue;
+            }
             for (Slot slot : slots) {
                 if (remaining == 0) {
                     break;
@@ -290,6 +307,16 @@ final class CommitmentMatcher {
                 offSchedule(assigned, slots, remaining);
             }
         }
+    }
+
+    /** The oldest open occurrence, in due-date order, or null when none is open. */
+    private static Slot oldestOpen(List<Slot> slots) {
+        for (Slot slot : slots) {
+            if (slot.open()) {
+                return slot;
+            }
+        }
+        return null;
     }
 
     /**

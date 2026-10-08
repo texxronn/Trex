@@ -75,6 +75,16 @@ class CommitmentMatchTest {
             declaredN, null, null);
     }
 
+    private static Commitment declared(String id, String direction, Cadence cadence,
+                                       LocalDate anchor, long amount, AmountKind amountKind,
+                                       long declaredN) {
+        return new Commitment(id, null, id, CommitmentOrigin.DECLARED, direction, cadence,
+            amountKind, CommitmentKind.BILL, CommitmentStatus.ACTIVE, anchor, null, anchor,
+            amount, null, null, null,
+            List.of(new Commitment.PriceStep(anchor, amount, null, null)), null, null, 0, 1.0,
+            false, 0, null, declaredN, null, null);
+    }
+
     private static CommitmentRule rule(String commitmentId, String match) {
         return new CommitmentRule(commitmentId, match, null, 1L);
     }
@@ -547,6 +557,26 @@ class CommitmentMatchTest {
             LocalDate.of(2026, 5, 10), LocalDate.of(2026, 6, 10)), scheduled(match, "bill"),
             "the pin never moves the anchor");
         assertEquals(0, arrears(match, "bill").count());
+    }
+
+    @Test
+    void aVariableCommitmentKeepsOneFactPerOccurrence() {
+        Commitment aws = declared("aws", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 5), -5000L, AmountKind.VARIABLE, 1);
+        CurrentFact doubleCharge = fact(1, "ing-credit-card", LocalDate.of(2026, 3, 20), -10000L,
+            "AMAZON WEB SERVICES");
+
+        CommitmentMatch match = run(List.of(aws), List.of(rule("aws", "AMAZON WEB SERVICES")),
+            List.of(doubleCharge), Instant.parse("2026-04-05T00:00:00Z"));
+
+        CommitmentOccurrence march = at(match, "aws", LocalDate.of(2026, 3, 5));
+        assertEquals(OccurrenceStatus.OCCURRED, march.status());
+        assertEquals(-10000L, march.amount().longValue(),
+            "a usage range cannot infer multiples: the whole fact, one occurrence");
+        assertEquals("id-1", march.matchedExternalId());
+        assertEquals(OccurrenceStatus.DUE, at(match, "aws", LocalDate.of(2026, 4, 5)).status(),
+            "nothing is split across or pre-paid to the next period");
+        assertEquals(0, arrears(match, "aws").count());
     }
 
     // ---- input validation ---------------------------------------------------------------------
