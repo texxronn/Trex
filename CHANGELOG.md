@@ -32,6 +32,13 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A Balance column on Accounts** (the derived closing), **hidden by default** and toggled from the
+  toolbar; the choice persists. Sourced by joining `/api/reconcile`, no backend change.
+- **Rules is now a read-only tree** instead of a config editor: declared categories expand to their
+  ordered rules with hits, merchants and a `shadowed`/`never fires` marker (the per-rule stats
+  `/api/workbook` already returned), plus lint, pins and suggestions, and the raw `categories.yaml`/
+  `transfers.yaml` for reference. Editing happens in the repo, so the checkout and the running config
+  cannot drift.
 - **A Direction column** (`IN ←` green, `OUT →` bright red) on the **Review**, **Blotter** and
   **Eyeball** tables, alongside the signed amount. `/api/review` now carries the signed `amount` as
   well as the absolute stake, so the queue can show direction.

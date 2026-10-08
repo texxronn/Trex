@@ -19,8 +19,10 @@ const WINDOWS = {
 let host;
 let ctx;
 let data = null;
+let balances = new Map();
 let win = localStorage.getItem('trex.accounts.window') || '12m';
 let grain = localStorage.getItem('trex.accounts.grain') || 'week';
+let showBalance = localStorage.getItem('trex.accounts.balance') === 'true';
 
 export function mount(container, context) {
   host = container;
@@ -32,7 +34,12 @@ export function mount(container, context) {
 
 async function load() {
   try {
-    data = await api.accounts({ window: win, granularity: grain });
+    const [accounts, reconcile] = await Promise.all([
+      api.accounts({ window: win, granularity: grain }),
+      api.reconcile(),
+    ]);
+    data = accounts;
+    balances = new Map((reconcile.accounts || []).map((a) => [a.accountRef, a.closing]));
   } catch (error) {
     reportError(error);
     return;
@@ -69,6 +76,14 @@ function controls() {
   return [
     el('label', {}, 'window ', windowSelect),
     el('label', {}, 'bucket ', grainSelect),
+    el('label', {}, el('input', {
+      type: 'checkbox', checked: showBalance,
+      onchange: (event) => {
+        showBalance = event.target.checked;
+        localStorage.setItem('trex.accounts.balance', String(showBalance));
+        render();
+      },
+    }), ' balance'),
     legend('facts', 'rows'),
     legend('hole', 'hole'),
     legend('before', 'outside'),
@@ -94,6 +109,7 @@ function summary() {
 function table() {
   const head = el('tr', {},
     el('th', {}, 'Account'), el('th', {}, 'Currency'), el('th', { class: 'amount' }, 'Opening'),
+    ...(showBalance ? [el('th', { class: 'amount' }, 'Balance')] : []),
     el('th', {}, 'Earliest'),
     el('th', {}, 'Latest'), el('th', { class: 'amount' }, 'Txns'),
     el('th', {}, 'Last import'), el('th', { class: 'amount' }, 'Holes'),
@@ -111,6 +127,9 @@ function accountRow(account) {
     el('td', { class: 'muted' }, account.currency),
     el('td', { class: 'amount' }, account.opening === null || account.opening === undefined
       ? '\u2014' : money(account.opening)),
+    ...(showBalance ? [el('td', { class: 'amount' },
+      balances.get(account.ref) === undefined || balances.get(account.ref) === null
+        ? '\u2014' : money(balances.get(account.ref)))] : []),
     el('td', { class: 'muted' }, account.first || '\u2014'),
     el('td', { class: 'muted' }, account.last || '\u2014'),
     el('td', { class: 'amount' }, `${account.txnsInWindow}/${account.txns}`),
