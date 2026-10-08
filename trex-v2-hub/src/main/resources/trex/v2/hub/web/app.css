@@ -210,6 +210,25 @@ th {
 }
 td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }
 td.desc { white-space: normal; max-width: 30rem; }
+/* A review cluster: a collapsible header, then each member as a colored chip so it stands out
+   against the dense table. Tints are mixed against the theme surface (light | grey | dark). */
+td.members { white-space: normal; max-width: 46rem; }
+td.members summary { cursor: pointer; }
+td.members summary::marker { color: var(--muted); }
+td.members .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+td.members .chip {
+  display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); background: var(--surface-2);
+  font-variant-numeric: tabular-nums;
+}
+td.members .chip .chip-amt { font-weight: 600; }
+td.members .chip.t0 { background: color-mix(in srgb, #4c8bf5 16%, var(--surface)); border-color: color-mix(in srgb, #4c8bf5 40%, var(--line-strong)); }
+td.members .chip.t1 { background: color-mix(in srgb, #f59e0b 18%, var(--surface)); border-color: color-mix(in srgb, #f59e0b 40%, var(--line-strong)); }
+td.members .chip.t2 { background: color-mix(in srgb, #10b981 16%, var(--surface)); border-color: color-mix(in srgb, #10b981 40%, var(--line-strong)); }
+td.members .chip.t3 { background: color-mix(in srgb, #a855f7 16%, var(--surface)); border-color: color-mix(in srgb, #a855f7 40%, var(--line-strong)); }
+td.members .chip.t4 { background: color-mix(in srgb, #ef4444 15%, var(--surface)); border-color: color-mix(in srgb, #ef4444 40%, var(--line-strong)); }
+td.members .chip.t5 { background: color-mix(in srgb, #06b6d4 16%, var(--surface)); border-color: color-mix(in srgb, #06b6d4 40%, var(--line-strong)); }
 
 /* ---- badges and tags ---------------------------------------------------- */
 

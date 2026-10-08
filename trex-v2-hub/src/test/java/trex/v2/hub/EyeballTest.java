@@ -100,7 +100,8 @@ class EyeballTest {
     void anUnmatchedLegPastTheHoldWindowComesFromTheReviewItem() {
         List<Fact> facts = List.of(
             fact(1, "leg1", "ing-savings", LocalDate.of(2026, 9, 5), -5000, 0, "Transfer to Savings 1111"));
-        List<ReviewRow> review = List.of(new ReviewRow("leg1", "UNMATCHED_LEG", "held past 30d", 5000L, AT, "h", null));
+        List<ReviewRow> review = List.of(new ReviewRow("leg1", "UNMATCHED_LEG", "held past 30d", 5000L, AT, "h", null,
+            LocalDate.of(2026, 9, 5), List.of()));
         EyeballResponse walk = walk(facts, List.of(), review, List.of(), registry(statement("ing-savings")));
         assertKind(walk, Eyeball.UNMATCHED_LEG, "leg1");
     }
@@ -123,8 +124,8 @@ class EyeballTest {
             fact(2, "ok", "ing-savings", LocalDate.of(2026, 9, 4), -800, 0, "COLES 1234"),
             fact(3, "out", "ing-savings", LocalDate.of(2026, 8, 4), -900, 0, "OLD SHOP"));
         List<ReviewRow> review = List.of(
-            new ReviewRow("u1", "POTENTIAL_DUP", "x", 1L, AT, "h", "COLES 1234"),
-            new ReviewRow("out", "POTENTIAL_DUP", "y", 1L, AT, "h", null));
+            new ReviewRow("u1", "POTENTIAL_DUP", "x", 1L, AT, "h", "COLES 1234", LocalDate.of(2026, 9, 4), List.of()),
+            new ReviewRow("out", "POTENTIAL_DUP", "y", 1L, AT, "h", null, LocalDate.of(2026, 8, 4), List.of()));
         EyeballResponse walk = walk(facts, rows, review, List.of(), registry(statement("ing-savings")));
         assertKind(walk, Eyeball.UNCATEGORIZED, "u1");
         assertEquals(List.of("u1"), walk.openItems().stream().map(ReviewRow::subject).toList(),

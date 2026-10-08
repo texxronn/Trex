@@ -214,7 +214,7 @@ public final class HubService implements HubApi, AutoCloseable {
 
     @Override
     public List<ReviewRow> review(String kind) {
-        return reads.review(kind);
+        return reads.review(kind, refresher.config().transfers());
     }
 
     @Override
@@ -401,7 +401,7 @@ public final class HubService implements HubApi, AutoCloseable {
         List<Fact> facts = reads.currentFacts();
         LedgerPage page = reads.ledger(new BlotterQuery(null, null, null, null, null, range.from(), range.to(),
             null, null, null, false, "date", "asc", MAX_WALK_ROWS, 0));
-        return Eyeball.walk(period, user, at, bucket, facts, page.rows(), reads.review(null), reads.pending(),
+        return Eyeball.walk(period, user, at, bucket, facts, page.rows(), reads.review(null, c.transfers()), reads.pending(),
             c.registry(), c.transfers());
     }
 

@@ -26,10 +26,10 @@ final class HubSql {
 
     static final String REVIEW_SELECT = """
         SELECT r.subject, r.kind, r.detail, r.amount_stake, r.opened_at, r.state_hash,
-               x.raw_description
+               x.raw_description, x.date
         FROM review_item r
         LEFT JOIN (
-            SELECT f.external_id, f.raw_description
+            SELECT f.external_id, f.raw_description, f.date
             FROM fact f
             WHERE f.n = (SELECT MAX(g.n) FROM fact g WHERE g.external_id = f.external_id)
         ) x ON x.external_id = r.subject""";
