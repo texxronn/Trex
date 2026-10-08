@@ -20,6 +20,11 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **The Expected mode's four sections fold** (`V2-EXPECTED-UX-PLAN.md`). Collapsible headers carry
+  the live figures — `Occurrences · this month · n`, `Catch up · n behind · $x`,
+  `Commitments · n candidates`, `Lint · n overlaps` — with Occurrences and Catch up open by default
+  and the registry and Lint collapsed; the state is remembered per device. Presentation only: no
+  API, derivation or log change.
 - **The header's per-account `reconcile` badges are gone.** The top strip no longer calls
   `/api/reconcile`; the balance check lives entirely in the **Chains** tab. A **Clear filters**
   button resets the filter dropdowns on **Blotter**, **Review** and **Chains**.
