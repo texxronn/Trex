@@ -17,4 +17,6 @@ export const decisions = {
   markNoop: (ctx, id, reason) => ({ ...envelope('MARK_NOOP', ctx, reason), externalId: id, reason }),
   unmarkNoop: (ctx, id, comment) => ({ ...envelope('UNMARK_NOOP', ctx, comment), externalId: id }),
   note: (ctx, id, text) => ({ ...envelope('NOTE', ctx, null), externalId: id, text }),
+  attachAccount: (ctx, ids, account, comment) => ({ ...envelope('ATTACH_ACCOUNT', ctx, comment),
+    externalIds: ids, account }),
 };

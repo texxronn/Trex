@@ -122,7 +122,8 @@ function renderRows() {
         if (e.target.checked) selected.add(row.externalId); else selected.delete(row.externalId);
       },
     });
-    const classes = [row.hasReview ? 'bad' : '', row.role === 'noop' ? 'noop' : ''].filter(Boolean).join(' ');
+    const classes = [row.hasReview ? 'bad' : '', row.role === 'noop' ? 'noop' : '',
+      row.synthetic ? 'synthetic' : ''].filter(Boolean).join(' ');
     return el('tr', { class: classes },
       el('td', {}, checkbox),
       el('td', {}, row.date),
@@ -133,7 +134,8 @@ function renderRows() {
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
-      el('td', {}, row.role === 'noop' ? el('span', { class: 'tag role-noop' }, 'noop') : ''),
+      el('td', {}, row.synthetic ? el('span', { class: 'tag synthetic' }, 'synthetic')
+        : (row.role === 'noop' ? el('span', { class: 'tag role-noop' }, 'noop') : '')),
       el('td', { class: 'muted' }, row.rail ? row.rail + ' \u00b7 ' + (row.amount < 0 ? 'OUT' : 'IN') : ''),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),

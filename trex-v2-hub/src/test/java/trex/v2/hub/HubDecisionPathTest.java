@@ -134,7 +134,7 @@ class HubDecisionPathTest {
     private static DecisionDraft draft(String action, String actor, String user, String externalId,
                                        String category, String item, List<String> ids) {
         return new DecisionDraft(action, actor, user, AT, "test", null, null, externalId, null, null,
-            item, ids.isEmpty() ? null : ids, category, null, null, null, null, null, null, null, null, null);
+            item, ids.isEmpty() ? null : ids, category, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static HttpResponse<String> post(HttpClient client, URI base, String body) throws Exception {

@@ -17,7 +17,8 @@ final class HubSql {
                t.leg, t.role, t.rail, t.transfer_id, t.category, t.category_origin, t.rule_id,
                EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review,
                (SELECT n.text FROM note_current n WHERE n.external_id = t.external_id
-                 ORDER BY n.decision_n DESC LIMIT 1) AS latest_note
+                 ORDER BY n.decision_n DESC LIMIT 1) AS latest_note,
+               t.synthetic
         FROM txn_current t""";
 
     static final String LEDGER_COUNT = "SELECT COUNT(*) FROM txn_current t";
@@ -94,14 +95,14 @@ final class HubSql {
         SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
                observation, source_type, provenance, evidence_id, parser,
                line_v, at_ms, env, source, target
-        FROM txn_current WHERE role = 'transaction' ORDER BY n""";
+        FROM txn_current WHERE role = 'transaction' AND synthetic = 0 ORDER BY n""";
 
     /** The current noop rows, the rows the balance chain skips by role (§6.9). */
     static final String CURRENT_NOOPS = """
         SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, occ,
                observation, source_type, provenance, evidence_id, parser,
                line_v, at_ms, env, source, target
-        FROM txn_current WHERE role = 'noop' ORDER BY n""";
+        FROM txn_current WHERE role = 'noop' AND synthetic = 0 ORDER BY n""";
 
     /**
      * The latest effective role decision naming any id in a chain, with its reason (§6.9). A
