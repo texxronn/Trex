@@ -10,9 +10,9 @@
 // preference, like the window.
 
 import { api } from './api.js';
-import { openCommitmentNote, openDeclare, openRetire, openSettle } from './commitment.js';
+import { openCandidateActions, openCommitmentNote, openDeclare, openRetire, openSettle } from './commitment.js';
 import { direction } from './direction.js';
-import { el, clear, scroll } from './dom.js';
+import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 
 const WINDOWS = { today: 'Today', week: 'This week', month: 'This month' };
@@ -205,32 +205,105 @@ function arrearsFor(commitmentId) {
 
 // ---- the registry -----------------------------------------------------------------------------
 
+// The registry's controls live in module state so an SSE re-render (which rebuilds the DOM) keeps
+// them, and a filter change re-renders only the list and the header count — typing in the search
+// box never loses focus. All rows show by default; filtering is opt-in (operator, 2026-10-08).
+const filters = { origin: 'all', status: '', direction: '', q: '', sort: 'last' };
+let registryListHost;
+let registryCountSpan;
+let registryRows = [];
+
 function registrySection() {
-  const declared = registry.filter((c) => c.origin === 'declared').length;
-  const candidates = registry.length - declared;
-  const count = registry.length;
-  const suffix = !candidates ? ` · ${count}`
-    : candidates === count
-      ? ` · ${count} candidate${count === 1 ? '' : 's'}`
-      : ` · ${count} · ${candidates} candidate${candidates === 1 ? '' : 's'}`;
-  const head = ['Commitments', el('span', { class: 'muted' }, suffix)];
-  const columns = el('tr', {},
-    el('th', {}, 'Commitment'), el('th', {}, 'Origin'), el('th', {}, 'Direction'),
-    el('th', {}, 'Cadence'), el('th', {}, 'Kind'), el('th', {}, 'Status'),
-    el('th', { class: 'amount' }, 'Current'), el('th', {}, 'Last'), el('th', {}, 'Next'),
-    el('th', { class: 'amount' }, 'Arrears'), el('th', {}, ''));
-  return fold('registry', head, [
+  const head = ['Commitments', registryCountSpan = el('span', { class: 'muted' })];
+  const details = fold('registry', head, [
+    registryFilters(),
     el('div', { class: 'section-actions' },
       el('button', { type: 'button', class: 'ghost',
         onclick: () => openDeclare(ctx, {
           summary: 'A commitment declared by hand: a manual-cadence bill, an income, anything '
             + 'detection did not propose.',
         }, load) }, 'Declare commitment')),
-    registry.length
-      ? scroll(el('table', {}, el('thead', {}, columns),
-          el('tbody', {}, ...registry.map(registryRow))))
-      : el('p', { class: 'muted' }, 'No commitments.'),
+    registryListHost = el('div'),
   ]);
+  refreshRegistry();
+  return details;
+}
+
+function registryFilters() {
+  return el('div', { class: 'toolbar' },
+    el('div', { class: 'tabs' },
+      ...[['all', 'All'], ['detected', 'Candidates'], ['declared', 'Declared']].map(([value, label]) =>
+        el('button', {
+          type: 'button',
+          class: 'tab' + (filters.origin === value ? ' active' : ''),
+          onclick: () => { filters.origin = value; refreshRegistry(); },
+        }, label))),
+    field('Status', filterSelect([['', 'all'], ['active', 'active'], ['dormant', 'dormant'],
+      ['ended', 'ended']], filters.status, (v) => { filters.status = v; refreshRegistry(); })),
+    field('Direction', filterSelect([['', 'all'], ['in', 'in'], ['out', 'out']], filters.direction,
+      (v) => { filters.direction = v; refreshRegistry(); })),
+    field('Sort', filterSelect([['last', 'last seen'], ['stem', 'name'], ['amount', 'amount']],
+      filters.sort, (v) => { filters.sort = v; refreshRegistry(); })),
+    field('Text', el('input', {
+      type: 'search', value: filters.q,
+      oninput: (e) => { filters.q = e.target.value; refreshRegistry(); },
+    })),
+    el('button', { type: 'button', class: 'ghost', onclick: () => {
+      filters.origin = 'all'; filters.status = ''; filters.direction = '';
+      filters.q = ''; filters.sort = 'last';
+      render(); // rebuild the controls so the cleared values show
+    } }, 'Clear filters'));
+}
+
+// ---- the registry list ------------------------------------------------------------------------
+
+function refreshRegistry() {
+  registryRows = visibleRegistry();
+  updateRegistrySummary();
+  clear(registryListHost);
+  if (!registryRows.length) {
+    registryListHost.append(el('p', { class: 'muted' }, 'No commitments match.'));
+    return;
+  }
+  registryListHost.append(scroll(el('table', {},
+    el('thead', {}, registryColumns()),
+    el('tbody', {}, ...registryRows.map(registryRow)))));
+}
+
+function visibleRegistry() {
+  const q = filters.q.trim().toLowerCase();
+  const rows = registry.filter((c) => {
+    if (filters.origin !== 'all' && c.origin !== filters.origin) return false;
+    if (filters.status && c.status !== filters.status) return false;
+    if (filters.direction && c.direction !== filters.direction) return false;
+    if (q && !(labelOf(c) + ' ' + c.commitmentId).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  rows.sort((a, b) => {
+    if (filters.sort === 'stem') return labelOf(a).localeCompare(labelOf(b));
+    if (filters.sort === 'amount') return Math.abs(b.currentAmount || 0) - Math.abs(a.currentAmount || 0);
+    return (b.lastDate || '').localeCompare(a.lastDate || '');
+  });
+  return rows;
+}
+
+function updateRegistrySummary() {
+  const total = registry.length;
+  const shown = registryRows.length;
+  const candidates = registry.filter((c) => c.origin === 'detected').length;
+  registryCountSpan.textContent = shown !== total
+    ? ` · ${shown} of ${total}`
+    : !candidates ? ` · ${total}`
+      : candidates === total ? ` · ${total} candidate${total === 1 ? '' : 's'}`
+        : ` · ${total} · ${candidates} candidate${candidates === 1 ? '' : 's'}`;
+}
+
+function registryColumns() {
+  return el('tr', {},
+    el('th', {}, 'Commitment'), el('th', {}, 'Origin'), el('th', {}, 'Direction'),
+    el('th', {}, 'Cadence'), el('th', {}, 'Kind'), el('th', {}, 'Status'),
+    el('th', { class: 'amount' }, 'Current'), el('th', {}, 'Last'), el('th', {}, 'Next'),
+    el('th', { class: 'amount' }, 'Arrears'), el('th', {}, ''));
 }
 
 function registryRow(c) {
@@ -239,8 +312,9 @@ function registryRow(c) {
     ? `${c.arrearsCount} · ${money(Math.abs(c.arrearsAmount || 0))}` : '—';
   return el('tr', {},
     el('td', { class: 'desc' },
-      el('span', { title: c.commitmentId }, c.name || shortId(c.commitmentId)),
-      declared ? null : el('span', { class: 'muted' }, ' · candidate — confirm in Review'),
+      el('span', { title: c.commitmentId }, labelOf(c)),
+      declared ? null : el('span', { class: 'muted' }, ' · candidate'),
+      !declared && seriesLine(c) ? el('div', { class: 'muted series' }, seriesLine(c)) : null,
       c.notes && c.notes.length
         ? el('div', {}, ...c.notes.map((n) => el('span', { class: 'note-chip',
             title: `${n.user} · ${(n.at || '').slice(0, 10)}` }, '\u270e ' + n.text)))
@@ -249,13 +323,51 @@ function registryRow(c) {
     el('td', {}, direction(c.currentAmount != null ? c.currentAmount
       : (c.direction === 'in' ? 1 : -1))),
     el('td', {}, c.cadence),
-    el('td', {}, c.kind),
+    el('td', {}, declared ? c.kind : el('span', { class: 'muted' }, '—')),
     el('td', {}, el('span', { class: 'tag ' + c.status }, c.status)),
     el('td', { class: 'amount' }, currentCell(c)),
     el('td', { class: 'muted' }, c.lastDate || '—'),
     el('td', { class: 'muted' }, c.nextDue || '—'),
     el('td', { class: 'amount' }, arrears),
     el('td', {}, ...actions(c, declared)));
+}
+
+function labelOf(c) {
+  return c.name || c.stem || shortId(c.commitmentId);
+}
+
+/** A candidate's evidence, from fields the registry already carries (V2-EXPECTED-UX-PLAN.md §7). */
+function seriesLine(c) {
+  const bits = [];
+  if (c.occurrenceCount) bits.push(`${c.occurrenceCount}\u00d7`);
+  if (c.firstDate) bits.push(c.lastDate ? `${c.firstDate} → ${c.lastDate}` : c.firstDate);
+  if (c.regularity != null) bits.push(`regularity ${c.regularity.toFixed(2)}`);
+  if (c.variable) bits.push('variable');
+  return bits.join(' · ');
+}
+
+/** The candidate's shape for the shared menu (commitment.js), with its one-line context. */
+function candidateOf(c) {
+  return {
+    stem: c.stem,
+    commitmentId: c.commitmentId,
+    cadence: c.cadence,
+    currentAmount: c.currentAmount,
+    firstDate: c.firstDate,
+    detail: candidateDetail(c),
+  };
+}
+
+function candidateDetail(c) {
+  const bits = [c.cadence];
+  if (c.occurrenceCount) bits.push(`${c.occurrenceCount}\u00d7`);
+  if (c.firstDate) bits.push(c.lastDate ? `${c.firstDate} → ${c.lastDate}` : c.firstDate);
+  if (c.currentAmount != null) {
+    bits.push(`last ${money(c.currentAmount)}`
+      + (c.previousAmount != null ? ` (was ${money(c.previousAmount)})` : ''));
+  }
+  if (c.regularity != null) bits.push(`regularity ${c.regularity.toFixed(2)}`);
+  return bits.join(' · ');
 }
 
 function currentCell(c) {
@@ -268,14 +380,16 @@ function currentCell(c) {
   }
   if (c.changePct != null) {
     const sign = c.changePct > 0 ? '+' : '';
-    cell.append(el('span', { class: 'muted' }, ` ${sign}${c.changePct.toFixed(1)}%`));
+    cell.append(el('span', { class: 'muted' },
+      ` ${sign}${c.changePct.toFixed(1)}%${c.changeDate ? ` since ${c.changeDate}` : ''}`));
   }
   return cell;
 }
 
 function actions(c, declared) {
   if (!declared) {
-    return [el('span', { class: 'muted' }, '')];
+    return [el('button', { type: 'button', class: 'ghost',
+      onclick: () => openCandidateActions(ctx, candidateOf(c), load) }, 'Actions…')];
   }
   const out = [
     el('button', { type: 'button', class: 'ghost',
@@ -362,6 +476,12 @@ function fold(id, head, body) {
     },
   }, el('summary', {}, ...head), el('div', { class: 'x-body' }, ...body));
   return details;
+}
+
+/** A small select for the registry filters: [value, label] pairs (§7 Stage 2). */
+function filterSelect(options, value, onChange) {
+  return el('select', { onchange: (e) => onChange(e.target.value) },
+    ...options.map(([v, label]) => el('option', { value: v, selected: v === value }, label)));
 }
 
 function currentOf(commitmentId) {

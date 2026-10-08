@@ -5,7 +5,7 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
-import { openPrompt, openSelect } from './dialog.js';
+import { openChoice, openPrompt, openSelect } from './dialog.js';
 import { el } from './dom.js';
 import { shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -294,6 +294,65 @@ export async function openAssignCommitment(ctx, row, onDone) {
     }
     if (onDone) onDone();
   });
+}
+
+// ---- detected candidates (Review and the Expected registry share these) ------------------------
+
+/**
+ * The candidate's declaration prefill: the stem is the literal rule, the name and id derive from
+ * it, and the caller supplies the cadence, amount and anchor. Review and the registry both call
+ * this, so confirming from either place posts the same `DECLARE_COMMITMENT` shape (§2.8).
+ */
+export function confirmCandidate(ctx, candidate, onDone) {
+  const current = candidate.currentAmount != null ? candidate.currentAmount : 0;
+  openDeclare(ctx, {
+    commitmentId: slugify(candidate.stem),
+    name: titleCase(candidate.stem),
+    kind: 'other',
+    direction: current < 0 ? 'out' : 'in',
+    cadence: candidate.cadence || 'monthly',
+    amountKind: 'fixed',
+    amount: candidate.currentAmount != null ? Math.abs(candidate.currentAmount) : null,
+    anchor: candidate.firstDate || '',
+    matches: [{ match: escapeRegex(candidate.stem), account: null }],
+    fromCandidate: candidate.stem,
+    summary: candidate.detail || null,
+  }, onDone);
+}
+
+/** Ignore is the semantic (it does not reopen on the next fact), and it carries a reason. */
+export function ignoreCandidate(ctx, candidate, onDone) {
+  openPrompt({
+    title: 'Ignore recurring',
+    summary: candidate.stem,
+    label: 'Reason',
+    placeholder: 'why this series is not a commitment',
+    confirm: 'Ignore',
+  }, async (reason) => {
+    if (!reason) {
+      toast('A reason is required', 'bad');
+      return;
+    }
+    try {
+      await api.decisions(ctx.n, [decisions.ignoreRecurring(ctx, candidate.stem, reason)]);
+      toast('Ignored');
+    } catch (error) {
+      reportError(error);
+    }
+    if (onDone) onDone();
+  });
+}
+
+/** A candidate row's menu: confirm it here, hand it to Review, or ignore it for good. */
+export function openCandidateActions(ctx, candidate, onDone) {
+  openChoice({
+    title: candidate.stem || shortId(candidate.commitmentId),
+    summary: candidate.detail || 'Detected recurring series',
+  }, [
+    { label: 'Review', onPick: () => { location.hash = '#review?kind=SUSPECTED_RECURRING'; } },
+    { label: 'Ignore…', class: 'warn', onPick: () => ignoreCandidate(ctx, candidate, onDone) },
+    { label: 'Confirm…', class: 'primary', onPick: () => confirmCandidate(ctx, candidate, onDone) },
+  ]);
 }
 
 // ---- shared transformations -------------------------------------------------------------------
