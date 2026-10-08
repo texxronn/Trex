@@ -137,7 +137,7 @@ rules:
 
   # Petrol only, kept apart from TRANSPORT so train spend is visible on its own, and apart
   # from VEHICLE so servicing does not hide inside the fuel bill. Before GROCERIES so COSTCO
-  # GAS is fuel while COSTCO WHOLESALE stays the weekly shop.
+  # GAS is fuel while COSTCO WHOLESALE and COSTCO CROSSROADS stay the weekly shop.
   # \bshell\b, never bare "shell": SHELLHARBOUR is a suburb that appears in these statements.
   - category: FUEL
     comment: "petrol, kept apart from TRANSPORT because trains are the primary transport"
@@ -153,7 +153,7 @@ rules:
   - category: GROCERIES
     comment: "supermarkets, grocers and the bulk shops"
     when:
-      match: "woolworths|coles|aldi|iga|foodland|costco wholesale|minto fruit|bakers flour|glenfield bakery|best meats"
+      match: "woolworths|coles|aldi|iga|foodland|costco wholesale|costco crossroads|minto fruit|bakers flour|glenfield bakery|best meats"
 
   # Eating that is not a grocery run: cafés, coffee, takeaway. Restaurants are deliberately
   # NOT here — a restaurant meal is the thing you would cut, so it sits in DISCRETIONARY,
@@ -187,6 +187,13 @@ rules:
     comment: "sport, activities and the kids' clubs"
     when:
       match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|eschol park|camden tigers|football|soccer club|leisure cent"
+
+  # The kids' piano teacher, paid by CommBank App. The memo varies — "Piano Lessons",
+  # "11 Lessons", "Payment", or nothing — so match the payee name, the one constant.
+  - category: SPORT_AND_LEISURE
+    comment: "the kids' activities: private piano lessons"
+    when:
+      match: "vazhel"
 
   # Hardware and the house, tracked apart from general retail. Only the chain seen in the
   # data so far; adding another is a config edit, not a code change.
