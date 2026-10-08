@@ -41,10 +41,10 @@ interface HubApi {
     List<trex.v2.hub.api.CommitmentJson> commitments();
 
     /**
-     * The current facts a detected candidate grouped over, by its grouping stem
-     * (V2-EXPECTED-UX-PLAN.md §7 Stage 2), oldest first — the evidence behind the candidate.
+     * A commitment's activity, by its id (V2-EXPECTED-UX-PLAN.md §7 Stage 2): a candidate's
+     * series facts, or a declared commitment's occurrences with the fact each carries.
      */
-    List<trex.v2.hub.api.CandidateFactJson> candidateFacts(String stem);
+    List<trex.v2.hub.api.ActivityJson> activity(String commitmentId);
 
     /**
      * The Expected view (V2-COMMITMENTS-PLAN.md §2.8): a calendar window's occurrences, the

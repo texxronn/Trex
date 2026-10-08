@@ -124,18 +124,38 @@ class CommitmentsApiTest {
             assertTrue(candidate.get("rules").isEmpty());
             assertTrue(candidate.get("nextDue").isNull());
 
-            // ---- the candidate's observed facts (§7 Stage 2): the series behind the stem -------
+            // ---- the candidate's activity (§7 Stage 2): the series behind the id ---------------
+            String candidateId = candidate.get("commitmentId").asText();
             JsonNode facts = json(get(client, base,
-                "/api/commitments/facts?stem=" + java.net.URLEncoder.encode("GYM MEMBERSHIP",
+                "/api/commitments/activity?id=" + java.net.URLEncoder.encode(candidateId,
                     java.nio.charset.StandardCharsets.UTF_8)));
             assertEquals(3, facts.size(), facts.toPrettyString());
             assertEquals(today.minusDays(60).toString(), facts.get(0).get("date").asText());
+            assertTrue(facts.get(0).get("status").isNull());
             assertEquals("ing-savings", facts.get(0).get("accountRef").asText());
             assertEquals("gym1", facts.get(0).get("externalId").asText());
             assertEquals(-999, facts.get(0).get("amount").asLong());
             assertEquals("GYM MEMBERSHIP", facts.get(0).get("rawDescription").asText());
             assertEquals(today.toString(), facts.get(2).get("date").asText());
-            assertEquals(422, get(client, base, "/api/commitments/facts").statusCode());
+
+            // A declared commitment's activity is its occurrences with the fact each carries.
+            JsonNode activity = json(get(client, base, "/api/commitments/activity?id=netflix"));
+            JsonNode first = activity.get(0);
+            assertEquals(today.minusDays(14).toString(), first.get("date").asText());
+            assertEquals("occurred", first.get("status").asText());
+            assertEquals(-1000, first.get("amount").asLong());
+            assertEquals("NETFLIX SUB", first.get("rawDescription").asText());
+            assertEquals("rule", first.get("matchedBy").asText());
+            JsonNode missed = null;
+            for (JsonNode row : activity) {
+                if ("missed".equals(row.get("status").asText())) {
+                    missed = row;
+                }
+            }
+            assertNotNull(missed, activity.toPrettyString());
+            assertTrue(missed.get("amount").isNull());
+            assertTrue(missed.get("rawDescription").isNull());
+            assertEquals(422, get(client, base, "/api/commitments/activity").statusCode());
 
             // ---- Review: the candidate renders from its enrichment, no second fetch ----------
             JsonNode suspected = json(get(client, base, "/api/review?kind=SUSPECTED_RECURRING"));

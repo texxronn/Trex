@@ -109,6 +109,19 @@ final class HubSql {
         FROM txn_current WHERE synthetic = 0 AND role != 'noop'
         ORDER BY date, n""";
 
+    /** The candidate key of a detected registry row, to route an activity read. */
+    static final String COMMITMENT_STEM =
+        "SELECT candidate_key FROM commitment WHERE commitment_id = ? AND origin = 'detected'";
+
+    /** A declared commitment's occurrences, each left-joined to the fact it carries. */
+    static final String COMMITMENT_ACTIVITY = """
+        SELECT o.due_date, o.status, o.amount, o.matched_external_id, o.matched_by,
+               f.account_ref, f.raw_description
+        FROM commitment_occurrence o
+        LEFT JOIN txn_current f ON f.external_id = o.matched_external_id
+        WHERE o.commitment_id = ?
+        ORDER BY o.due_date""";
+
     /** The window's occurrences joined to their commitment, oldest first (§2.8). */
     static final String EXPECTED_OCCURRENCES = """
         SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,

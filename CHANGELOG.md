@@ -20,6 +20,11 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Every registry row opens the same Actions… menu.** Declared commitments now get the two-pane
+  view the candidates had — activity table and price chart — and their row actions (Re-declare,
+  Retire, Note, Settle when behind) moved into it, replacing the inline buttons. The activity read
+  is `GET /api/commitments/activity?id=…` (a candidate's facts, or a declared commitment's
+  occurrences with the fact each carries and its status), replacing the stem-keyed facts endpoint.
 - **The candidate menu is a two-pane view, and the registry tabs repaint.** **Actions…** now
   splits horizontally: the series' transactions as a table on the left (date, account, signed
   amount, description) and a rudimentary price timeseries on the right (same-day facts summed,
