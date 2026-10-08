@@ -1,5 +1,7 @@
 package trex.v2.core.derive;
 
+import trex.v2.core.Hashes;
+
 import java.time.LocalDate;
 
 /**
@@ -10,6 +12,9 @@ import java.time.LocalDate;
  * its own date with {@code offSchedule} set — "charged twice this month" is never a silent match.
  *
  * <p>Stage 1 does not produce occurrence rows; this is the shape the Stage 2 matcher fills.
+ *
+ * <p>{@code stateHash} is filled by {@link #hashed()}, not by a caller, so it cannot drift from
+ * the content it hashes.
  */
 public record CommitmentOccurrence(
     String commitmentId,
@@ -23,4 +28,22 @@ public record CommitmentOccurrence(
     boolean offSchedule,
     Long settleN,
     Long amount,
-    String stateHash) {}
+    String stateHash) {
+
+    /**
+     * The same row with its state hash computed from its canonical content (§2.7): the identity
+     * and outcome fields — commitment id, due date, status, the matched fact id and date, the
+     * allocated amount, the settling decision and the off-schedule marker. The window is not
+     * hashed (it follows from the schedule and cadence) and neither is {@code matchedBy} (how a
+     * fact was placed does not change what the row says). A rebuild re-derives the identical
+     * value.
+     */
+    public CommitmentOccurrence hashed() {
+        String canonical = commitmentId + '|' + dueDate + '|' + status.wire() + '|'
+            + matchedExternalId + '|' + matchedDate + '|' + amount + '|' + settleN + '|'
+            + offSchedule;
+        return new CommitmentOccurrence(commitmentId, dueDate, status, windowStart, windowEnd,
+            matchedExternalId, matchedDate, matchedBy, offSchedule, settleN, amount,
+            Hashes.sha256(canonical));
+    }
+}

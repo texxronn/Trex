@@ -172,6 +172,24 @@ public final class Commitments {
     }
 
     /**
+     * Generate and match the occurrences of the declared commitments (§2.5, §2.9; Stage 2). The
+     * inputs are resolved, plain data — the Stage 3 decision fold produces the rules, pins and
+     * settles, so this pure function never reads a decision, a config or a clock. {@code asOf} is
+     * an explicit input; the result is ordered and reproducible.
+     *
+     * @param commitments every tracked commitment (candidates may be present and are ignored)
+     * @param rules       the effective rules of those commitments
+     * @param current     all current facts; a fact whose role is {@code noop} is out of the domain
+     * @param pins        resolved {@code (externalId, commitmentId)} pairs
+     * @param settles     resolved {@code (commitmentId, dueDate, decisionN)} triples
+     */
+    public static CommitmentMatch match(List<Commitment> commitments, List<CommitmentRule> rules,
+                                        List<CurrentFact> current, List<CommitmentPin> pins,
+                                        List<CommitmentSettle> settles, Instant asOf) {
+        return CommitmentMatcher.match(commitments, rules, current, pins, settles, asOf);
+    }
+
+    /**
      * One candidate, or null when the series is not a predictable cadence: fewer than three
      * occurrences, a median gap outside every bucket's tolerance, or regularity below the floor.
      */
