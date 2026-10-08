@@ -31,8 +31,12 @@ import java.util.regex.PatternSyntaxException;
  *
  * <p>Assignment is global and deterministic: facts are processed in {@code (date, n)} order, pins
  * first, then the rules, where a fact matching several commitments goes to the latest declaration
- * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. The output is
- * ordered by commitment id then due date, and no iteration depends on input order.
+ * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. A rule fact is
+ * allocated oldest-first across the commitment's open occurrences — the arrears clear from the
+ * front and a surplus pre-pays the materialised future; a pin satisfies the nearest open
+ * occurrence within one full cadence; anything left over is an {@code off_schedule} occurrence at
+ * the fact's date. The output is ordered by commitment id then due date, and no iteration depends
+ * on input order.
  */
 final class CommitmentMatcher {
 
@@ -56,6 +60,17 @@ final class CommitmentMatcher {
     private static final Comparator<CurrentFact> BY_DATE_N = Comparator
         .comparing((CurrentFact c) -> c.fact().date())
         .thenComparingLong(c -> c.fact().n());
+
+    /**
+     * A fact covers an occurrence "fully" — within {@code max(2%, 50¢)} of its expected amount
+     * (§2.9). The percentage absorbs FX and rounding wobble on a real price; the cents floor
+     * keeps a small bill from going {@code partial} over a sub-dollar difference. Below the band
+     * the occurrence is {@code partial} and only the remainder stays in arrears.
+     */
+    private static final double FULL_FRACTION = 0.02;
+
+    /** The cents floor of the full-coverage tolerance: half a dollar. */
+    private static final long FULL_MIN_CENTS = 50;
 
     private CommitmentMatcher() {}
 
@@ -253,50 +268,78 @@ final class CommitmentMatcher {
     }
 
     /**
-     * Place each assigned fact: a pinned fact on the nearest open occurrence within one full
-     * cadence (§10.15), a rule fact on the open occurrence whose window contains its date. A fact
-     * that finds no occurrence becomes an {@code off_schedule} occurrence at its own date —
-     * nothing is swallowed and a pin never moves the anchor.
+     * Allocate each assigned fact (§2.9). A rule fact goes to the commitment's open occurrences
+     * ({@code due}, {@code missed}, {@code partial}) oldest first, each taking up to its expected
+     * amount — the backlog clears from the front, and a surplus pre-pays the future occurrences
+     * already materialised. A pinned fact satisfies the nearest open occurrence within one full
+     * cadence and never re-anchors (§10.15). Whatever is left over becomes an {@code off_schedule}
+     * occurrence at the fact's date: nothing is swallowed.
      */
     private static void allocate(Commitment commitment, List<Assigned> facts, List<Slot> slots) {
         for (Assigned assigned : facts) {
             CurrentFact fact = assigned.fact;
-            Slot target = BY_PIN.equals(assigned.matchedBy)
-                ? nearestOpen(slots, commitment.cadence().days(), fact.fact().date())
-                : windowed(slots, fact.fact().date());
-            if (target == null) {
-                offSchedule(assigned, slots);
-            } else {
-                target.status = OccurrenceStatus.OCCURRED;
-                target.amount = fact.fact().amount();
-                target.matchedExternalId = fact.externalId();
-                target.matchedDate = fact.fact().date();
-                target.matchedBy = assigned.matchedBy;
+            long remaining = Math.abs(fact.fact().amount());
+            if (BY_PIN.equals(assigned.matchedBy)) {
+                Slot nearest = nearestOpen(slots, commitment.cadence().days(), fact.fact().date());
+                if (nearest != null) {
+                    remaining = allocateTo(commitment, nearest, assigned, remaining);
+                }
+                if (remaining > 0) {
+                    offSchedule(assigned, slots, remaining);
+                }
+                continue;
+            }
+            for (Slot slot : slots) {
+                if (remaining == 0) {
+                    break;
+                }
+                if (!slot.open()) {
+                    continue;
+                }
+                remaining = allocateTo(commitment, slot, assigned, remaining);
+            }
+            if (remaining > 0) {
+                offSchedule(assigned, slots, remaining);
             }
         }
     }
 
     /**
-     * The open occurrence whose window contains {@code date}. Windows never overlap except on a
-     * fortnightly boundary, where they share one day; there the nearer due date wins, then the
-     * earlier one, so the choice stays deterministic.
+     * Take up to the slot's still-expected amount from the fact. Returns the fact's unallocated
+     * remainder. The occurrence becomes {@code occurred} once covered within {@code max(2%, 50¢)}
+     * of its expected amount — the fact id and the allocated total land on the row — and
+     * {@code partial} otherwise, carrying only what was allocated. With no price anywhere to
+     * split against (a declared commitment with no amount), the fact settles the occurrence at its
+     * full value: one fact, one occurrence, rather than an invented division.
      */
-    private static Slot windowed(List<Slot> slots, LocalDate date) {
-        Slot found = null;
-        long best = Long.MAX_VALUE;
-        for (Slot slot : slots) {
-            if (!slot.open() || slot.windowStart == null
-                || date.isBefore(slot.windowStart) || date.isAfter(slot.windowEnd)) {
-                continue;
-            }
-            long distance = Math.abs(ChronoUnit.DAYS.between(slot.dueDate, date));
-            if (found == null || distance < best
-                || (distance == best && slot.dueDate.isBefore(found.dueDate))) {
-                best = distance;
-                found = slot;
-            }
+    private static long allocateTo(Commitment commitment, Slot slot, Assigned assigned,
+                                   long remaining) {
+        CurrentFact fact = assigned.fact;
+        long sign = fact.fact().amount() < 0 ? -1 : 1;
+        Long expected = expected(commitment, slot.dueDate);
+        if (expected == null || expected == 0) {
+            slot.status = OccurrenceStatus.OCCURRED;
+            slot.amount = sign * remaining;
+            slot.matchedExternalId = fact.externalId();
+            slot.matchedDate = fact.fact().date();
+            slot.matchedBy = assigned.matchedBy;
+            return 0;
         }
-        return found;
+        long expectedAbs = Math.abs(expected);
+        long take = Math.min(remaining, expectedAbs - slot.allocated);
+        long total = slot.allocated + take;
+        long tolerance = Math.max(FULL_MIN_CENTS, Math.round(expectedAbs * FULL_FRACTION));
+        slot.amount = sign * total;
+        slot.matchedExternalId = fact.externalId();
+        slot.matchedDate = fact.fact().date();
+        slot.matchedBy = assigned.matchedBy;
+        if (total >= expectedAbs - tolerance) {
+            slot.status = OccurrenceStatus.OCCURRED;
+        } else {
+            slot.status = OccurrenceStatus.PARTIAL;
+            slot.allocated = total;
+        }
+        return remaining - take;
     }
 
     /** The nearest open occurrence within one full cadence of the pinned fact (§10.15). */
@@ -320,12 +363,15 @@ final class CommitmentMatcher {
         return found;
     }
 
-    /** Record the unmatched fact at its own date; the occurrence table's natural overflow. */
-    private static void offSchedule(Assigned assigned, List<Slot> slots) {
+    /**
+     * Record the unallocated remainder — or a fact that found no occurrence — at its own date;
+     * the occurrence table's natural overflow, never a silent adjustment.
+     */
+    private static void offSchedule(Assigned assigned, List<Slot> slots, long amount) {
         CurrentFact fact = assigned.fact;
         Slot slot = new Slot(fact.fact().date(), null, null, OccurrenceStatus.OCCURRED);
         slot.offSchedule = true;
-        slot.amount = fact.fact().amount();
+        slot.amount = fact.fact().amount() < 0 ? -amount : amount;
         slot.matchedExternalId = fact.externalId();
         slot.matchedDate = fact.fact().date();
         slot.matchedBy = assigned.matchedBy;
