@@ -102,7 +102,7 @@ class SequencerTest {
         DecisionDraft build() {
             return new DecisionDraft(action, actor, user, at, comment, legA, legB, externalId, pendingId,
                 postedId, item, externalIds, category, fromId, toId, reason, target,
-                configRevision, deriveVersion, hashVersion, stateHash, text);
+                configRevision, deriveVersion, hashVersion, stateHash, text, null);
         }
     }
 

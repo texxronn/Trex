@@ -445,7 +445,7 @@ public final class HubService implements HubApi, AutoCloseable {
         DecisionDraft ack = new DecisionDraft(action.equals("ACK") ? "USER_ACK" : "USER_UNACK",
             "user", request.user(), null, request.comment(),
             null, null, request.externalId(), null, null, null, null, null, null, null, null, null,
-            c.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION, stateHash, null);
+            c.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION, stateHash, null, null);
         return submitDecisions(new DecisionRequest(null, null, List.of(ack)));
     }
 
@@ -907,6 +907,18 @@ public final class HubService implements HubApi, AutoCloseable {
                     yield "text is required";
                 }
                 yield d.text().length() > 2000 ? "text is too long (max 2000 characters)" : null;
+            }
+            case ATTACH_ACCOUNT -> {
+                String e = checkIds(d.externalIds(), "externalIds");
+                if (e != null) {
+                    yield e;
+                }
+                if (d.account() == null || d.account().isBlank()) {
+                    yield "account is required";
+                }
+                var account = cfg.registry().findAccount(d.account());
+                yield account.isEmpty() ? "unknown account '" + d.account() + "'"
+                    : (account.get().clearing() ? null : "ATTACH_ACCOUNT must name a clearing account");
             }
         };
     }

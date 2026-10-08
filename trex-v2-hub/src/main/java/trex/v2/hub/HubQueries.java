@@ -245,7 +245,7 @@ public final class HubQueries implements AutoCloseable {
                             LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
                             rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
                             rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0,
-                            rs.getString(16)));
+                            rs.getString(16), rs.getInt(17) != 0));
                     }
                 }
             }

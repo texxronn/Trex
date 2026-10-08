@@ -36,3 +36,36 @@ export function openPrompt(options, onSave) {
     onSave(value);
   }
 }
+
+/** The same dialog, with a picker: used where a decision names one of several (a clearing account). */
+export function openSelect(options, onSave) {
+  const { title, summary, label, choices, confirm } = options;
+  const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
+  const select = el('select', {}, ...choices.map((c) => el('option', { value: c.value }, c.label)));
+  const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': title },
+    el('h3', {}, title),
+    summary ? el('p', { class: 'muted' }, summary) : null,
+    el('label', { class: 'field' }, label || '', select),
+    el('div', { class: 'actions' },
+      el('button', { type: 'button', onclick: close }, 'Cancel'),
+      el('button', { type: 'button', class: 'primary', onclick: submit }, confirm || 'OK')));
+  overlay.append(dialog);
+  document.body.append(overlay);
+  document.removeEventListener('keydown', onKey);
+  document.addEventListener('keydown', onKey);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+  }
+
+  function submit() {
+    const value = select.value;
+    close();
+    onSave(value);
+  }
+}

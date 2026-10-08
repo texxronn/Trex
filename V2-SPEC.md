@@ -110,6 +110,9 @@ content rows each take `0`.
   group annotation is a batch of `NOTE`s, one per member id. `DISMISS` and `USER_ACK` carry an
   optional `comment`; a dismissed item's reason is surfaced through `/api/dismissals`, because the
   item itself leaves the queue. Annotations are display only — never identity, never logic.
+- **Attached transfers.** `ATTACH_ACCOUNT` names transfer-shaped legs and a clearing account: the
+  legs are transfers with an account side, not a contra fact (a pruned counterparty, §6.10). The
+  account must be `clearing`; the decision is id-scoped and `REVOKE` releases the legs to the matcher.
 - **References and structure are checked at the writer**; a semantically wrong but well-formed
   decision is recorded and surfaced as `INEFFECTIVE_DECISION`, never dropped.
 - The hub prechecks against the index and returns `422` (naming the failure), `409` (stale view),
@@ -123,10 +126,10 @@ Pure function of `(facts, decisions, config, asOf)`, in the §9.9 order:
 
 replay → effective decisions → supersession / chain resolution → current transactions (`txn_current`)
 → transfer pairing → pending settlement → categorisation → review items → notes (`note_current`) →
-projectable units → state hashes → per-user ACK validity.
+clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/6"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/7"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
@@ -170,7 +173,7 @@ by a derived counterpart, or `STALE` past the account's `settlementWindowDays`, 
 
 SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `ingest_event`); level
 2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current` (carrying the
-derived `role` and rail), `transfer` (carrying the payer `method` and, for a clearing pair, the
+derived `role`, rail, and a `synthetic` flag — true only for a derived clearing leg, §6.10), `transfer` (carrying the payer `method` and, for a clearing pair, the
 `clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
 `ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
 `ingest_batch` view (the markers paired). A derived column's shape change drops and recreates its

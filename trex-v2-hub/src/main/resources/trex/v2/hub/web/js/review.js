@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { accountChip } from './account.js';
 import { decisions } from './decisions.js';
 import { openAnnotate } from './annotate.js';
-import { openPrompt } from './dialog.js';
+import { openPrompt, openSelect } from './dialog.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -91,6 +91,9 @@ function renderRows(rows) {
           : el('span', { class: 'muted' }, 'revoke the decision'),
         canAnnotate(row)
           ? el('button', { type: 'button', class: 'ghost', onclick: () => annotate(row) }, 'Note')
+          : null,
+        row.kind === 'UNMATCHED_LEG'
+          ? el('button', { type: 'button', class: 'ghost', onclick: () => attach(row) }, 'Attach')
           : null));
   });
   listHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
@@ -147,4 +150,31 @@ function canAnnotate(row) {
 function annotate(row) {
   const ids = row.members && row.members.length ? row.members.map((m) => m.externalId) : [row.subject];
   openAnnotate(ctx, { ids, summary: row.detail }, load);
+}
+
+// An unmatched leg whose counterparty is gone: attach it to a clearing account (§6.10).
+function attach(row) {
+  const clearing = (ctx.refdata.accounts || [])
+    .filter((a) => a.balanceSource === 'clearing')
+    .map((a) => ({ value: a.ref, label: a.ref }));
+  if (!clearing.length) {
+    toast('No clearing accounts are configured', 'bad');
+    return;
+  }
+  openSelect({
+    title: 'Attach to a clearing account',
+    summary: row.subjectDescription || row.subject,
+    label: 'Account',
+    choices: clearing,
+    confirm: 'Attach',
+  }, async (account) => {
+    try {
+      await api.decisions(ctx.n, [decisions.attachAccount(ctx, [row.subject], account,
+        'counterparty statements not held')]);
+      toast('Attached');
+    } catch (error) {
+      reportError(error);
+    }
+    await load();
+  });
 }

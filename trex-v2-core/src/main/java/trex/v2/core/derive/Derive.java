@@ -104,6 +104,7 @@ public final class Derive {
             List<ReviewItem> review = reviewItems();
             List<Unit> units = units();
             List<NoteRow> notes = notes();
+            List<ClearingLeg> clearingLegs = clearingLegs();
             ineffective.sort(Comparator.comparingLong(IneffectiveDecision::decisionN)
                 .thenComparing(IneffectiveDecision::action));
 
@@ -116,6 +117,7 @@ public final class Derive {
                 new ArrayList<>(categories.values()),
                 pins(),
                 notes,
+                clearingLegs,
                 review,
                 ineffective,
                 units,
@@ -385,9 +387,32 @@ public final class Derive {
                 }
             }
 
+            // A person attached these legs to a clearing account (§6.10): a pruned counterparty whose
+            // statements are gone. They pair directly, like a clearing pattern, overriding the matcher.
+            Map<String, String> attached = new HashMap<>();
+            for (Decision d : effective) {
+                if (d instanceof Decision.AttachAccount aa) {
+                    boolean clearing = config.registry().findAccount(aa.account())
+                        .map(a -> a.balanceSource() == BalanceSource.CLEARING).orElse(false);
+                    if (!clearing) {
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "ATTACH_ACCOUNT names a non-clearing account " + aa.account()));
+                        continue;
+                    }
+                    for (String raw : aa.externalIds()) {
+                        String id = resolve(raw);
+                        if (id == null || !byId.containsKey(id)) {
+                            ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                                "ATTACH_ACCOUNT names an unknown id " + raw));
+                            continue;
+                        }
+                        attached.put(id, aa.account());
+                    }
+                }
+            }
+
             // Live decision pairs: a PAIR holds only while it is the latest decision for both legs.
-            Map<String, TransferRow> rows = new TreeMap<>();
-            Set<String> livePairLegs = new HashSet<>();
+            Map<String, TransferRow> rows = new TreeMap<>();            Set<String> livePairLegs = new HashSet<>();
             for (Decision d : effective) {
                 if (d instanceof Decision.Pair p) {
                     String a = resolve(p.legA());
@@ -422,6 +447,10 @@ public final class Derive {
                 if (livePairLegs.contains(id) || outOfPool.contains(id)) {
                     continue;
                 }
+                if (attached.containsKey(id)) {
+                    pairClearing(rows, c, attached.get(id));
+                    continue;
+                }
                 // A PAIR that is not live for both legs frees this leg back to the pool, so a leg
                 // whose latest decision is a PAIR is still eligible; MARK_EXTERNAL/UNPAIR are not.
                 if (!isShaped(c.fact(), shapedReceipts)) {
@@ -445,7 +474,8 @@ public final class Derive {
                 // account — no contra fact, no window, no ambiguity (§6.10).
                 String clearing = config.transfers().clearingFor(f.fact().accountRef(), f.fact().rawDescription());
                 if (clearing != null) {
-                    pairClearing(rows, paired, i, f, clearing);
+                    pairClearing(rows, f, clearing);
+                    paired[i] = true;
                     continue;
                 }
                 int window = config.transfers().windowDays();
@@ -566,8 +596,7 @@ public final class Derive {
         }
 
         /** Pair a leg with a clearing account: one real leg, an account side, direction structural. */
-        private void pairClearing(Map<String, TransferRow> rows, boolean[] paired, int i, CurrentFact f,
-                                  String clearingAccount) {
+        private void pairClearing(Map<String, TransferRow> rows, CurrentFact f, String clearingAccount) {
             Fact real = f.fact();
             String tid = Ids.transferId(real.externalId(), clearingAccount);
             boolean out = real.amount() < 0;
@@ -575,7 +604,6 @@ public final class Derive {
             rows.put(tid, new TransferRow(tid, out ? real.externalId() : clearingAccount,
                 out ? clearingAccount : real.externalId(), Confidence.EXACT, "derived", null,
                 method == null ? Rail.BANK_TRANSFER : method, real.ingestedAt(), clearingAccount));
-            paired[i] = true;
             legState.put(real.externalId(), LegState.MATCHED);
         }
 
@@ -1191,6 +1219,55 @@ public final class Derive {
         }
 
         // ---- P11: units ---------------------------------------------------------------------
+
+        /**
+         * The counterpart of every clearing transfer (§6.10), materialised as a derived leg so a
+         * clearing transfer has two concrete legs and the clearing account's ledger is queryable.
+         * Never a fact: reserved {@code clr|…} id, no evidence, not a decision target. The balance is
+         * derived — {@code opening + Σ movements}, landing on the account's declared closing.
+         */
+        private List<ClearingLeg> clearingLegs() {
+            Map<String, CurrentFact> byId = currentById();
+            Map<String, Long> movementSum = new HashMap<>();
+            for (TransferRow t : transfers) {
+                if (t.clearingAccount() == null) {
+                    continue;
+                }
+                CurrentFact real = realLegOf(t, byId);
+                if (real != null) {
+                    movementSum.merge(t.clearingAccount(), -real.fact().amount(), Long::sum);
+                }
+            }
+            Map<String, Long> running = new HashMap<>();
+            for (Map.Entry<String, Long> e : movementSum.entrySet()) {
+                Long closing = config.registry().findAccount(e.getKey()).map(a -> a.closingBalance()).orElse(0L);
+                running.put(e.getKey(), (closing == null ? 0L : closing) - e.getValue());
+            }
+            List<TransferRow> ordered = new ArrayList<>();
+            for (TransferRow t : transfers) {
+                if (t.clearingAccount() != null && realLegOf(t, byId) != null) {
+                    ordered.add(t);
+                }
+            }
+            ordered.sort(Comparator.comparing((TransferRow t) -> realLegOf(t, byId).fact().date())
+                .thenComparingLong(t -> realLegOf(t, byId).fact().n()));
+            List<ClearingLeg> out = new ArrayList<>();
+            for (TransferRow t : ordered) {
+                Fact real = realLegOf(t, byId).fact();
+                String account = t.clearingAccount();
+                long amount = -real.amount();
+                long balance = running.merge(account, amount, Long::sum);
+                out.add(new ClearingLeg(t.transferId(), "clr|" + account + "|" + real.externalId(),
+                    account, real.date(), amount, balance, "clearing \u00b7 " + real.rawDescription(),
+                    real.externalId(), real.n()));
+            }
+            return out;
+        }
+
+        private CurrentFact realLegOf(TransferRow t, Map<String, CurrentFact> byId) {
+            String realId = t.clearingAccount().equals(t.fromLeg()) ? t.toLeg() : t.fromLeg();
+            return byId.get(realId);
+        }
 
         private List<Unit> units() {
             List<Unit> out = new ArrayList<>();

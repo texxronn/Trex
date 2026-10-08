@@ -25,6 +25,7 @@ public record Derivation(
     List<CategoryRow> categories,
     List<PinRow> pins,
     List<NoteRow> notes,
+    List<ClearingLeg> clearingLegs,
     List<ReviewItem> review,
     List<IneffectiveDecision> ineffective,
     List<Unit> units,
@@ -39,6 +40,7 @@ public record Derivation(
         categories = List.copyOf(categories);
         pins = List.copyOf(pins);
         notes = List.copyOf(notes);
+        clearingLegs = List.copyOf(clearingLegs);
         review = List.copyOf(review);
         ineffective = List.copyOf(ineffective);
         units = List.copyOf(units);

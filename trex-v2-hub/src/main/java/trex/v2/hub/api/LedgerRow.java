@@ -10,4 +10,4 @@ import java.time.LocalDate;
 public record LedgerRow(String externalId, long n, String accountRef, LocalDate date, long amount,
                         long balance, String rawDescription, String leg, String role, String rail,
                         String transferId, String category, String categoryOrigin, String ruleId,
-                        boolean hasReview, String latestNote) {}
+                        boolean hasReview, String latestNote, boolean synthetic) {}

@@ -63,7 +63,8 @@ class LogCodecTest {
             new Decision.UserAck(11, "9e546cc0260ead1e", "sha256:cfg", "derive/3", "statehash/2",
                 "sha256:st", null, Actor.USER, "ron", AT),
             new Decision.UserUnack(13, "9e546cc0260ead1e", "double-checking", Actor.USER, "ron", AT),
-            new Decision.Note(12, "a", "reimbursed", Actor.USER, "mel", AT));
+            new Decision.Note(12, "a", "reimbursed", Actor.USER, "mel", AT),
+            new Decision.AttachAccount(16, List.of("a"), "bw-legacy", "card before 2024", Actor.USER, "ron", AT));
         for (LogLine line : decisions) {
             assertEquals(line, LogCodec.parse(LogCodec.encode(line)),
                 "round trip failed for " + ((Decision) line).action());

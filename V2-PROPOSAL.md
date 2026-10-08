@@ -421,6 +421,7 @@ The full action set — small on purpose:
 | `RETIRE` | `externalId`, `reason` | The fact no longer counts and has no replacement. |
 | `MARK_NOOP` | `externalId`, `reason` | Recorded, but not a posting of this account: no chain edge, no unit, no transfer leg, no sum. A classification, never a correction (§6.9). |
 | `UNMARK_NOOP` | `externalId`, `comment?` | Return the row to its profile's default; the family inverse of `MARK_NOOP`. |
+| `ATTACH_ACCOUNT` | `externalIds`, `account`, `comment?` | These transfer-shaped legs are transfers to/from `account` (a clearing account, §6.10); the contra is not held. |
 | `REVOKE` | `revokes`, `comment?` | Undo decision `n = revokes`; the general escape hatch. |
 | `USER_ACK` | `externalId`, `stateHash`, `configRevision`, `deriveVersion`, `hashVersion`, `comment?` | "I have read this row; its derived content was X." One line per row per user; the `user` is on the line and other users' markers are untouched. |
 | `USER_UNACK` | `externalId`, `comment?` | Release that row's read marker for this user; the family inverse of `USER_ACK`. |
@@ -1152,6 +1153,19 @@ accounts:
   statement account, ingest the history, and point the patterns at it (or drop the `clearing:`
   line). The next reflow re-pairs against real legs and the synthetic side disappears — there
   is nothing to revoke, because the pairing was derived, not decided.
+
+- **A decision may choose the account side.** A `clearing:` pattern is date-blind, so it cannot
+  target the pre-coverage legs of an *open* account (whose later history is held). For those, an
+  `ATTACH_ACCOUNT` decision (§6.2) names the legs and the clearing account directly; it is a
+  conclusion, never a fabricated fact, and `REVOKE` releases the legs back to the matcher. This is
+  how a pruned *period* of an account lands on a legacy clearing position.
+
+- **The clearing side is materialised as a derived leg.** So a clearing transfer has two concrete
+  legs and per-account queries are complete, derive emits a `synthetic` transaction row in the
+  clearing account (reserved `clr|…` id, no evidence, never a decision target), with a running
+  balance computed from the declared closing. Every transaction row carries a `synthetic` boolean:
+  false for a mirrored fact, true only for a clearing leg. A clearing account holds only synthetic
+  rows; a real account holds none.
 - Reconciliation reports a clearing account as `CLEARING` (opening computed, closing declared,
   no chain), the way `DECLARED` is never "wrong".
 - The egress provisions the Firefly account with the computed opening and posts the transfers,

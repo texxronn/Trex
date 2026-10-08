@@ -16,6 +16,7 @@ public enum Action {
     RETIRE,
     MARK_NOOP,
     UNMARK_NOOP,
+    ATTACH_ACCOUNT,
     REVOKE,
     USER_ACK,
     USER_UNACK,

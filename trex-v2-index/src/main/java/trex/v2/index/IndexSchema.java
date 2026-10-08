@@ -44,6 +44,12 @@ final class IndexSchema {
                 st.execute("DROP TABLE transfer");
                 clearDerivedMeta(st);
             }
+            // txn_current gained the derived synthetic flag (clearing legs, §6.10). Derived and
+            // disposable, so drop/recreate rather than ALTER; the next apply re-derives.
+            if (hasTable(st, "txn_current") && !hasColumn(st, "txn_current", "synthetic")) {
+                st.execute("DROP TABLE txn_current");
+                clearDerivedMeta(st);
+            }
             // The mirror shape changed (the uniform envelope): drop the mirrored fact/decision and
             // force a full re-mirror from the log. The mirror is disposable — the log is the truth.
             if (hasTable(st, "fact") && hasColumn(st, "fact", "ingested_at")) {

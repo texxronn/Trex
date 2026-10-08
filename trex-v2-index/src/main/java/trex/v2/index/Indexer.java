@@ -10,6 +10,7 @@ import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.derive.CategoryRow;
+import trex.v2.core.derive.ClearingLeg;
 import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.Derive;
@@ -353,6 +354,40 @@ public final class Indexer implements AutoCloseable {
             }
             ps.executeBatch();
         }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_TXN_CLEARING)) {
+            for (ClearingLeg cl : d.clearingLegs()) {
+                int i = 1;
+                ps.setString(i++, cl.legId());
+                ps.setLong(i++, cl.n());
+                ps.setString(i++, cl.accountRef());
+                ps.setString(i++, cl.date().toString());
+                ps.setLong(i++, cl.amount());
+                ps.setLong(i++, cl.balance());
+                ps.setString(i++, cl.description());
+                ps.setString(i++, null);          // receipt
+                ps.setInt(i++, 0);                // occ
+                ps.setString(i++, "posted");      // observation
+                ps.setString(i++, "synthetic");   // source_type
+                ps.setString(i++, "SYNTHETIC");   // provenance — never parsed: synthetic rows are excluded from fact reads
+                ps.setString(i++, null);          // evidence_id
+                ps.setString(i++, null);          // parser
+                ps.setInt(i++, 1);                // line_v
+                ps.setLong(i++, 0L);              // at_ms
+                ps.setString(i++, "SYNTH   ");    // env
+                ps.setString(i++, "SYNTH   ");    // source
+                ps.setString(i++, "        ");    // target
+                ps.setString(i++, "transaction"); // role
+                ps.setString(i++, null);          // rail
+                ps.setString(i++, "MATCHED");     // leg
+                ps.setString(i++, cl.transferId());
+                ps.setString(i++, "TRANSFER");    // category
+                ps.setString(i++, "STRUCTURAL");  // category_origin
+                ps.setString(i++, null);          // rule_id
+                ps.setString(i++, null);          // state_hash
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
         try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_TRANSFER)) {
             for (TransferRow t : d.transfers()) {
                 ps.setString(1, t.transferId());
@@ -688,21 +723,21 @@ public final class Indexer implements AutoCloseable {
     public synchronized List<Fact> currentFacts() {
         return currentFacts("SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
             + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
-            + "FROM txn_current ORDER BY n");
+            + "FROM txn_current WHERE synthetic = 0 ORDER BY n");
     }
 
     /** The current posted facts (role {@code transaction}), for reconciliation (V2-PROPOSAL.md §15.10). */
     public synchronized List<Fact> currentTransactions() {
         return currentFacts("SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
             + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
-            + "FROM txn_current WHERE role = 'transaction' ORDER BY n");
+            + "FROM txn_current WHERE role = 'transaction' AND synthetic = 0 ORDER BY n");
     }
 
     /** The current {@code noop} facts, named as exclusions by the balance check (§6.9). */
     public synchronized List<Fact> currentNoops() {
         return currentFacts("SELECT n, external_id, account_ref, date, amount, balance, raw_description, receipt, "
             + "occ, observation, source_type, provenance, evidence_id, parser, line_v, at_ms, env, source, target "
-            + "FROM txn_current WHERE role = 'noop' ORDER BY n");
+            + "FROM txn_current WHERE role = 'noop' AND synthetic = 0 ORDER BY n");
     }
 
     private List<Fact> currentFacts(String sql) {
