@@ -13,8 +13,8 @@ import { reportError, toast } from './toast.js';
 export const CADENCES = ['weekly', 'fortnightly', 'monthly', 'bimonthly', 'quarterly',
   'semiannual', 'annual', 'irregular'];
 export const AMOUNT_KINDS = ['fixed', 'variable', 'range'];
-export const COMMITMENT_KINDS = ['subscription', 'bill', 'insurance', 'fee', 'tax', 'income',
-  'other'];
+export const COMMITMENT_KINDS = ['subscription', 'services', 'bill', 'insurance', 'fee', 'tax',
+  'income', 'loan', 'other'];
 
 /** The chip on a matched ledger row; links to the Expected view. */
 export function commitmentChip(row) {
