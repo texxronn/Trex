@@ -2,6 +2,7 @@ package trex.v2.sequencer;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import trex.v2.core.Actor;
 import trex.v2.core.Decision;
 import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
@@ -9,6 +10,9 @@ import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
 import trex.v2.core.config.Account;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
@@ -95,6 +99,47 @@ class StreamTest {
             assertNotNull(r.error());
             assertEquals(true, r.error().contains("unknown fact"), r.error());
             assertEquals(0, r.appended());
+        }
+    }
+
+    private static Envelope envelope(long n) {
+        return new Envelope(n, Decision.KIND, Envelope.VERSION, AT.toEpochMilli(),
+            "Dev1    ", "SRC00001", "        ");
+    }
+
+    private static String declare(long n, String commitmentId) {
+        return LogCodec.encodeString(new Decision.DeclareCommitment(envelope(n), commitmentId, "Netflix",
+            "out", Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+            List.of(new Decision.Match("NETFLIX", null)), 999L, null, null, null, Actor.USER, "ron"));
+    }
+
+    private static String pin(long n, String commitmentId, String factId) {
+        return LogCodec.encodeString(new Decision.PinCommitment(envelope(n), commitmentId,
+            List.of(factId), null, Actor.USER, "ron"));
+    }
+
+    private static String retire(long n, String commitmentId) {
+        return LogCodec.encodeString(new Decision.RetireCommitment(envelope(n), commitmentId,
+            LocalDate.of(2026, 8, 1), "gone", Actor.USER, "ron"));
+    }
+
+    @Test
+    void aStreamCommitmentReferenceMustBeDeclaredEarlierInTheStream(@TempDir Path dir) {
+        try (Sequencer seq = sequencer(dir)) {
+            seq.submitStream(List.of(fact(1, "a", "ing-savings")));
+            StreamResponse refused = seq.submitStream(List.of(pin(2, "netflix", "a")));
+            assertNotNull(refused.error());
+            assertEquals(true, refused.error().contains("undeclared commitment"), refused.error());
+            assertEquals(0, refused.appended());
+        }
+
+        // A declaration earlier in the same stream counts as prefix for the lines after it; an
+        // undeclared RETIRE_COMMITMENT stays allowed (structure only, §2.6).
+        try (Sequencer seq = sequencer(dir)) {
+            StreamResponse ok = seq.submitStream(List.of(declare(2, "netflix"), pin(3, "netflix", "a"),
+                retire(4, "agl")));
+            assertNull(ok.error(), ok.error());
+            assertEquals(3, ok.appended());
         }
     }
 }

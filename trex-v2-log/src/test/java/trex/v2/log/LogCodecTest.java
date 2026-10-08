@@ -11,6 +11,9 @@ import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -64,11 +67,68 @@ class LogCodecTest {
                 "sha256:st", null, Actor.USER, "ron", AT),
             new Decision.UserUnack(13, "9e546cc0260ead1e", "double-checking", Actor.USER, "ron", AT),
             new Decision.Note(12, "a", "reimbursed", Actor.USER, "mel", AT),
-            new Decision.AttachAccount(16, List.of("a"), "bw-legacy", "card before 2024", Actor.USER, "ron", AT));
+            new Decision.AttachAccount(16, List.of("a"), "bw-legacy", "card before 2024", Actor.USER, "ron", AT),
+            new Decision.DeclareCommitment(17, "netflix", "Netflix", "out", Cadence.MONTHLY,
+                AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+                List.of(new Decision.Match("PAYPAL \\*NETFLIX AUS", "ing-savings"),
+                    new Decision.Match("NETFLIX.COM", null)),
+                999L, LocalDate.of(2025, 9, 15), "PAYPAL NETFLIX AUS", "confirmed from the candidate",
+                Actor.USER, "ron", AT),
+            new Decision.RetireCommitment(18, "agl", LocalDate.of(2026, 8, 1), "provider move",
+                Actor.USER, "ron", AT),
+            new Decision.IgnoreRecurring(19, "YOUTUBEPREMIUM", "cancelled for good", Actor.USER, "ron", AT),
+            new Decision.PinCommitment(20, "netflix", List.of("a", "b"), "BPAY payment", Actor.USER, "ron", AT),
+            new Decision.UnpinCommitment(21, List.of("a"), null, Actor.USER, "mel", AT),
+            new Decision.NoteCommitment(22, "netflix", "price rise 2025-09", Actor.USER, "ron", AT),
+            new Decision.SettleOccurrence(23, "netflix",
+                List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15)), "paid in cash",
+                Actor.USER, "ron", AT));
         for (LogLine line : decisions) {
             assertEquals(line, LogCodec.parse(LogCodec.encode(line)),
                 "round trip failed for " + ((Decision) line).action());
         }
+    }
+
+    @Test
+    void commitmentDecisionsWriteEnumsDatesAndNulls() {
+        Decision.DeclareCommitment declare = new Decision.DeclareCommitment(30, "netflix", "Netflix",
+            "out", Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+            List.of(new Decision.Match("NETFLIX", null)), null, null, null, null, Actor.USER, "ron", AT);
+        String json = LogCodec.encodeString(declare);
+        assertTrue(json.contains("\"cadence\":\"monthly\""), json);
+        assertTrue(json.contains("\"amountKind\":\"fixed\""), json);
+        assertTrue(json.contains("\"commitmentKind\":\"subscription\""), json);
+        assertTrue(json.contains("\"matches\":[{\"match\":\"NETFLIX\",\"account\":null}]"), json);
+        assertTrue(json.contains("\"amount\":null"), json);
+        assertTrue(json.contains("\"anchor\":null"), json);
+        assertTrue(json.contains("\"fromCandidate\":null"), json);
+        assertTrue(json.contains("\"comment\":null"), json);
+        assertEquals(declare, LogCodec.parse(LogCodec.encode(declare)));
+
+        Decision.RetireCommitment retire = new Decision.RetireCommitment(31, "agl",
+            LocalDate.of(2026, 8, 1), "provider move", Actor.USER, "ron", AT);
+        assertTrue(LogCodec.encodeString(retire).contains("\"endedAt\":\"2026-08-01\""),
+            LogCodec.encodeString(retire));
+
+        Decision.SettleOccurrence settle = new Decision.SettleOccurrence(32, "netflix",
+            List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15)), null, Actor.USER, "ron", AT);
+        String settleJson = LogCodec.encodeString(settle);
+        assertTrue(settleJson.contains("\"dueDates\":[\"2026-07-15\",\"2026-08-15\"]"), settleJson);
+        assertTrue(settleJson.contains("\"comment\":null"), settleJson);
+        assertEquals(settle, LogCodec.parse(LogCodec.encode(settle)));
+
+        Decision.PinCommitment pin = new Decision.PinCommitment(33, "netflix", List.of("a"), null,
+            Actor.USER, "ron", AT);
+        assertEquals(pin, LogCodec.parse(LogCodec.encode(pin)));
+        Decision.IgnoreRecurring ignore = new Decision.IgnoreRecurring(34, "candidate-key", "reason",
+            Actor.USER, "ron", AT);
+        assertEquals(ignore, LogCodec.parse(LogCodec.encode(ignore)));
+        Decision.NoteCommitment note = new Decision.NoteCommitment(35, "netflix", "text", Actor.USER,
+            "ron", AT);
+        assertEquals(note, LogCodec.parse(LogCodec.encode(note)));
+        Decision.UnpinCommitment unpin = new Decision.UnpinCommitment(36, List.of("a"), "release",
+            Actor.USER, "ron", AT);
+        assertEquals(unpin, LogCodec.parse(LogCodec.encode(unpin)));
     }
 
     @Test

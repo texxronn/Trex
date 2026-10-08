@@ -58,7 +58,7 @@ class SequencerTest {
             Observation.POSTED, source, Provenance.BANK, null, "test/1", AT);
     }
 
-    /** Named-setter builder for the 24-field decision DTO, so a test cannot miscount fields. */
+    /** Named-setter builder for the flat decision DTO, so a test cannot miscount fields. */
     private static final class D {
         private String action;
         private String actor;
@@ -82,6 +82,19 @@ class SequencerTest {
         private String hashVersion;
         private String stateHash;
         private String text;
+        private String commitmentId;
+        private String name;
+        private String direction;
+        private String cadence;
+        private String amountKind;
+        private String kind;
+        private List<DecisionDraft.MatchDraft> matches;
+        private Long amount;
+        private LocalDate anchor;
+        private String fromCandidate;
+        private LocalDate endedAt;
+        private String candidate;
+        private List<LocalDate> dueDates;
 
         D(String action, String actor) {
             this.action = action;
@@ -98,12 +111,41 @@ class SequencerTest {
         D category(String v) { category = v; return this; }
         D target(Long v) { target = v; return this; }
         D text(String v) { text = v; return this; }
+        D commitmentId(String v) { commitmentId = v; return this; }
+        D name(String v) { name = v; return this; }
+        D direction(String v) { direction = v; return this; }
+        D faces(String cadence, String amountKind, String kind) {
+            this.cadence = cadence;
+            this.amountKind = amountKind;
+            this.kind = kind;
+            return this;
+        }
+        D matches(List<DecisionDraft.MatchDraft> v) { matches = v; return this; }
+        D amount(Long v) { amount = v; return this; }
+        D anchor(LocalDate v) { anchor = v; return this; }
+        D fromCandidate(String v) { fromCandidate = v; return this; }
+        D endedAt(LocalDate v) { endedAt = v; return this; }
+        D candidate(String v) { candidate = v; return this; }
+        D dueDates(List<LocalDate> v) { dueDates = v; return this; }
 
         DecisionDraft build() {
             return new DecisionDraft(action, actor, user, at, comment, legA, legB, externalId, pendingId,
                 postedId, item, externalIds, category, fromId, toId, reason, target,
-                configRevision, deriveVersion, hashVersion, stateHash, text, null);
+                configRevision, deriveVersion, hashVersion, stateHash, text, null,
+                commitmentId, name, direction, cadence, amountKind, kind, matches, amount, anchor,
+                fromCandidate, endedAt, candidate, dueDates);
         }
+    }
+
+    private static D declare() {
+        return new D("DECLARE_COMMITMENT", "user").user("ron").at(AT)
+            .commitmentId("netflix").name("Netflix").direction("out")
+            .faces("monthly", "fixed", "subscription")
+            .matches(List.of(new DecisionDraft.MatchDraft("NETFLIX", null)));
+    }
+
+    private static String outcome(Sequencer s, D draft) {
+        return s.submitDecisions(new DecisionBatch(List.of(draft.build()))).results().getFirst().outcome();
     }
 
     @Test
@@ -291,6 +333,109 @@ class SequencerTest {
             BatchResponse resp = s.submitDecisions(new DecisionBatch(List.of(
                 new D("MARK_EXTERNAL", "migrated").at(AT).externalId(id).build())));
             assertEquals(RowResult.RESOLVED, resp.results().getFirst().outcome());
+        }
+    }
+
+    @Test
+    void declareCommitmentValidatesItsShape(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            assertEquals(RowResult.REJECTED, outcome(s, declare().commitmentId(" ")));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().name(" ")));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().direction("sideways")));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().faces("daily", "fixed", "subscription")));
+            assertEquals(RowResult.REJECTED,
+                outcome(s, declare().faces("monthly", "estimate", "subscription")));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().faces("monthly", "fixed", "gadget")));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().matches(List.of())));
+            assertEquals(RowResult.REJECTED,
+                outcome(s, declare().matches(List.of(new DecisionDraft.MatchDraft(" ", null)))));
+            assertEquals(RowResult.RESOLVED, outcome(s, declare().amount(999L)
+                .anchor(LocalDate.of(2025, 9, 15)).fromCandidate("PAYPAL NETFLIX AUS")));
+        }
+    }
+
+    @Test
+    void retireCommitmentAcceptsAnUndeclaredTarget(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            // Structure only: an undeclared target is recorded, never rejected here — derivation
+            // surfaces it as INEFFECTIVE_DECISION (V2-COMMITMENTS-PLAN.md §2.6, Stage 3).
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("RETIRE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("ghost").endedAt(LocalDate.of(2026, 8, 1)).reason("gone")));
+            assertEquals(RowResult.REJECTED, outcome(s, new D("RETIRE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("ghost").reason("gone")));
+            assertEquals(RowResult.REJECTED, outcome(s, new D("RETIRE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId(" ").endedAt(LocalDate.of(2026, 8, 1)).reason("gone")));
+        }
+    }
+
+    @Test
+    void ignoreRecurringNeedsCandidateAndReason(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            assertEquals(RowResult.REJECTED, outcome(s, new D("IGNORE_RECURRING", "user").user("ron").at(AT)
+                .candidate("YOUTUBEPREMIUM")));
+            assertEquals(RowResult.REJECTED, outcome(s, new D("IGNORE_RECURRING", "user").user("ron").at(AT)
+                .reason("cancelled")));
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("IGNORE_RECURRING", "user").user("ron").at(AT)
+                .candidate("YOUTUBEPREMIUM").reason("cancelled")));
+        }
+    }
+
+    @Test
+    void commitmentReferencesResolveAgainstTheFold(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            String fact = s.submitFacts(new FactBatch(false,
+                List.of(draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"))))
+                .results().getFirst().externalId();
+
+            // A pin to an undeclared commitment is refused, even for a known fact.
+            assertEquals(RowResult.REJECTED, outcome(s, new D("PIN_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").ids(List.of(fact))));
+            // A pin to an unknown fact is refused too.
+            assertEquals(RowResult.REJECTED, outcome(s, new D("PIN_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").ids(List.of("ghost"))));
+            // A note or a settle cannot precede the declaration either.
+            assertEquals(RowResult.REJECTED, outcome(s, new D("NOTE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").text("hello")));
+            assertEquals(RowResult.REJECTED, outcome(s, new D("SETTLE_OCCURRENCE", "user").user("ron").at(AT)
+                .commitmentId("netflix").dueDates(List.of(LocalDate.of(2026, 9, 1)))));
+
+            assertEquals(RowResult.RESOLVED, outcome(s, declare()));
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("PIN_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").ids(List.of(fact))));
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("NOTE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").text("price rise 2025-09")));
+            assertEquals(RowResult.REJECTED, outcome(s, new D("NOTE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").text(" ")));
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("UNPIN_COMMITMENT", "user").user("ron").at(AT)
+                .ids(List.of(fact))));
+        }
+    }
+
+    @Test
+    void settleOccurrenceNeedsANonEmptyDateList(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            assertEquals(RowResult.RESOLVED, outcome(s, declare()));
+            assertEquals(RowResult.REJECTED, outcome(s, new D("SETTLE_OCCURRENCE", "user").user("ron").at(AT)
+                .commitmentId("netflix").dueDates(List.of())));
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("SETTLE_OCCURRENCE", "user").user("ron").at(AT)
+                .commitmentId("netflix").dueDates(List.of(
+                    LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15))).comment("paid in cash")));
+        }
+    }
+
+    @Test
+    void aBatchMayDeclareThenPinTheSameCommitment(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            String fact = s.submitFacts(new FactBatch(false,
+                List.of(draft("ing-savings", -1000, "NETFLIX", null, 500, "csv"))))
+                .results().getFirst().externalId();
+            BatchResponse resp = s.submitDecisions(new DecisionBatch(List.of(
+                declare().fromCandidate("PAYPAL NETFLIX AUS").build(),
+                new D("PIN_COMMITMENT", "user").user("ron").at(AT)
+                    .commitmentId("netflix").ids(List.of(fact)).build())));
+            assertEquals(RowResult.RESOLVED, resp.results().get(0).outcome());
+            assertEquals(RowResult.RESOLVED, resp.results().get(1).outcome(),
+                "the confirm workflow declares and pins in one batch (§2.8)");
         }
     }
 
