@@ -129,7 +129,7 @@ replay → effective decisions → supersession / chain resolution → current t
 clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/7"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/8"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is

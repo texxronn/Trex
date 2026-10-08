@@ -343,7 +343,7 @@ public final class Derive {
             for (CurrentFact c : currentFacts) {
                 byId.put(c.externalId(), c);
             }
-            Set<String> shapedReceipts = receiptsWithCounterpart(currentFacts);
+            Set<String> receiptShaped = receiptShapedLegs(currentFacts);
 
             // Effective pairing decisions, resolved, latest per leg.
             Map<String, Decision> pairingDecision = new HashMap<>();
@@ -453,7 +453,7 @@ public final class Derive {
                 }
                 // A PAIR that is not live for both legs frees this leg back to the pool, so a leg
                 // whose latest decision is a PAIR is still eligible; MARK_EXTERNAL/UNPAIR are not.
-                if (!isShaped(c.fact(), shapedReceipts)) {
+                if (!isShaped(c.fact(), receiptShaped)) {
                     continue;
                 }
                 eligible.add(c);
@@ -466,7 +466,7 @@ public final class Derive {
                     continue;
                 }
                 CurrentFact f = eligible.get(i);
-                if (!isShaped(f.fact(), shapedReceipts)) {
+                if (!isShaped(f.fact(), receiptShaped)) {
                     legState.put(f.externalId(), LegState.EXTERNAL);
                     continue;
                 }
@@ -698,7 +698,13 @@ public final class Derive {
          * unique (the same ING receipt recurs across accounts and years), so a collision must not
          * shape two unrelated rows.
          */
-        private Set<String> receiptsWithCounterpart(List<CurrentFact> currentFacts) {
+        /**
+         * The ids of current facts that share a receipt with a plausible counterpart (§9.9.C). A
+         * receipt alone is not enough: ING receipt numbers are not globally unique, so a colliding
+         * receipt (a card purchase and a loan repayment years apart) must not shape an unrelated row.
+         * Only the facts that actually participate in a plausible pair are returned.
+         */
+        private Set<String> receiptShapedLegs(List<CurrentFact> currentFacts) {
             Map<String, List<Fact>> byReceipt = new TreeMap<>();
             for (CurrentFact c : currentFacts) {
                 String r = c.fact().receipt();
@@ -707,42 +713,36 @@ public final class Derive {
                 }
             }
             Set<String> shaped = new HashSet<>();
-            byReceipt.forEach((receipt, group) -> {
-                if (hasPlausibleCounterpart(group)) {
-                    shaped.add(receipt);
+            byReceipt.values().forEach(group -> {
+                for (int i = 0; i < group.size(); i++) {
+                    for (int j = i + 1; j < group.size(); j++) {
+                        if (plausibleCounterpart(group.get(i), group.get(j))) {
+                            shaped.add(group.get(i).externalId());
+                            shaped.add(group.get(j).externalId());
+                        }
+                    }
                 }
             });
             return shaped;
         }
 
-        private boolean hasPlausibleCounterpart(List<Fact> group) {
-            int window = config.transfers().windowDays();
-            for (int i = 0; i < group.size(); i++) {
-                for (int j = i + 1; j < group.size(); j++) {
-                    Fact a = group.get(i);
-                    Fact b = group.get(j);
-                    if (a.accountRef().equals(b.accountRef())
-                        || !oppositeSign(a.amount(), b.amount())
-                        || Math.abs(a.amount()) != Math.abs(b.amount())
-                        || !currencyOf(a).equals(currencyOf(b))
-                        || Math.abs(ChronoUnit.DAYS.between(a.date(), b.date())) > window) {
-                        continue;
-                    }
-                    return true;
-                }
-            }
-            return false;
+        private boolean plausibleCounterpart(Fact a, Fact b) {
+            return !a.accountRef().equals(b.accountRef())
+                && oppositeSign(a.amount(), b.amount())
+                && Math.abs(a.amount()) == Math.abs(b.amount())
+                && currencyOf(a).equals(currencyOf(b))
+                && Math.abs(ChronoUnit.DAYS.between(a.date(), b.date())) <= config.transfers().windowDays();
         }
 
         private String currencyOf(Fact f) {
             return config.registry().account(f.accountRef()).currency();
         }
 
-        private boolean isShaped(Fact f, Set<String> shapedReceipts) {
+        private boolean isShaped(Fact f, Set<String> receiptShaped) {
             if (config.transfers().isTransferShaped(f.accountRef(), f.rawDescription())) {
                 return true;
             }
-            return f.receipt() != null && shapedReceipts.contains(f.receipt());
+            return f.receipt() != null && receiptShaped.contains(f.externalId());
         }
 
         private Map<String, CurrentFact> applyPairing(Map<String, CurrentFact> currentMap) {
