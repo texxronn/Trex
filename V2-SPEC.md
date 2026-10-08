@@ -173,8 +173,9 @@ folded; candidates are detected over the current facts (transfer legs included, 
 grouping on the frozen `MerchantStem.stem`: at least three occurrences; gaps within
 `max(2 days, 20%)` of `{7, 14, 30, 61, 91, 182, 365}` days; regularity ≥ 0.7; same-day repeats
 collapsed into one occurrence; refunds netted against the charge they reverse; a consecutive change
-of `≥ 5%` or `≥ 50¢` is a price step; and where the description carries
-`Foreign Currency Amount:`, the FCY price is compared. Coverage is relative to the accounts' posted
+of `≥ 5%` or `≥ 50¢` is a price step; and a series whose every row carries
+`Foreign Currency Amount:` compares the FCY price (a series where only some rows do stays on
+AUD, so mixing bases cannot invent a step). Coverage is relative to the accounts' posted
 frontier, never a clock: `active` inside one cadence plus tolerance, `ended` beyond two periods,
 otherwise `dormant`. A candidate is suppressed by an effective `IGNORE_RECURRING`, by a declaration
 that named it as `fromCandidate`, or by declaration rules covering its facts, and only a non-ended
@@ -190,8 +191,9 @@ occurrence at its own date; full coverage is within `max(2%, 50¢)`, below it th
 `partial`. A `variable` commitment keeps one fact per occurrence; an `irregular` commitment generates
 no dates and records each matching fact at its own date — never a window, a miss, arrears or
 dormancy. Status is `occurred` (green, carrying the matched fact), `settled` (a person concluded it
-without a fact), `due`, `partial` or `missed`; `lapsed` colours the current closed-window miss, and
-the older misses accumulate as **arrears**. A retired commitment stops at `endedAt`; a dormant one is
+without a fact), `due`, `partial` or `missed`; `lapsed` mirrors the most recent closed-window
+occurrence still short — never the older backlog — and the older misses accumulate as
+**arrears**. A retired commitment stops at `endedAt`; a dormant one is
 a question for a person (`DORMANT_COMMITMENT`), never auto-ended, and nothing is auto-forgiven.
 
 **Review items** (`(subject, kind)` is the key): `POTENTIAL_DUP`, `RESTATEMENT`, `AMBIGUOUS_TRANSFER`,
@@ -373,10 +375,9 @@ retirement and the span), the `DeriveTest` commitment cases (curation fold, the 
 and their dismissal aging, transfer-leg commitments, dormancy, arrears), `IndexerTest` (the four
 tables through rebuild ≡ incremental), `CommitmentsApiTest` (the two endpoints and the review
 kinds), and the round-trip/precheck/stream cases (`LogCodecTest`, `HubDecisionPathTest`,
-`SequencerTest`, `StreamTest`). Fixture-dependent
-tests are `@Tag("fixture")` and skip with a printed reason, so `mvn verify` is green on a fresh
-clone. `docs/V2-PARITY.md` holds the v1↔v2 equivalence ledger; `StatementsE2ETest` is the end-to-end
-run over real statement files.
+`SequencerTest`, `StreamTest`). Fixture-dependent tests are `@Tag("fixture")` and skip with a
+printed reason, so `mvn verify` is green on a fresh clone. `docs/V2-PARITY.md` holds the v1↔v2
+equivalence ledger; `StatementsE2ETest` is the end-to-end run over real statement files.
 
 ---
 
