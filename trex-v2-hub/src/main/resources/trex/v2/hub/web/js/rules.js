@@ -1,203 +1,145 @@
-// Rules mode (V2-PROPOSAL.md §10.4): load the current rules, preview a candidate's blast radius,
-// save it, and work the workbook — lint, coverage, suggestions and redundant-pin cleanup.
+// Rules mode (read-only): the current rule set as a browsable tree, with the workbook's coverage,
+// lint, pins and suggestions, and the raw YAML for reference. Rules are edited in the repo and
+// deployed; nothing here mutates config, so the checkout and the running config cannot drift.
 
 import { api } from './api.js';
-import { decisions } from './decisions.js';
-import { el, clear } from './dom.js';
-import { reportError, toast } from './toast.js';
+import { el, clear, scroll } from './dom.js';
+import { reportError } from './toast.js';
 
 let host;
 let ctx;
-let editor;
-let summary;
-let workbookHost;
-let errorBar;
-let transfersEditor;
-let transfersSummary;
-let transfersError;
+let report = null;
+let categoriesYaml = '';
+let transfersYaml = '';
 
 export function mount(container, context) {
   host = container;
   ctx = context;
   render();
   load();
-  return { refresh: refreshWorkbook };
-}
-
-function render() {
-  clear(host);
-  errorBar = el('div', { class: 'error', hidden: true });
-  editor = el('textarea', { spellcheck: 'false' });
-  summary = el('div', { class: 'muted' });
-  workbookHost = el('div');
-  transfersEditor = el('textarea', { spellcheck: 'false' });
-  transfersSummary = el('div', { class: 'muted' });
-  transfersError = el('div', { class: 'error', hidden: true });
-  host.append(errorBar,
-    el('div', { class: 'toolbar' },
-      button('Preview diff', preview, 'primary'),
-      button('Save', save)),
-    editor,
-    summary,
-    el('h2', {}, 'Transfer patterns'),
-    transfersError,
-    el('div', { class: 'toolbar' },
-      button('Preview diff', previewTransfers, 'primary'),
-      button('Save', saveTransfers)),
-    transfersEditor,
-    transfersSummary,
-    el('h2', {}, 'Workbook'),
-    workbookHost);
+  return { refresh: load };
 }
 
 async function load() {
   try {
-    editor.value = await api.categoriesYaml();
-  } catch (error) {
-    errorBar.textContent = 'cannot load categories.yaml: ' + (error.message || error);
-    errorBar.hidden = false;
-  }
-  try {
-    transfersEditor.value = await api.transfersYaml();
-  } catch (error) {
-    transfersError.textContent = 'cannot load transfers.yaml: ' + (error.message || error);
-    transfersError.hidden = false;
-  }
-  await refreshWorkbook();
-}
-
-async function refreshWorkbook() {
-  try {
-    renderWorkbook(await api.workbook());
-  } catch (error) {
-    // workbook is best-effort; the editor still works
-  }
-}
-
-function renderWorkbook(report) {
-  clear(workbookHost);
-  const c = report.coverage;
-  workbookHost.append(
-    el('p', { class: 'muted' },
-      `${c.total} current · ${c.categorized} categorised · ${c.pinned} pinned · ` +
-      `${c.uncategorized} uncategorised · ${c.structural} structural`),
-    section('Lint', report.findings.length === 0
-      ? [el('p', { class: 'muted' }, 'No findings.')]
-      : report.findings.map((f) =>
-          el('div', {}, el('span', { class: 'tag NONE' }, f.kind), ' ', f.subject, ' — ', f.detail))),
-    section('Suggestions', report.suggestions.length === 0
-      ? [el('p', { class: 'muted' }, 'No suggestions.')]
-      : report.suggestions.map((s) => el('div', {},
-          `${s.source === 'PIN' ? 'pin cluster' : 'uncategorised'}: ${s.stem}` +
-          (s.category ? ` as ${s.category}` : '') +
-          ` \u00d7${s.occurrences} \u2014 regex ${s.proposedRegex} matches ${s.regexMatches} ` +
-          `(${s.regexNew} new, ${s.regexConflicts} already categorised)`))),
-    section('Pins', renderPins(report.pins)),
-    section('Trend (by month: rule / pin / uncategorised)',
-      report.coverage.trend.map((t) =>
-        el('div', { class: 'muted' }, `${t.period}: ${t.rule} / ${t.pin} / ${t.uncategorized}`))),
-  );
-}
-
-function renderPins(pins) {
-  if (!pins.length) return [el('p', { class: 'muted' }, 'No pins.')];
-  return [el('table', {}, el('thead', {}, el('tr', {},
-    el('th', {}, 'Id'), el('th', {}, 'Category'), el('th', {}, 'Rule'), el('th', {}))),
-    el('tbody', {}, ...pins.map((p) => el('tr', {},
-      el('td', { class: 'muted', title: p.externalId }, p.externalId.slice(0, 8)),
-      el('td', {}, p.category),
-      el('td', { class: 'muted' }, p.redundant ? `${p.ruleId} covers it` : '\u2014'),
-      el('td', {}, p.redundant
-        ? el('button', { type: 'button', onclick: () => unpin(p.externalId) }, 'UNPIN')
-        : null)))))];
-}
-
-async function unpin(externalId) {
-  try {
-    await api.decisions(ctx.n, [decisions.unpin(ctx, [externalId], 'unpinned from workbook')]);
-    toast('Unpinned');
-    await refreshWorkbook();
+    report = await api.workbook();
+    categoriesYaml = (await api.categoriesYaml()) || '';
+    transfersYaml = (await api.transfersYaml()) || '';
   } catch (error) {
     reportError(error);
+    return;
   }
+  render();
 }
 
-async function preview() {
-  try {
-    const result = await api.reflowPreview(editor.value);
-    renderSummary(result);
-    errorBar.hidden = true;
-  } catch (error) {
-    errorBar.textContent = error.message || 'preview failed';
-    errorBar.hidden = false;
+function render() {
+  clear(host);
+  if (!report) {
+    host.append(el('p', { class: 'muted' }, 'Loading…'));
+    return;
   }
+  host.append(
+    coverageBar(report),
+    ruleTree(report),
+    lintSection(report),
+    pinsSection(report),
+    suggestionsSection(report),
+    rawSection());
 }
 
-async function save() {
-  try {
-    await api.saveCategories(editor.value);
-    toast('Saved; the watcher will re-derive');
-    errorBar.hidden = true;
-    setTimeout(refreshWorkbook, 400);
-  } catch (error) {
-    if (error.status === 422) {
-      errorBar.textContent = error.message;
-      errorBar.hidden = false;
-    } else {
-      reportError(error);
+function coverageBar(report) {
+  const c = report.coverage;
+  return el('section', {}, el('h2', {}, 'Coverage'),
+    el('p', { class: 'muted' },
+      `${c.total} current · ${c.categorized} categorised · ${c.pinned} pinned · ` +
+      `${c.uncategorized} uncategorised · ${c.structural} structural`));
+}
+
+// The file says what the rules are; the workbook says what they do. One row per rule, in order
+// within its category, with hits, merchants and a shadowed/never-fires marker inline.
+function ruleTree(report) {
+  const rules = report.rules || [];
+  const byCategory = new Map();
+  for (const rule of rules) {
+    if (!byCategory.has(rule.category)) {
+      byCategory.set(rule.category, []);
     }
+    byCategory.get(rule.category).push(rule);
   }
+  const declared = (ctx.refdata && ctx.refdata.categories) || [];
+  const categories = [...new Set([...declared, ...byCategory.keys()])].sort();
+  return el('section', {}, el('h2', {}, 'Rules'),
+    el('p', { class: 'hint muted' },
+      'Declared categories and the ordered rules that assign them (first match wins). '
+      + 'Expand one; a rule that never fires or is shadowed is marked.'),
+    ...categories.map((category) => categoryGroup(category, byCategory.get(category) || [])));
 }
 
-async function previewTransfers() {
-  try {
-    renderTransferSummary(await api.transfersPreview(transfersEditor.value));
-    transfersError.hidden = true;
-  } catch (error) {
-    transfersError.textContent = error.message || 'preview failed';
-    transfersError.hidden = false;
+function categoryGroup(category, rules) {
+  const ordered = rules.slice().sort((a, b) => a.index - b.index);
+  const rows = ordered.reduce((sum, r) => sum + r.hits, 0);
+  return el('details', { open: ordered.some((r) => r.hits > 0) },
+    el('summary', {}, el('b', {}, category), ' ',
+      el('span', { class: 'muted' },
+        `${ordered.length} rule${ordered.length === 1 ? '' : 's'} · ${rows} rows`)),
+    ordered.length
+      ? el('div', { class: 'rules' }, ...ordered.map(ruleLine))
+      : el('p', { class: 'muted' }, 'no rules'));
+}
+
+function ruleLine(rule) {
+  const warn = rule.hits === 0
+    ? (rule.shadowed > 0 ? `shadowed by #${rule.shadowedBy}` : 'never fires')
+    : null;
+  return el('div', { class: 'rule-line' },
+    el('span', { class: 'mono' }, '#' + rule.index),
+    el('span', { class: 'desc' }, rule.comment || ''),
+    el('span', { class: 'muted' }, `${rule.hits} rows · ${rule.merchants} merchants`),
+    warn ? el('span', { class: 'tag NONE' }, warn) : null);
+}
+
+function lintSection(report) {
+  const findings = report.findings || [];
+  return el('section', {}, el('h2', {}, `Lint (${findings.length})`),
+    findings.length === 0
+      ? el('p', { class: 'muted' }, 'No findings.')
+      : el('div', {}, ...findings.map((f) =>
+          el('div', {}, el('span', { class: 'tag NONE' }, f.kind), ' ', f.subject, ' — ', f.detail))));
+}
+
+function pinsSection(report) {
+  const pins = report.pins || [];
+  if (!pins.length) {
+    return el('section', {}, el('h2', {}, 'Pins (0)'), el('p', { class: 'muted' }, 'No pins.'));
   }
+  const head = el('tr', {}, el('th', {}, 'Id'), el('th', {}, 'Category'), el('th', {}, 'Rule'));
+  const body = pins.map((p) => el('tr', {},
+    el('td', { class: 'muted', title: p.externalId }, (p.externalId || '').slice(0, 8)),
+    el('td', {}, p.category),
+    el('td', { class: 'muted' }, p.redundant ? `${p.ruleId} covers it` : '\u2014')));
+  return el('section', {}, el('h2', {}, `Pins (${pins.length})`),
+    scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
-async function saveTransfers() {
-  try {
-    await api.saveTransfers(transfersEditor.value);
-    toast('Saved; the watcher will re-derive');
-    transfersError.hidden = true;
-  } catch (error) {
-    if (error.status === 422) {
-      transfersError.textContent = error.message;
-      transfersError.hidden = false;
-    } else {
-      reportError(error);
-    }
-  }
+function suggestionsSection(report) {
+  const all = report.suggestions || [];
+  const shown = all.slice(0, 100);
+  return el('section', {}, el('h2', {}, `Suggestions (${all.length})`),
+    all.length === 0
+      ? el('p', { class: 'muted' }, 'No suggestions.')
+      : el('div', {}, ...shown.map((s) =>
+          el('div', {},
+            `${s.source === 'PIN' ? 'pin cluster' : 'uncategorised'}: ${s.stem}` +
+            (s.category ? ` as ${s.category}` : '') +
+            ` \u00d7${s.occurrences} \u2014 regex ${s.proposedRegex} matches ${s.regexMatches} ` +
+            `(${s.regexNew} new, ${s.regexConflicts} already categorised)`)),
+          all.length > shown.length
+            ? el('p', { class: 'muted' }, `\u2026 and ${all.length - shown.length} more`)
+            : null));
 }
 
-function renderTransferSummary(p) {
-  clear(transfersSummary);
-  transfersSummary.append(
-    el('div', {}, `pairs: ${p.pairsAdded} new, ${p.pairsRemoved} removed`),
-    el('div', {}, `review: ${p.reviewOpened} opened, ${p.reviewCleared} cleared`),
-    el('div', {}, `legs moved: ${p.moved.length}`),
-    el('ul', {}, ...p.moved.slice(0, 50).map((m) =>
-      el('li', {}, `${m.externalId.slice(0, 8)}: ${m.from || '\u2014'} \u2192 ${m.to || '\u2014'}`))));
-}
-
-function renderSummary(previewResult) {
-  clear(summary);
-  summary.append(
-    el('div', {}, `categories: ${previewResult.categoriesMoved} moved`),
-    el('ul', {}, ...previewResult.moved.slice(0, 50).map((m) =>
-      el('li', {}, `${m.externalId}: ${m.from} \u2192 ${m.to}`))),
-    el('div', {}, `transfers: ${previewResult.transfersAdded} new, ${previewResult.transfersRemoved} unmatched`),
-    el('div', {}, `review: ${previewResult.reviewOpened} opened, ${previewResult.reviewCleared} cleared`));
-}
-
-function section(title, children) {
-  return el('div', {}, el('h3', {}, title), ...children);
-}
-
-function button(label, onClick, cls) {
-  return el('button', { type: 'button', class: cls || '', onclick: onClick }, label);
+function rawSection() {
+  return el('section', {}, el('h2', {}, 'Raw config (read-only)'),
+    el('details', {}, el('summary', {}, 'categories.yaml'), el('pre', { class: 'raw' }, categoriesYaml)),
+    el('details', {}, el('summary', {}, 'transfers.yaml'), el('pre', { class: 'raw' }, transfersYaml)));
 }

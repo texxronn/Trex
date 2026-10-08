@@ -277,6 +277,15 @@ td.members .chip.t5 { background: color-mix(in srgb, #06b6d4 16%, var(--surface)
 .dir.in { color: var(--good); }
 .dir.out { color: #ef4444; font-weight: 600; }
 
+/* Rules mode: a read-only tree of the current rules, and the raw config. */
+.rule-line { display: flex; gap: 0.7rem; align-items: baseline; padding: 0.12rem 0; }
+.rule-line .mono { color: var(--muted); min-width: 3.4rem; text-align: right; font-family: var(--mono); font-size: 12px; }
+.rule-line .desc { flex: 1 1 auto; }
+details > summary { cursor: pointer; }
+.raw { max-height: 26rem; overflow: auto; white-space: pre-wrap; font-family: var(--mono);
+  font-size: 12px; background: var(--surface-2); padding: 0.6rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); }
+
 /* ---- badges and tags ---------------------------------------------------- */
 
 .tag, .badge {
