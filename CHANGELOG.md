@@ -20,6 +20,9 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **The header's per-account `reconcile` badges are gone.** The top strip no longer calls
+  `/api/reconcile`; the balance check lives entirely in the **Chains** tab. A **Clear filters**
+  button resets the filter dropdowns on **Blotter**, **Review** and **Chains**.
 - **`RESTATEMENT` is now disjoint from `POTENTIAL_DUP`.** It requires *different merchant stems*
   (a different reading of the amount), so identical-text or same-stem pairs are no longer
   double-labelled: a same-stem pair is a duplicate. On the dev fixture this takes the restatement

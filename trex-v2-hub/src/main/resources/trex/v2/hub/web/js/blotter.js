@@ -68,6 +68,7 @@ function render() {
     field('Sort', select('sort', ['date', 'amount', 'category', 'account', 'n'], filters.sort,
       (v) => set('sort', v))),
     field('Order', select('order', ['desc', 'asc'], filters.order, (v) => set('order', v))),
+    button('Clear filters', clearFilters),
   );
 
   const actions = el('div', { class: 'toolbar' },
@@ -212,6 +213,19 @@ async function submit(list) {
 function set(key, value, resetOffset = true) {
   filters[key] = value;
   if (resetOffset) filters.offset = 0;
+  load();
+}
+
+// Reset every filter field (not the sort/order, which are view controls) and reload.
+function clearFilters() {
+  filters.account = '';
+  filters.category = '';
+  filters.leg = '';
+  filters.role = '';
+  filters.q = '';
+  filters.hasReview = false;
+  filters.offset = 0;
+  render();
   load();
 }
 

@@ -32,11 +32,18 @@ function render() {
     ...ctx.refdata.accounts.map((a) => el('option', { value: a.ref, selected: a.ref === account }, a.ref)));
   body = el('div');
   host.append(
-    el('div', { class: 'toolbar' }, field('Account', select)),
+    el('div', { class: 'toolbar' }, field('Account', select),
+      button('Clear filter', clearFilter)),
     el('p', { class: 'hint muted' },
       'The balance check runs over transaction rows only. A fork is a value two rows claim; '
       + 'nooping a side is previewed before it is written.'),
     body);
+}
+
+function clearFilter() {
+  account = '';
+  render();
+  load();
 }
 
 async function load() {
