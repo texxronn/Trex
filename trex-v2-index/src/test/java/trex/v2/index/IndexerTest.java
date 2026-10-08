@@ -14,6 +14,9 @@ import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.TransferRules;
 import trex.v2.core.config.User;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 import trex.v2.log.JsonlJournal;
 
 import java.nio.file.Path;
@@ -166,6 +169,43 @@ class IndexerTest {
         }
         try (IndexLock again = IndexLock.acquire(db)) {
             assertTrue(true);
+        }
+    }
+
+    @Test
+    void theCommitmentTablesPopulateAndSurviveARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = dir.resolve("commitments.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "acme-1", "ing-savings", LocalDate.of(2026, 8, 15), -10000, "ACME BILL"),
+                fact(2, "acme-2", "ing-savings", LocalDate.of(2026, 9, 15), -10000, "ACME BILL"),
+                new Decision.DeclareCommitment(3, "acme", "Acme", "out", Cadence.MONTHLY,
+                    AmountKind.FIXED, CommitmentKind.BILL, List.of(new Decision.Match("ACME", null)),
+                    10000L, LocalDate.of(2026, 8, 15), null, null, Actor.USER, "ron", ASOF),
+                new Decision.NoteCommitment(4, "acme", "check the price", Actor.USER, "ron", ASOF)));
+        }
+        try (Indexer indexer = Indexer.open(db, config())) {
+            assertTrue(indexer.apply(journal, ASOF));
+            assertEquals(1, count(db, "commitment"));
+            assertEquals(1, count(db, "commitment_rule"));
+            assertTrue(count(db, "commitment_occurrence") >= 2);
+            assertEquals(1, count(db, "commitment_note"));
+            assertEquals(1L, indexer.counts().get("commitment"));
+            assertEquals("declared", string(db, "SELECT origin FROM commitment WHERE commitment_id='acme'"));
+            assertEquals("monthly", string(db, "SELECT cadence FROM commitment WHERE commitment_id='acme'"));
+            assertEquals("ACME", string(db, "SELECT match FROM commitment_rule WHERE commitment_id='acme'"));
+            assertEquals("check the price",
+                string(db, "SELECT text FROM commitment_note WHERE commitment_id='acme'"));
+            assertEquals("occurred",
+                string(db, "SELECT status FROM commitment_occurrence WHERE commitment_id='acme'"
+                    + " AND due_date='2026-09-15'"));
+
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint());
+            assertEquals(1, count(db, "commitment"));
+            assertEquals(1, count(db, "commitment_note"));
         }
     }
 
