@@ -419,12 +419,12 @@ tbody tr.noop:hover td { opacity: .8; }
 .dialog .field textarea { flex: 1 1 auto; max-width: 60%; min-height: 5.5rem; font-size: 12px; }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 
-/* The candidate menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): transactions left, price right. */
+/* The commitment menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): full-width price chart, then the table. */
 .dialog.xwide { width: min(920px, 100%); }
-.popup-split { display: flex; gap: 0.8rem; align-items: flex-start; margin-top: 0.6rem; }
-.popup-pane { flex: 1 1 50%; min-width: 0; }
+.popup-split { display: flex; flex-direction: column; gap: 0.8rem; margin-top: 0.6rem; }
+.popup-pane { min-width: 0; }
 .popup-pane h4 { margin: 0 0 0.3rem; font-size: 12px; color: var(--muted); font-weight: 600; }
-.tx-pane { max-height: 42vh; overflow: auto; border: 1px solid var(--line);
+.tx-pane { max-height: 30vh; overflow: auto; border: 1px solid var(--line);
   border-radius: var(--radius-sm); }
 .tx-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .tx-table th { font-size: 11px; color: var(--muted); text-align: left; padding: 0.25rem 0.4rem;
@@ -441,6 +441,7 @@ td.tx-out { color: #ef4444; font-weight: 600; }
 td.tx-in { color: var(--good); font-weight: 600; }
 .chart-pane { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0.3rem; }
 .price-chart { display: block; width: 100%; height: auto; }
+.price-chart .grid { stroke: var(--line); stroke-width: 1; }
 .price-chart .axis { stroke: var(--line-strong); stroke-width: 1; }
 .price-chart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
 .price-chart .dot { fill: var(--accent); }
@@ -448,9 +449,7 @@ td.tx-in { color: var(--good); font-weight: 600; }
 .price-chart .lbl.end { text-anchor: end; }
 .chart-note { font-size: 11px; margin-top: 0.25rem; }
 @media (max-width: 720px) {
-  .popup-split { flex-direction: column; }
-  .popup-pane { flex: 1 1 auto; width: 100%; }
-  .tx-pane { max-height: 32vh; }
+  .tx-pane { max-height: 26vh; }
 }
 
 /* ---- Eyeball read / unread ---------------------------------------------- */
