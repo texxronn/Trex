@@ -11,6 +11,10 @@ import trex.v2.core.Provenance;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.ClearingLeg;
+import trex.v2.core.derive.Commitment;
+import trex.v2.core.derive.CommitmentNote;
+import trex.v2.core.derive.CommitmentOccurrence;
+import trex.v2.core.derive.CommitmentRule;
 import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.Derive;
@@ -279,6 +283,27 @@ public final class Indexer implements AutoCloseable {
         }
     }
 
+    private static void setNullableLong(PreparedStatement ps, int index, Long value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, java.sql.Types.INTEGER);
+        } else {
+            ps.setLong(index, value);
+        }
+    }
+
+    private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, java.sql.Types.REAL);
+        } else {
+            ps.setDouble(index, value);
+        }
+    }
+
+    /** A date column, or null: the schema stores ISO-8601 text. */
+    private static String date(java.time.LocalDate value) {
+        return value == null ? null : value.toString();
+    }
+
     // ---- derivation -------------------------------------------------------------------------
 
     private void deriveAndStore(Instant asOf) throws SQLException {
@@ -503,6 +528,76 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(5, ack.deriveVersion());
                 ps.setString(6, ack.hashVersion());
                 ps.setString(7, ack.ackedAt().toString());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_COMMITMENT)) {
+            for (Commitment c : d.commitments()) {
+                int i = 1;
+                ps.setString(i++, c.commitmentId());
+                ps.setString(i++, c.name());
+                ps.setString(i++, c.origin().wire());
+                ps.setString(i++, c.direction());
+                ps.setString(i++, c.cadence().wire());
+                ps.setString(i++, c.amountKind().wire());
+                ps.setString(i++, c.kind().wire());
+                ps.setString(i++, c.status().wire());
+                ps.setString(i++, date(c.firstDate()));
+                ps.setString(i++, date(c.lastDate()));
+                ps.setString(i++, date(c.anchorDate()));
+                setNullableLong(ps, i++, c.currentAmount());
+                setNullableLong(ps, i++, c.previousAmount());
+                setNullableDouble(ps, i++, c.changePct());
+                ps.setString(i++, date(c.changeDate()));
+                ps.setInt(i++, c.occurrenceCount());
+                setNullableDouble(ps, i++, c.regularity());
+                ps.setBoolean(i++, c.variable());
+                ps.setInt(i++, c.arrearsCount());
+                setNullableLong(ps, i++, c.arrearsAmount());
+                setNullableLong(ps, i++, c.declaredN());
+                setNullableLong(ps, i++, c.retiredN());
+                ps.setString(i++, date(c.endedAt()));
+                ps.setString(i++, c.stateHash());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_COMMITMENT_RULE)) {
+            for (CommitmentRule r : d.commitmentRules()) {
+                ps.setString(1, r.commitmentId());
+                ps.setString(2, r.match());
+                ps.setString(3, r.accountRef());
+                setNullableLong(ps, 4, r.decisionN());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_COMMITMENT_OCCURRENCE)) {
+            for (CommitmentOccurrence o : d.commitmentOccurrences()) {
+                ps.setString(1, o.commitmentId());
+                ps.setString(2, o.dueDate().toString());
+                ps.setString(3, o.status().wire());
+                ps.setString(4, date(o.windowStart()));
+                ps.setString(5, date(o.windowEnd()));
+                ps.setString(6, o.matchedExternalId());
+                ps.setString(7, date(o.matchedDate()));
+                ps.setString(8, o.matchedBy());
+                ps.setBoolean(9, o.offSchedule());
+                setNullableLong(ps, 10, o.settleN());
+                setNullableLong(ps, 11, o.amount());
+                ps.setString(12, o.stateHash());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_COMMITMENT_NOTE)) {
+            for (CommitmentNote n : d.commitmentNotes()) {
+                ps.setLong(1, n.decisionN());
+                ps.setString(2, n.commitmentId());
+                ps.setString(3, n.text());
+                ps.setString(4, n.userId());
+                ps.setString(5, n.at().toString());
                 ps.addBatch();
             }
             ps.executeBatch();

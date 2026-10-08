@@ -46,13 +46,14 @@ final class Sql {
 
     static final List<String> DERIVED_TABLES = List.of(
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
-        "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack");
+        "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack",
+        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note");
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
         "pending", "review_item", "category_current", "pin_current", "note_current", "ineffective_decision", "unit",
-        "user_ack");
+        "user_ack", "commitment", "commitment_rule", "commitment_occurrence", "commitment_note");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
@@ -83,6 +84,17 @@ final class Sql {
         + "category, origin, pairing, retired, ineffective) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_USER_ACK = "INSERT INTO user_ack(user_id, external_id, state_hash, "
         + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?)";
+    static final String INSERT_COMMITMENT = "INSERT INTO commitment(commitment_id, name, origin, direction, "
+        + "cadence, amount_kind, kind, status, first_date, last_date, anchor_date, current_amount, "
+        + "previous_amount, change_pct, change_date, occurrence_count, regularity, variable, arrears_count, "
+        + "arrears_amount, declared_n, retired_n, ended_at, state_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    static final String INSERT_COMMITMENT_RULE = "INSERT INTO commitment_rule(commitment_id, match, "
+        + "account_ref, decision_n) VALUES(?,?,?,?)";
+    static final String INSERT_COMMITMENT_OCCURRENCE = "INSERT INTO commitment_occurrence(commitment_id, "
+        + "due_date, status, window_start, window_end, matched_external_id, matched_date, matched_by, "
+        + "off_schedule, settle_n, amount, state_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
+    static final String INSERT_COMMITMENT_NOTE = "INSERT INTO commitment_note(decision_n, commitment_id, "
+        + "text, user_id, at) VALUES(?,?,?,?,?)";
 
     // ---- projection state (V2-PROPOSAL.md §11.6): an accelerator, never wiped by derive -------
 
