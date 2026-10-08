@@ -165,8 +165,8 @@ function catchUp() {
     el('span', { class: 'occ-partial' }, ` · ${arrears.length} behind · ${money(total)}`)];
   return fold('arrears', head, [
     el('p', { class: 'muted hint' },
-      'Oldest first. Settle concludes an occurrence was paid without a fact; Assign a payment '
-      + 'takes you to the Blotter to pin the fact that paid it.'),
+      'Oldest first. Settle concludes a hole was paid without a fact; Assign a payment takes you '
+      + 'to the Blotter to place the fact itself.'),
     scroll(el('table', {}, el('thead', {}, el('tr', {},
       el('th', {}, 'Due'), el('th', {}, 'Commitment'), el('th', {}, 'Status'),
       el('th', { class: 'amount' }, 'Expected'), el('th', { class: 'amount' }, 'Shortfall'),

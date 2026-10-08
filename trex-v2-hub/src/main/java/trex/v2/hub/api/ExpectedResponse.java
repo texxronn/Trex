@@ -12,11 +12,11 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
                                List<Occurrence> occurrences, List<Arrear> arrears, Totals totals) {
 
     /**
-     * One occurrence due in the window. {@code amount} is what the occurrence carries (the
-     * allocated share for an {@code occurred}/{@code partial} row, the expected amount on a
-     * {@code settled} one) and is null for {@code due}/{@code missed}; {@code matchedBy} is
-     * {@code rule} or {@code pin}; {@code windowStart}/{@code windowEnd} are the occurrence's own
-     * matching window (null for an irregular or off-schedule row).
+     * One occurrence due in the window. {@code amount} is what the occurrence carries — the
+     * movement attached to its window (facts summed) for an {@code occurred} row, the expected
+     * amount on a {@code settled} one — and is null for {@code due}/{@code missed};
+     * {@code matchedBy} is {@code rule} or {@code pin}; {@code windowStart}/{@code windowEnd} are
+     * the occurrence's own matching window (null for an irregular or off-schedule row).
      */
     public record Occurrence(String commitmentId, String commitmentName, String direction,
                              String cadence, LocalDate dueDate, LocalDate windowStart,
@@ -25,12 +25,11 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
                              boolean offSchedule, Long settleN) {}
 
     /**
-     * One occurrence in arrears: a {@code missed} or {@code partial} occurrence, oldest first.
-     * {@code amount} is the allocated share (null on {@code missed}); {@code expected} is the
-     * commitment's current price (the derived tables do not keep the step timeline, so a price step
-     * inside the materialised span makes this an approximation of the occurrence's own
-     * expectation); {@code shortfall} is what is still missing on the row and {@code runningTotal}
-     * the backlog accumulated through it. All three are positive magnitudes.
+     * One hole in arrears: a {@code missed} occurrence, oldest first. {@code expected} is the
+     * commitment's current price (the derived tables do not keep the step timeline, so a price
+     * step inside the materialised span makes this an approximation of the hole's own
+     * expectation); {@code shortfall} is the expected amount still missing and {@code runningTotal}
+     * the backlog accumulated through it. Both are positive magnitudes.
      */
     public record Arrear(String commitmentId, String commitmentName, String direction, String cadence,
                          LocalDate dueDate, String status, Long amount, long expected, long shortfall,
