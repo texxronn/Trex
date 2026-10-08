@@ -281,7 +281,8 @@ cluster can be annotated in one fan-out, `SUSPECTED_RECURRING` offers Confirm/Ig
 every occurrence in arrears, oldest first, with a running total and Settle/Assign, and the
 commitment registry — candidates named by their stem with their series evidence; every row opens
 an **Actions** menu whose two panes show its activity (a table and a rudimentary price timeseries) —
-Review/Confirm/Ignore for a candidate, Re-declare/Retire/Note/Settle for a declared row — with
+Review/Confirm/Ignore for a candidate (or Record ended when the series has ended, at its detected
+last charge), Re-declare/Retire/Note/Settle for a declared row — with
 filters over origin/status/direction/text — and a rule lint panel; the four sections fold, their headers
 carrying the live figures (`V2-EXPECTED-UX-PLAN.md`); the tab is walked as part of the regular
 review routine), **Eyeball** (§10.3 — open items, the nine anomaly checks

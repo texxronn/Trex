@@ -20,6 +20,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Ended series can be recorded as ended, at the date they ended.** An ended candidate's menu
+  offers **Record ended…**: the declaration dialog prefilled as usual, plus an **Ended** field
+  defaulted to the detected last charge; saving posts `DECLARE_COMMITMENT` and
+  `RETIRE_COMMITMENT` in one atomic batch, so the commitment lands ended with no dormancy or
+  arrears. A dormant commitment retired from Review or the registry also defaults its end date to
+  the last charge instead of today.
 - **Every registry row opens the same Actions… menu.** Declared commitments now get the two-pane
   view the candidates had — activity table and price chart — and their row actions (Re-declare,
   Retire, Note, Settle when behind) moved into it, replacing the inline buttons. The activity read
