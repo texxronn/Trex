@@ -5,7 +5,7 @@
 > disagree, the proposal wins. The proposal **already defines** `NOTE`, `DISMISS.comment`
 > and `USER_ACK.comment`; the amendments in §7 are proposed and not yet applied.
 
-**Status:** planned; nothing built.
+**Status:** implemented; build and tests green; local stack redeployed; the §7 amendments applied.
 **Authority:** `V2-PROPOSAL.md` §6.2, §6.3, §6.6, §6.7, §9.4, §9.8, §9.9.F, §10.1, §10.2,
 §10.3, §11, §14, §15; `AGENTS.md`.
 **Adds to the decision set:** none. All three events already exist and round-trip.
