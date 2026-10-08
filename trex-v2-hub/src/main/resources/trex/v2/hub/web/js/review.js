@@ -6,7 +6,7 @@ import { decisions } from './decisions.js';
 import { openAnnotate } from './annotate.js';
 import { direction } from './direction.js';
 import { openPrompt, openSelect } from './dialog.js';
-import { escapeRegex, openDeclare, openRetire, openSettle, slugify, titleCase } from './commitment.js';
+import { confirmCandidate, ignoreCandidate, openRetire, openSettle } from './commitment.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -40,6 +40,14 @@ const KIND_LABEL = {
 export function mount(container, context) {
   host = container;
   ctx = context;
+  // Deep links: #review?kind=SUSPECTED_RECURRING (the Expected registry's Review action) and
+  // #review?account=<ref>, the same modeQuery shape Blotter and Eyeball already read.
+  const query = context.modeQuery || new URLSearchParams();
+  const requestedKind = query.get('kind');
+  if (requestedKind && KINDS.includes(requestedKind)) kind = requestedKind;
+  const requestedAccount = query.get('account');
+  const knownAccounts = ((context.refdata && context.refdata.accounts) || []).map((a) => a.ref);
+  if (requestedAccount && knownAccounts.includes(requestedAccount)) account = requestedAccount;
   render();
   load();
   return { refresh: load };
@@ -109,9 +117,12 @@ function renderRows(rows) {
 // keeps the generic Dismiss/Note.
 function actionCell(row) {
   if (row.kind === 'SUSPECTED_RECURRING') {
+    const candidate = candidateOf(row);
     return el('td', {},
-      el('button', { type: 'button', class: 'primary', onclick: () => confirmCandidate(row) }, 'Confirm'),
-      el('button', { type: 'button', class: 'ghost', onclick: () => ignoreCandidate(row) }, 'Ignore'));
+      el('button', { type: 'button', class: 'primary',
+        onclick: () => confirmCandidate(ctx, candidate, load) }, 'Confirm'),
+      el('button', { type: 'button', class: 'ghost',
+        onclick: () => ignoreCandidate(ctx, candidate, load) }, 'Ignore'));
   }
   if (row.kind === 'DORMANT_COMMITMENT') {
     return el('td', {},
@@ -138,46 +149,11 @@ function actionCell(row) {
 
 // ---- commitment review flows (V2-COMMITMENTS-PLAN.md §2.8) ------------------------------------
 
-/** Confirm a candidate: the declaration dialog prefilled from its enrichment. */
-function confirmCandidate(row) {
+/** Review's row mapped onto the shared candidate shape (commitment.js). */
+function candidateOf(row) {
   const e = row.enrichment || {};
-  const current = e.currentAmount != null ? e.currentAmount : 0;
-  openDeclare(ctx, {
-    commitmentId: slugify(row.subject),
-    name: titleCase(row.subject),
-    kind: 'other',
-    direction: current < 0 ? 'out' : 'in',
-    cadence: e.cadence || 'monthly',
-    amountKind: 'fixed',
-    amount: e.currentAmount != null ? Math.abs(e.currentAmount) : null,
-    anchor: e.firstDate || '',
-    matches: [{ match: escapeRegex(row.subject), account: null }],
-    fromCandidate: row.subject,
-    summary: row.detail,
-  }, load);
-}
-
-/** Ignore is the semantic (it does not reopen on the next fact), and it carries a reason. */
-function ignoreCandidate(row) {
-  openPrompt({
-    title: 'Ignore recurring',
-    summary: row.subject,
-    label: 'Reason',
-    placeholder: 'why this series is not a commitment',
-    confirm: 'Ignore',
-  }, async (reason) => {
-    if (!reason) {
-      toast('A reason is required', 'bad');
-      return;
-    }
-    try {
-      await api.decisions(ctx.n, [decisions.ignoreRecurring(ctx, row.subject, reason)]);
-      toast('Ignored');
-    } catch (error) {
-      reportError(error);
-    }
-    await load();
-  });
+  return { stem: row.subject, cadence: e.cadence, currentAmount: e.currentAmount,
+    firstDate: e.firstDate, detail: row.detail };
 }
 
 /** Mark ended: the retire dialog (endedAt today, a reason), nothing auto-decided. */

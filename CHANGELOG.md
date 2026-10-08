@@ -20,6 +20,16 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **The commitment registry names its candidates and gives them actions**
+  (`V2-EXPECTED-UX-PLAN.md` §7 Stage 2). A detected candidate carries its grouping **stem**
+  (`/api/commitments` gained `stem`; the derived `commitment` table gained `candidate_key`), so a
+  row reads `AMAZON WEB SERVICES · candidate` instead of `cand|009`. Candidate rows show their
+  series evidence (count, span, regularity, `variable`), the change date rides the current price,
+  `kind` is `—` until a person concludes it, and an **Actions…** menu offers **Review**
+  (`#review?kind=SUSPECTED_RECURRING`), **Confirm…** (the same declaration prefill as Review) and
+  **Ignore…**. The section gains All/Candidates/Declared, status, direction, text and sort filters;
+  all rows show by default. Derived tables and the web tree only — no log, decision or derivation
+  change.
 - **The Expected mode's four sections fold** (`V2-EXPECTED-UX-PLAN.md`). Collapsible headers carry
   the live figures — `Occurrences · this month · n`, `Catch up · n behind · $x`,
   `Commitments · n candidates`, `Lint · n overlaps` — with Occurrences and Catch up open by default

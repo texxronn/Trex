@@ -69,3 +69,31 @@ export function openSelect(options, onSave) {
     onSave(value);
   }
 }
+
+/** A choice dialog: one button per action, for a row menu that needs a sentence of context. */
+export function openChoice(options, choices) {
+  const { title, summary } = options;
+  const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
+  const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': title },
+    el('h3', {}, title),
+    summary ? el('p', { class: 'muted' }, summary) : null,
+    el('div', { class: 'actions' },
+      el('button', { type: 'button', onclick: close }, 'Cancel'),
+      ...choices.map((c) => el('button', {
+        type: 'button',
+        class: c.class || 'ghost',
+        onclick: () => { close(); c.onPick(); },
+      }, c.label))));
+  overlay.append(dialog);
+  document.body.append(overlay);
+  document.addEventListener('keydown', onKey);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+  }
+}

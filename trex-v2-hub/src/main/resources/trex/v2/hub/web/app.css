@@ -372,6 +372,7 @@ tbody tr.noop:hover td { opacity: .8; }
 .x-section > summary::marker { color: var(--muted); }
 .x-section .x-body { margin-top: 0.4rem; }
 .x-section .section-actions { margin-bottom: 0.5rem; }
+.x-section .series { font-size: 11px; margin-top: 0.15rem; }
 .bucket { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
 

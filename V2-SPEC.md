@@ -255,9 +255,10 @@ unauthenticated and binds loopback by default.
 
 `/head`, `/api/status`, `/api/refdata`, `/api/ledger` (filters include `role` and `leg`),
 `/api/review` (filters `kind` and `account`),
-`/api/commitments` (the commitment registry: faces, rules, current price, next due, arrears, notes
-thread), `/api/expected?window=today|week|month` (the window's occurrences, the arrears backlog
-oldest-first with a running total, and committed totals by direction),
+`/api/commitments` (the commitment registry: faces, a candidate's grouping `stem`, rules, current
+price, next due, arrears, notes thread), `/api/expected?window=today|week|month` (the window's
+occurrences, the arrears backlog oldest-first with a running total, and committed totals by
+direction),
 `/api/transfers`, `/api/units`, `/api/reconcile` (with named `noop` exclusions), `/api/chains` (the
 §6.9 balance check: per-account forks and a per-side noop preview), `/api/opening`, `/api/workbook`,
 `/api/projection` (GET/POST), `/api/cursors` (GET/POST), `/api/decisions` (POST), `/api/acks`
@@ -276,9 +277,11 @@ cluster can be annotated in one fan-out, `SUSPECTED_RECURRING` offers Confirm/Ig
 **Expected** (§6.11 — today/this week/this month: one row per occurrence with a green tick
 (`occurred`) or red cross (`missed`), the committed totals split out/in, the **Catch up** panel of
 every occurrence in arrears, oldest first, with a running total and Settle/Assign, and the
-commitment registry with retire, re-declare, note, settle and a rule lint panel; the four sections
-fold, their headers carrying the live figures (`V2-EXPECTED-UX-PLAN.md`); the tab is walked as
-part of the regular review routine), **Eyeball** (§10.3 — open items, the nine anomaly checks
+commitment registry — candidates named by their stem with their series evidence and an
+**Actions** menu (Review/Confirm/Ignore), filters over origin/status/direction/text, declared rows
+with retire, re-declare, note, settle — and a rule lint panel; the four sections fold, their headers
+carrying the live figures (`V2-EXPECTED-UX-PLAN.md`); the tab is walked as part of the regular
+review routine), **Eyeball** (§10.3 — open items, the nine anomaly checks
 with an explicit `asOf`, and transactions bucketed by day/week/month with a per-row `Ack`/`Unack`,
 a per-row pin, a per-row **note**, and the commitment chip with **Assign**/**Unassign**), **Rules**
 (category editor with blast-radius preview, lint, fixtures, coverage, plus a **Transfer patterns**
