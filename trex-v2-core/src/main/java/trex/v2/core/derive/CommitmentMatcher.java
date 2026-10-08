@@ -33,13 +33,15 @@ import java.util.regex.PatternSyntaxException;
  * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. Every matching
  * fact — by rule or by pin — is allocated oldest-first across the commitment's open occurrences:
  * the arrears clear from the front and a surplus pre-pays the materialised future; anything left
- * over is an {@code off_schedule} occurrence at the fact's date. A {@code variable} commitment
- * instead keeps one fact per occurrence: its range is too wide to infer multiples. A regular commitment also ignores facts that predate its first materialised
- * window — history outside the occurrence set is never folded onto the oldest occurrence. A
- * retired commitment ({@code endedAt} set) stops generating occurrences after it ended (an
- * occurrence on {@code endedAt} still counts) and takes no fact dated after it; its historical
- * occurrences and arrears remain visible. The output is ordered by commitment
- * id then due date, and no iteration depends on input order.
+ * over is an {@code off_schedule} occurrence at the fact's date, and a same-day extra merges into
+ * the row already there (§2.5) — the table keys one row per {@code (commitment, dueDate)}, so no
+ * second row and no dropped amount. A {@code variable} commitment instead keeps one fact per
+ * occurrence: its range is too wide to infer multiples. A regular commitment also ignores facts
+ * that predate its first materialised window — history outside the occurrence set is never folded
+ * onto the oldest occurrence. A retired commitment ({@code endedAt} set) stops generating
+ * occurrences after it ended (an occurrence on {@code endedAt} still counts) and takes no fact
+ * dated after it; its historical occurrences and arrears remain visible. The output is ordered by
+ * commitment id then due date, and no iteration depends on input order.
  */
 final class CommitmentMatcher {
 
@@ -407,15 +409,28 @@ final class CommitmentMatcher {
 
     /**
      * Record the unallocated remainder — or a fact that found no occurrence — at its own date;
-     * the occurrence table's natural overflow, never a silent adjustment.
+     * the occurrence table's natural overflow, never a silent adjustment. The table keys one row
+     * per {@code (commitment, dueDate)}, so detection's same-day collapse (§2.3.3) applies on the
+     * outcome side too (§2.5): an amount whose date already has a row merges into it — the day's
+     * total is preserved and no money is dropped. A scheduled row that is already covered or
+     * settled keeps its status and matched fact; an off-schedule row keeps the earliest fact,
+     * because facts are processed in {@code (date, n)} order.
      */
     private static void offSchedule(Assigned assigned, List<Slot> slots, long amount) {
         CurrentFact fact = assigned.fact;
-        Slot slot = new Slot(fact.fact().date(), null, null, OccurrenceStatus.OCCURRED);
+        LocalDate date = fact.fact().date();
+        long signed = fact.fact().amount() < 0 ? -amount : amount;
+        for (Slot slot : slots) {
+            if (slot.dueDate.equals(date)) {
+                slot.amount = (slot.amount == null ? 0L : slot.amount) + signed;
+                return;
+            }
+        }
+        Slot slot = new Slot(date, null, null, OccurrenceStatus.OCCURRED);
         slot.offSchedule = true;
-        slot.amount = fact.fact().amount() < 0 ? -amount : amount;
+        slot.amount = signed;
         slot.matchedExternalId = fact.externalId();
-        slot.matchedDate = fact.fact().date();
+        slot.matchedDate = date;
         slot.matchedBy = assigned.matchedBy;
         slots.add(slot);
     }

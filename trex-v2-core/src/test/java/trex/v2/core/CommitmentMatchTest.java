@@ -562,6 +562,64 @@ class CommitmentMatchTest {
     }
 
     @Test
+    void twoOffScheduleFactsOnOneDateAreOneRowWithTheSummedAmount() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        CurrentFact first = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L, "BPAY 111111");
+        CurrentFact second = fact(2, "cba-netsaver", LocalDate.of(2026, 3, 20), -2500L, "BPAY 222222");
+
+        CommitmentMatch match = Commitments.match(List.of(bill), List.of(),
+            List.of(first, second),
+            List.of(new CommitmentPin("id-1", "bill"), new CommitmentPin("id-2", "bill")),
+            List.of(new CommitmentSettle("bill", LocalDate.of(2026, 3, 10), 7),
+                new CommitmentSettle("bill", LocalDate.of(2026, 4, 10), 8),
+                new CommitmentSettle("bill", LocalDate.of(2026, 5, 10), 9),
+                new CommitmentSettle("bill", LocalDate.of(2026, 6, 10), 10)),
+            Instant.parse("2026-04-05T00:00:00Z"));
+
+        List<CommitmentOccurrence> off = match.occurrences().stream()
+            .filter(CommitmentOccurrence::offSchedule).toList();
+        assertEquals(1, off.size(), "two facts on one date are one row: " + match.occurrences());
+        assertEquals(LocalDate.of(2026, 3, 20), off.getFirst().dueDate());
+        assertEquals(-12500L, off.getFirst().amount().longValue(), "the day's total, nothing dropped");
+        assertEquals("id-1", off.getFirst().matchedExternalId(), "the earliest fact is kept");
+        assertEquals("pin", off.getFirst().matchedBy());
+        assertOneRowPerDueDate(match);
+    }
+
+    @Test
+    void aLeftoverOnACoveredOccurrenceDateMergesIntoThatRow() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        CurrentFact covered = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 10), -10000L, "BILL PAYMENT");
+        CurrentFact extra = fact(2, "cba-netsaver", LocalDate.of(2026, 3, 10), -5000L, "BPAY 999888");
+
+        CommitmentMatch match = Commitments.match(List.of(bill), List.of(rule("bill", "BILL|BPAY")),
+            List.of(covered, extra), List.of(),
+            List.of(new CommitmentSettle("bill", LocalDate.of(2026, 4, 10), 7),
+                new CommitmentSettle("bill", LocalDate.of(2026, 5, 10), 8),
+                new CommitmentSettle("bill", LocalDate.of(2026, 6, 10), 9)),
+            Instant.parse("2026-04-05T00:00:00Z"));
+
+        CommitmentOccurrence march = at(match, "bill", LocalDate.of(2026, 3, 10));
+        assertEquals(OccurrenceStatus.OCCURRED, march.status(), "the covered row keeps its status");
+        assertEquals(-15000L, march.amount().longValue(), "the extra merged into the covered day");
+        assertEquals("id-1", march.matchedExternalId(), "the covered row keeps its fact");
+        assertFalse(march.offSchedule());
+        assertEquals(1, match.occurrences().stream()
+            .filter(o -> o.dueDate().equals(LocalDate.of(2026, 3, 10))).count());
+        assertOneRowPerDueDate(match);
+    }
+
+    /** The occurrence table's primary key: one row per (commitment, due date). */
+    private static void assertOneRowPerDueDate(CommitmentMatch match) {
+        long distinct = match.occurrences().stream()
+            .map(o -> o.commitmentId() + "|" + o.dueDate()).distinct().count();
+        assertEquals(match.occurrences().size(), distinct,
+            "duplicate (commitment, dueDate) rows: " + match.occurrences());
+    }
+
+    @Test
     void aFactBeforeTheMaterialisedSpanIsNotAssigned() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 1, 15), -10000L, 1);
