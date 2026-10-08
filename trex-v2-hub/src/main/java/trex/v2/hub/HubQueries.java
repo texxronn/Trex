@@ -1,6 +1,8 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
+import trex.v2.hub.api.ExpectedResponse;
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.LedgerRow;
 import trex.v2.hub.api.NoteJson;
@@ -10,6 +12,8 @@ import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
 import trex.v2.core.config.TransferRules;
+import trex.v2.core.derive.Commitments;
+import trex.v2.core.derive.Period;
 import trex.v2.core.derive.ReviewItem;
 
 import java.nio.file.Path;
@@ -39,7 +43,8 @@ public final class HubQueries implements AutoCloseable {
 
     private static final List<String> STATUS_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
-        "pending", "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "evidence");
+        "pending", "review_item", "category_current", "pin_current", "ineffective_decision",
+        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note", "unit", "evidence");
 
     private final BlockingQueue<Connection> pool;
     private final int size;
@@ -245,7 +250,7 @@ public final class HubQueries implements AutoCloseable {
                             LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
                             rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
                             rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0,
-                            rs.getString(16), rs.getInt(17) != 0));
+                            rs.getString(16), rs.getInt(17) != 0, rs.getString(18), rs.getString(19)));
                     }
                 }
             }
@@ -322,18 +327,23 @@ public final class HubQueries implements AutoCloseable {
                 }
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        long stake = rs.getLong(4);
+                        long stakeRaw = rs.getLong(4);
+                        Long stake = rs.wasNull() ? null : stakeRaw;
                         String description = rs.getString(7);
                         String date = rs.getString(8);
                         String subject = rs.getString(1);
                         String rowKind = rs.getString(2);
                         List<ReviewMember> members = isCluster(rowKind)
                             ? clusterMembers(conn, subject, rowKind, rules) : List.of();
-                        rows.add(new ReviewRow(subject, rowKind, rs.getString(3),
-                            rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6),
+                        // A SUSPECTED_RECURRING subject is the grouping stem, not a fact id: the
+                        // candidate's own derived facts render from the commitment row (§2.8).
+                        ReviewRow.Enrichment enrichment = ReviewItem.SUSPECTED_RECURRING.equals(rowKind)
+                            ? candidateEnrichment(conn, subject) : null;
+                        rows.add(new ReviewRow(subject, rowKind, rs.getString(3), stake,
+                            Instant.parse(rs.getString(5)), rs.getString(6),
                             description == null ? null : trex.v2.core.Clean.clean(description),
                             date == null ? null : LocalDate.parse(date), members, rs.getString(9),
-                            rs.getObject(10) == null ? null : rs.getLong(10)));
+                            rs.getObject(10) == null ? null : rs.getLong(10), enrichment));
                     }
                 }
             }
@@ -343,6 +353,27 @@ public final class HubQueries implements AutoCloseable {
 
     private static boolean isCluster(String kind) {
         return ReviewItem.POTENTIAL_DUP.equals(kind) || ReviewItem.RESTATEMENT.equals(kind);
+    }
+
+    /**
+     * The candidate facts behind a {@code SUSPECTED_RECURRING} subject (§2.8). The subject is the
+     * grouping stem and the {@code commitment} table keys candidates as {@code cand|<hex>}, so the
+     * join mints the id with the detector's own {@link Commitments#candidateId} — one function,
+     * never a second hash that could drift — and a stem with no row (a suppressed or ended
+     * candidate) yields a null enrichment.
+     */
+    private ReviewRow.Enrichment candidateEnrichment(Connection conn, String stem) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_CANDIDATE)) {
+            ps.setString(1, Commitments.candidateId(stem));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return new ReviewRow.Enrichment(rs.getString(1), nullableDate(rs.getString(2)),
+                    nullableDate(rs.getString(3)), rs.getInt(4), nullableLong(rs, 5),
+                    nullableDouble(rs, 6), nullableDouble(rs, 7));
+            }
+        }
     }
 
     /**
@@ -488,6 +519,99 @@ public final class HubQueries implements AutoCloseable {
         } catch (com.fasterxml.jackson.core.JacksonException e) {
             return List.of();
         }
+    }
+
+    // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
+
+    /** The registry: every candidate and declared row, each with its notes thread (oldest first). */
+    public List<CommitmentJson> commitments() {
+        return read(conn -> {
+            Map<String, List<NoteJson>> notes = new LinkedHashMap<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.COMMITMENT_NOTES_SELECT)) {
+                while (rs.next()) {
+                    notes.computeIfAbsent(rs.getString(2), k -> new ArrayList<>())
+                        .add(new NoteJson(rs.getString(2), rs.getString(3), rs.getLong(1),
+                            rs.getString(4), Instant.parse(rs.getString(5))));
+                }
+            }
+            List<CommitmentJson> out = new ArrayList<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.COMMITMENTS_SELECT)) {
+                while (rs.next()) {
+                    String id = rs.getString(1);
+                    out.add(new CommitmentJson(id, rs.getString(2), rs.getString(3), rs.getString(4),
+                        rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
+                        nullableDate(rs.getString(9)), nullableDate(rs.getString(10)),
+                        nullableDate(rs.getString(11)), nullableLong(rs, 12), nullableLong(rs, 13),
+                        nullableDouble(rs, 14), nullableDate(rs.getString(15)), rs.getInt(16),
+                        nullableDouble(rs, 17), rs.getInt(18) != 0, rs.getInt(19),
+                        nullableLong(rs, 20), nullableLong(rs, 21), nullableLong(rs, 22),
+                        nullableDate(rs.getString(23)), notes.getOrDefault(id, List.of())));
+                }
+            }
+            return out;
+        });
+    }
+
+    /**
+     * The Expected view (§2.8) for one calendar window: the window's occurrences, the whole
+     * arrears backlog (oldest first, running total) and the window's committed totals by direction.
+     * A row's committed magnitude is what it carries — the allocated share once a fact landed, the
+     * commitment's current price while nothing has — so a {@code partial} row contributes its
+     * allocated part here and its remainder is in the backlog.
+     */
+    public ExpectedResponse expected(String window, Period.Range range) {
+        return read(conn -> {
+            List<ExpectedResponse.Occurrence> occurrences = new ArrayList<>();
+            long out = 0;
+            long in = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.EXPECTED_OCCURRENCES)) {
+                ps.setString(1, range.from().toString());
+                ps.setString(2, range.to().toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String direction = rs.getString(3);
+                        Long currentAmount = nullableLong(rs, 5);
+                        Long amount = nullableLong(rs, 10);
+                        occurrences.add(new ExpectedResponse.Occurrence(rs.getString(1),
+                            rs.getString(2), direction, rs.getString(4),
+                            LocalDate.parse(rs.getString(6)), nullableDate(rs.getString(7)),
+                            nullableDate(rs.getString(8)), rs.getString(9), amount,
+                            rs.getString(11), nullableDate(rs.getString(12)), rs.getString(13),
+                            rs.getInt(14) != 0, nullableLong(rs, 15)));
+                        long committed = amount != null ? Math.abs(amount)
+                            : currentAmount == null ? 0 : Math.abs(currentAmount);
+                        if ("out".equals(direction)) {
+                            out += committed;
+                        } else {
+                            in += committed;
+                        }
+                    }
+                }
+            }
+            List<ExpectedResponse.Arrear> arrears = new ArrayList<>();
+            long running = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ARREARS_OCCURRENCES);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Long currentAmount = nullableLong(rs, 5);
+                    Long amount = nullableLong(rs, 8);
+                    String status = rs.getString(7);
+                    long expected = currentAmount != null ? Math.abs(currentAmount)
+                        : amount == null ? 0 : Math.abs(amount);
+                    long paid = amount == null ? 0 : Math.abs(amount);
+                    long shortfall = "missed".equals(status) ? expected
+                        : Math.max(0, expected - paid);
+                    running += shortfall;
+                    arrears.add(new ExpectedResponse.Arrear(rs.getString(1), rs.getString(2),
+                        rs.getString(3), rs.getString(4), LocalDate.parse(rs.getString(6)), status,
+                        amount, expected, shortfall, running));
+                }
+            }
+            return new ExpectedResponse(window, range.from(), range.to(), occurrences, arrears,
+                new ExpectedResponse.Totals(out, in));
+        });
     }
 
     public List<TransferJson> transfers() {
@@ -741,6 +865,30 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /**
+     * A commitment as the decision prechecks need it, or null when no row exists at all:
+     * {@code declared} is origin {@code declared} (a detected candidate is known but the fold
+     * cannot apply a pin/note/settle to it), {@code retired} is a set {@code retired_n}.
+     */
+    public CommitmentRef commitmentRef(String commitmentId) {
+        return read(conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_REF)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    boolean declared = "declared".equals(rs.getString(1));
+                    long retiredN = rs.getLong(2);
+                    return new CommitmentRef(declared, !rs.wasNull());
+                }
+            }
+        });
+    }
+
+    /** The two faces a commitment precheck asks about (§2.6). */
+    public record CommitmentRef(boolean declared, boolean retired) {}
+
     private boolean exists(String sql, String value) {
         return read(conn -> {
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -771,6 +919,23 @@ public final class HubQueries implements AutoCloseable {
             ps.setObject(index++, value);
         }
         return index;
+    }
+
+    /** A nullable INTEGER column; SQLite's {@code getLong} would coerce NULL to 0. */
+    private static Long nullableLong(ResultSet rs, int column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    /** A nullable REAL column. */
+    private static Double nullableDouble(ResultSet rs, int column) throws SQLException {
+        double value = rs.getDouble(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    /** A nullable ISO date column. */
+    private static LocalDate nullableDate(String value) {
+        return value == null ? null : LocalDate.parse(value);
     }
 
     /** The unit's projectable content, hashed so a content move (supersede, restatement) is visible. */

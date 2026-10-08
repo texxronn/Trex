@@ -18,7 +18,14 @@ final class HubSql {
                EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review,
                (SELECT n.text FROM note_current n WHERE n.external_id = t.external_id
                  ORDER BY n.decision_n DESC LIMIT 1) AS latest_note,
-               t.synthetic
+               t.synthetic,
+               (SELECT o.commitment_id FROM commitment_occurrence o
+                 WHERE o.matched_external_id = t.external_id
+                 ORDER BY o.due_date DESC, o.commitment_id LIMIT 1) AS commitment_id,
+               (SELECT c.name FROM commitment c WHERE c.commitment_id =
+                 (SELECT o.commitment_id FROM commitment_occurrence o
+                   WHERE o.matched_external_id = t.external_id
+                   ORDER BY o.due_date DESC, o.commitment_id LIMIT 1)) AS commitment_name
         FROM txn_current t""";
 
     static final String LEDGER_COUNT = "SELECT COUNT(*) FROM txn_current t";
@@ -60,6 +67,49 @@ final class HubSql {
     static final String TRANSFERS_SELECT = """
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, method, clearing_account, matched_at
         FROM transfer ORDER BY transfer_id""";
+
+    // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
+
+    /**
+     * The candidate behind a {@code SUSPECTED_RECURRING} stem, for the review row's enrichment
+     * (§2.8). The caller mints the id with {@code Commitments.candidateId}, the detector's own
+     * function, so the join can never disagree with the id the derivation stored.
+     */
+    static final String COMMITMENT_CANDIDATE = """
+        SELECT cadence, first_date, last_date, occurrence_count, current_amount, regularity,
+               change_pct
+        FROM commitment WHERE commitment_id = ?""";
+
+    /** The registry: every candidate and declared row, ordered by id (deterministic). */
+    static final String COMMITMENTS_SELECT = """
+        SELECT commitment_id, name, origin, direction, cadence, amount_kind, kind, status,
+               first_date, last_date, anchor_date, current_amount, previous_amount, change_pct,
+               change_date, occurrence_count, regularity, variable, arrears_count, arrears_amount,
+               declared_n, retired_n, ended_at
+        FROM commitment ORDER BY commitment_id""";
+
+    /** The effective {@code NOTE_COMMITMENT} thread, oldest first, like {@code note_current}. */
+    static final String COMMITMENT_NOTES_SELECT =
+        "SELECT decision_n, commitment_id, text, user_id, at FROM commitment_note ORDER BY decision_n";
+
+    /** The window's occurrences joined to their commitment, oldest first (§2.8). */
+    static final String EXPECTED_OCCURRENCES = """
+        SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
+               o.due_date, o.window_start, o.window_end, o.status, o.amount,
+               o.matched_external_id, o.matched_date, o.matched_by, o.off_schedule, o.settle_n
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE o.due_date >= ? AND o.due_date <= ?
+        ORDER BY o.due_date, o.commitment_id""";
+
+    /** Every occurrence in arrears, oldest first, with the price its shortfall is measured against. */
+    static final String ARREARS_OCCURRENCES = """
+        SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
+               o.due_date, o.status, o.amount
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE o.status IN ('missed', 'partial')
+        ORDER BY o.due_date, o.commitment_id""";
 
     /** All-time first/last transaction date and the row count, one row per account. */
     static final String ACCOUNT_TOTALS = """
@@ -128,6 +178,9 @@ final class HubSql {
     static final String DECISION_KNOWN = "SELECT 1 FROM decision WHERE n = ?";
 
     static final String LEG_OF = "SELECT leg FROM txn_current WHERE external_id = ?";
+
+    /** A commitment's precheck faces (§2.6): declared (origin) and retired (retired_n set). */
+    static final String COMMITMENT_REF = "SELECT origin, retired_n FROM commitment WHERE commitment_id = ?";
 
     static final String USER_ACK_SELECT = """
         SELECT user_id, external_id, state_hash, config_revision, derive_version, hash_version, acked_at

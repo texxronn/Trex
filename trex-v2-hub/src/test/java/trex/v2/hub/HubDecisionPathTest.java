@@ -3,9 +3,14 @@ package trex.v2.hub;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import trex.v2.core.Actor;
+import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
 import trex.v2.log.Json;
 import trex.v2.log.JsonlJournal;
 import trex.v2.sequencer.api.DecisionDraft;
@@ -92,12 +97,27 @@ class HubDecisionPathTest {
 
     @Test
     void commitmentPrechecksRejectBadShapesAndForwardAGoodOne(@TempDir Path dir) throws Exception {
+        // The derive measures facts and coverage against Instant.now() in UTC; the review-kind
+        // fixtures (a candidate, and a commitment dormant against an advancing frontier) are built
+        // relative to that same day so the test cannot drift with the wall clock.
+        LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
         Path configDir = dir.resolve("config");
         config(configDir);
         Path journal = dir.resolve("trex.jsonl");
         try (JsonlJournal j = new JsonlJournal(journal)) {
-            j.appendBatch(List.of(new Fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, 0,
-                "NETFLIX", null, 0, Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", AT)));
+            j.appendBatch(List.of(
+                fact(1, "a", "NETFLIX", -1000, LocalDate.of(2026, 9, 1)),
+                declared(2, "netflix", "NETFLIX", LocalDate.of(2026, 9, 1)),
+                declared(3, "old", "OLD BILL", LocalDate.of(2026, 9, 1)),
+                new Decision.RetireCommitment(4, "old", LocalDate.of(2026, 9, 1), "cancelled",
+                    Actor.USER, "ron", AT),
+                // A tracked commitment silent for months while the frontier advances: dormant.
+                declared(5, "youtube", "YOUTUBE", today.minusMonths(3)),
+                fact(6, "yt1", "YOUTUBE PREMIUM", -1399, today.minusMonths(3)),
+                // Three regular months with no declaration: an active candidate, for the stem case.
+                fact(7, "gym1", "GYM MEMBERSHIP", -999, today.minusDays(60)),
+                fact(8, "gym2", "GYM MEMBERSHIP", -999, today.minusDays(30)),
+                fact(9, "gym3", "GYM MEMBERSHIP", -999, today)));
         }
 
         AtomicReference<String> forwarded = new AtomicReference<>();
@@ -108,7 +128,8 @@ class HubDecisionPathTest {
         Path index = dir.resolve("trex.sqlite");
         try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50,
                 stubUrl))) {
-            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 5L
+                && hub.status().counts().getOrDefault("commitment", 0L) == 4L);
             HttpClient client = HttpClient.newHttpClient();
             URI base = URI.create("http://127.0.0.1:" + hub.port());
             long n = hub.status().n();
@@ -128,8 +149,61 @@ class HubDecisionPathTest {
                 .add(declare("netflix", "monthly", List.of(match("NETFLIX")))).json()).statusCode());
             assertTrue(forwarded.get().contains("\"action\":\"DECLARE_COMMITMENT\""), forwarded.get());
             assertTrue(forwarded.get().contains("\"commitmentId\":\"netflix\""), forwarded.get());
+
+            // An unknown commitment target is a 422 for pin, note and settle; a pin also refuses
+            // a retired one, while a note and a settle may name it (§2.6).
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(pinCommitment("a", "ghost")).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(noteCommitment("ghost", "hello")).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(settle("ghost", List.of(LocalDate.of(2026, 9, 1)))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(pinCommitment("a", "old")).json()).statusCode());
+
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(pinCommitment("a", "netflix")).json()).statusCode());
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(noteCommitment("old", "final note")).json()).statusCode());
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(settle("old", List.of(LocalDate.of(2026, 9, 1)))).json()).statusCode());
+
+            // DISMISS subjects follow the review kind (§9.9.F): facts, accounts, grouping stems
+            // and declared commitment ids (a dormant or retired id still counts).
+            assertEquals(200, dismiss(client, base, n, "UNMATCHED_LEG", List.of("a")));
+            assertEquals(422, dismiss(client, base, n, "UNMATCHED_LEG", List.of("ghost")));
+            assertEquals(200, dismiss(client, base, n, "BALANCE_BREAK", List.of("ing-savings")));
+            assertEquals(422, dismiss(client, base, n, "BALANCE_BREAK", List.of("ghost")));
+
+            assertEquals(200, dismiss(client, base, n, "SUSPECTED_RECURRING",
+                List.of("GYM MEMBERSHIP")));
+            assertTrue(forwarded.get().contains("\"item\":\"SUSPECTED_RECURRING\""), forwarded.get());
+            assertEquals(422, dismiss(client, base, n, "SUSPECTED_RECURRING",
+                List.of("NO SUCH SERIES")));
+
+            assertEquals(200, dismiss(client, base, n, "DORMANT_COMMITMENT", List.of("youtube")));
+            assertEquals(200, dismiss(client, base, n, "COMMITMENT_ARREARS", List.of("old")));
+            assertEquals(422, dismiss(client, base, n, "DORMANT_COMMITMENT", List.of("ghost")));
         }
         stub.stop(0);
+    }
+
+    /** A declaration in the journal (the hub prechecks read the derived table, not the draft). */
+    private static Decision.DeclareCommitment declared(long n, String id, String match, LocalDate anchor) {
+        return new Decision.DeclareCommitment(n, id, id + " name", "out", Cadence.MONTHLY,
+            AmountKind.FIXED, CommitmentKind.BILL, List.of(new Decision.Match(match, null)), 1000L,
+            anchor, null, null, Actor.USER, "ron", AT);
+    }
+
+    private static Fact fact(long n, String id, String raw, long amount, LocalDate date) {
+        return new Fact(n, id, "ing-savings", date, amount, 0, raw, null, 0, Observation.POSTED,
+            "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
+    }
+
+    private static int dismiss(HttpClient client, URI base, long n, String item, List<String> ids)
+            throws Exception {
+        return post(client, base, new DecisionRequestJson().asOf(n)
+            .add(draft("DISMISS", "user", "ron", null, null, item, ids)).json()).statusCode();
     }
 
     // ---- request body construction ----------------------------------------------------------
@@ -165,6 +239,19 @@ class HubDecisionPathTest {
         return new DecisionDraft("SETTLE_OCCURRENCE", "user", "ron", AT, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             commitmentId, null, null, null, null, null, null, null, null, null, null, null, dueDates);
+    }
+
+    private static DecisionDraft pinCommitment(String externalId, String commitmentId) {
+        return new DecisionDraft("PIN_COMMITMENT", "user", "ron", AT, null, null, null, null, null,
+            null, null, List.of(externalId), null, null, null, null, null, null, null, null, null,
+            null, null, commitmentId, null, null, null, null, null, null, null, null, null, null,
+            null, null);
+    }
+
+    private static DecisionDraft noteCommitment(String commitmentId, String text) {
+        return new DecisionDraft("NOTE_COMMITMENT", "user", "ron", AT, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, text, null,
+            commitmentId, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static final class DecisionRequestJson {

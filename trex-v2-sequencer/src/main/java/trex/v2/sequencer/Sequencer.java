@@ -236,10 +236,31 @@ public final class Sequencer implements AutoCloseable {
             refs.add(s.pendingId());
             refs.add(s.postedId());
         } else if (d instanceof Decision.Dismiss dis) {
+            // A subject is a fact id for most kinds, an account ref for BALANCE_BREAK, a grouping
+            // stem for SUSPECTED_RECURRING and a declared commitment id for the commitment kinds
+            // (§9.9.F, as amended). The candidate set is derived, so a stem only has to be
+            // non-blank; a wrong one is ineffective in derivation.
             if (ReviewItem.BALANCE_BREAK.equals(dis.item())) {
                 for (String id : dis.externalIds()) {
-                    if (registry.findAccount(id).isEmpty()) {
+                    if (id == null || id.isBlank() || registry.findAccount(id).isEmpty()) {
                         return "line n=" + n + ": DISMISS names unknown account '" + id + "'";
+                    }
+                }
+                return null;
+            }
+            if (ReviewItem.SUSPECTED_RECURRING.equals(dis.item())) {
+                for (String id : dis.externalIds()) {
+                    if (id == null || id.isBlank()) {
+                        return "line n=" + n + ": DISMISS names a blank candidate";
+                    }
+                }
+                return null;
+            }
+            if (ReviewItem.DORMANT_COMMITMENT.equals(dis.item())
+                || ReviewItem.COMMITMENT_ARREARS.equals(dis.item())) {
+                for (String id : dis.externalIds()) {
+                    if (!knownCommitments.contains(id)) {
+                        return "line n=" + n + ": names an undeclared commitment '" + id + "'";
                     }
                 }
                 return null;
@@ -493,8 +514,11 @@ public final class Sequencer implements AutoCloseable {
                 d.comment(), actor, user);
             case SETTLE -> new Decision.Settle(envelope, requireFact(d.pendingId(), "pendingId"),
                 requireFact(d.postedId(), "postedId"), d.comment(), actor, user);
-            case DISMISS -> new Decision.Dismiss(envelope, requireItem(d.item()), requireFacts(d.externalIds(), "externalIds"),
-                d.comment(), actor, user);
+            case DISMISS -> {
+                String item = requireItem(d.item());
+                yield new Decision.Dismiss(envelope, item,
+                    dismissSubjects(item, d.externalIds(), declaredCommitments), d.comment(), actor, user);
+            }
             case PIN -> new Decision.Pin(envelope, requireFacts(d.externalIds(), "externalIds"),
                 requireCategory(d.category()), d.comment(), actor, user);
             case UNPIN -> new Decision.Unpin(envelope, requireFacts(d.externalIds(), "externalIds"),
@@ -702,6 +726,45 @@ public final class Sequencer implements AutoCloseable {
             throw new IllegalArgumentException("item must be a review kind, not '" + item + "'");
         }
         return item;
+    }
+
+    /**
+     * A DISMISS's subjects per review kind (V2-PROPOSAL.md §9.9.F, as amended): a fact id for most
+     * kinds, an account ref for {@code BALANCE_BREAK}, the grouping stem for
+     * {@code SUSPECTED_RECURRING} and a declared commitment id for {@code DORMANT_COMMITMENT}/
+     * {@code COMMITMENT_ARREARS} (a retired id still counts — its history remains dismissable). The
+     * candidate set is derived, so the writer cannot know a stem; a wrong one is recorded and
+     * surfaces as {@code INEFFECTIVE_DECISION} in derivation (§2.6).
+     */
+    private List<String> dismissSubjects(String item, List<String> ids, Set<String> declaredCommitments) {
+        if (ids == null || ids.isEmpty()) {
+            throw new IllegalArgumentException("externalIds is required");
+        }
+        for (String id : ids) {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("externalIds must not contain a blank subject");
+            }
+        }
+        if (ReviewItem.BALANCE_BREAK.equals(item)) {
+            for (String id : ids) {
+                if (registry.findAccount(id).isEmpty()) {
+                    throw new IllegalArgumentException("externalIds names an unknown account '" + id + "'");
+                }
+            }
+            return List.copyOf(ids);
+        }
+        if (ReviewItem.SUSPECTED_RECURRING.equals(item)) {
+            return List.copyOf(ids);
+        }
+        if (ReviewItem.DORMANT_COMMITMENT.equals(item) || ReviewItem.COMMITMENT_ARREARS.equals(item)) {
+            for (String id : ids) {
+                if (!declaredCommitments.contains(id)) {
+                    throw new IllegalArgumentException("DISMISS names an undeclared commitment '" + id + "'");
+                }
+            }
+            return List.copyOf(ids);
+        }
+        return requireFacts(ids, "externalIds");
     }
 
     private static String normalized(String receipt) {

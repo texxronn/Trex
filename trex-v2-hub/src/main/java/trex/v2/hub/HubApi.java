@@ -37,6 +37,17 @@ interface HubApi {
 
     List<TransferJson> transfers();
 
+    /** The commitment registry (V2-COMMITMENTS-PLAN.md §2.8): candidates and declared rows. */
+    List<trex.v2.hub.api.CommitmentJson> commitments();
+
+    /**
+     * The Expected view (V2-COMMITMENTS-PLAN.md §2.8): a calendar window's occurrences, the
+     * arrears backlog and the committed totals by direction. {@code window} is {@code today},
+     * {@code week} or {@code month} (the default); {@code asOf} names the day the window is
+     * measured from, or null for today.
+     */
+    trex.v2.hub.api.ExpectedResponse expected(String window, java.time.LocalDate asOf);
+
     /** The note thread on one id (or every note), oldest first (§6.2 {@code NOTE}). */
     List<trex.v2.hub.api.NoteJson> notes(String externalId);
 

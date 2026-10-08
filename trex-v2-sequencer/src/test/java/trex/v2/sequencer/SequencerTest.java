@@ -107,6 +107,7 @@ class SequencerTest {
         D legs(String a, String b) { legA = a; legB = b; return this; }
         D externalId(String v) { externalId = v; return this; }
         D reason(String v) { reason = v; return this; }
+        D item(String v) { item = v; return this; }
         D ids(List<String> v) { externalIds = v; return this; }
         D category(String v) { category = v; return this; }
         D target(Long v) { target = v; return this; }
@@ -378,6 +379,44 @@ class SequencerTest {
             assertEquals(RowResult.RESOLVED, outcome(s, new D("IGNORE_RECURRING", "user").user("ron").at(AT)
                 .candidate("YOUTUBEPREMIUM").reason("cancelled")));
         }
+    }
+
+    @Test
+    void dismissSubjectsFollowTheReviewKind(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            String fact = s.submitFacts(new FactBatch(false,
+                List.of(draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"))))
+                .results().getFirst().externalId();
+
+            // A fact-id kind still resolves through the fact chain.
+            assertEquals(RowResult.RESOLVED, outcome(s, dismiss("UNMATCHED_LEG", List.of(fact))));
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("UNMATCHED_LEG", List.of("ghost"))));
+
+            // BALANCE_BREAK subjects are declared account refs (§6.9).
+            assertEquals(RowResult.RESOLVED, outcome(s, dismiss("BALANCE_BREAK", List.of("ing-savings"))));
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("BALANCE_BREAK", List.of("ghost"))));
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("BALANCE_BREAK", List.of(" "))));
+
+            // SUSPECTED_RECURRING subjects are grouping stems; the candidate set is derived, so
+            // only the shape is checked here — a wrong stem is ineffective in derivation (§2.6).
+            assertEquals(RowResult.RESOLVED, outcome(s, dismiss("SUSPECTED_RECURRING", List.of("NETFLIX"))));
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("SUSPECTED_RECURRING", List.of(" "))));
+
+            // DORMANT_COMMITMENT/COMMITMENT_ARREARS subjects check the declared-commitment fold.
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("DORMANT_COMMITMENT", List.of("netflix"))));
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("COMMITMENT_ARREARS", List.of("netflix"))));
+            assertEquals(RowResult.RESOLVED, outcome(s, declare()));
+            assertEquals(RowResult.RESOLVED, outcome(s, dismiss("DORMANT_COMMITMENT", List.of("netflix"))));
+            assertEquals(RowResult.REJECTED, outcome(s, dismiss("COMMITMENT_ARREARS", List.of("ghost"))));
+            // A retired commitment still counts as declared: its history remains dismissable.
+            assertEquals(RowResult.RESOLVED, outcome(s, new D("RETIRE_COMMITMENT", "user").user("ron").at(AT)
+                .commitmentId("netflix").endedAt(LocalDate.of(2026, 8, 1)).reason("gone")));
+            assertEquals(RowResult.RESOLVED, outcome(s, dismiss("COMMITMENT_ARREARS", List.of("netflix"))));
+        }
+    }
+
+    private static D dismiss(String item, List<String> ids) {
+        return new D("DISMISS", "user").user("ron").at(AT).item(item).ids(ids);
     }
 
     @Test

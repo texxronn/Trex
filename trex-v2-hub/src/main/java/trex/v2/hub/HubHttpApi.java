@@ -58,6 +58,17 @@ final class HubHttpApi {
             String query = ex.getRequestURI().getQuery();
             write(ex, 200, api.review(param(query, "kind"), param(query, "account")));
         });
+        route(server, "/api/commitments", "GET", ex -> write(ex, 200, api.commitments()));
+        route(server, "/api/expected", "GET", ex -> {
+            try {
+                String query = ex.getRequestURI().getQuery();
+                String asOf = param(query, "asOf");
+                write(ex, 200, api.expected(param(query, "window"),
+                    asOf == null ? null : java.time.LocalDate.parse(asOf)));
+            } catch (IllegalArgumentException | java.time.DateTimeException e) {
+                sendError(ex, 422, e.getMessage());
+            }
+        });
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
         route(server, "/api/notes", "GET",
             ex -> write(ex, 200, api.notes(param(ex.getRequestURI().getQuery(), "externalId"))));

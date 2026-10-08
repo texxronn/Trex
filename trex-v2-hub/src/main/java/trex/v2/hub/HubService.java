@@ -17,6 +17,7 @@ import trex.v2.core.derive.AmountKind;
 import trex.v2.core.derive.Cadence;
 import trex.v2.core.derive.ChainHealth;
 import trex.v2.core.derive.CommitmentKind;
+import trex.v2.core.derive.Commitments;
 import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.CategoryRow;
@@ -223,6 +224,31 @@ public final class HubService implements HubApi, AutoCloseable {
     @Override
     public List<ReviewRow> review(String kind, String account) {
         return reads.review(kind, account, refresher.config().transfers());
+    }
+
+    @Override
+    public List<trex.v2.hub.api.CommitmentJson> commitments() {
+        return reads.commitments();
+    }
+
+    /**
+     * The Expected view (§2.8): the window is a calendar period, spelled with the same grains as
+     * every other mode — today is one day, week is the ISO week, month the calendar month — and the
+     * occurrences themselves are the materialised rows, filtered by due date. The clock enters only
+     * as the default measurement day, exactly as {@link #accounts}.
+     */
+    @Override
+    public trex.v2.hub.api.ExpectedResponse expected(String window, LocalDate asOf) {
+        String win = window == null || window.isBlank() ? "month" : window;
+        LocalDate at = asOf == null ? LocalDate.now() : asOf;
+        Period.Range range = switch (win) {
+            case "today" -> Period.bounds(at.toString());
+            case "week" -> Period.bounds(Period.weekKey(at));
+            case "month" -> Period.bounds(YearMonth.from(at).toString());
+            default -> throw new IllegalArgumentException(
+                "window must be today, week or month, not '" + win + "'");
+        };
+        return reads.expected(win, range);
     }
 
     @Override
@@ -870,10 +896,7 @@ public final class HubService implements HubApi, AutoCloseable {
             }
             case DISMISS -> {
                 String e = checkItem(d.item());
-                // BALANCE_BREAK is subject on an account ref, not a fact id (§6.9).
-                yield e != null ? e : (ReviewItem.BALANCE_BREAK.equals(d.item())
-                    ? checkAccounts(d.externalIds(), cfg)
-                    : checkIds(d.externalIds(), "externalIds"));
+                yield e != null ? e : dismissSubjects(d.item(), d.externalIds(), cfg);
             }
             case PIN -> precheckPin(d, cfg);
             case UNPIN -> checkIds(d.externalIds(), "externalIds");
@@ -939,11 +962,11 @@ public final class HubService implements HubApi, AutoCloseable {
             }
             case PIN_COMMITMENT -> {
                 String e = checkIds(d.externalIds(), "externalIds");
-                yield e != null ? e : required(d.commitmentId(), "commitmentId");
+                yield e != null ? e : checkCommitmentTarget(d.commitmentId(), true);
             }
             case UNPIN_COMMITMENT -> checkIds(d.externalIds(), "externalIds");
             case NOTE_COMMITMENT -> {
-                String e = required(d.commitmentId(), "commitmentId");
+                String e = checkCommitmentTarget(d.commitmentId(), false);
                 if (e != null) {
                     yield e;
                 }
@@ -953,7 +976,7 @@ public final class HubService implements HubApi, AutoCloseable {
                 yield d.text().length() > 2000 ? "text is too long (max 2000 characters)" : null;
             }
             case SETTLE_OCCURRENCE -> {
-                String e = required(d.commitmentId(), "commitmentId");
+                String e = checkCommitmentTarget(d.commitmentId(), false);
                 yield e != null ? e : (d.dueDates() == null || d.dueDates().isEmpty()
                     ? "dueDates is required" : null);
             }
@@ -1033,6 +1056,31 @@ public final class HubService implements HubApi, AutoCloseable {
         return value == null || value.isBlank() ? name + " is required" : null;
     }
 
+    /**
+     * The commitment a decision names (V2-COMMITMENTS-PLAN.md §2.6): it must be declared — a
+     * candidate id or an unknown slug is ineffective in the fold and refused by the writer, so the
+     * hub says 422 first. A pin additionally refuses a retired commitment, because a pin to an
+     * ended commitment can never win; a note and a settle are conclusions about the past, so they
+     * may name one. A retire keeps its Stage 3 semantics: the writer decides, and an undeclared id
+     * surfaces as {@code INEFFECTIVE_DECISION}.
+     */
+    private String checkCommitmentTarget(String commitmentId, boolean mustBeUnretired) {
+        if (commitmentId == null || commitmentId.isBlank()) {
+            return "commitmentId is required";
+        }
+        HubQueries.CommitmentRef ref = reads.commitmentRef(commitmentId);
+        if (ref == null) {
+            return "commitmentId names an unknown commitment '" + commitmentId + "'";
+        }
+        if (!ref.declared()) {
+            return "commitmentId names an undeclared commitment '" + commitmentId + "'";
+        }
+        if (mustBeUnretired && ref.retired()) {
+            return "commitment '" + commitmentId + "' is retired";
+        }
+        return null;
+    }
+
     private String precheckPin(DecisionDraft d, DeriveConfig cfg) {
         String e = checkIds(d.externalIds(), "externalIds");
         if (e != null) {
@@ -1100,10 +1148,53 @@ public final class HubService implements HubApi, AutoCloseable {
         return null;
     }
 
+    /**
+     * A DISMISS's subjects per review kind (V2-PROPOSAL.md §9.9.F, as amended): a fact id for most
+     * kinds, an account ref for {@code BALANCE_BREAK}, the grouping stem for
+     * {@code SUSPECTED_RECURRING} and a declared commitment id for {@code DORMANT_COMMITMENT}/
+     * {@code COMMITMENT_ARREARS}. A stem resolves through the detector's own
+     * {@link Commitments#candidateId} to a detected row; the commitment kinds check the same
+     * declared set the fold checks. A writer that bypasses the hub surfaces a bad subject as
+     * {@code INEFFECTIVE_DECISION}; here it is a 422 the UI can read.
+     */
+    private String dismissSubjects(String item, List<String> ids, DeriveConfig cfg) {
+        if (ids == null || ids.isEmpty()) {
+            return "externalIds is required";
+        }
+        for (String id : ids) {
+            if (id == null || id.isBlank()) {
+                return "externalIds must not contain a blank subject";
+            }
+        }
+        if (ReviewItem.BALANCE_BREAK.equals(item)) {
+            return checkAccounts(ids, cfg);
+        }
+        if (ReviewItem.SUSPECTED_RECURRING.equals(item)) {
+            for (String stem : ids) {
+                HubQueries.CommitmentRef ref = reads.commitmentRef(Commitments.candidateId(stem));
+                if (ref == null || ref.declared()) {
+                    return "externalIds names an unknown candidate '" + stem + "'";
+                }
+            }
+            return null;
+        }
+        if (ReviewItem.DORMANT_COMMITMENT.equals(item) || ReviewItem.COMMITMENT_ARREARS.equals(item)) {
+            for (String id : ids) {
+                HubQueries.CommitmentRef ref = reads.commitmentRef(id);
+                if (ref == null || !ref.declared()) {
+                    return "externalIds names an unknown commitment '" + id + "'";
+                }
+            }
+            return null;
+        }
+        return checkIds(ids, "externalIds");
+    }
+
     private static String checkItem(String item) {
         return item != null && Set.of("POTENTIAL_DUP", "RESTATEMENT", "AMBIGUOUS_TRANSFER",
             "AMBIGUOUS_SETTLEMENT", "UNMATCHED_LEG", "STALE_PENDING", "INEFFECTIVE_DECISION",
-            "BALANCE_BREAK").contains(item)
+            "BALANCE_BREAK", ReviewItem.SUSPECTED_RECURRING, ReviewItem.DORMANT_COMMITMENT,
+            ReviewItem.COMMITMENT_ARREARS).contains(item)
             ? null
             : "item must be a review kind, not '" + item + "'";
     }
