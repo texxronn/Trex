@@ -18,7 +18,14 @@ final class HubSql {
                EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review,
                (SELECT n.text FROM note_current n WHERE n.external_id = t.external_id
                  ORDER BY n.decision_n DESC LIMIT 1) AS latest_note,
-               t.synthetic
+               t.synthetic,
+               (SELECT o.commitment_id FROM commitment_occurrence o
+                 WHERE o.matched_external_id = t.external_id
+                 ORDER BY o.due_date DESC, o.commitment_id LIMIT 1) AS commitment_id,
+               (SELECT c.name FROM commitment c WHERE c.commitment_id =
+                 (SELECT o.commitment_id FROM commitment_occurrence o
+                   WHERE o.matched_external_id = t.external_id
+                   ORDER BY o.due_date DESC, o.commitment_id LIMIT 1)) AS commitment_name
         FROM txn_current t""";
 
     static final String LEDGER_COUNT = "SELECT COUNT(*) FROM txn_current t";
@@ -62,6 +69,16 @@ final class HubSql {
         FROM transfer ORDER BY transfer_id""";
 
     // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
+
+    /**
+     * The candidate behind a {@code SUSPECTED_RECURRING} stem, for the review row's enrichment
+     * (§2.8). The caller mints the id with {@code Commitments.candidateId}, the detector's own
+     * function, so the join can never disagree with the id the derivation stored.
+     */
+    static final String COMMITMENT_CANDIDATE = """
+        SELECT cadence, first_date, last_date, occurrence_count, current_amount, regularity,
+               change_pct
+        FROM commitment WHERE commitment_id = ?""";
 
     /** The registry: every candidate and declared row, ordered by id (deterministic). */
     static final String COMMITMENTS_SELECT = """

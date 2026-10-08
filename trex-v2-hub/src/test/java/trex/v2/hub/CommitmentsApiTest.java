@@ -109,6 +109,36 @@ class CommitmentsApiTest {
             assertEquals(3, candidate.get("occurrenceCount").asInt());
             assertEquals(-999, candidate.get("currentAmount").asLong());
 
+            // ---- Review: the candidate renders from its enrichment, no second fetch ----------
+            JsonNode suspected = json(get(client, base, "/api/review?kind=SUSPECTED_RECURRING"));
+            assertEquals(1, suspected.size(), suspected.toPrettyString());
+            assertEquals("GYM MEMBERSHIP", suspected.get(0).get("subject").asText());
+            JsonNode enrichment = suspected.get(0).get("enrichment");
+            assertNotNull(enrichment, suspected.toString());
+            assertEquals("monthly", enrichment.get("cadence").asText());
+            assertEquals(today.minusDays(60).toString(), enrichment.get("firstDate").asText());
+            assertEquals(today.toString(), enrichment.get("lastDate").asText());
+            assertEquals(3, enrichment.get("occurrenceCount").asInt());
+            assertEquals(-999, enrichment.get("currentAmount").asLong());
+            assertEquals(1.0, enrichment.get("regularity").asDouble(), 1e-9);
+            assertTrue(enrichment.get("changePct").isNull());
+            // The other commitment kinds need nothing beyond subject, detail and stake.
+            for (String kind : List.of("DORMANT_COMMITMENT", "COMMITMENT_ARREARS")) {
+                JsonNode rows = json(get(client, base, "/api/review?kind=" + kind));
+                assertTrue(rows.size() >= 1, kind);
+                assertTrue(rows.get(0).get("enrichment").isNull(), kind);
+            }
+
+            // ---- the ledger chip joins the matched occurrence ---------------------------------
+            JsonNode ledger = json(get(client, base, "/api/ledger?q=netflix"));
+            assertEquals(1, ledger.get("total").asLong());
+            JsonNode chip = ledger.get("rows").get(0);
+            assertEquals("netflix", chip.get("commitmentId").asText());
+            assertEquals("Netflix", chip.get("commitmentName").asText());
+            JsonNode unmatched = json(get(client, base, "/api/ledger?q=gym")).get("rows").get(0);
+            assertTrue(unmatched.get("commitmentId").isNull(),
+                "a candidate's facts carry no chip");
+
             // ---- Expected: the month, its arrears and the direction totals --------------------
             LocalDate monthStart = today.withDayOfMonth(1);
             LocalDate monthEnd = today.withDayOfMonth(today.lengthOfMonth());

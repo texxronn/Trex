@@ -442,9 +442,11 @@ public final class Commitments {
 
     /**
      * The candidate id, {@code cand|<hex>} (§2.7), minted from the grouping key so the same
-     * series keeps the same id across reflows while its content hash moves with the facts.
+     * series keeps the same id across reflows while its content hash moves with the facts. Shared
+     * with the hub, which joins a {@code SUSPECTED_RECURRING} review item's stem back to the
+     * candidate's derived row with the <em>same</em> function (§2.8), never a second hash.
      */
-    private static String candidateId(String key) {
+    public static String candidateId(String key) {
         String digest = Hashes.sha256("cand|" + key);
         return "cand|" + digest.substring("sha256:".length(), "sha256:".length() + 16);
     }

@@ -12,6 +12,7 @@ import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
 import trex.v2.core.config.TransferRules;
+import trex.v2.core.derive.Commitments;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.ReviewItem;
 
@@ -249,7 +250,7 @@ public final class HubQueries implements AutoCloseable {
                             LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
                             rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
                             rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0,
-                            rs.getString(16), rs.getInt(17) != 0));
+                            rs.getString(16), rs.getInt(17) != 0, rs.getString(18), rs.getString(19)));
                     }
                 }
             }
@@ -326,18 +327,23 @@ public final class HubQueries implements AutoCloseable {
                 }
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        long stake = rs.getLong(4);
+                        long stakeRaw = rs.getLong(4);
+                        Long stake = rs.wasNull() ? null : stakeRaw;
                         String description = rs.getString(7);
                         String date = rs.getString(8);
                         String subject = rs.getString(1);
                         String rowKind = rs.getString(2);
                         List<ReviewMember> members = isCluster(rowKind)
                             ? clusterMembers(conn, subject, rowKind, rules) : List.of();
-                        rows.add(new ReviewRow(subject, rowKind, rs.getString(3),
-                            rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6),
+                        // A SUSPECTED_RECURRING subject is the grouping stem, not a fact id: the
+                        // candidate's own derived facts render from the commitment row (§2.8).
+                        ReviewRow.Enrichment enrichment = ReviewItem.SUSPECTED_RECURRING.equals(rowKind)
+                            ? candidateEnrichment(conn, subject) : null;
+                        rows.add(new ReviewRow(subject, rowKind, rs.getString(3), stake,
+                            Instant.parse(rs.getString(5)), rs.getString(6),
                             description == null ? null : trex.v2.core.Clean.clean(description),
                             date == null ? null : LocalDate.parse(date), members, rs.getString(9),
-                            rs.getObject(10) == null ? null : rs.getLong(10)));
+                            rs.getObject(10) == null ? null : rs.getLong(10), enrichment));
                     }
                 }
             }
@@ -347,6 +353,27 @@ public final class HubQueries implements AutoCloseable {
 
     private static boolean isCluster(String kind) {
         return ReviewItem.POTENTIAL_DUP.equals(kind) || ReviewItem.RESTATEMENT.equals(kind);
+    }
+
+    /**
+     * The candidate facts behind a {@code SUSPECTED_RECURRING} subject (§2.8). The subject is the
+     * grouping stem and the {@code commitment} table keys candidates as {@code cand|<hex>}, so the
+     * join mints the id with the detector's own {@link Commitments#candidateId} — one function,
+     * never a second hash that could drift — and a stem with no row (a suppressed or ended
+     * candidate) yields a null enrichment.
+     */
+    private ReviewRow.Enrichment candidateEnrichment(Connection conn, String stem) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_CANDIDATE)) {
+            ps.setString(1, Commitments.candidateId(stem));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return new ReviewRow.Enrichment(rs.getString(1), nullableDate(rs.getString(2)),
+                    nullableDate(rs.getString(3)), rs.getInt(4), nullableLong(rs, 5),
+                    nullableDouble(rs, 6), nullableDouble(rs, 7));
+            }
+        }
     }
 
     /**
