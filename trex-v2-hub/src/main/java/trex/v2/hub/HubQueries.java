@@ -1,7 +1,9 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.DismissalJson;
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.LedgerRow;
+import trex.v2.hub.api.NoteJson;
 import trex.v2.hub.api.ReviewMember;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.TransferJson;
@@ -242,7 +244,8 @@ public final class HubQueries implements AutoCloseable {
                         rows.add(new LedgerRow(rs.getString(1), rs.getLong(2), rs.getString(3),
                             LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
                             rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
-                            rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0));
+                            rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0,
+                            rs.getString(16)));
                     }
                 }
             }
@@ -426,6 +429,53 @@ public final class HubQueries implements AutoCloseable {
 
     private record DayRow(String id, long n, LocalDate date, long amount, long balance,
                           String receipt, String raw, String leg) {}
+
+    /** The note thread on one id (or every note), oldest first (§6.2 {@code NOTE}). */
+    public List<NoteJson> notes(String externalId) {
+        return read(conn -> {
+            List<NoteJson> out = new ArrayList<>();
+            boolean one = externalId != null && !externalId.isBlank();
+            try (PreparedStatement ps = conn.prepareStatement(one ? HubSql.NOTES_FOR_SELECT : HubSql.NOTES_SELECT)) {
+                if (one) {
+                    ps.setString(1, externalId);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new NoteJson(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getString(4),
+                            Instant.parse(rs.getString(5))));
+                    }
+                }
+            }
+            return out;
+        });
+    }
+
+    /** Effective DISMISS decisions, newest first, so a silenced item's reason stays visible (§9.9.F). */
+    public List<DismissalJson> dismissals() {
+        return read(conn -> {
+            List<DismissalJson> out = new ArrayList<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.DISMISSALS_SELECT)) {
+                while (rs.next()) {
+                    out.add(new DismissalJson(rs.getString(1), jsonIds(rs.getString(2)), rs.getString(3),
+                        rs.getString(4), rs.getString(5), rs.getLong(6)));
+                }
+            }
+            return out;
+        });
+    }
+
+    private static List<String> jsonIds(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return trex.v2.log.Json.mapper().readValue(json,
+                new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return List.of();
+        }
+    }
 
     public List<TransferJson> transfers() {
         return read(conn -> {

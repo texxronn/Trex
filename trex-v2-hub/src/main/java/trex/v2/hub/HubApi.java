@@ -37,6 +37,12 @@ interface HubApi {
 
     List<TransferJson> transfers();
 
+    /** The note thread on one id (or every note), oldest first (§6.2 {@code NOTE}). */
+    List<trex.v2.hub.api.NoteJson> notes(String externalId);
+
+    /** Effective DISMISS decisions with their reasons, newest first (§9.9.F). */
+    List<trex.v2.hub.api.DismissalJson> dismissals();
+
     UnitsResponse units();
 
     ReconcileResponse reconcile();

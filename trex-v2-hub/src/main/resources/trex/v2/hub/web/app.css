@@ -230,6 +230,14 @@ td.members .chip.t3 { background: color-mix(in srgb, #a855f7 16%, var(--surface)
 td.members .chip.t4 { background: color-mix(in srgb, #ef4444 15%, var(--surface)); border-color: color-mix(in srgb, #ef4444 40%, var(--line-strong)); }
 td.members .chip.t5 { background: color-mix(in srgb, #06b6d4 16%, var(--surface)); border-color: color-mix(in srgb, #06b6d4 40%, var(--line-strong)); }
 
+/* A row's latest note (§6.2): a small badge beside the description; the title holds the full text. */
+.note-chip {
+  display: inline-block; margin-left: 0.4rem; padding: 0 0.45rem;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 11px; line-height: 1.6; max-width: 22rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+
 /* ---- badges and tags ---------------------------------------------------- */
 
 .tag, .badge {

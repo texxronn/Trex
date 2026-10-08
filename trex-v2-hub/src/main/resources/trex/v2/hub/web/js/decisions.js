@@ -16,4 +16,5 @@ export const decisions = {
   unpair: (ctx, legA, legB, comment) => ({ ...envelope('UNPAIR', ctx, comment), legA, legB }),
   markNoop: (ctx, id, reason) => ({ ...envelope('MARK_NOOP', ctx, reason), externalId: id, reason }),
   unmarkNoop: (ctx, id, comment) => ({ ...envelope('UNMARK_NOOP', ctx, comment), externalId: id }),
+  note: (ctx, id, text) => ({ ...envelope('NOTE', ctx, null), externalId: id, text }),
 };

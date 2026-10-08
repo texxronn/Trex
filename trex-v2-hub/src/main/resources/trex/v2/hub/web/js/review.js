@@ -2,6 +2,8 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
+import { openAnnotate } from './annotate.js';
+import { openPrompt } from './dialog.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -74,9 +76,13 @@ function renderRows(rows) {
       memberCell(row),
       el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
       el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),
-      el('td', {}, canDismiss
-        ? el('button', { type: 'button', class: 'ghost', onclick: () => dismiss(row) }, 'Dismiss')
-        : el('span', { class: 'muted' }, 'revoke the decision')));
+      el('td', {},
+        canDismiss
+          ? el('button', { type: 'button', class: 'ghost', onclick: () => dismiss(row) }, 'Dismiss')
+          : el('span', { class: 'muted' }, 'revoke the decision'),
+        canAnnotate(row)
+          ? el('button', { type: 'button', class: 'ghost', onclick: () => annotate(row) }, 'Note')
+          : null));
   });
   listHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
@@ -105,12 +111,31 @@ function memberCell(row) {
 }
 
 async function dismiss(row) {
-  try {
-    await api.decisions(ctx.n, [decisions.dismiss(ctx, row.kind, [row.subject], 'dismissed in review')]);
-    toast('Dismissed');
-    await load();
-  } catch (error) {
-    reportError(error);
-    await load();
-  }
+  openPrompt({
+    title: 'Dismiss',
+    summary: row.detail,
+    label: 'Reason (optional)',
+    placeholder: 'why this is not a problem',
+    confirm: 'Dismiss',
+  }, async (reason) => {
+    try {
+      await api.decisions(ctx.n, [decisions.dismiss(ctx, row.kind, [row.subject], reason || null)]);
+      toast('Dismissed');
+      await load();
+    } catch (error) {
+      reportError(error);
+      await load();
+    }
+  });
+}
+
+// A cluster is annotated by fan-out: one NOTE per member id, one batch. Every other kind is a
+// single row; INEFFECTIVE_DECISION (a decision n) and BALANCE_BREAK (an account ref) are not facts.
+function canAnnotate(row) {
+  return row.kind !== 'INEFFECTIVE_DECISION' && row.kind !== 'BALANCE_BREAK';
+}
+
+function annotate(row) {
+  const ids = row.members && row.members.length ? row.members.map((m) => m.externalId) : [row.subject];
+  openAnnotate(ctx, { ids, summary: row.detail }, load);
 }

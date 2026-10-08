@@ -223,6 +223,16 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     @Override
+    public List<trex.v2.hub.api.NoteJson> notes(String externalId) {
+        return reads.notes(externalId);
+    }
+
+    @Override
+    public List<trex.v2.hub.api.DismissalJson> dismissals() {
+        return reads.dismissals();
+    }
+
+    @Override
     public UnitsResponse units() {
         DeriveConfig c = refresher.config();
         return new UnitsResponse(reads.logHeadN(), c.configRevision(), DeriveConfig.DERIVE_VERSION,
@@ -888,7 +898,16 @@ public final class HubService implements HubApi, AutoCloseable {
                 yield null;
             }
             case USER_UNACK -> oneFact(d.externalId(), "externalId");
-            case NOTE -> d.text() == null || d.text().isBlank() ? "text is required" : null;
+            case NOTE -> {
+                String e = oneFact(d.externalId(), "externalId");
+                if (e != null) {
+                    yield e;
+                }
+                if (d.text() == null || d.text().isBlank()) {
+                    yield "text is required";
+                }
+                yield d.text().length() > 2000 ? "text is too long (max 2000 characters)" : null;
+            }
         };
     }
 
