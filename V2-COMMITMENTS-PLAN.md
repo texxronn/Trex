@@ -299,7 +299,9 @@ Arrears are derived state, never stored on a fact, and clearing them is a first-
   arrears. A surplus beyond all open occurrences pre-pays future occurrences already materialised;
   anything left after that becomes an `off_schedule` occurrence — nothing is swallowed. The
   allocation is not bounded by the normal ± date window (that window only finds the occurrence an
-  on-time fact belongs to) and never reaches past the first occurrence. Applies to `fixed` and
+  on-time fact belongs to) and never reaches past the first occurrence; a fact older than the
+  materialised span is not an occurrence of a regular commitment at all (an `irregular`
+  commitment has no span and tracks every matching fact). Applies to `fixed` and
   `range` amounts; a `variable` commitment keeps one fact per occurrence (its range is too wide to
   infer multiples). Facts are processed in `(date, n)` order, so the answer is deterministic.
 - **Off-journal paid is a decision.** `SETTLE_OCCURRENCE` marks occurrences `settled` — a person
