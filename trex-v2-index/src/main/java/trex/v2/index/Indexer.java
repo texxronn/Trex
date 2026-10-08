@@ -150,6 +150,8 @@ public final class Indexer implements AutoCloseable {
             }
             boolean upToDate = read.lines().isEmpty()
                 && config.configRevision().equals(meta("config_revision").orElse(null))
+                && DeriveConfig.DERIVE_VERSION.equals(meta("derive_version").orElse(null))
+                && DeriveConfig.HASH_VERSION.equals(meta("hash_version").orElse(null))
                 && asOf.toString().equals(meta("as_of").orElse(null))
                 && String.valueOf(read.end()).equals(meta("derived_offset").orElse(null));
             if (upToDate) {

@@ -334,9 +334,13 @@ class DeriveTest {
 
     @Test
     void restatementAndDuplicateAreDerived() {
-        List<Fact> facts = new ArrayList<>();
-        facts.add(fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0));
-        facts.add(fact(2, "b", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Coles 1234", null, 1));
+        List<Fact> facts = List.of(
+            // same stem, same day/amount -> a duplicate of the same merchant reading
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0),
+            fact(2, "b", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Coles 1234", null, 1),
+            // different stem, same day/amount, similar tokens -> a different reading (§8.4)
+            fact(3, "c", "ing-savings", LocalDate.of(2026, 9, 2), -1000, "COLES 1234", null, 0),
+            fact(4, "d", "ing-savings", LocalDate.of(2026, 9, 2), -1000, "COLES EXPRESS 1234", null, 0));
         Derivation d = Derive.derive(facts, List.of(), config(), ASOF);
         Map<String, Long> byKind = d.review().stream()
             .collect(java.util.stream.Collectors.groupingBy(r -> r.kind(), java.util.stream.Collectors.counting()));

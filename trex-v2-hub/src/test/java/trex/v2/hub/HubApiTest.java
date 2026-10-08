@@ -40,12 +40,13 @@ class HubApiTest {
                 fact(2, "t1", "ing-savings", -500, "Transfer to Savings 1111"),
                 fact(3, "t2", "ing-orange", 500, "Transfer from Savings 1111"),
                 fact(4, "d", "ing-savings", -1000, "COLES 1234"),
-                fact(5, "u", "ing-savings", -2000, "MYSTERY MERCHANT")));
+                fact(5, "u", "ing-savings", -2000, "MYSTERY MERCHANT"),
+                fact(6, "r", "ing-savings", -2000, "MYSTERY EMPORIUM")));
         }
 
         Path index = dir.resolve("trex.sqlite");
         try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {
-            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 5L);
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 6L);
             HttpClient client = HttpClient.newHttpClient();
             URI base = URI.create("http://127.0.0.1:" + hub.port());
 
@@ -54,9 +55,9 @@ class HubApiTest {
 
             assertEquals(2, total(client, base, "/api/ledger?category=GROCERIES"));
             assertEquals(2, total(client, base, "/api/ledger?q=coles"));
-            assertEquals(4, total(client, base, "/api/ledger?direction=out"));
+            assertEquals(5, total(client, base, "/api/ledger?direction=out"));
             assertEquals(1, total(client, base, "/api/ledger?account=ing-orange"));
-            assertEquals(5, total(client, base, "/api/ledger?limit=1"));
+            assertEquals(6, total(client, base, "/api/ledger?limit=1"));
 
             String review = get(client, base, "/api/review").body();
             assertTrue(review.contains("POTENTIAL_DUP"), review);

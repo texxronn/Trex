@@ -69,6 +69,17 @@ public final class MerchantStem {
     }
 
     /**
+     * The RESTATEMENT comparison (V2-PROPOSAL.md §8.4): a *different reading* of the same amount on
+     * the same day. It is deliberately **disjoint from duplication**: if the two stems are equal the
+     * rows are the same merchant reading and belong to {@code POTENTIAL_DUP}, not here. A re-parse or
+     * a second source changes the text while the economic event stays the same, so different stems
+     * with the token overlap at or above the threshold is the signal to surface.
+     */
+    public static boolean restatement(String a, String b, double threshold) {
+        return !stem(a).equals(stem(b)) && similar(a, b, threshold);
+    }
+
+    /**
      * Deterministic text similarity: the overlap coefficient of the two token sets,
      * {@code |A ∩ B| / min(|A|, |B|)}, compared against {@code threshold}. Two empty sets are not
      * similar (nothing was said); one empty set is never similar.

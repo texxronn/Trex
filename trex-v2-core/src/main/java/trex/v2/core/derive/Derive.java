@@ -978,8 +978,8 @@ public final class Derive {
                             union(dupParent, i, j);
                         }
                         boolean sameAmount = a.fact().amount() == b.fact().amount();
-                        boolean similar = MerchantStem.similar(a.fact().rawDescription(), b.fact().rawDescription(),
-                            config.transfers().restatementOverlap());
+                        boolean similar = MerchantStem.restatement(a.fact().rawDescription(),
+                            b.fact().rawDescription(), config.transfers().restatementOverlap());
                         if (sameAmount && similar) {
                             union(restParent, i, j);
                         }
