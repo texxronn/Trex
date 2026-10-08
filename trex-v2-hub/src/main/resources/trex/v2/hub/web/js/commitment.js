@@ -14,7 +14,7 @@ export const CADENCES = ['weekly', 'fortnightly', 'monthly', 'bimonthly', 'quart
   'semiannual', 'annual', 'irregular'];
 export const AMOUNT_KINDS = ['fixed', 'variable', 'range'];
 export const COMMITMENT_KINDS = ['subscription', 'services', 'bill', 'insurance', 'fee', 'tax',
-  'income', 'loan', 'other'];
+  'income', 'interest_earned', 'interest_paid', 'loan', 'other'];
 
 /** The chip on a matched ledger row; links to the Expected view. */
 export function commitmentChip(row) {

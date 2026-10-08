@@ -14,6 +14,8 @@ public enum CommitmentKind {
     FEE,
     TAX,
     INCOME,
+    INTEREST_EARNED,
+    INTEREST_PAID,
     LOAN,
     OTHER;
 
@@ -31,6 +33,8 @@ public enum CommitmentKind {
             case "fee" -> FEE;
             case "tax" -> TAX;
             case "income" -> INCOME;
+            case "interest_earned" -> INTEREST_EARNED;
+            case "interest_paid" -> INTEREST_PAID;
             case "loan" -> LOAN;
             case "other" -> OTHER;
             default -> throw new IllegalArgumentException("unknown commitment kind '" + wire + "'");
