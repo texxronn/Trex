@@ -42,7 +42,10 @@ class CommitmentsApiTest {
 
     @Test
     void servesTheRegistryExpectedAndStatusCounts(@TempDir Path dir) throws Exception {
-        LocalDate today = LocalDate.now();
+        // The fixture day is the derive's own day: the hub measures occurrences against
+        // Instant.now() in UTC, so a local-midnight run must not shift the calendar out from
+        // under the facts (a fact after the derive's day is not yet observed).
+        LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
         Path configDir = dir.resolve("config");
         config(configDir);
         Path journal = dir.resolve("trex.jsonl");
