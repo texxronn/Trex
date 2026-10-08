@@ -183,7 +183,7 @@ never dropped.
 
 | Action | Payload | Meaning |
 |---|---|---|
-| `DECLARE_COMMITMENT` | `commitmentId`, `name`, `direction`, `cadence`, `amountKind`, `kind`, `matches[]` (`{match, account?}`), `amount?`, `anchor?`, `fromCandidate?`, `comment?` | Declare a commitment; confirm a detected candidate (`fromCandidate` = its key; the UI prefills `matches` from its descriptors) |
+| `DECLARE_COMMITMENT` | `commitmentId`, `name`, `direction`, `cadence`, `amountKind`, `commitmentKind`, `matches[]` (`{match, account?}`), `amount?`, `anchor?`, `fromCandidate?`, `comment?` | Declare a commitment; confirm a detected candidate (`fromCandidate` = its key; the UI prefills `matches` from its descriptors) |
 | `RETIRE_COMMITMENT` | `commitmentId`, `endedAt`, `reason` | End it (cancelled, past, provider move) |
 | `IGNORE_RECURRING` | `candidate`, `reason` | Silence a detected candidate for good (revocable) |
 | `PIN_COMMITMENT` | `commitmentId`, `externalIds`, `comment?` | Those facts are occurrences of that commitment, whatever its rules say — the category `PIN` gesture. |
@@ -193,6 +193,8 @@ never dropped.
 
 Notes:
 
+- **The wire calls the kind `commitmentKind`**: the log envelope already owns `kind`, and a body
+  field of the same name would overwrite it (resolved in Stage 3).
 - **Re-declare is the edit.** A later `DECLARE_COMMITMENT` with the same id replaces the curated
   fields and the rule set (latest effective wins); `REVOKE`-ing the later declaration restores the
   earlier. A retire followed by a declare of the same id revives it, family-inverse style.
