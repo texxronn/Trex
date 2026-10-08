@@ -253,6 +253,10 @@ class CommitmentsTest {
         assertEquals(first, second);
         assertEquals(first.stream().map(Commitment::stateHash).toList(),
             second.stream().map(Commitment::stateHash).toList());
+
+        List<CurrentFact> reversed = new ArrayList<>(facts);
+        java.util.Collections.reverse(reversed);
+        assertEquals(first, Commitments.detect(reversed, ASOF), "input order must not matter");
     }
 
     @Test
