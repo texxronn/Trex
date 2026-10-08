@@ -126,7 +126,7 @@ replay → effective decisions → supersession / chain resolution → current t
 projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/5"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/6"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
@@ -151,6 +151,8 @@ records the payer leg's rail method; the rail direction is the sign.
 `AMBIGUOUS_SETTLEMENT`, `UNMATCHED_LEG`, `STALE_PENDING`, `INEFFECTIVE_DECISION`, `BALANCE_BREAK` (a
 statement account whose chain does not close; subject the account ref, so a `DISMISS` names the
 account). Duplicate and restatement rows are grouped into clusters, so one item lists every member.
+The two are **disjoint**: a same-stem pair is `POTENTIAL_DUP`; `RESTATEMENT` requires *different*
+stems (a different reading of the amount), so identical or same-stem rows are never double-labelled.
 
 **The balance check and clearing.** Reconciliation runs over `transaction` rows only; a `noop` row's
 edges and amount leave the chain and are named as exclusions. An account with unexplained forks is
@@ -197,7 +199,8 @@ unauthenticated and binds loopback by default.
 
 ## 9. Hub API and UI (`trex-v2-hub`)
 
-`/head`, `/api/status`, `/api/refdata`, `/api/ledger` (filters include `role` and `leg`), `/api/review`,
+`/head`, `/api/status`, `/api/refdata`, `/api/ledger` (filters include `role` and `leg`),
+`/api/review` (filters `kind` and `account`),
 `/api/transfers`, `/api/units`, `/api/reconcile` (with named `noop` exclusions), `/api/chains` (the
 §6.9 balance check: per-account forks and a per-side noop preview), `/api/opening`, `/api/workbook`,
 `/api/projection` (GET/POST), `/api/cursors` (GET/POST), `/api/decisions` (POST), `/api/acks`
@@ -258,8 +261,8 @@ staleness — last plan/apply and unprojected/drifted/orphaned unit counts).
 ## 12. Configuration (`deploy/config`)
 
 `sequencer.yaml` (bind host/port, journal source/target), `accounts.yaml` (ref, currency,
-`balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, and for a clearing account
-`closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
+`balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, `chip_color` — the hub
+chip colour, presentation only — and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing`),

@@ -9,8 +9,22 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- **`RESTATEMENT` is now disjoint from `POTENTIAL_DUP`.** It requires *different merchant stems*
+  (a different reading of the amount), so identical-text or same-stem pairs are no longer
+  double-labelled: a same-stem pair is a duplicate. On the dev fixture this takes the restatement
+  queue from 44 to 5, and every remaining item is a genuinely different merchant string. The
+  comparison is `MerchantStem.restatement`, used by both `derive()` and the hub's cluster
+  reconstruction; `deriveVersion` is `derive/6`.
+
 ### Added
 
+- **A unified account chip**, configured per account by `chip_color` in `accounts.yaml` (a palette
+  name; presentation only, never identity or logic; unset falls back to a deterministic colour). One
+  shared `account.js` renders the same solid chip in **Blotter, Review, Eyeball, Accounts and
+  Chains**; `refdata` carries the colour. The Review queue also filters by account
+  (`/api/review?account=`).
 - **Notes and comments as decisions**: `NOTE` annotates a transaction — one per target row,
   accumulating as a thread and removed only by `REVOKE`; a group annotation is a batch of `NOTE`s,
   one per member id. `DISMISS` and `USER_ACK` carry an optional `comment`. Derived `note_current`
