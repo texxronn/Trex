@@ -114,6 +114,10 @@ class CommitmentsApiTest {
             // A detected row's status is its coverage; candidate-ness is origin=detected (§2.1).
             assertEquals("active", candidate.get("status").asText());
             assertTrue(candidate.get("name").isNull());
+            // The grouping stem rides on the registry so a candidate is recognisable without
+            // Review; a declared row's name replaces it (§2.7; V2-EXPECTED-UX-PLAN.md §7 Stage 2).
+            assertEquals("GYM MEMBERSHIP", candidate.get("stem").asText());
+            assertTrue(netflix.get("stem").isNull());
             assertEquals("monthly", candidate.get("cadence").asText());
             assertEquals(3, candidate.get("occurrenceCount").asInt());
             assertEquals(-999, candidate.get("currentAmount").asLong());

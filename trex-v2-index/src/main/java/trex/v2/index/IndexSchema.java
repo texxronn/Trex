@@ -65,6 +65,12 @@ final class IndexSchema {
                 st.execute("ALTER TABLE txn_current ADD COLUMN state_hash TEXT");
                 clearDerivedMeta(st);
             }
+            // commitment gained the candidate stem (V2-COMMITMENTS-PLAN.md §2.7; V2-EXPECTED-UX-PLAN.md
+            // §7 Stage 2): nullable, so ALTER in place and force the next apply to re-derive into it.
+            if (hasTable(st, "commitment") && !hasColumn(st, "commitment", "candidate_key")) {
+                st.execute("ALTER TABLE commitment ADD COLUMN candidate_key TEXT");
+                clearDerivedMeta(st);
+            }
         }
     }
 

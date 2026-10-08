@@ -536,6 +536,7 @@ public final class Indexer implements AutoCloseable {
             for (Commitment c : d.commitments()) {
                 int i = 1;
                 ps.setString(i++, c.commitmentId());
+                ps.setString(i++, c.candidateKey());
                 ps.setString(i++, c.name());
                 ps.setString(i++, c.origin().wire());
                 ps.setString(i++, c.direction());
