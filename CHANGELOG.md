@@ -25,9 +25,10 @@ everything is under **Unreleased**.
   part of a commitment — the one-off inside a series; an excluded pair is never claimed (a pin
   falls through to the rules), so it shapes neither occurrences nor cost while the fact stays a
   fact. The menu's transaction table gains an **Exclude**/**Include** toggle per row on declared
-  commitments (excluded rows dim), and the effective set is a derived table
-  (`commitment_exclusion`). Two new actions; the proposal's §6.2 table, wire catalogue and §6.11
-  are amended.
+  commitments behind a **confirmation box**; an excluded row leaves the table (the pane shows
+  `n excluded` with a reveal toggle) and its point drops from the chart — both reactively. The
+  effective set is a derived table (`commitment_exclusion`). Two new actions; the proposal's §6.2
+  table, wire catalogue and §6.11 are amended.
 - **Transient one-offs are flagged** (`V2-COMMITMENT-EXCLUSIONS-PLAN.md` §3; `derive/11`).
   Detection counts an interior occurrence at least double (or at most half) its predecessor's
   magnitude whose successor returns to that level — NRMA's −$190.40 claim, a payroll bonus, a UBS
