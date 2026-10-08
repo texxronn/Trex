@@ -2124,6 +2124,7 @@ pretty reports); the blotter is for deciding things.
 |---|---|---|
 | **Blotter** (default) | "What happened, and is it true?" | Every current transaction, filters, inline category, transfer pairing, projection status |
 | **Review** | "What needs a decision?" | Derived review items, ranked, batch actions — duplicates, restatements, ambiguous matches, stale pending |
+| **Expected** | "What is committed, and what is behind?" | The window's occurrences with green ticks / red crosses, committed totals by direction, the catch-up backlog, the commitment registry and its lint |
 | **Eyeball** | "Have I read what I meant to?" | The period's rows with read/unread, anomalies, balance ribbon, per-user `USER_ACK` |
 | **Rules** | "Why is this categorised like that?" | Rule editor, blast radius, lint, fixtures |
 | **Accounts** | "Which periods are imported, and where are the holes?" | Per-account earliest/latest, last ingest, and a facts-derived weekly coverage strip |
@@ -2214,6 +2215,33 @@ sides, the balance value they contest, and a per-side preview of resolving one (
 keeping both). It is the operator surface for roles: a fork appears the moment the head
 moves, is explained by an account profile or a `MARK_NOOP`, and clears itself when the
 chain closes. Nothing here is stored: it is a view over the derived check.
+
+### 10.6 Expected mode
+
+The forward view: what is committed and what is behind. A window (today, this week, this
+month) lists the materialised occurrences — date, commitment, direction, amount — with the
+verdicts rendered honestly: a green tick for **occurred**, which carries the fact; `settled`
+marked distinctly, because a person concluded it and there is no fact to show; `due`;
+`partial`; and a red cross for **missed**. The window's committed total splits out / in, with
+income in green, and the matched fact rides on the row.
+
+Below the list, the **Catch up** panel shows every occurrence in arrears across
+commitments, oldest first, with a running total and a per-row **Settle** (a
+`SETTLE_OCCURRENCE`, the off-journal conclusion) or **Assign a payment**, which hands the
+operator to the Blotter to pin the fact that paid it. The **registry** carries every
+commitment — candidate, active, dormant, ended — with its origin, faces, current and
+previous price, last and next date, arrears and note thread, plus the curation actions:
+retire, re-declare, note, settle. A **lint** panel lists each commitment's rules and warns
+when the same match regex sits on more than one commitment; a never-fired count is a
+matches-derived figure, computed later.
+
+On the Blotter and the Eyeball, a matched row shows the commitment chip (a derived join,
+display only — §10.13) and the row action **Assign to commitment** (`PIN_COMMITMENT`, or
+`UNPIN_COMMITMENT` when a chip is already there) — the commitment analogue of inline
+categorisation. The Expected tab is part of the regular review routine (operator,
+2026-10-08): it is where a dormant commitment, an arrear and a red occurrence get their
+decision. The Eyeball anomaly `RECURRING_MISSING` can be re-sourced from missed occurrences
+as a follow-up (§10.12).
 
 ---
 

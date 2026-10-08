@@ -3,6 +3,7 @@
 
 import { api } from './api.js';
 import { accountChip } from './account.js';
+import { commitmentChip, openAssignCommitment } from './commitment.js';
 import { decisions } from './decisions.js';
 import { direction } from './direction.js';
 import { openAnnotate } from './annotate.js';
@@ -116,7 +117,8 @@ function renderRows() {
     el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', {}, 'Direction'),
     el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
-    el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'), el('th', {}, 'n'), el('th', {}, 'id'),
+    el('th', {}, 'Commitment'), el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'),
+    el('th', {}, 'n'), el('th', {}, 'id'),
     el('th', {}));
   const rows = (status.rows || []).map((row) => {
     const checkbox = el('input', {
@@ -137,16 +139,22 @@ function renderRows() {
       el('td', { class: 'desc' }, row.rawDescription,
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
+      el('td', {}, commitmentChip(row)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.synthetic ? el('span', { class: 'tag synthetic' }, 'synthetic')
         : (row.role === 'noop' ? el('span', { class: 'tag role-noop' }, 'noop') : '')),
       el('td', { class: 'muted' }, row.rail ? row.rail + ' \u00b7 ' + (row.amount < 0 ? 'OUT' : 'IN') : ''),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
-      el('td', {}, el('button', {
-        type: 'button', class: 'ghost',
-        onclick: () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load),
-      }, 'Note')));
+      el('td', {},
+        el('button', {
+          type: 'button', class: 'ghost',
+          onclick: () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load),
+        }, 'Note'),
+        el('button', {
+          type: 'button', class: 'ghost', title: 'Assign to commitment',
+          onclick: () => openAssignCommitment(ctx, row, load),
+        }, row.commitmentId ? 'Unassign' : 'Assign')));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows))));
 }

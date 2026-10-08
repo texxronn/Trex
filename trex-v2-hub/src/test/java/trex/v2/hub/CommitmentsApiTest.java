@@ -94,6 +94,12 @@ class CommitmentsApiTest {
             assertEquals(1, netflix.get("notes").size());
             assertEquals("family plan since 2024", netflix.get("notes").get(0).get("text").asText());
             assertEquals("ron", netflix.get("notes").get(0).get("user").asText());
+            // The registry carries the effective rules and the next due occurrence, so the lint
+            // panel and the registry can render without a second fetch.
+            assertEquals(1, netflix.get("rules").size());
+            assertEquals("NETFLIX", netflix.get("rules").get(0).get("match").asText());
+            assertTrue(netflix.get("rules").get(0).get("account").isNull());
+            assertEquals(today.toString(), netflix.get("nextDue").asText());
 
             JsonNode youtube = find(registry, "commitmentId", "youtube");
             assertEquals("dormant", youtube.get("status").asText());
@@ -111,6 +117,8 @@ class CommitmentsApiTest {
             assertEquals("monthly", candidate.get("cadence").asText());
             assertEquals(3, candidate.get("occurrenceCount").asInt());
             assertEquals(-999, candidate.get("currentAmount").asLong());
+            assertTrue(candidate.get("rules").isEmpty());
+            assertTrue(candidate.get("nextDue").isNull());
 
             // ---- Review: the candidate renders from its enrichment, no second fetch ----------
             JsonNode suspected = json(get(client, base, "/api/review?kind=SUSPECTED_RECURRING"));

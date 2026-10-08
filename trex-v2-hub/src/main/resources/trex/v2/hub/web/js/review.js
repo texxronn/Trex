@@ -6,6 +6,7 @@ import { decisions } from './decisions.js';
 import { openAnnotate } from './annotate.js';
 import { direction } from './direction.js';
 import { openPrompt, openSelect } from './dialog.js';
+import { escapeRegex, openDeclare, openRetire, openSettle, slugify, titleCase } from './commitment.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -20,7 +21,8 @@ let account = '';
 const expanded = new Set();
 
 const KINDS = ['', 'POTENTIAL_DUP', 'RESTATEMENT', 'AMBIGUOUS_TRANSFER', 'AMBIGUOUS_SETTLEMENT',
-  'UNMATCHED_LEG', 'STALE_PENDING', 'INEFFECTIVE_DECISION'];
+  'UNMATCHED_LEG', 'STALE_PENDING', 'INEFFECTIVE_DECISION', 'SUSPECTED_RECURRING',
+  'DORMANT_COMMITMENT', 'COMMITMENT_ARREARS'];
 
 const KIND_LABEL = {
   POTENTIAL_DUP: 'possible duplicate',
@@ -30,6 +32,9 @@ const KIND_LABEL = {
   UNMATCHED_LEG: 'unmatched leg',
   STALE_PENDING: 'stale pending',
   INEFFECTIVE_DECISION: 'ineffective decision',
+  SUSPECTED_RECURRING: 'suspected recurring',
+  DORMANT_COMMITMENT: 'dormant commitment',
+  COMMITMENT_ARREARS: 'commitment arrears',
 };
 
 export function mount(container, context) {
@@ -85,7 +90,6 @@ function renderRows(rows) {
     el('th', {}, 'Direction'), el('th', { class: 'amount' }, 'Stake'),
     el('th', {}, 'Subject'), el('th', {}, 'Detail'), el('th', {}, 'Opened'), el('th', {}));
   const body = rows.map((row) => {
-    const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
     return el('tr', {},
       el('td', {}, el('span', { class: 'badge ' + row.kind }, KIND_LABEL[row.kind] || row.kind)),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
@@ -95,24 +99,152 @@ function renderRows(rows) {
       el('td', { class: 'desc', title: row.subject }, row.subjectDescription || shortId(row.subject)),
       memberCell(row),
       el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),
-      el('td', {},
-        canDismiss
-          ? el('button', { type: 'button', class: 'ghost', onclick: () => dismiss(row) }, 'Dismiss')
-          : el('span', { class: 'muted' }, 'revoke the decision'),
-        canAnnotate(row)
-          ? el('button', { type: 'button', class: 'ghost', onclick: () => annotate(row) }, 'Note')
-          : null,
-        row.kind === 'UNMATCHED_LEG'
-          ? el('button', { type: 'button', class: 'ghost', onclick: () => attach(row) }, 'Attach')
-          : null));
+      actionCell(row));
   });
   listHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
+// The actions per kind (V2-COMMITMENTS-PLAN.md §2.8): a candidate is confirmed or ignored, a
+// dormant commitment is ended or kept, an arrears item is settled or snoozed. Every other kind
+// keeps the generic Dismiss/Note.
+function actionCell(row) {
+  if (row.kind === 'SUSPECTED_RECURRING') {
+    return el('td', {},
+      el('button', { type: 'button', class: 'primary', onclick: () => confirmCandidate(row) }, 'Confirm'),
+      el('button', { type: 'button', class: 'ghost', onclick: () => ignoreCandidate(row) }, 'Ignore'));
+  }
+  if (row.kind === 'DORMANT_COMMITMENT') {
+    return el('td', {},
+      el('button', { type: 'button', onclick: () => markEnded(row) }, 'Mark ended'),
+      el('button', { type: 'button', class: 'ghost', onclick: () => keepTracking(row) }, 'Keep tracking'));
+  }
+  if (row.kind === 'COMMITMENT_ARREARS') {
+    return el('td', {},
+      el('button', { type: 'button', onclick: () => settleArrears(row) }, 'Settle'),
+      el('button', { type: 'button', class: 'ghost', onclick: () => snoozeArrears(row) }, 'Snooze'));
+  }
+  const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
+  return el('td', {},
+    canDismiss
+      ? el('button', { type: 'button', class: 'ghost', onclick: () => dismiss(row) }, 'Dismiss')
+      : el('span', { class: 'muted' }, 'revoke the decision'),
+    canAnnotate(row)
+      ? el('button', { type: 'button', class: 'ghost', onclick: () => annotate(row) }, 'Note')
+      : null,
+    row.kind === 'UNMATCHED_LEG'
+      ? el('button', { type: 'button', class: 'ghost', onclick: () => attach(row) }, 'Attach')
+      : null);
+}
+
+// ---- commitment review flows (V2-COMMITMENTS-PLAN.md §2.8) ------------------------------------
+
+/** Confirm a candidate: the declaration dialog prefilled from its enrichment. */
+function confirmCandidate(row) {
+  const e = row.enrichment || {};
+  const current = e.currentAmount != null ? e.currentAmount : 0;
+  openDeclare(ctx, {
+    commitmentId: slugify(row.subject),
+    name: titleCase(row.subject),
+    kind: 'other',
+    direction: current < 0 ? 'out' : 'in',
+    cadence: e.cadence || 'monthly',
+    amountKind: 'fixed',
+    amount: e.currentAmount != null ? Math.abs(e.currentAmount) : null,
+    anchor: e.firstDate || '',
+    matches: [{ match: escapeRegex(row.subject), account: null }],
+    fromCandidate: row.subject,
+    summary: row.detail,
+  }, load);
+}
+
+/** Ignore is the semantic (it does not reopen on the next fact), and it carries a reason. */
+function ignoreCandidate(row) {
+  openPrompt({
+    title: 'Ignore recurring',
+    summary: row.subject,
+    label: 'Reason',
+    placeholder: 'why this series is not a commitment',
+    confirm: 'Ignore',
+  }, async (reason) => {
+    if (!reason) {
+      toast('A reason is required', 'bad');
+      return;
+    }
+    try {
+      await api.decisions(ctx.n, [decisions.ignoreRecurring(ctx, row.subject, reason)]);
+      toast('Ignored');
+    } catch (error) {
+      reportError(error);
+    }
+    await load();
+  });
+}
+
+/** Mark ended: the retire dialog (endedAt today, a reason), nothing auto-decided. */
+function markEnded(row) {
+  openRetire(ctx, { commitmentId: row.subject, summary: row.detail }, load);
+}
+
+/** Keep tracking: a DISMISS that stays quiet until a newer matched fact lands. */
+async function keepTracking(row) {
+  try {
+    await api.decisions(ctx.n, [decisions.dismiss(ctx, row.kind, [row.subject], 'kept tracking')]);
+    toast('Kept tracking');
+  } catch (error) {
+    reportError(error);
+  }
+  await load();
+}
+
+/** Settle: fetch the commitment's whole backlog and conclude it paid, oldest dates included. */
+async function settleArrears(row) {
+  try {
+    const expected = await api.expected('today');
+    const dueDates = [...new Set((expected.arrears || [])
+      .filter((a) => a.commitmentId === row.subject)
+      .map((a) => a.dueDate))];
+    if (!dueDates.length) {
+      toast('Nothing in arrears for this commitment', 'bad');
+      return;
+    }
+    openSettle(ctx, { commitmentId: row.subject, dueDates }, load);
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+function snoozeArrears(row) {
+  openPrompt({
+    title: 'Snooze arrears',
+    summary: row.detail,
+    label: 'Reason (optional)',
+    placeholder: 'known, paying later',
+    confirm: 'Snooze',
+  }, async (reason) => {
+    try {
+      await api.decisions(ctx.n, [decisions.dismiss(ctx, row.kind, [row.subject], reason || null)]);
+      toast('Snoozed');
+    } catch (error) {
+      reportError(error);
+    }
+    await load();
+  });
 }
 
 // A POTENTIAL_DUP/RESTATEMENT item is a cluster: a collapsible header shows the summary, and
 // expanding it lists every member with the fields that tell the rows apart — running balance,
 // receipt, verbatim text — instead of a count no one can act on.
 function memberCell(row) {
+  if (row.kind === 'SUSPECTED_RECURRING' && row.enrichment) {
+    const e = row.enrichment;
+    const bits = [e.cadence,
+      `${e.occurrenceCount} occurrence${e.occurrenceCount === 1 ? '' : 's'}`,
+      `${e.firstDate} → ${e.lastDate}`];
+    if (e.currentAmount != null) bits.push(`current ${money(e.currentAmount)}`);
+    if (e.regularity != null) bits.push(`regularity ${Math.round(e.regularity * 100)}%`);
+    if (e.changePct != null) bits.push(`last step ${e.changePct > 0 ? '+' : ''}${e.changePct.toFixed(1)}%`);
+    return el('td', { class: 'desc' }, row.detail, el('div', { class: 'muted' }, bits.join(' · ')));
+  }
   if (!row.members || row.members.length < 2) {
     return el('td', { class: 'desc' }, row.detail);
   }

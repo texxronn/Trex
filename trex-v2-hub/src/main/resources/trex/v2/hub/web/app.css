@@ -238,6 +238,23 @@ td.members .chip.t5 { background: color-mix(in srgb, #06b6d4 16%, var(--surface)
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
 }
 
+/* A matched fact's commitment (§2.8): a chip that links to the Expected view. */
+.commit-chip {
+  display: inline-block; margin-left: 0.4rem; padding: 0 0.45rem;
+  border-radius: 999px; background: var(--good-soft); color: var(--good);
+  border: 1px solid color-mix(in srgb, var(--good) 35%, transparent);
+  font-size: 11px; line-height: 1.6; max-width: 16rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  text-decoration: none;
+}
+
+/* The Expected occurrence states (§2.8): settled is a conclusion, partial a warning, missed bad. */
+.occ-settled { color: var(--accent); white-space: nowrap; }
+.occ-partial { color: var(--warn); white-space: nowrap; }
+.occ-missed { color: var(--bad); white-space: nowrap; }
+.lint-warn { color: var(--warn); margin: 0.2rem 0; }
+.lint-warn code { font-family: var(--mono); }
+
 /* A solid account chip, shared by every mode: one vivid colour per account, spread across the hue
    wheel. Each colour carries its own foreground so the light hues (yellow, lime, cyan) stay legible.
    The names are the palette named by `chip_color` in accounts.yaml. */
@@ -299,6 +316,10 @@ details > summary { cursor: pointer; }
   background: var(--surface-2);
   white-space: nowrap;
 }
+/* Commitment lifecycle (V2-COMMITMENTS-PLAN.md §2.1): active, dormant, ended. */
+.tag.active { color: var(--good); border-color: var(--good); background: var(--good-soft); }
+.tag.dormant { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.tag.ended { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
 .tag.PIN, .badge.PIN, .badge.AMBIGUOUS_TRANSFER, .badge.AMBIGUOUS_SETTLEMENT {
   color: var(--accent); border-color: var(--accent); background: var(--accent-soft);
 }
@@ -344,6 +365,9 @@ tbody tr.noop:hover td { opacity: .8; }
 
 .mode-section { margin-top: 1.1rem; }
 .mode-section h3 { margin: 0 0 0.4rem; font-size: 13px; letter-spacing: 0.02em; }
+.mode-section h3 .title-action {
+  margin-left: 0.6rem; font-size: 12px; min-height: 0; padding: 0.15rem 0.55rem;
+}
 .mode-section h4 { margin: 0.7rem 0 0.3rem; font-size: 12px; color: var(--muted); font-weight: 600; }
 .bucket { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
@@ -377,13 +401,17 @@ tbody tr.noop:hover td { opacity: .8; }
 /* ---- categorize popup --------------------------------------------------- */
 
 .modal { position: fixed; inset: 0; z-index: 30; background: rgba(8, 10, 14, .5);
-  display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  display: flex; align-items: center; justify-content: center; padding: 1rem; overflow-y: auto; }
 .dialog { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 0.9rem; width: min(420px, 100%); }
+  box-shadow: var(--shadow); padding: 0.9rem; width: min(420px, 100%); margin: auto; }
+.dialog.wide { width: min(560px, 100%); }
 .dialog h3 { margin: 0 0 0.3rem; font-size: 14px; }
 .dialog .field { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
   margin: 0.7rem 0; font-size: 12px; color: var(--muted); }
+.dialog .field[hidden] { display: none; }
 .dialog .field select { flex: 1 1 auto; max-width: 60%; }
+.dialog .field input { flex: 1 1 auto; max-width: 60%; }
+.dialog .field textarea { flex: 1 1 auto; max-width: 60%; min-height: 5.5rem; font-size: 12px; }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 
 /* ---- Eyeball read / unread ---------------------------------------------- */
