@@ -71,8 +71,10 @@ migrated from.
 - **Decisions** (`Decision`): `action`, `actor` (`user | migrated | system`), `user` (nullable),
   plus the action's fields; `at` is `envelope.atMs`. The complete action set is `PAIR`, `UNPAIR`,
   `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `MARK_NOOP`,
-  `UNMARK_NOOP`, `REVOKE`, `USER_ACK`, `USER_UNACK`, `NOTE`. On the wire, `REVOKE`'s target is
-  `revokes` — the envelope owns `target`.
+  `UNMARK_NOOP`, `ATTACH_ACCOUNT`, `REVOKE`, `USER_ACK`, `USER_UNACK`, `NOTE`,
+  `DECLARE_COMMITMENT`, `RETIRE_COMMITMENT`, `IGNORE_RECURRING`, `PIN_COMMITMENT`,
+  `UNPIN_COMMITMENT`, `NOTE_COMMITMENT`, `SETTLE_OCCURRENCE`. On the wire, `REVOKE`'s target is
+  `revokes` and a commitment's kind is `commitmentKind` — the envelope owns `target` and `kind`.
 - **Ingest events** (`IngestEvent`): `phase` (`start | complete`) and `batch`; a `start` also carries
   `evidence`/`file`/`account`/`sourceType`/`parser`, a `complete` the `appended`/`duplicate`/`flagged`
   counts and a `status`. The facts sit strictly between the pair, so a batch's `n` range is the
@@ -113,6 +115,19 @@ content rows each take `0`.
 - **Attached transfers.** `ATTACH_ACCOUNT` names transfer-shaped legs and a clearing account: the
   legs are transfers with an account side, not a contra fact (a pruned counterparty, §6.10). The
   account must be `clearing`; the decision is id-scoped and `REVOKE` releases the legs to the matcher.
+- **Commitment curation.** Seven actions curate commitments (§6.11). `DECLARE_COMMITMENT` declares
+  one, or confirms a detected candidate (`fromCandidate`); the rules are embedded, and a re-declare
+  with the same id replaces the curated fields and the rule set — the edit — while cadence and anchor
+  are not edited in place (a schedule change is retire + declare). `RETIRE_COMMITMENT` ends it at
+  `endedAt`. `IGNORE_RECURRING` silences a detected candidate for good: newer facts do not reopen it,
+  only `REVOKE` does. `PIN_COMMITMENT`/`UNPIN_COMMITMENT` place facts on a commitment or release them
+  to its rules — the category `PIN` gesture, one fact each, latest effective wins, ids resolved
+  through the supersession map; a pin naming a retired or unknown commitment is ineffective and
+  visible. `NOTE_COMMITMENT` accumulates a thread on a commitment (the `NOTE` gesture, targeted; a
+  note may name a retired commitment). `SETTLE_OCCURRENCE` concludes that occurrences were paid (or
+  received) off-journal — a conclusion with no fact, attributed and revocable, rendered `settled`,
+  never `occurred`. Commitment ids are decision-local and never touch the fact chain; a decision
+  naming an unknown one is ineffective and surfaced.
 - **References and structure are checked at the writer**; a semantically wrong but well-formed
   decision is recorded and surfaced as `INEFFECTIVE_DECISION`, never dropped.
 - The hub prechecks against the index and returns `422` (naming the failure), `409` (stale view),
@@ -125,11 +140,11 @@ content rows each take `0`.
 Pure function of `(facts, decisions, config, asOf)`, in the §9.9 order:
 
 replay → effective decisions → supersession / chain resolution → current transactions (`txn_current`)
-→ transfer pairing → pending settlement → categorisation → review items → notes (`note_current`) →
-clearing legs → projectable units → state hashes → per-user ACK validity.
+→ transfer pairing → pending settlement → categorisation → commitments → review items → notes
+(`note_current`) → clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/8"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/9"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
@@ -150,12 +165,47 @@ compared across accounts (the v1 `transferStem` tier is retired). A clearing leg
 its `clearing:` account — one real leg and an account side, no window, no ambiguity. A matched pair
 records the payer leg's rail method; the rail direction is the sign.
 
+**Commitments.** A commitment is a named expectation of a recurring money movement (subscription,
+bill, insurance, fee, tax, income, other), and its stage is a **sibling of categorisation**: it reads
+the same current facts and no category output — categorisation reads none of it — so their order is
+incidental and a complex rule may be duplicated in both. The seven curation decisions (§5) are
+folded; candidates are detected over the current facts (transfer legs included, `noop` excluded) by
+grouping on the frozen `MerchantStem.stem`: at least three occurrences; gaps within
+`max(2 days, 20%)` of `{7, 14, 30, 61, 91, 182, 365}` days; regularity ≥ 0.7; same-day repeats
+collapsed into one occurrence; refunds netted against the charge they reverse; a consecutive change
+of `≥ 5%` or `≥ 50¢` is a price step; and a series whose every row carries
+`Foreign Currency Amount:` compares the FCY price (a series where only some rows do stays on
+AUD, so mixing bases cannot invent a step). Coverage is relative to the accounts' posted
+frontier, never a clock: `active` inside one cadence plus tolerance, `ended` beyond two periods,
+otherwise `dormant`. A candidate is suppressed by an effective `IGNORE_RECURRING`, by a declaration
+that named it as `fromCandidate`, or by declaration rules covering its facts, and only a non-ended
+candidate raises review. Declared commitments generate occurrences from cadence and anchor with
+calendar arithmetic (past 12 months through `asOf + 92 days`); each occurrence carries a
+`± min(cadence/2, 7)`-day window, and one whose window closed with nothing covering it is `missed`.
+A fact is claimed by a pin first, else by the latest declaration whose rules, sign and materialised
+span admit it (facts are processed in `(date, n)` order), and every claimed fact is allocated
+oldest-first across that commitment's open occurrences (`due`, `missed`, `partial`) — the catch-up
+path, deliberately not bounded by the window. A catch-up payment clears arrears from the front, a
+surplus pre-pays already-materialised future occurrences, and anything left becomes an `off_schedule`
+occurrence at its own date; full coverage is within `max(2%, 50¢)`, below it the occurrence is
+`partial`. A `variable` commitment keeps one fact per occurrence; an `irregular` commitment generates
+no dates and records each matching fact at its own date — never a window, a miss, arrears or
+dormancy. Status is `occurred` (green, carrying the matched fact), `settled` (a person concluded it
+without a fact), `due`, `partial` or `missed`; `lapsed` mirrors the most recent closed-window
+occurrence still short — never the older backlog — and the older misses accumulate as
+**arrears**. A retired commitment stops at `endedAt`; a dormant one is
+a question for a person (`DORMANT_COMMITMENT`), never auto-ended, and nothing is auto-forgiven.
+
 **Review items** (`(subject, kind)` is the key): `POTENTIAL_DUP`, `RESTATEMENT`, `AMBIGUOUS_TRANSFER`,
 `AMBIGUOUS_SETTLEMENT`, `UNMATCHED_LEG`, `STALE_PENDING`, `INEFFECTIVE_DECISION`, `BALANCE_BREAK` (a
 statement account whose chain does not close; subject the account ref, so a `DISMISS` names the
 account). Duplicate and restatement rows are grouped into clusters, so one item lists every member.
 The two are **disjoint**: a same-stem pair is `POTENTIAL_DUP`; `RESTATEMENT` requires *different*
 stems (a different reading of the amount), so identical or same-stem rows are never double-labelled.
+The commitment kinds are `SUSPECTED_RECURRING` (one item per non-ended candidate; subject the
+grouping stem, so a `DISMISS` names the series and ages on its newest fact) and `DORMANT_COMMITMENT`
+and `COMMITMENT_ARREARS` (subject the commitment id, aging on the facts the commitment matched);
+each is silenced only until a newer fact lands for its subject.
 
 **The balance check and clearing.** Reconciliation runs over `transaction` rows only; a `noop` row's
 edges and amount leave the chain and are named as exclusions. An account with unexplained forks is
@@ -175,6 +225,7 @@ SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `
 2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current` (carrying the
 derived `role`, rail, and a `synthetic` flag — true only for a derived clearing leg, §6.10), `transfer` (carrying the payer `method` and, for a clearing pair, the
 `clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
+`commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note`,
 `ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
 `ingest_batch` view (the markers paired). A derived column's shape change drops and recreates its
 table and clears the derived meta, so the next apply re-derives. Every table can be dropped;
@@ -204,6 +255,9 @@ unauthenticated and binds loopback by default.
 
 `/head`, `/api/status`, `/api/refdata`, `/api/ledger` (filters include `role` and `leg`),
 `/api/review` (filters `kind` and `account`),
+`/api/commitments` (the commitment registry: faces, rules, current price, next due, arrears, notes
+thread), `/api/expected?window=today|week|month` (the window's occurrences, the arrears backlog
+oldest-first with a running total, and committed totals by direction),
 `/api/transfers`, `/api/units`, `/api/reconcile` (with named `noop` exclusions), `/api/chains` (the
 §6.9 balance check: per-account forks and a per-side noop preview), `/api/opening`, `/api/workbook`,
 `/api/projection` (GET/POST), `/api/cursors` (GET/POST), `/api/decisions` (POST), `/api/acks`
@@ -212,13 +266,20 @@ unauthenticated and binds loopback by default.
 `/api/reflow/preview/transfers` (POST), `/api/config/categories` (GET/PUT), `/api/config/transfers`
 (GET/PUT), `/api/jobs*` (proxied to the runner), and `/api/events` (SSE snapshot then deltas).
 
-The UI has seven modes: **Blotter** (SQL-backed filters including role, inline decisions — pin, pair,
-mark external, `noop`/`unmark noop`, and **note** (a `NOTE`, single or over a selection) — a note
+The UI has eight modes: **Blotter** (SQL-backed filters including role, a commitment chip, inline
+decisions — pin, pair, mark external, `noop`/`unmark noop`, **note** (a `NOTE`, single or over a
+selection), and **Assign**/**Unassign** to a commitment (`PIN_COMMITMENT`/`UNPIN_COMMITMENT`) — a note
 badge on any row with a thread, status strip), **Review** (the derived queue, one decision away from
-clear; a cluster expands to its members as colored chips, `Dismiss` takes an optional reason, and a
-cluster can be annotated in one fan-out), **Eyeball** (§10.3 — open items, the nine anomaly checks
+clear; a cluster expands to its members as colored chips, `Dismiss` takes an optional reason, a
+cluster can be annotated in one fan-out, `SUSPECTED_RECURRING` offers Confirm/Ignore,
+`DORMANT_COMMITMENT` Mark ended/Keep tracking, and `COMMITMENT_ARREARS` Settle/Snooze),
+**Expected** (§6.11 — today/this week/this month: one row per occurrence with a green tick
+(`occurred`) or red cross (`missed`), the committed totals split out/in, the **Catch up** panel of
+every occurrence in arrears, oldest first, with a running total and Settle/Assign, and the
+commitment registry with retire, re-declare, note, settle and a rule lint panel; the tab is walked
+as part of the regular review routine), **Eyeball** (§10.3 — open items, the nine anomaly checks
 with an explicit `asOf`, and transactions bucketed by day/week/month with a per-row `Ack`/`Unack`,
-a per-row pin, and a per-row **note**), **Rules**
+a per-row pin, a per-row **note**, and the commitment chip with **Assign**/**Unassign**), **Rules**
 (category editor with blast-radius preview, lint, fixtures, coverage, plus a **Transfer patterns**
 editor with the same preview contract), **Accounts** (§10.5 — per-account opening, earliest/latest,
 the newest ingest, and a facts-derived weekly strip; a quiet week inside the range is a hole to
@@ -306,10 +367,17 @@ One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runn
 
 Three classes per module: contract tests (record shapes, round-trip, schema), invariant tests named
 after the §15 guarantees (`deriveIsPure`, `deriveComposeDeriveIsDerive`, `rebuildEqualsIncremental`,
-`decisionsWinOverReflow`, …), and regression tests carrying the measured story. Fixture-dependent
-tests are `@Tag("fixture")` and skip with a printed reason, so `mvn verify` is green on a fresh
-clone. `docs/V2-PARITY.md` holds the v1↔v2 equivalence ledger; `StatementsE2ETest` is the end-to-end
-run over real statement files.
+`decisionsWinOverReflow`, …), and regression tests carrying the measured story. The commitments
+feature is pinned by `CommitmentsTest` (detection: buckets, regularity, same-day collapse, refunds,
+steps, FCY, coverage, determinism), `CommitmentMatchTest` (calendar generation, the window, pins,
+settle, catch-up allocation oldest-first, partial/pre-pay/off-schedule, variable and irregular,
+retirement and the span), the `DeriveTest` commitment cases (curation fold, the three review kinds
+and their dismissal aging, transfer-leg commitments, dormancy, arrears), `IndexerTest` (the four
+tables through rebuild ≡ incremental), `CommitmentsApiTest` (the two endpoints and the review
+kinds), and the round-trip/precheck/stream cases (`LogCodecTest`, `HubDecisionPathTest`,
+`SequencerTest`, `StreamTest`). Fixture-dependent tests are `@Tag("fixture")` and skip with a
+printed reason, so `mvn verify` is green on a fresh clone. `docs/V2-PARITY.md` holds the v1↔v2
+equivalence ledger; `StatementsE2ETest` is the end-to-end run over real statement files.
 
 ---
 
@@ -365,4 +433,9 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 - `trex.ingest` events and the derived `ingest_batch`, a third line kind;
 - `trex runner`, the Jobs UI, `trex snapshot`, and the archive layout (post-proposal);
 - `REVOKE`'s wire field renamed `target` → `revokes` (the envelope owns `target`);
+- the commitments feature (§6.11): rules, not vendors; core-fields-only matching with transfer legs
+  in scope; the seven curation actions; the four derived tables; the three review kinds with their
+  own dismissal aging; the **Expected** mode; and arrears with automatic oldest-first catch-up —
+  post-proposal, with no v1 counterpart (pinned by `CommitmentsTest`, `CommitmentMatchTest`,
+  `DeriveTest`, `IndexerTest` and `CommitmentsApiTest`);
 - migration (§16) is retired — there is no migration, and the importer is a dev tool.
