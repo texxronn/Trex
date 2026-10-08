@@ -46,12 +46,12 @@ final class Sql {
 
     static final List<String> DERIVED_TABLES = List.of(
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
-        "category_current", "pin_current", "ineffective_decision", "unit", "user_ack");
+        "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack");
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
-        "pending", "review_item", "category_current", "pin_current", "ineffective_decision", "unit",
+        "pending", "review_item", "category_current", "pin_current", "note_current", "ineffective_decision", "unit",
         "user_ack");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
@@ -71,6 +71,8 @@ final class Sql {
         + "rule_id) VALUES(?,?,?,?)";
     static final String INSERT_PIN_CURRENT = "INSERT INTO pin_current(external_id, category, decision_n, user_id, "
         + "comment) VALUES(?,?,?,?,?)";
+    static final String INSERT_NOTE_CURRENT = "INSERT INTO note_current(decision_n, external_id, text, user_id, at) "
+        + "VALUES(?,?,?,?,?)";
     static final String INSERT_INEFFECTIVE = "INSERT INTO ineffective_decision(decision_n, action, reason) "
         + "VALUES(?,?,?)";
     static final String INSERT_UNIT = "INSERT INTO unit(unit_id, unit_kind, account_ref, date, amount, currency, "

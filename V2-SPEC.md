@@ -105,6 +105,11 @@ content rows each take `0`.
   and the only way back from `SUPERSEDE`, `RETIRE` and `DISMISS`. A later `REVOKE` may revoke a
   `REVOKE`.
 - **Effectiveness is derived**, from order and `REVOKE`s, never stored.
+- **Notes and reasons.** `NOTE` is a free annotation (§6.2): one per target row, accumulating as a
+  thread and removed only by `REVOKE`, never edited — a change is a new `NOTE` plus a `REVOKE`. A
+  group annotation is a batch of `NOTE`s, one per member id. `DISMISS` and `USER_ACK` carry an
+  optional `comment`; a dismissed item's reason is surfaced through `/api/dismissals`, because the
+  item itself leaves the queue. Annotations are display only — never identity, never logic.
 - **References and structure are checked at the writer**; a semantically wrong but well-formed
   decision is recorded and surfaced as `INEFFECTIVE_DECISION`, never dropped.
 - The hub prechecks against the index and returns `422` (naming the failure), `409` (stale view),
@@ -117,8 +122,8 @@ content rows each take `0`.
 Pure function of `(facts, decisions, config, asOf)`, in the §9.9 order:
 
 replay → effective decisions → supersession / chain resolution → current transactions (`txn_current`)
-→ transfer pairing → pending settlement → categorisation → review items → projectable units →
-state hashes → per-user ACK validity.
+→ transfer pairing → pending settlement → categorisation → review items → notes (`note_current`) →
+projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
 recorded alongside, never inside, a hash: `deriveVersion = "derive/5"`, `hashVersion = "statehash/4"`,
@@ -164,7 +169,7 @@ by a derived counterpart, or `STALE` past the account's `settlementWindowDays`, 
 SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `ingest_event`); level
 2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current` (carrying the
 derived `role` and rail), `transfer` (carrying the payer `method` and, for a clearing pair, the
-`clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`,
+`clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
 `ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
 `ingest_batch` view (the markers paired). A derived column's shape change drops and recreates its
 table and clears the derived meta, so the next apply re-derives. Every table can be dropped;
@@ -196,14 +201,18 @@ unauthenticated and binds loopback by default.
 `/api/transfers`, `/api/units`, `/api/reconcile` (with named `noop` exclusions), `/api/chains` (the
 §6.9 balance check: per-account forks and a per-side noop preview), `/api/opening`, `/api/workbook`,
 `/api/projection` (GET/POST), `/api/cursors` (GET/POST), `/api/decisions` (POST), `/api/acks`
-(GET/POST), `/api/eyeball`, `/api/ingests`, `/api/accounts`, `/api/reflow/preview` (POST),
+(GET/POST), `/api/notes` (GET, `?externalId=`; the thread), `/api/dismissals` (GET; effective
+`DISMISS` reasons), `/api/eyeball`, `/api/ingests`, `/api/accounts`, `/api/reflow/preview` (POST),
 `/api/reflow/preview/transfers` (POST), `/api/config/categories` (GET/PUT), `/api/config/transfers`
 (GET/PUT), `/api/jobs*` (proxied to the runner), and `/api/events` (SSE snapshot then deltas).
 
 The UI has seven modes: **Blotter** (SQL-backed filters including role, inline decisions — pin, pair,
-mark external, `noop`/`unmark noop` — status strip), **Review** (the derived queue, one decision away
-from clear), **Eyeball** (§10.3 — open items, the nine anomaly checks with an explicit `asOf`, and
-transactions bucketed by day/week/month with a per-row `Ack`/`Unack` and a per-row pin), **Rules**
+mark external, `noop`/`unmark noop`, and **note** (a `NOTE`, single or over a selection) — a note
+badge on any row with a thread, status strip), **Review** (the derived queue, one decision away from
+clear; a cluster expands to its members as colored chips, `Dismiss` takes an optional reason, and a
+cluster can be annotated in one fan-out), **Eyeball** (§10.3 — open items, the nine anomaly checks
+with an explicit `asOf`, and transactions bucketed by day/week/month with a per-row `Ack`/`Unack`,
+a per-row pin, and a per-row **note**), **Rules**
 (category editor with blast-radius preview, lint, fixtures, coverage, plus a **Transfer patterns**
 editor with the same preview contract), **Accounts** (§10.5 — per-account opening, earliest/latest,
 the newest ingest, and a facts-derived weekly strip; a quiet week inside the range is a hole to

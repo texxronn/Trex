@@ -76,6 +76,10 @@ class DeriveTest {
         return new Decision.Pin(n, List.of(ids), category, null, Actor.USER, "ron", ASOF);
     }
 
+    private static Decision.Note note(long n, String id, String text) {
+        return new Decision.Note(n, id, text, Actor.USER, "ron", ASOF);
+    }
+
     // ---- tests ------------------------------------------------------------------------------
 
     @Test
@@ -106,6 +110,43 @@ class DeriveTest {
         CurrentFact c = d.current("a").orElseThrow();
         assertEquals("GROCERIES", c.category());
         assertEquals(CategoryOrigin.RULE, c.categoryOrigin());
+    }
+
+    @Test
+    void notesAccumulateRevokeAndResolveThroughSupersession() {
+        List<Fact> facts = List.of(fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0));
+
+        // Two notes on one row accumulate as a thread, oldest first (a note is not a classification).
+        Derivation thread = Derive.derive(facts, List.of(note(2, "a", "first"), note(3, "a", "second")),
+            config(), ASOF);
+        assertEquals(List.of("first", "second"), thread.notes().stream().map(n -> n.text()).toList());
+        assertEquals(List.of("a", "a"), thread.notes().stream().map(n -> n.externalId()).toList());
+
+        // REVOKE removes exactly one.
+        Derivation revoked = Derive.derive(facts,
+            List.of(note(2, "a", "first"), note(3, "a", "second"),
+                new Decision.Revoke(4, 2, null, Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertEquals(List.of("second"), revoked.notes().stream().map(n -> n.text()).toList());
+
+        // SUPERSEDE carries the note to the current row.
+        List<Fact> both = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0),
+            fact(5, "b", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 1));
+        Derivation carried = Derive.derive(both,
+            List.of(note(2, "a", "carried"),
+                new Decision.Supersede(3, "a", "b", "reparse", Actor.SYSTEM, null, ASOF)),
+            config(), ASOF);
+        assertEquals("b", carried.notes().get(0).externalId());
+    }
+
+    @Test
+    void aNoteOnAnUnknownIdIsIneffective() {
+        Derivation d = Derive.derive(
+            List.of(fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0)),
+            List.of(note(2, "ghost", "nowhere")), config(), ASOF);
+        assertTrue(d.notes().isEmpty());
+        assertTrue(d.ineffective().stream().anyMatch(i -> i.action().equals(Action.NOTE.wire())));
     }
 
     @Test

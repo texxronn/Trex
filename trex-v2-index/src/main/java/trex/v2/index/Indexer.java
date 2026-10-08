@@ -420,6 +420,17 @@ public final class Indexer implements AutoCloseable {
             }
             ps.executeBatch();
         }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_NOTE_CURRENT)) {
+            for (var n : d.notes()) {
+                ps.setLong(1, n.decisionN());
+                ps.setString(2, n.externalId());
+                ps.setString(3, n.text());
+                ps.setString(4, n.userId());
+                ps.setString(5, n.at().toString());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
         try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_INEFFECTIVE)) {
             for (IneffectiveDecision bad : d.ineffective()) {
                 ps.setLong(1, bad.decisionN());

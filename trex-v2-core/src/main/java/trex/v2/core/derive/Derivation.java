@@ -24,6 +24,7 @@ public record Derivation(
     List<PendingRow> pending,
     List<CategoryRow> categories,
     List<PinRow> pins,
+    List<NoteRow> notes,
     List<ReviewItem> review,
     List<IneffectiveDecision> ineffective,
     List<Unit> units,
@@ -37,6 +38,7 @@ public record Derivation(
         pending = List.copyOf(pending);
         categories = List.copyOf(categories);
         pins = List.copyOf(pins);
+        notes = List.copyOf(notes);
         review = List.copyOf(review);
         ineffective = List.copyOf(ineffective);
         units = List.copyOf(units);

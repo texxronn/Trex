@@ -57,6 +57,9 @@ final class HubHttpApi {
         route(server, "/api/review", "GET",
             ex -> write(ex, 200, api.review(param(ex.getRequestURI().getQuery(), "kind"))));
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
+        route(server, "/api/notes", "GET",
+            ex -> write(ex, 200, api.notes(param(ex.getRequestURI().getQuery(), "externalId"))));
+        route(server, "/api/dismissals", "GET", ex -> write(ex, 200, api.dismissals()));
         route(server, "/api/units", "GET", ex -> write(ex, 200, api.units()));
         route(server, "/api/reconcile", "GET", ex -> write(ex, 200, api.reconcile()));
         route(server, "/api/chains", "GET",

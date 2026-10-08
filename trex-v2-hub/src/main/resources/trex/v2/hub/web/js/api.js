@@ -31,6 +31,9 @@ export const api = {
   ledger: (params = {}) => request('GET', '/api/ledger?' + new URLSearchParams(params)),
   review: (kind) => request('GET', '/api/review' + (kind ? '?' + new URLSearchParams({ kind }) : '')),
   transfers: () => request('GET', '/api/transfers'),
+  notes: (externalId) => request('GET', '/api/notes'
+    + (externalId ? '?' + new URLSearchParams({ externalId }) : '')),
+  dismissals: () => request('GET', '/api/dismissals'),
   units: () => request('GET', '/api/units'),
   projection: () => request('GET', '/api/projection'),
   reconcile: () => request('GET', '/api/reconcile'),

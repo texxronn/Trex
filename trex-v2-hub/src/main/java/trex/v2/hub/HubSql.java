@@ -15,7 +15,9 @@ final class HubSql {
     static final String LEDGER_SELECT = """
         SELECT t.external_id, t.n, t.account_ref, t.date, t.amount, t.balance, t.raw_description,
                t.leg, t.role, t.rail, t.transfer_id, t.category, t.category_origin, t.rule_id,
-               EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review
+               EXISTS(SELECT 1 FROM review_item r WHERE r.subject = t.external_id) AS has_review,
+               (SELECT n.text FROM note_current n WHERE n.external_id = t.external_id
+                 ORDER BY n.decision_n DESC LIMIT 1) AS latest_note
         FROM txn_current t""";
 
     static final String LEDGER_COUNT = "SELECT COUNT(*) FROM txn_current t";
@@ -35,6 +37,22 @@ final class HubSql {
         ) x ON x.external_id = r.subject""";
 
     static final String REVIEW_ORDER = " ORDER BY r.kind, r.subject";
+
+    /** The note thread, oldest first (§6.2 {@code NOTE}); all rows, or one id. */
+    static final String NOTES_SELECT =
+        "SELECT external_id, text, decision_n, user_id, at FROM note_current ORDER BY decision_n";
+    static final String NOTES_FOR_SELECT =
+        "SELECT external_id, text, decision_n, user_id, at FROM note_current WHERE external_id = ? "
+        + "ORDER BY decision_n";
+
+    /** Effective {@code DISMISS} decisions (not revoked), newest first, with their reason (§9.9.F). */
+    static final String DISMISSALS_SELECT = """
+        SELECT json_extract(payload, '$.item'), json_extract(payload, '$.externalIds'),
+               json_extract(payload, '$.comment'), user_id, at, n
+        FROM decision
+        WHERE action = 'DISMISS'
+          AND n NOT IN (SELECT json_extract(payload, '$.revokes') FROM decision WHERE action = 'REVOKE')
+        ORDER BY n DESC""";
 
     static final String TRANSFERS_SELECT = """
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, method, clearing_account, matched_at

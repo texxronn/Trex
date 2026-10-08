@@ -67,7 +67,8 @@ class IndexerTest {
                 fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234"),
                 fact(2, "b", "ing-orange", LocalDate.of(2026, 9, 1), 1000, "Transfer to Savings 4321"),
                 fact(3, "c", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Transfer from Savings 4321"),
-                new Decision.Pin(4, List.of("a"), "GROCERIES", "pin", Actor.USER, "ron", ASOF)));
+                new Decision.Pin(4, List.of("a"), "GROCERIES", "pin", Actor.USER, "ron", ASOF),
+                new Decision.Note(5, "a", "check me", Actor.USER, "ron", ASOF)));
         }
         return path;
     }
@@ -82,6 +83,8 @@ class IndexerTest {
             assertEquals(3, count(db, "txn_current"));
             assertEquals(1, count(db, "transfer"));
             assertEquals(1, count(db, "pin_current"));
+            assertEquals(1, count(db, "note_current"));
+            assertEquals("check me", string(db, "SELECT text FROM note_current WHERE external_id='a'"));
             assertEquals("GROCERIES", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
             assertEquals("transaction", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
         }

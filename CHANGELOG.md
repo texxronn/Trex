@@ -11,6 +11,12 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **Notes and comments as decisions**: `NOTE` annotates a transaction — one per target row,
+  accumulating as a thread and removed only by `REVOKE`; a group annotation is a batch of `NOTE`s,
+  one per member id. `DISMISS` and `USER_ACK` carry an optional `comment`. Derived `note_current`
+  projects the effective threads; the hub serves `GET /api/notes` and `GET /api/dismissals`; the
+  Blotter and Eyeball gain a per-row **Note** (and an annotate over a selection), Review's `Dismiss`
+  takes an optional reason, and a review cluster can be annotated in one fan-out.
 - **The trigger runner** (`trex runner`): an on-demand job dispatcher and staging inbox, loopback
   only, proxied by the hub. Jobs are invocations of existing subcommands — `ingest`, `egress-firefly`
   (plan/verify/apply), `journal-snapshot` — with a single FIFO worker, a bounded run history, SSE

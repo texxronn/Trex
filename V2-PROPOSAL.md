@@ -424,7 +424,7 @@ The full action set — small on purpose:
 | `REVOKE` | `revokes`, `comment?` | Undo decision `n = revokes`; the general escape hatch. |
 | `USER_ACK` | `externalId`, `stateHash`, `configRevision`, `deriveVersion`, `hashVersion`, `comment?` | "I have read this row; its derived content was X." One line per row per user; the `user` is on the line and other users' markers are untouched. |
 | `USER_UNACK` | `externalId`, `comment?` | Release that row's read marker for this user; the family inverse of `USER_ACK`. |
-| `NOTE` | `externalId?`, `text` | Free annotation; never identity, never logic. |
+| `NOTE` | `externalId`, `text` | Free annotation; one per target row; a group is a batch of `NOTE`s. They accumulate as a thread, are removed only by `REVOKE`, and are never edited. Never identity, never logic. |
 
 Every decision carries `actor` (`user`, `migrated`, `system`), a `user` id when a person
 acted, and `at`. Nothing here is a full copy of anything. The complete catalogue with an
@@ -1906,7 +1906,7 @@ Everything else is a filter on one of these, and every mode cross-links to the o
   `has:drift`, `source:`, `tag:`.
 - **Sort/paging** stable and server-side; save filter+sort as a named view.
 - **Inline actions:** pin a category (a `PIN` decision), pair two rows (decision),
-  mark external (decision), open the detail drawer.
+  mark external (decision), annotate (a `NOTE`, one row or a selection), open the detail drawer.
 - **Balance ribbon:** per account, the running balance chain drawn from facts, gaps
   highlighted exactly where the tripwire would fail. This is the fastest way to eyeball
   "does this account look right".
@@ -1938,7 +1938,7 @@ rows, and nobody else waits on it.
    - `UNCATEGORIZED` rows;
    - account silent longer than its usual cadence (feeds).
 3. **The rows** — the transactions, grouped by day, with totals and closing balance;
-   keyboard to next/previous day; `pin` and **read/unread** inline.
+   keyboard to next/previous day; `pin`, **read/unread**, and annotate (a `NOTE`) inline.
 4. **Read** — each row carries an `Ack` (or, once read, an `Unack`) for the current user.
    Acking writes one `USER_ACK(user, externalId, …)` for that row (the full tuple in §6.2)
    and fades it; `Unack` writes the `USER_UNACK`. A later reflow that moves the row flags
@@ -2203,6 +2203,10 @@ would report a rate true of nothing.
 Firefly is the only projection v2 specifies. hledger is **parked** — it will be rebuilt
 later — and nothing here depends on it: the seam stays behind one interface, so a second
 target can return without moving anything else. No v2 decision waits on hledger.
+
+Transaction notes (`NOTE`, §6.2) are **not projected** for now: they are private annotations
+and a note may name a person. If projected later, they map to the Firefly transaction note,
+one-way like the category tag.
 
 ---
 

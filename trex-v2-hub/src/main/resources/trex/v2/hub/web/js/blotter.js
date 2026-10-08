@@ -3,6 +3,7 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
+import { openAnnotate } from './annotate.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -76,6 +77,14 @@ function render() {
     button('Unpair', () => apply((ids) => ids.length === 2 ? decisions.unpair(ctx, ids[0], ids[1], 'unpaired in blotter') : null, 2)),
     button('Mark noop', markNoop),
     button('Unmark noop', unmarkNoop),
+    button('Note', () => {
+      const ids = [...selected];
+      if (!ids.length) {
+        toast('Select at least one row', 'bad');
+        return;
+      }
+      openAnnotate(ctx, { ids, summary: `${ids.length} selected row${ids.length > 1 ? 's' : ''}` }, load);
+    }),
   );
 
   tableHost = el('div');
@@ -103,7 +112,8 @@ function renderRows() {
   const head = el('tr', {},
     el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
-    el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'), el('th', {}, 'n'), el('th', {}, 'id'));
+    el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'), el('th', {}, 'n'), el('th', {}, 'id'),
+    el('th', {}));
   const rows = (status.rows || []).map((row) => {
     const checkbox = el('input', {
       type: 'checkbox', checked: selected.has(row.externalId),
@@ -118,13 +128,18 @@ function renderRows() {
       el('td', {}, row.accountRef),
       el('td', { class: 'amount' }, money(row.amount)),
       el('td', { class: 'amount' }, money(row.balance)),
-      el('td', { class: 'desc' }, row.rawDescription),
+      el('td', { class: 'desc' }, row.rawDescription,
+        row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.role === 'noop' ? el('span', { class: 'tag role-noop' }, 'noop') : ''),
       el('td', { class: 'muted' }, row.rail ? row.rail + ' \u00b7 ' + (row.amount < 0 ? 'OUT' : 'IN') : ''),
       el('td', {}, row.n),
-      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
+      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
+      el('td', {}, el('button', {
+        type: 'button', class: 'ghost',
+        onclick: () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load),
+      }, 'Note')));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows))));
 }
