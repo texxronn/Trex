@@ -33,7 +33,7 @@ interface HubApi {
 
     LedgerPage ledger(BlotterQuery query);
 
-    List<ReviewRow> review(String kind);
+    List<ReviewRow> review(String kind, String account);
 
     List<TransferJson> transfers();
 

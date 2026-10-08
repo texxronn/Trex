@@ -10,7 +10,8 @@ import java.util.List;
 public record RefdataResponse(List<AccountJson> accounts, List<UserJson> users, List<String> categories,
                               String configRevision, String deriveVersion, String hashVersion) {
 
-    public record AccountJson(String ref, String currency, String balanceSource, int settlementWindowDays) {}
+    public record AccountJson(String ref, String currency, String balanceSource, int settlementWindowDays,
+                              String chipColor) {}
 
     public record UserJson(String id, String name, boolean active, String cadence) {}
 }

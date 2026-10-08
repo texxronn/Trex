@@ -72,7 +72,8 @@ public final class ConfigLoader {
                         + "' closedAt must be an ISO date, not '" + e.closedAt() + "'");
                 }
             }
-            Account account = new Account(e.ref(), e.currency(), source, settlement, e.closingBalance(), closedAt);
+            Account account = new Account(e.ref(), e.currency(), source, settlement, e.closingBalance(),
+                closedAt, e.chipColor());
             if (accountMap.putIfAbsent(account.ref(), account) != null) {
                 throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref() + "' is declared twice");
             }
@@ -289,7 +290,9 @@ public final class ConfigLoader {
     public record AccountsFile(List<AccountEntry> accounts) {}
 
     public record AccountEntry(String ref, String currency, String balanceSource, Integer settlementWindowDays,
-                               Long closingBalance, String closedAt) {}
+                               Long closingBalance, String closedAt,
+                               @com.fasterxml.jackson.annotation.JsonProperty("chip_color")
+                               @com.fasterxml.jackson.annotation.JsonAlias("chipColor") String chipColor) {}
 
     public record UsersFile(List<UserEntry> users) {}
 

@@ -1402,12 +1402,15 @@ If a re-parse or a second source produces a *different* reading of the same econ
 event, the system must not silently pick one:
 
 - same `externalId` → idempotent no-op;
-- different `externalId`, matching `(account, date, amount)` and similar text → a
-  `RESTATEMENT` review item with both sides shown, resolved by `SUPERSEDE`, `RETIRE` or
-  `DISMISS`. "Similar" is deterministic, never a scoring library: compare merchant stems
-  (the first alphabetic token of ≥ 3 characters after stripping payment-network noise
-  such as `VISA`, `EFTPOS`, `POS`, `AUTHORISATION`), case-folded, as token sets, with
-  the overlap threshold from `transfers.yaml`; the comparison is part of `deriveVersion`;
+- different `externalId`, matching `(account, date, amount)`, **different merchant stems** and
+  similar text → a `RESTATEMENT` review item with both sides shown, resolved by `SUPERSEDE`,
+  `RETIRE` or `DISMISS`. The two kinds are disjoint: a same-stem pair is the duplicate case
+  (`POTENTIAL_DUP`), never a restatement — a restatement is a *different reading* of the amount,
+  which is what a re-parse or a second source produces. "Similar" is deterministic, never a
+  scoring library: compare merchant stems (the first alphabetic token of ≥ 3 characters after
+  stripping payment-network noise such as `VISA`, `EFTPOS`, `POS`, `AUTHORISATION`), case-folded,
+  as token sets, with the overlap threshold from `transfers.yaml`; the comparison is part of
+  `deriveVersion`;
 - otherwise → two transactions, which the reconciliation chain will judge.
 
 ---

@@ -7,6 +7,7 @@
 // them, and the UI will bring them back.
 
 import { api } from './api.js';
+import { accountChip } from './account.js';
 import { openCategorize } from './categorize.js';
 import { openAnnotate } from './annotate.js';
 import { el, clear, field, scroll } from './dom.js';
@@ -137,7 +138,7 @@ function renderTable() {
     const isRead = read.has(row.externalId);
     return el('tr', { class: isRead ? 'read' : 'unread' },
       el('td', {}, row.date),
-      el('td', {}, row.accountRef),
+      el('td', {}, accountChip(ctx.refdata, row.accountRef)),
       el('td', { class: 'amount' }, money(row.amount)),
       el('td', { class: 'amount' }, money(row.balance)),
       el('td', { class: 'desc' }, row.rawDescription,

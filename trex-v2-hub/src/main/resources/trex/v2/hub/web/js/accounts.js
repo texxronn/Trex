@@ -3,6 +3,7 @@
 // verdict, because the log records no statement periods. Month grain is the same view, coarser.
 
 import { api } from './api.js';
+import { accountChip } from './account.js';
 import { el, clear, scroll } from './dom.js';
 import { money } from './format.js';
 import { reportError } from './toast.js';
@@ -16,12 +17,14 @@ const WINDOWS = {
 };
 
 let host;
+let ctx;
 let data = null;
 let win = localStorage.getItem('trex.accounts.window') || '12m';
 let grain = localStorage.getItem('trex.accounts.grain') || 'week';
 
-export function mount(container) {
+export function mount(container, context) {
   host = container;
+  ctx = context;
   render();
   load();
   return { refresh: load };
@@ -102,8 +105,9 @@ function table() {
 function accountRow(account) {
   const imp = account.lastImport;
   return el('tr', {},
-    el('td', {}, el('a', { href: '#blotter?' + new URLSearchParams({ account: account.ref }) },
-      account.ref)),
+    el('td', {}, el('a', { class: 'acct-link',
+      href: '#blotter?' + new URLSearchParams({ account: account.ref }) },
+      accountChip(ctx.refdata, account.ref))),
     el('td', { class: 'muted' }, account.currency),
     el('td', { class: 'amount' }, account.opening === null || account.opening === undefined
       ? '\u2014' : money(account.opening)),

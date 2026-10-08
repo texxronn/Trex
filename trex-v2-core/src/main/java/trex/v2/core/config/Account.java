@@ -14,16 +14,29 @@ import java.time.LocalDate;
  * backwards from the movements that matched it, so the derived balance lands on the declared value
  * (§6.10). {@code closedAt} optionally flags movement after the close. Both are null for any other
  * kind.
+ *
+ * <p>{@code chipColor} is the display colour for the account's chip in the hub UI (a palette name,
+ * e.g. {@code blue}); it is presentation only, never identity or logic, and null falls back to a
+ * deterministic colour in the UI.
  */
 public record Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
-                      Long closingBalance, LocalDate closedAt) {
+                      Long closingBalance, LocalDate closedAt, String chipColor) {
 
-    /** The common shape: a statement or declared account with no clearing fields. */
+    /** The common shape: a statement or declared account with no clearing fields and no chip colour. */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays) {
-        this(ref, currency, balanceSource, settlementWindowDays, null, null);
+        this(ref, currency, balanceSource, settlementWindowDays, null, null, null);
+    }
+
+    /** A clearing account; the chip colour is still optional. */
+    public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
+                   Long closingBalance, LocalDate closedAt) {
+        this(ref, currency, balanceSource, settlementWindowDays, closingBalance, closedAt, null);
     }
 
     public Account {
+        if (chipColor != null && chipColor.isBlank()) {
+            chipColor = null;
+        }
         if (ref == null || ref.isBlank()) {
             throw new IllegalArgumentException("account ref is required");
         }

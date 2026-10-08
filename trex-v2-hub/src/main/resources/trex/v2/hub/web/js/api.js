@@ -29,7 +29,13 @@ export const api = {
   status: () => request('GET', '/api/status'),
   refdata: () => request('GET', '/api/refdata'),
   ledger: (params = {}) => request('GET', '/api/ledger?' + new URLSearchParams(params)),
-  review: (kind) => request('GET', '/api/review' + (kind ? '?' + new URLSearchParams({ kind }) : '')),
+  review: (kind, account) => {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    if (account) params.set('account', account);
+    const qs = params.toString();
+    return request('GET', '/api/review' + (qs ? '?' + qs : ''));
+  },
   transfers: () => request('GET', '/api/transfers'),
   notes: (externalId) => request('GET', '/api/notes'
     + (externalId ? '?' + new URLSearchParams({ externalId }) : '')),
