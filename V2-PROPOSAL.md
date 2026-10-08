@@ -1275,7 +1275,7 @@ are disposable, and **Expected** is a first-class mode (§10.1).
 | direction | `out` (−) · `in` (+ income) |
 | cadence | `weekly · fortnightly · monthly · bimonthly · quarterly · semiannual · annual · irregular` |
 | amount | `fixed` · `variable` (usage) · `range` (declared floor/ceiling) |
-| kind | `subscription · bill · insurance · fee · tax · income · other` |
+| kind | `subscription · services · bill · insurance · fee · tax · income · loan · other` |
 | rules | an ordered set of match rules (§6.2) |
 | lifecycle | `candidate · active · dormant · ended`; `lapsed` is an overlay, not a lifecycle |
 | id | `commitmentId`, a slug frozen in the declaring decision; never rewritten |

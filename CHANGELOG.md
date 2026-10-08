@@ -20,6 +20,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Two more commitment kinds: `services` and `loan`.** The kind face is now
+  `subscription · services · bill · insurance · fee · tax · income · loan · other` (§6.11),
+  so a gym, childcare or education commitment need not sit in `other`, and a mortgage or
+  personal-loan repayment — the canonical transfer-leg commitment — has its own label. Kind is a
+  label only: no derivation reads it, existing decisions keep parsing, and an existing row is
+  reclassified with **Re-declare**.
 - **Every commitment row opens the same Actions… menu, with its full transaction history.** The
   menu is a stacked two-pane view — a price timeseries over a transactions table — with its
   curation actions: Review/Confirm/Ignore for a candidate, Re-declare/Retire/Note/Settle for a

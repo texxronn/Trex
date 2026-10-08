@@ -426,7 +426,8 @@ class CommitmentsTest {
             Arrays.stream(Cadence.values()).map(Cadence::wire).toList());
         assertEquals(List.of("fixed", "variable", "range"),
             Arrays.stream(AmountKind.values()).map(AmountKind::wire).toList());
-        assertEquals(List.of("subscription", "bill", "insurance", "fee", "tax", "income", "other"),
+        assertEquals(List.of("subscription", "services", "bill", "insurance", "fee", "tax",
+                "income", "loan", "other"),
             Arrays.stream(CommitmentKind.values()).map(CommitmentKind::wire).toList());
         assertEquals(List.of("detected", "declared"),
             Arrays.stream(CommitmentOrigin.values()).map(CommitmentOrigin::wire).toList());
