@@ -41,6 +41,9 @@ export const api = {
     + (externalId ? '?' + new URLSearchParams({ externalId }) : '')),
   dismissals: () => request('GET', '/api/dismissals'),
   units: () => request('GET', '/api/units'),
+  commitments: () => request('GET', '/api/commitments'),
+  expected: (window) => request('GET', '/api/expected'
+    + (window ? '?' + new URLSearchParams({ window }) : '')),
   projection: () => request('GET', '/api/projection'),
   reconcile: () => request('GET', '/api/reconcile'),
   chains: (account) => request('GET', '/api/chains'

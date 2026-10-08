@@ -19,4 +19,21 @@ export const decisions = {
   note: (ctx, id, text) => ({ ...envelope('NOTE', ctx, null), externalId: id, text }),
   attachAccount: (ctx, ids, account, comment) => ({ ...envelope('ATTACH_ACCOUNT', ctx, comment),
     externalIds: ids, account }),
+  declareCommitment: (ctx, fields) => ({ ...envelope('DECLARE_COMMITMENT', ctx, fields.comment),
+    commitmentId: fields.commitmentId, name: fields.name, direction: fields.direction,
+    cadence: fields.cadence, amountKind: fields.amountKind, kind: fields.kind,
+    matches: fields.matches, amount: fields.amount, anchor: fields.anchor,
+    fromCandidate: fields.fromCandidate }),
+  retireCommitment: (ctx, commitmentId, endedAt, reason) => ({
+    ...envelope('RETIRE_COMMITMENT', ctx, null), commitmentId, endedAt, reason }),
+  ignoreRecurring: (ctx, candidate, reason) => ({
+    ...envelope('IGNORE_RECURRING', ctx, null), candidate, reason }),
+  pinCommitment: (ctx, commitmentId, externalIds, comment) => ({
+    ...envelope('PIN_COMMITMENT', ctx, comment), commitmentId, externalIds }),
+  unpinCommitment: (ctx, externalIds, comment) => ({
+    ...envelope('UNPIN_COMMITMENT', ctx, comment), externalIds }),
+  noteCommitment: (ctx, commitmentId, text) => ({
+    ...envelope('NOTE_COMMITMENT', ctx, null), commitmentId, text }),
+  settleOccurrence: (ctx, commitmentId, dueDates, comment) => ({
+    ...envelope('SETTLE_OCCURRENCE', ctx, comment), commitmentId, dueDates }),
 };

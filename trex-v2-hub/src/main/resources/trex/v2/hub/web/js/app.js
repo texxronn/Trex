@@ -7,13 +7,14 @@ import { toast } from './toast.js';
 import * as status from './status.js';
 import * as blotter from './blotter.js';
 import * as review from './review.js';
+import * as expected from './expected.js';
 import * as eyeball from './eyeball.js';
 import * as rules from './rules.js';
 import * as accounts from './accounts.js';
 import * as chains from './chains.js';
 import * as jobs from './jobs.js';
 
-const modes = { blotter, review, eyeball, rules, accounts, chains, jobs };
+const modes = { blotter, review, expected, eyeball, rules, accounts, chains, jobs };
 
 const ctx = {
   n: 0,
