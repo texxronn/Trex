@@ -105,7 +105,8 @@ CREATE TABLE IF NOT EXISTS txn_current (
   category        TEXT NOT NULL,
   category_origin TEXT NOT NULL,
   rule_id         TEXT,
-  state_hash      TEXT
+  state_hash      TEXT,
+  synthetic       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS txn_current_date ON txn_current(date);
 CREATE INDEX IF NOT EXISTS txn_current_account ON txn_current(account_ref);
