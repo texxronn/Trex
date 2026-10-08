@@ -20,6 +20,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Transient one-offs are flagged** (`V2-COMMITMENT-EXCLUSIONS-PLAN.md` §3; `derive/11`).
+  Detection counts an interior occurrence at least double (or at most half) its predecessor's
+  magnitude whose successor returns to that level — NRMA's −$190.40 claim, a payroll bonus, a UBS
+  distribution — and shows `+n one-off(s)` on the candidate row and in its review detail.
+  **Flagging only**: the series, steps and cost are unchanged; a person excludes a fact with
+  `EXCLUDE_COMMITMENT` (`INCLUDE_COMMITMENT` to restore) in the next stage.
 - **Two more commitment kinds: `services` and `loan`.** The kind face is now
   `subscription · services · bill · insurance · fee · tax · income · loan · other` (§6.11),
   so a gym, childcare or education commitment need not sit in `other`, and a mortgage or
