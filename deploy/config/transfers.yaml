@@ -29,6 +29,10 @@ transferPatterns:
     - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
         rail: BPAY, clearing: westpac-card }
     - { match: 'MR ROHAN JOSEPH MACHADO.*Osko Payment', rail: OSKO }
+    # The self Osko to our CBA SmartAccess account (BSB 062-948, account 382524). Destination-based,
+    # so a memo inserted before "- Osko Payment" cannot hide it; it shapes and pairs with the CBA
+    # credit. Ordinary Oskos to other accounts fall to the bare rail-only tag below.
+    - { match: 'Osko Payment to 062948 382524', rail: OSKO }
     - { match: 'Osko Payment', rail: OSKO, shape: false }
     - { match: 'BPAY',         rail: BPAY, shape: false }
     - { match: 'PayID',        rail: PAYID, shape: false }
