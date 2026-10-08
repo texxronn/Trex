@@ -388,10 +388,21 @@ export function openCommitmentActions(ctx, c, onDone) {
 }
 
 /**
- * Exclude or include one fact (V2-COMMITMENT-EXCLUSIONS-PLAN.md §4): the decision posts, the
- * activity and the registry refresh. Excluded facts stay visible, dimmed.
+ * Ask before excluding or including one fact (V2-COMMITMENT-EXCLUSIONS-PLAN.md §4); the decision
+ * posts, then the activity and the registry refresh — the row leaves the table and the chart
+ * point drops, both reactively.
  */
-async function toggleExclusion(ctx, c, row, refresh, onDone) {
+function toggleExclusion(ctx, c, row, refresh, onDone) {
+  openChoice({
+    title: row.excluded ? 'Include this transaction?' : 'Exclude this transaction?',
+    summary: `${row.date} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`,
+  }, [
+    { label: row.excluded ? 'Include' : 'Exclude', class: row.excluded ? 'primary' : 'warn',
+      onPick: () => applyExclusion(ctx, c, row, refresh, onDone) },
+  ]);
+}
+
+async function applyExclusion(ctx, c, row, refresh, onDone) {
   const decision = row.excluded
     ? decisions.includeCommitment(ctx, c.commitmentId, [row.externalId])
     : decisions.excludeCommitment(ctx, c.commitmentId, [row.externalId],
@@ -524,6 +535,12 @@ async function loadActivity(c, txPane, chartPane, activity, onToggle) {
     return;
   }
   activity.rows = rows;
+  renderActivity(c, txPane, chartPane, activity, onToggle);
+}
+
+/** Render the panes from the loaded rows; excluded rows hide behind the count toggle. */
+function renderActivity(c, txPane, chartPane, activity, onToggle) {
+  const rows = activity.rows || [];
   clear(txPane);
   clear(chartPane);
   if (!rows.length) {
@@ -531,7 +548,20 @@ async function loadActivity(c, txPane, chartPane, activity, onToggle) {
     chartPane.append(el('p', { class: 'muted' }, 'No price points.'));
     return;
   }
-  txPane.append(activityTable(rows, onToggle));
+  const excluded = rows.filter((r) => r.excluded).length;
+  if (onToggle && excluded) {
+    txPane.append(el('div', { class: 'tx-bar muted' },
+      `${rows.length} transaction${rows.length === 1 ? '' : 's'} \u00b7 ${excluded} excluded`,
+      el('button', { type: 'button', class: 'ghost tx-show',
+        onclick: () => {
+          activity.showExcluded = !activity.showExcluded;
+          renderActivity(c, txPane, chartPane, activity, onToggle);
+        } }, activity.showExcluded ? 'hide excluded' : 'show excluded')));
+  }
+  const visible = activity.showExcluded ? rows : rows.filter((r) => !r.excluded);
+  txPane.append(visible.length
+    ? activityTable(visible, onToggle)
+    : el('p', { class: 'muted' }, excluded ? 'All transactions excluded.' : 'No activity.'));
   chartPane.append(priceChart(rows));
 }
 
@@ -561,9 +591,10 @@ function activityTable(rows, onToggle) {
  * each point carries its signed value on hover.
  */
 function priceChart(rows) {
+  const excluded = rows.filter((r) => r.excluded).length;
   const byDate = new Map();
   for (const r of rows) {
-    if (r.amount == null) {
+    if (r.amount == null || r.excluded) {
       continue;
     }
     byDate.set(r.date, (byDate.get(r.date) || 0) + r.amount);
@@ -572,7 +603,8 @@ function priceChart(rows) {
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
   if (!points.length) {
-    return el('p', { class: 'muted' }, 'No price points.');
+    return el('p', { class: 'muted' },
+      excluded ? 'All price points excluded.' : 'No price points.');
   }
   const W = 720, H = 260, padL = 52, padR = 14, padT = 14, padB = 26;
   const at = (date) => Date.parse(date + 'T00:00:00Z');
@@ -612,7 +644,8 @@ function priceChart(rows) {
         svgEl('circle', { class: 'dot', cx: x(p.date), cy: y(Math.abs(p.amount)), r: 4 },
           svgEl('title', {}, `${p.date} \u00b7 ${money(p.amount)}`))) : [])),
     el('div', { class: 'muted chart-note' },
-      `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day movements summed`));
+      `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day movements summed`
+      + (excluded ? ` \u00b7 ${excluded} excluded` : '')));
 }
 
 // ---- shared transformations -------------------------------------------------------------------
