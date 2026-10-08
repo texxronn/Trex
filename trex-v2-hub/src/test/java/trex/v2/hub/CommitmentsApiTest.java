@@ -64,7 +64,9 @@ class CommitmentsApiTest {
                 declare(9, "youtube", "YouTube Premium", "out", Cadence.MONTHLY, "YOUTUBE", 1399L,
                     today.minusDays(90)),
                 new Decision.NoteCommitment(10, "netflix", "family plan since 2024", Actor.USER,
-                    "ron", AT)));
+                    "ron", AT),
+                // Older than the twelve-month occurrence window: activity only, never an occurrence.
+                fact(11, "nb-old", -1000, "NETFLIX SUB", today.minusDays(500))));
         }
 
         Path index = dir.resolve("trex.sqlite");
@@ -131,30 +133,22 @@ class CommitmentsApiTest {
                     java.nio.charset.StandardCharsets.UTF_8)));
             assertEquals(3, facts.size(), facts.toPrettyString());
             assertEquals(today.minusDays(60).toString(), facts.get(0).get("date").asText());
-            assertTrue(facts.get(0).get("status").isNull());
             assertEquals("ing-savings", facts.get(0).get("accountRef").asText());
             assertEquals("gym1", facts.get(0).get("externalId").asText());
             assertEquals(-999, facts.get(0).get("amount").asLong());
             assertEquals("GYM MEMBERSHIP", facts.get(0).get("rawDescription").asText());
             assertEquals(today.toString(), facts.get(2).get("date").asText());
 
-            // A declared commitment's activity is its occurrences with the fact each carries.
+            // A declared commitment's activity is every fact its rules match — unbounded history,
+            // not the twelve-month occurrence window (nb-old sits 500 days back).
             JsonNode activity = json(get(client, base, "/api/commitments/activity?id=netflix"));
-            JsonNode first = activity.get(0);
-            assertEquals(today.minusDays(14).toString(), first.get("date").asText());
-            assertEquals("occurred", first.get("status").asText());
-            assertEquals(-1000, first.get("amount").asLong());
-            assertEquals("NETFLIX SUB", first.get("rawDescription").asText());
-            assertEquals("rule", first.get("matchedBy").asText());
-            JsonNode missed = null;
-            for (JsonNode row : activity) {
-                if ("missed".equals(row.get("status").asText())) {
-                    missed = row;
-                }
-            }
-            assertNotNull(missed, activity.toPrettyString());
-            assertTrue(missed.get("amount").isNull());
-            assertTrue(missed.get("rawDescription").isNull());
+            assertEquals(2, activity.size(), activity.toPrettyString());
+            JsonNode oldest = activity.get(0);
+            assertEquals(today.minusDays(500).toString(), oldest.get("date").asText());
+            assertEquals(-1000, oldest.get("amount").asLong());
+            assertEquals("NETFLIX SUB", oldest.get("rawDescription").asText());
+            assertEquals("rule", oldest.get("matchedBy").asText());
+            assertEquals(today.minusDays(14).toString(), activity.get(1).get("date").asText());
             assertEquals(422, get(client, base, "/api/commitments/activity").statusCode());
 
             // ---- Review: the candidate renders from its enrichment, no second fetch ----------
@@ -179,10 +173,23 @@ class CommitmentsApiTest {
 
             // ---- the ledger chip joins the matched occurrence ---------------------------------
             JsonNode ledger = json(get(client, base, "/api/ledger?q=netflix"));
-            assertEquals(1, ledger.get("total").asLong());
-            JsonNode chip = ledger.get("rows").get(0);
+            assertEquals(2, ledger.get("total").asLong(), "the old charge appears too");
+            JsonNode chip = null;
+            JsonNode oldCharge = null;
+            for (JsonNode row : ledger.get("rows")) {
+                if (today.minusDays(14).toString().equals(row.get("date").asText())) {
+                    chip = row;
+                }
+                if (today.minusDays(500).toString().equals(row.get("date").asText())) {
+                    oldCharge = row;
+                }
+            }
+            assertNotNull(chip, ledger.toPrettyString());
             assertEquals("netflix", chip.get("commitmentId").asText());
             assertEquals("Netflix", chip.get("commitmentName").asText());
+            assertNotNull(oldCharge, ledger.toPrettyString());
+            assertTrue(oldCharge.get("commitmentId").isNull(),
+                "activity sees the old charge; the occurrence chip does not");
             JsonNode unmatched = json(get(client, base, "/api/ledger?q=gym")).get("rows").get(0);
             assertTrue(unmatched.get("commitmentId").isNull(),
                 "a candidate's facts carry no chip");

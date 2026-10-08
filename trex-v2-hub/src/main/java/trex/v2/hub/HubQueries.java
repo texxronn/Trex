@@ -13,6 +13,8 @@ import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
 import trex.v2.core.config.TransferRules;
+import trex.v2.core.derive.CommitmentRule;
+import trex.v2.core.derive.CommitmentRules;
 import trex.v2.core.derive.Commitments;
 import trex.v2.core.derive.Period;
 import trex.v2.core.derive.ReviewItem;
@@ -567,42 +569,65 @@ public final class HubQueries implements AutoCloseable {
 
     /**
      * A commitment's activity for its menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): a detected
-     * candidate's series facts (the same frozen-stem lens the detector grouped with, synthetic
-     * legs and {@code noop} excluded), or a declared commitment's materialised occurrences joined
-     * to the fact each carries. Oldest first; an unknown id is an empty list.
+     * candidate's series facts (the same frozen-stem lens the detector grouped with), or every
+     * current fact a declared commitment's effective rules match — **unbounded history**, not the
+     * twelve-month occurrence window — life-bounded at {@code endedAt} when retired. Rule matching
+     * goes through {@link CommitmentRules}, one compiler with the derive. Oldest first; an unknown
+     * id is an empty list.
      */
     public List<ActivityJson> activity(String commitmentId) {
         return read(conn -> {
             String stem = null;
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_STEM)) {
+            String direction = null;
+            LocalDate endedAt = null;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_BY_ID)) {
                 ps.setString(1, commitmentId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         stem = rs.getString(1);
+                        direction = rs.getString(2);
+                        endedAt = nullableDate(rs.getString(3));
                     }
                 }
             }
             List<ActivityJson> out = new ArrayList<>();
-            if (stem != null) {
-                try (Statement st = conn.createStatement();
-                     ResultSet rs = st.executeQuery(HubSql.CANDIDATE_FACTS)) {
-                    while (rs.next()) {
-                        if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
-                            out.add(new ActivityJson(LocalDate.parse(rs.getString(2)), null,
-                                rs.getString(3), rs.getLong(4), rs.getString(5), rs.getString(1),
-                                null));
+            List<CommitmentRules.CompiledRule> rules = new ArrayList<>();
+            if (stem == null) {
+                try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULES_FOR)) {
+                    ps.setString(1, commitmentId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            rules.add(CommitmentRules.compile(new CommitmentRule(commitmentId,
+                                rs.getString(1), rs.getString(2), 0L)));
                         }
                     }
                 }
-                return out;
+                if (rules.isEmpty()) {
+                    return out;
+                }
             }
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_ACTIVITY)) {
-                ps.setString(1, commitmentId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        out.add(new ActivityJson(LocalDate.parse(rs.getString(1)), rs.getString(2),
-                            rs.getString(6), nullableLong(rs, 3), rs.getString(7), rs.getString(4),
-                            rs.getString(5)));
+            boolean outgoing = !"in".equals(direction);
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.ACTIVITY_FACTS)) {
+                while (rs.next()) {
+                    long amount = rs.getLong(4);
+                    if (stem != null) {
+                        if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
+                            out.add(new ActivityJson(LocalDate.parse(rs.getString(2)),
+                                rs.getString(3), amount, rs.getString(5), rs.getString(1), null));
+                        }
+                        continue;
+                    }
+                    if (amount == 0 || outgoing != (amount < 0)) {
+                        continue;
+                    }
+                    LocalDate date = LocalDate.parse(rs.getString(2));
+                    if (endedAt != null && date.isAfter(endedAt)) {
+                        continue;
+                    }
+                    if (CommitmentRules.anyMatch(rules, rs.getString(5), rs.getString(3), amount)) {
+                        out.add(new ActivityJson(date, rs.getString(3), amount,
+                            rs.getString(5), rs.getString(1), "rule"));
                     }
                 }
             }
