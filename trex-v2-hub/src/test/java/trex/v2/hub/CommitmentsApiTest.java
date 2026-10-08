@@ -124,6 +124,19 @@ class CommitmentsApiTest {
             assertTrue(candidate.get("rules").isEmpty());
             assertTrue(candidate.get("nextDue").isNull());
 
+            // ---- the candidate's observed facts (§7 Stage 2): the series behind the stem -------
+            JsonNode facts = json(get(client, base,
+                "/api/commitments/facts?stem=" + java.net.URLEncoder.encode("GYM MEMBERSHIP",
+                    java.nio.charset.StandardCharsets.UTF_8)));
+            assertEquals(3, facts.size(), facts.toPrettyString());
+            assertEquals(today.minusDays(60).toString(), facts.get(0).get("date").asText());
+            assertEquals("ing-savings", facts.get(0).get("accountRef").asText());
+            assertEquals("gym1", facts.get(0).get("externalId").asText());
+            assertEquals(-999, facts.get(0).get("amount").asLong());
+            assertEquals("GYM MEMBERSHIP", facts.get(0).get("rawDescription").asText());
+            assertEquals(today.toString(), facts.get(2).get("date").asText());
+            assertEquals(422, get(client, base, "/api/commitments/facts").statusCode());
+
             // ---- Review: the candidate renders from its enrichment, no second fetch ----------
             JsonNode suspected = json(get(client, base, "/api/review?kind=SUSPECTED_RECURRING"));
             assertEquals(1, suspected.size(), suspected.toPrettyString());

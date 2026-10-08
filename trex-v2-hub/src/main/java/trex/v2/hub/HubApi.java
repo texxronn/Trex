@@ -41,6 +41,12 @@ interface HubApi {
     List<trex.v2.hub.api.CommitmentJson> commitments();
 
     /**
+     * The current facts a detected candidate grouped over, by its grouping stem
+     * (V2-EXPECTED-UX-PLAN.md §7 Stage 2), oldest first — the evidence behind the candidate.
+     */
+    List<trex.v2.hub.api.CandidateFactJson> candidateFacts(String stem);
+
+    /**
      * The Expected view (V2-COMMITMENTS-PLAN.md §2.8): a calendar window's occurrences, the
      * arrears backlog and the committed totals by direction. {@code window} is {@code today},
      * {@code week} or {@code month} (the default); {@code asOf} names the day the window is
