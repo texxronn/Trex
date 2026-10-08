@@ -257,7 +257,8 @@ unauthenticated and binds loopback by default.
 `/api/review` (filters `kind` and `account`),
 `/api/commitments` (the commitment registry: faces, a candidate's grouping `stem`, rules, current
 price, next due, arrears, notes thread), `/api/commitments/activity?id=` (a candidate's observed
-facts or a declared commitment's occurrences with the fact each carries, oldest first),
+facts, or a declared commitment's rule-matched facts across all history — life-bounded at its end
+date, oldest first),
 `/api/expected?window=today|week|month` (the window's
 occurrences, the arrears backlog oldest-first with a running total, and committed totals by
 direction),
