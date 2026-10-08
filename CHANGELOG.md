@@ -32,6 +32,35 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **Commitments and expected transactions** (`derive/9`; `statehash/4` unchanged). A commitment is
+  a named expectation of a recurring money movement — origin `detected | declared`, direction, a
+  cadence (weekly…annual, plus `irregular`), an amount kind (`fixed | variable | range`), a kind, an
+  ordered set of match rules and a lifecycle (`candidate | active | dormant | ended`, `lapsed` an
+  overlay). There is **no vendor entity**: descriptor churn is another rule, a provider move is
+  retire + declare, and rules match core fact fields only (description, account, amount/sign, date),
+  so a matched transfer leg — a home-loan repayment — is a commitment like any other. Seven actions
+  curate them: `DECLARE_COMMITMENT` (the wire calls the kind `commitmentKind`; a re-declare is the
+  edit), `RETIRE_COMMITMENT`, `IGNORE_RECURRING`, `PIN_COMMITMENT`/`UNPIN_COMMITMENT` (per fact,
+  overriding the rules), `NOTE_COMMITMENT` (a thread) and `SETTLE_OCCURRENCE` (off-journal paid — a
+  conclusion with no fact, rendered `settled`, never `occurred`). Detection groups the current facts
+  by the frozen `MerchantStem.stem`; a series needs ≥3 occurrences, gaps within `max(2, 20%)` of a
+  `{7,14,30,61,91,182,365}`-day bucket and regularity ≥0.7, with same-day collapse, refund netting,
+  `≥5% / ≥50¢` price steps and the FCY price where the description carries one; coverage is relative
+  to the account's posted frontier. Declared commitments generate calendar occurrences (12 months
+  back through `asOf + 92 days`) and allocate each matching fact — by rule or pin, right sign —
+  oldest-first across the open occurrences: a catch-up payment clears the arrears from the front, a
+  shortfall is `partial`, a surplus pre-pays and any leftover is an `off_schedule` occurrence; a
+  `variable` commitment keeps one fact per occurrence and an `irregular` one records each matching
+  fact at its own date. `SETTLE_OCCURRENCE` clears a backlog without a fact, and nothing is
+  auto-forgiven. Three review kinds: `SUSPECTED_RECURRING` (subject the grouping stem),
+  `DORMANT_COMMITMENT` and `COMMITMENT_ARREARS` (subject the commitment id), each with its own
+  dismissal aging. Four derived tables — `commitment`, `commitment_rule`, `commitment_occurrence`,
+  `commitment_note` — join the rebuild fingerprint; `GET /api/commitments` (faces, rules, next due,
+  arrears, notes) and `GET /api/expected?window=today|week|month` (occurrences, the arrears backlog
+  with a running total, direction totals) back the new eighth mode, **Expected**, plus an
+  Assign/Unassign row action and a commitment chip on the Blotter and Eyeball. On the dev fixture:
+  **42** candidates (22 active → 22 `SUSPECTED_RECURRING`, 20 ended), `review_item` 48 → **70**,
+  `trex verify` green (rebuild ≡ incremental; reconciliation green).
 - **A Balance column on Accounts** (the derived closing), **hidden by default** and toggled from the
   toolbar; the choice persists. Sourced by joining `/api/reconcile`, no backend change.
 - **Rules is now a read-only tree** instead of a config editor: declared categories expand to their
