@@ -105,6 +105,23 @@ accounts:
     closingBalance: 0
     closedAt: "2023-02-28"
 
+  # Legacy clearing positions (V2-PROPOSAL.md §6.10): the counterparty *before* the statements we
+  # hold, whose earlier history was pruned and is unobtainable. They hold no facts; the pre-coverage
+  # transfers land here by an ATTACH_ACCOUNT decision, and the derived opening absorbs the
+  # pre-history. Refresh the closing when a real statement for the period ever turns up.
+  - ref: "bw-card-legacy"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: gray
+    closingBalance: -626173    # the bw-credit-card balance at 2024-01-02, the handover point
+    closedAt: "2024-01-01"
+  - ref: "cba-legacy"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: gray
+    closingBalance: 13554      # the cba-smartaccess balance at 2024-10-02
+    closedAt: "2024-10-01"
+
   # Cash. balanceSource: declared — no statement exists, so balances arrive only when a person
   # states one (§2.3 ATTESTATION) and the chain has deliberate gaps between them. One per person,
   # because two wallets are two accounts however loosely either is tracked.

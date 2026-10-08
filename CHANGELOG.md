@@ -16,10 +16,17 @@ everything is under **Unreleased**.
   double-labelled: a same-stem pair is a duplicate. On the dev fixture this takes the restatement
   queue from 44 to 5, and every remaining item is a genuinely different merchant string. The
   comparison is `MerchantStem.restatement`, used by both `derive()` and the hub's cluster
-  reconstruction; `deriveVersion` is `derive/6`.
+  reconstruction; `deriveVersion` was `derive/6`.
 
 ### Added
 
+- **Attached clearing transfers** (`ATTACH_ACCOUNT`): a pruned counterparty period (statements gone)
+  is reconciled by naming the transfer-shaped legs and a `clearing` account — the legs become
+  transfers with an account side, never a fabricated fact. Derive also materialises the clearing side
+  as a **derived** transaction row (`synthetic: true`, reserved `clr|…` id, no evidence, not a
+  decision target) so every transfer has two concrete legs and per-account queries are complete; the
+  clearing account's running balance lands on its declared closing. `deriveVersion` is `derive/7`.
+  On the dev fixture this resolved **154** `UNMATCHED_LEG` (163 → 9) into transfers.
 - **A unified account chip**, configured per account by `chip_color` in `accounts.yaml` (a palette
   name; presentation only, never identity or logic; unset falls back to a deterministic colour). One
   shared `account.js` renders the same solid chip in **Blotter, Review, Eyeball, Accounts and
