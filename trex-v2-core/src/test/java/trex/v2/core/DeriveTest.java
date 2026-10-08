@@ -869,6 +869,26 @@ class DeriveTest {
     }
 
     @Test
+    void aCatchUpLumpClearsTheArrearsAndTheReviewItem() {
+        List<Fact> facts = new ArrayList<>(acmeFacts());
+        facts.add(fact(8, "lump", "ing-savings", LocalDate.of(2026, 9, 28), -30000, "ACME BILL", null, 0));
+
+        Derivation d = Derive.derive(facts,
+            List.of(declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME")),
+            config(), ASOF);
+        assertEquals(0, commitment(d, "acme").arrearsCount(), "the backlog cleared from the front");
+        assertTrue(item(d, ReviewItem.COMMITMENT_ARREARS, "acme").isEmpty());
+        for (LocalDate due : List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15),
+                LocalDate.of(2026, 9, 15))) {
+            CommitmentOccurrence occurrence = at(occurrences(d, "acme"), due);
+            assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
+            assertEquals("lump", occurrence.matchedExternalId(), "one payment covered three periods");
+        }
+        assertEquals(CommitmentStatus.ACTIVE, commitment(d, "acme").status(),
+            "the catch-up is engagement, not silence");
+    }
+
+    @Test
     void commitmentDerivationIsPureAndOrdered() {
         List<Fact> facts = acmeFacts();
         Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
