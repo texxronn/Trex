@@ -47,13 +47,15 @@ final class Sql {
     static final List<String> DERIVED_TABLES = List.of(
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
         "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack",
-        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note");
+        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
+        "commitment_exclusion");
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
         "pending", "review_item", "category_current", "pin_current", "note_current", "ineffective_decision", "unit",
-        "user_ack", "commitment", "commitment_rule", "commitment_occurrence", "commitment_note");
+        "user_ack", "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
+        "commitment_exclusion");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
@@ -95,6 +97,8 @@ final class Sql {
         + "off_schedule, settle_n, amount, state_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_COMMITMENT_NOTE = "INSERT INTO commitment_note(decision_n, commitment_id, "
         + "text, user_id, at) VALUES(?,?,?,?,?)";
+    static final String INSERT_COMMITMENT_EXCLUSION = "INSERT INTO commitment_exclusion(commitment_id, "
+        + "external_id, decision_n) VALUES(?,?,?)";
 
     // ---- projection state (V2-PROPOSAL.md §11.6): an accelerator, never wiped by derive -------
 

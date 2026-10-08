@@ -252,6 +252,13 @@ CREATE TABLE IF NOT EXISTS commitment_note (
 );
 CREATE INDEX IF NOT EXISTS commitment_note_commitment ON commitment_note(commitment_id);
 
+CREATE TABLE IF NOT EXISTS commitment_exclusion (
+  commitment_id TEXT NOT NULL,
+  external_id   TEXT NOT NULL,
+  decision_n    INTEGER NOT NULL,
+  PRIMARY KEY (commitment_id, external_id)
+);
+
 CREATE TABLE IF NOT EXISTS unit (
   unit_id     TEXT PRIMARY KEY,
   unit_kind   TEXT NOT NULL,

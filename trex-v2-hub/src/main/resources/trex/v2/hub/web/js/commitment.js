@@ -372,6 +372,8 @@ export function openCommitmentActions(ctx, c, onDone) {
   const txPane = el('div', { class: 'tx-pane' }, el('p', { class: 'muted' }, 'Loading…'));
   const chartPane = el('div', { class: 'chart-pane' }, el('p', { class: 'muted' }, 'Loading…'));
   const activity = { rows: [] };
+  const refresh = () => loadActivity(c, txPane, chartPane, activity,
+    c.origin === 'declared' ? (row) => toggleExclusion(ctx, c, row, refresh, onDone) : null);
   openChoice({
     title: c.name || c.stem || shortId(c.commitmentId),
     summary: rowDetail(c),
@@ -382,7 +384,27 @@ export function openCommitmentActions(ctx, c, onDone) {
   }, c.origin === 'detected'
     ? candidateChoices(ctx, c, onDone)
     : declaredChoices(ctx, c, onDone, activity));
-  loadActivity(c, txPane, chartPane, activity);
+  refresh();
+}
+
+/**
+ * Exclude or include one fact (V2-COMMITMENT-EXCLUSIONS-PLAN.md §4): the decision posts, the
+ * activity and the registry refresh. Excluded facts stay visible, dimmed.
+ */
+async function toggleExclusion(ctx, c, row, refresh, onDone) {
+  const decision = row.excluded
+    ? decisions.includeCommitment(ctx, c.commitmentId, [row.externalId])
+    : decisions.excludeCommitment(ctx, c.commitmentId, [row.externalId],
+        'one-off, excluded in the menu');
+  try {
+    await api.decisions(ctx.n, [decision]);
+    toast(row.excluded ? 'Included' : 'Excluded');
+  } catch (error) {
+    reportError(error);
+    return;
+  }
+  await refresh();
+  if (onDone) onDone();
 }
 
 /** The registry row's faces as one line for the menu's subtitle. */
@@ -489,7 +511,7 @@ async function settleBacklog(ctx, c, onDone) {
 }
 
 /** The commitment's activity, by id: a candidate's facts, or a declared commitment's history. */
-async function loadActivity(c, txPane, chartPane, activity) {
+async function loadActivity(c, txPane, chartPane, activity, onToggle) {
   let rows;
   try {
     rows = await api.activity(c.commitmentId);
@@ -509,24 +531,28 @@ async function loadActivity(c, txPane, chartPane, activity) {
     chartPane.append(el('p', { class: 'muted' }, 'No price points.'));
     return;
   }
-  txPane.append(activityTable(rows));
+  txPane.append(activityTable(rows, onToggle));
   chartPane.append(priceChart(rows));
 }
 
 /**
  * The activity as a compact table: date, account, signed amount, description — a transaction
- * list for both a candidate's series and a declared commitment's full history.
+ * list for both a candidate's series and a declared commitment's full history. On a declared
+ * commitment each row carries an Exclude/Include toggle; excluded rows dim.
  */
-function activityTable(rows) {
+function activityTable(rows, onToggle) {
   return el('table', { class: 'tx-table' },
     el('thead', {}, el('tr', {},
       el('th', {}, 'Date'), el('th', {}, 'Account'),
-      el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Description'))),
-    el('tbody', {}, ...rows.map((r) => el('tr', {},
+      el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Description'),
+      onToggle ? el('th', {}, '') : null)),
+    el('tbody', {}, ...rows.map((r) => el('tr', { class: r.excluded ? 'excluded' : null },
       el('td', { class: 'tx-date' }, r.date),
       el('td', { class: 'tx-account muted', title: r.accountRef || '' }, r.accountRef || '\u2014'),
       el('td', { class: 'amount ' + (r.amount < 0 ? 'tx-out' : 'tx-in') }, money(r.amount)),
-      el('td', { class: 'tx-desc muted', title: r.rawDescription || '' }, r.rawDescription)))));
+      el('td', { class: 'tx-desc muted', title: r.rawDescription || '' }, r.rawDescription),
+      onToggle ? el('td', {}, el('button', { type: 'button', class: 'ghost',
+        onclick: () => onToggle(r) }, r.excluded ? 'Include' : 'Exclude')) : null))));
 }
 
 /**
