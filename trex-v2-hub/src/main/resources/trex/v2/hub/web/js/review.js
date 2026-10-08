@@ -156,9 +156,17 @@ function candidateOf(row) {
     firstDate: e.firstDate, detail: row.detail };
 }
 
-/** Mark ended: the retire dialog (endedAt today, a reason), nothing auto-decided. */
-function markEnded(row) {
-  openRetire(ctx, { commitmentId: row.subject, summary: row.detail }, load);
+/** Mark ended: the retire dialog defaults to the last charge the registry knows (§3.2). */
+async function markEnded(row) {
+  let endedAt = null;
+  try {
+    const registry = await api.commitments();
+    const commitment = registry.find((c) => c.commitmentId === row.subject);
+    endedAt = commitment && commitment.lastDate ? commitment.lastDate : null;
+  } catch (error) {
+    // The dialog then falls back to today; the decision is still the person's.
+  }
+  openRetire(ctx, { commitmentId: row.subject, summary: row.detail, endedAt }, load);
 }
 
 /** Keep tracking: a DISMISS that stays quiet until a newer matched fact lands. */

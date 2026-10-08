@@ -47,6 +47,10 @@ export function openDeclare(ctx, prefill, onDone) {
   const regular = cadenceSelect.value !== 'irregular';
   const anchorInput = el('input', { type: 'date', value: p.anchor || (regular ? todayIso() : '') });
   const anchorRow = row('Anchor', anchorInput);
+  // An ended candidate is declared and retired in one batch (§3.2): the end date defaults to the
+  // detected last charge, so nothing has to be remembered.
+  const retireInput = el('input', { type: 'date', value: p.retireAt || '' });
+  const retireRow = p.retireAt ? row('Ended', retireInput) : null;
   const rulesInput = el('textarea', { rows: '3',
     placeholder: 'one regex per line; append "@ account" to scope it' }, formatRules(p.matches));
   const commentInput = el('input', { type: 'text', value: p.comment || '' });
@@ -61,12 +65,13 @@ export function openDeclare(ctx, prefill, onDone) {
     row('Amount kind', amountKindSelect),
     row('Amount ($)', amountInput),
     anchorRow,
+    retireRow,
     row('Rules', rulesInput),
     row('Comment', commentInput),
     el('div', { class: 'actions' },
       el('button', { type: 'button', onclick: close }, 'Cancel'),
       el('button', { type: 'button', class: 'primary', onclick: submit },
-        p.idLocked ? 'Re-declare' : 'Declare')));
+        p.retireAt ? 'Declare & end' : p.idLocked ? 'Re-declare' : 'Declare')));
   overlay.append(dialog);
   document.body.append(overlay);
   nameInput.focus();
@@ -129,14 +134,24 @@ export function openDeclare(ctx, prefill, onDone) {
       toast('Amount must be a number', 'bad');
       return;
     }
+    if (p.retireAt && !retireInput.value) {
+      toast('An end date is required', 'bad');
+      return;
+    }
     close();
     try {
-      await api.decisions(ctx.n, [decisions.declareCommitment(ctx, {
+      const batch = [decisions.declareCommitment(ctx, {
         commitmentId, name, direction: directionSelect.value, cadence,
         amountKind: amountKindSelect.value, kind: kindSelect.value, matches, amount, anchor,
         fromCandidate: p.fromCandidate || null, comment: commentInput.value.trim() || null,
-      })]);
-      toast(p.idLocked ? 'Re-declared' : 'Declared');
+      })];
+      if (p.retireAt) {
+        // One atomic batch: the declaration lands and is retired at the discovered date.
+        batch.push(decisions.retireCommitment(ctx, commitmentId, retireInput.value,
+          p.retireReason || 'recorded ended'));
+      }
+      await api.decisions(ctx.n, batch);
+      toast(p.retireAt ? 'Declared and ended' : p.idLocked ? 'Re-declared' : 'Declared');
     } catch (error) {
       reportError(error);
     }
@@ -144,10 +159,10 @@ export function openDeclare(ctx, prefill, onDone) {
   }
 }
 
-/** Retire a commitment: an end date (today by default) and the reason that goes on the record. */
+/** Retire a commitment: an end date (the last charge when known, else today) and the reason. */
 export function openRetire(ctx, target, onDone) {
   const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
-  const dateInput = el('input', { type: 'date', value: todayIso() });
+  const dateInput = el('input', { type: 'date', value: target.endedAt || todayIso() });
   const reasonInput = el('input', { type: 'text', placeholder: 'cancelled, past, provider move…' });
   const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': 'Retire' },
     el('h3', {}, 'Retire commitment'),
@@ -304,8 +319,13 @@ export async function openAssignCommitment(ctx, row, onDone) {
  * this, so confirming from either place posts the same `DECLARE_COMMITMENT` shape (§2.8).
  */
 export function confirmCandidate(ctx, candidate, onDone) {
+  openDeclare(ctx, candidatePrefill(candidate), onDone);
+}
+
+/** The declaration prefill a candidate confirms with — shared with the Record ended flow. */
+function candidatePrefill(candidate) {
   const current = candidate.currentAmount != null ? candidate.currentAmount : 0;
-  openDeclare(ctx, {
+  return {
     commitmentId: slugify(candidate.stem),
     name: titleCase(candidate.stem),
     kind: 'other',
@@ -317,7 +337,7 @@ export function confirmCandidate(ctx, candidate, onDone) {
     matches: [{ match: escapeRegex(candidate.stem), account: null }],
     fromCandidate: candidate.stem,
     summary: candidate.detail || null,
-  }, onDone);
+  };
 }
 
 /** Ignore is the semantic (it does not reopen on the next fact), and it carries a reason. */
@@ -381,10 +401,21 @@ function rowDetail(c) {
   return bits.join(' \u00b7 ');
 }
 
-/** A candidate's actions: confirm it here, hand it to Review, or ignore it for good. */
+/** A candidate's actions: confirm it here, hand it to Review, or ignore it for good; an ended
+ *  series is recorded as ended at its detected last charge instead. */
 function candidateChoices(ctx, c, onDone) {
   const candidate = { stem: c.stem, cadence: c.cadence, currentAmount: c.currentAmount,
-    firstDate: c.firstDate, detail: rowDetail(c) };
+    firstDate: c.firstDate, lastDate: c.lastDate, status: c.status, detail: rowDetail(c) };
+  if (c.status === 'ended') {
+    return [
+      { label: 'Record ended…', class: 'primary', onPick: () => openDeclare(ctx, {
+          ...candidatePrefill(candidate),
+          retireAt: c.lastDate || todayIso(),
+          retireReason: `recorded ended \u2014 last charge ${c.lastDate || 'unknown'}`,
+        }, onDone) },
+      { label: 'Ignore…', class: 'warn', onPick: () => ignoreCandidate(ctx, candidate, onDone) },
+    ];
+  }
   return [
     { label: 'Review', onPick: () => { location.hash = '#review?kind=SUSPECTED_RECURRING'; } },
     { label: 'Ignore…', class: 'warn', onPick: () => ignoreCandidate(ctx, candidate, onDone) },
@@ -399,8 +430,11 @@ function declaredChoices(ctx, c, onDone) {
       onPick: () => openDeclare(ctx, reDeclarePrefill(c), onDone) },
   ];
   if (c.retiredN == null) {
+    const dormant = c.status === 'dormant' && c.lastDate;
     choices.push({ label: 'Retire', class: 'warn',
-      onPick: () => openRetire(ctx, { commitmentId: c.commitmentId, name: c.name }, onDone) });
+      onPick: () => openRetire(ctx, { commitmentId: c.commitmentId, name: c.name,
+        endedAt: dormant ? c.lastDate : null,
+        summary: dormant ? `no charge since ${c.lastDate}` : null }, onDone) });
   }
   choices.push({ label: 'Note', class: 'ghost',
     onPick: () => openCommitmentNote(ctx, { commitmentId: c.commitmentId, name: c.name }, onDone) });
