@@ -2,9 +2,13 @@ package trex.v2.hub;
 
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.LedgerRow;
+import trex.v2.hub.api.ReviewMember;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
+import trex.v2.core.MerchantStem;
+import trex.v2.core.config.TransferRules;
+import trex.v2.core.derive.ReviewItem;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -293,7 +297,7 @@ public final class HubQueries implements AutoCloseable {
         return conditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", conditions);
     }
 
-    public List<ReviewRow> review(String kind) {
+    public List<ReviewRow> review(String kind, TransferRules rules) {
         return read(conn -> {
             String sql = HubSql.REVIEW_SELECT + (kind == null ? "" : " WHERE r.kind = ?") + HubSql.REVIEW_ORDER;
             List<ReviewRow> rows = new ArrayList<>();
@@ -305,15 +309,123 @@ public final class HubQueries implements AutoCloseable {
                     while (rs.next()) {
                         long stake = rs.getLong(4);
                         String description = rs.getString(7);
-                        rows.add(new ReviewRow(rs.getString(1), rs.getString(2), rs.getString(3),
+                        String date = rs.getString(8);
+                        String subject = rs.getString(1);
+                        String rowKind = rs.getString(2);
+                        List<ReviewMember> members = isCluster(rowKind)
+                            ? clusterMembers(conn, subject, rowKind, rules) : List.of();
+                        rows.add(new ReviewRow(subject, rowKind, rs.getString(3),
                             rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6),
-                            description == null ? null : trex.v2.core.Clean.clean(description)));
+                            description == null ? null : trex.v2.core.Clean.clean(description),
+                            date == null ? null : LocalDate.parse(date), members));
                     }
                 }
             }
             return rows;
         });
     }
+
+    private static boolean isCluster(String kind) {
+        return ReviewItem.POTENTIAL_DUP.equals(kind) || ReviewItem.RESTATEMENT.equals(kind);
+    }
+
+    /**
+     * The cluster a POTENTIAL_DUP/RESTATEMENT subject belongs to (V2-PROPOSAL.md §9.9.F). The
+     * derivation stores only the subject and a summary, so the members are reconstructed here with
+     * the <em>same</em> predicate and {@link MerchantStem} the derivation used — one account-day at
+     * a time — which is what lets the queue show the balance, receipt and verbatim text that tell
+     * the rows apart.
+     */
+    private List<ReviewMember> clusterMembers(Connection conn, String subject, String kind,
+                                              TransferRules rules) throws SQLException {
+        String account;
+        String date;
+        try (PreparedStatement ps = conn.prepareStatement(
+            "SELECT account_ref, date FROM txn_current WHERE external_id = ?")) {
+            ps.setString(1, subject);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return List.of();
+                }
+                account = rs.getString(1);
+                date = rs.getString(2);
+            }
+        }
+        List<DayRow> day = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+            "SELECT external_id, n, date, amount, balance, receipt, raw_description, leg "
+                + "FROM txn_current WHERE account_ref = ? AND date = ? ORDER BY n")) {
+            ps.setString(1, account);
+            ps.setString(2, date);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    day.add(new DayRow(rs.getString(1), rs.getLong(2), LocalDate.parse(rs.getString(3)),
+                        rs.getLong(4), rs.getLong(5), rs.getString(6), rs.getString(7), rs.getString(8)));
+                }
+            }
+        }
+        int size = day.size();
+        int[] parent = new int[size];
+        for (int i = 0; i < size; i++) {
+            parent[i] = i;
+        }
+        for (int i = 0; i < size; i++) {
+            for (int j = i + 1; j < size; j++) {
+                DayRow a = day.get(i);
+                DayRow b = day.get(j);
+                if ("MATCHED".equals(a.leg) || "MATCHED".equals(b.leg)) {
+                    continue;
+                }
+                boolean link;
+                if (ReviewItem.POTENTIAL_DUP.equals(kind)) {
+                    boolean sameSign = (a.amount < 0) == (b.amount < 0);
+                    link = sameSign
+                        && MerchantStem.stem(a.raw).equals(MerchantStem.stem(b.raw))
+                        && Math.abs(a.amount - b.amount) <= rules.dupTolerance();
+                } else {
+                    link = a.amount == b.amount
+                        && MerchantStem.similar(a.raw, b.raw, rules.restatementOverlap());
+                }
+                if (link) {
+                    int ra = find(parent, i);
+                    int rb = find(parent, j);
+                    if (ra != rb) {
+                        parent[rb] = ra;
+                    }
+                }
+            }
+        }
+        int root = -1;
+        for (int i = 0; i < size; i++) {
+            if (day.get(i).id.equals(subject)) {
+                root = find(parent, i);
+                break;
+            }
+        }
+        if (root < 0) {
+            return List.of();
+        }
+        List<ReviewMember> members = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            if (find(parent, i) == root) {
+                DayRow d = day.get(i);
+                members.add(new ReviewMember(d.id, d.n, d.date, d.amount, d.balance, d.receipt,
+                    trex.v2.core.Clean.clean(d.raw)));
+            }
+        }
+        return members;
+    }
+
+    private static int find(int[] parent, int x) {
+        while (parent[x] != x) {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        return x;
+    }
+
+    private record DayRow(String id, long n, LocalDate date, long amount, long balance,
+                          String receipt, String raw, String leg) {}
 
     public List<TransferJson> transfers() {
         return read(conn -> {
