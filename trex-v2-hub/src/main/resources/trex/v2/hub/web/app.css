@@ -365,10 +365,13 @@ tbody tr.noop:hover td { opacity: .8; }
 
 .mode-section { margin-top: 1.1rem; }
 .mode-section h3 { margin: 0 0 0.4rem; font-size: 13px; letter-spacing: 0.02em; }
-.mode-section h3 .title-action {
-  margin-left: 0.6rem; font-size: 12px; min-height: 0; padding: 0.15rem 0.55rem;
-}
 .mode-section h4 { margin: 0.7rem 0 0.3rem; font-size: 12px; color: var(--muted); font-weight: 600; }
+/* Expected's foldable sections (V2-EXPECTED-UX-PLAN.md §4): the summary is the section header
+   and carries its live figures, so a collapsed section still speaks. */
+.x-section > summary { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; padding: 0.2rem 0; }
+.x-section > summary::marker { color: var(--muted); }
+.x-section .x-body { margin-top: 0.4rem; }
+.x-section .section-actions { margin-bottom: 0.5rem; }
 .bucket { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
 
@@ -382,6 +385,7 @@ tbody tr.noop:hover td { opacity: .8; }
   main { padding: 0.6rem; }
   .toolbar { gap: 0.35rem 0.5rem; }
   input, select, button { min-height: 2.25rem; }
+  .x-section > summary { min-height: 2.25rem; }
   th, td { padding: 0.35rem 0.5rem; }
   td.desc { max-width: none; }
   .toast { right: 0.6rem; bottom: 0.6rem; }

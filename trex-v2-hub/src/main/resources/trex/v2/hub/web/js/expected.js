@@ -3,6 +3,11 @@
 // person's conclusion, due, partial and missed are the forward states — the committed totals, the
 // catch-up backlog oldest first with a running total, the registry with its curation actions, and
 // the rule lint.
+//
+// The four sections fold (V2-EXPECTED-UX-PLAN.md §4): the summary is the section header and
+// carries its live figures, so a collapsed section still speaks. The daily content — occurrences
+// and arrears — defaults open; the registry and lint default closed. The state is a device
+// preference, like the window.
 
 import { api } from './api.js';
 import { openCommitmentNote, openDeclare, openRetire, openSettle } from './commitment.js';
@@ -18,6 +23,19 @@ let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
 let errorBar;
+
+// The four foldable sections (§4); the open state is a device preference, like the window.
+const SECTIONS_KEY = 'trex.expected.sections';
+const SECTION_DEFAULTS = { occurrences: true, arrears: true, registry: false, lint: false };
+const openSections = loadSections();
+
+function loadSections() {
+  try {
+    return { ...SECTION_DEFAULTS, ...JSON.parse(localStorage.getItem(SECTIONS_KEY) || '{}') };
+  } catch {
+    return { ...SECTION_DEFAULTS };
+  }
+}
 
 export function mount(container, context) {
   host = container;
@@ -79,15 +97,15 @@ function summary() {
 
 function occurrences() {
   const rows = data.occurrences || [];
-  const body = rows.map(occurrenceRow);
-  return el('section', { class: 'mode-section' },
-    el('h3', {}, 'Occurrences', el('span', { class: 'muted' }, ` · ${WINDOWS[data.window] || data.window} · ${rows.length}`)),
-    rows.length
-      ? scroll(el('table', {}, el('thead', {}, el('tr', {},
-          el('th', {}, 'Date'), el('th', {}, 'Commitment'), el('th', {}, 'Direction'),
-          el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Status'),
-          el('th', {}, 'Matched'))), el('tbody', {}, ...body)))
-      : el('p', { class: 'muted' }, 'Nothing due in this window.'));
+  const head = ['Occurrences',
+    el('span', { class: 'muted' }, ` · ${WINDOWS[data.window] || data.window} · ${rows.length}`)];
+  const body = rows.length
+    ? [scroll(el('table', {}, el('thead', {}, el('tr', {},
+        el('th', {}, 'Date'), el('th', {}, 'Commitment'), el('th', {}, 'Direction'),
+        el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Status'),
+        el('th', {}, 'Matched'))), el('tbody', {}, ...rows.map(occurrenceRow))))]
+    : [el('p', { class: 'muted' }, 'Nothing due in this window.')];
+  return fold('occurrences', head, body);
 }
 
 function occurrenceRow(o) {
@@ -140,21 +158,21 @@ function matchedCell(o) {
 function catchUp() {
   const arrears = data.arrears || [];
   if (!arrears.length) {
-    return el('section', { class: 'mode-section' }, el('h3', {}, 'Catch up'),
-      el('p', { class: 'muted' }, 'Nothing in arrears.'));
+    return fold('arrears', ['Catch up', el('span', { class: 'muted' }, ' · nothing in arrears')], []);
   }
   const total = arrears[arrears.length - 1].runningTotal;
-  const body = arrears.map(arrearRow);
-  return el('section', { class: 'mode-section' },
-    el('h3', {}, 'Catch up', el('span', { class: 'muted' },
-      ` · ${arrears.length} behind · ${money(total)}`)),
+  const head = ['Catch up',
+    el('span', { class: 'occ-partial' }, ` · ${arrears.length} behind · ${money(total)}`)];
+  return fold('arrears', head, [
     el('p', { class: 'muted hint' },
       'Oldest first. Settle concludes an occurrence was paid without a fact; Assign a payment '
       + 'takes you to the Blotter to pin the fact that paid it.'),
     scroll(el('table', {}, el('thead', {}, el('tr', {},
       el('th', {}, 'Due'), el('th', {}, 'Commitment'), el('th', {}, 'Status'),
       el('th', { class: 'amount' }, 'Expected'), el('th', { class: 'amount' }, 'Shortfall'),
-      el('th', { class: 'amount' }, 'Running'), el('th', {}, ''))), el('tbody', {}, ...body))));
+      el('th', { class: 'amount' }, 'Running'), el('th', {}, ''))),
+      el('tbody', {}, ...arrears.map(arrearRow)))),
+  ]);
 }
 
 function arrearRow(a) {
@@ -188,22 +206,31 @@ function arrearsFor(commitmentId) {
 // ---- the registry -----------------------------------------------------------------------------
 
 function registrySection() {
-  const head = el('tr', {},
+  const declared = registry.filter((c) => c.origin === 'declared').length;
+  const candidates = registry.length - declared;
+  const count = registry.length;
+  const suffix = !candidates ? ` · ${count}`
+    : candidates === count
+      ? ` · ${count} candidate${count === 1 ? '' : 's'}`
+      : ` · ${count} · ${candidates} candidate${candidates === 1 ? '' : 's'}`;
+  const head = ['Commitments', el('span', { class: 'muted' }, suffix)];
+  const columns = el('tr', {},
     el('th', {}, 'Commitment'), el('th', {}, 'Origin'), el('th', {}, 'Direction'),
     el('th', {}, 'Cadence'), el('th', {}, 'Kind'), el('th', {}, 'Status'),
     el('th', { class: 'amount' }, 'Current'), el('th', {}, 'Last'), el('th', {}, 'Next'),
     el('th', { class: 'amount' }, 'Arrears'), el('th', {}, ''));
-  return el('section', { class: 'mode-section' },
-    el('h3', {}, 'Registry', el('span', { class: 'muted' }, ` · ${registry.length}`),
-      el('button', { type: 'button', class: 'ghost title-action',
+  return fold('registry', head, [
+    el('div', { class: 'section-actions' },
+      el('button', { type: 'button', class: 'ghost',
         onclick: () => openDeclare(ctx, {
           summary: 'A commitment declared by hand: a manual-cadence bill, an income, anything '
             + 'detection did not propose.',
         }, load) }, 'Declare commitment')),
     registry.length
-      ? scroll(el('table', {}, el('thead', {}, head),
+      ? scroll(el('table', {}, el('thead', {}, columns),
           el('tbody', {}, ...registry.map(registryRow))))
-      : el('p', { class: 'muted' }, 'No commitments.'));
+      : el('p', { class: 'muted' }, 'No commitments.'),
+  ]);
 }
 
 function registryRow(c) {
@@ -300,8 +327,11 @@ function lint() {
     commitments.map((c) => c.name || c.commitmentId).join(' and '),
     ' — the latest declaration wins; split or retire one.'));
   const ruleList = registry.filter((c) => (c.rules || []).length);
-  return el('section', { class: 'mode-section' },
-    el('h3', {}, 'Lint'),
+  const head = ['Lint', el('span', { class: 'muted' },
+    overlaps.length
+      ? ` · ${overlaps.length} overlap${overlaps.length === 1 ? '' : 's'}`
+      : ' · no overlaps')];
+  return fold('lint', head, [
     el('p', { class: 'muted hint' },
       'Overlaps are match rules shared by more than one commitment. Never-fired counts are '
       + 'computed from matches later; catastrophic regexes are refused by the hub and cannot '
@@ -314,10 +344,25 @@ function lint() {
           ...c.rules.map((r) => el('div', { class: 'rule-line' },
             el('span', { class: 'mono' }, r.account || '*'),
             el('code', { class: 'desc' }, r.match))))))
-      : el('p', { class: 'muted' }, 'No declared rules yet.'));
+      : el('p', { class: 'muted' }, 'No declared rules yet.'),
+  ]);
 }
 
 // ---- helpers ----------------------------------------------------------------------------------
+
+/** One foldable section (§4): the summary is the header and carries the live figures. Several
+ *  sections may be open at once; native <details> gives keyboard toggling for free. */
+function fold(id, head, body) {
+  const details = el('details', {
+    class: 'mode-section x-section',
+    open: openSections[id],
+    ontoggle: () => {
+      openSections[id] = details.open;
+      localStorage.setItem(SECTIONS_KEY, JSON.stringify(openSections));
+    },
+  }, el('summary', {}, ...head), el('div', { class: 'x-body' }, ...body));
+  return details;
+}
 
 function currentOf(commitmentId) {
   const row = registry.find((c) => c.commitmentId === commitmentId);
