@@ -589,10 +589,10 @@ public final class HubQueries implements AutoCloseable {
 
     /**
      * The Expected view (§2.8) for one calendar window: the window's occurrences, the whole
-     * arrears backlog (oldest first, running total) and the window's committed totals by direction.
-     * A row's committed magnitude is what it carries — the allocated share once a fact landed, the
-     * commitment's current price while nothing has — so a {@code partial} row contributes its
-     * allocated part here and its remainder is in the backlog.
+     * arrears backlog (the holes, oldest first, running total) and the window's committed totals by
+     * direction. A row's committed magnitude is what it carries — the movement attached to the
+     * window once a fact landed, the commitment's current price while nothing has — so a settled
+     * row contributes its expectation and a due or missed row its current price.
      */
     public ExpectedResponse expected(String window, Period.Range range) {
         return read(conn -> {
@@ -630,16 +630,12 @@ public final class HubQueries implements AutoCloseable {
                 while (rs.next()) {
                     Long currentAmount = nullableLong(rs, 5);
                     Long amount = nullableLong(rs, 8);
-                    String status = rs.getString(7);
-                    long expected = currentAmount != null ? Math.abs(currentAmount)
-                        : amount == null ? 0 : Math.abs(amount);
-                    long paid = amount == null ? 0 : Math.abs(amount);
-                    long shortfall = "missed".equals(status) ? expected
-                        : Math.max(0, expected - paid);
-                    running += shortfall;
+                    // A hole: nothing landed, so the shortfall is the expectation in full.
+                    long expected = currentAmount != null ? Math.abs(currentAmount) : 0;
+                    running += expected;
                     arrears.add(new ExpectedResponse.Arrear(rs.getString(1), rs.getString(2),
-                        rs.getString(3), rs.getString(4), LocalDate.parse(rs.getString(6)), status,
-                        amount, expected, shortfall, running));
+                        rs.getString(3), rs.getString(4), LocalDate.parse(rs.getString(6)),
+                        rs.getString(7), amount, expected, expected, running));
                 }
             }
             return new ExpectedResponse(window, range.from(), range.to(), occurrences, arrears,

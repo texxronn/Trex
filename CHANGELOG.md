@@ -20,6 +20,14 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Arrears are manual** (`V2-MANUAL-ARREARS-PLAN.md`; `derive/10`). A matching fact now attaches
+  to the occurrence whose window contains its date — several facts in a window sum, and the
+  occurrence is `occurred` at the amount that actually moved. A window that closes with no fact is
+  a hole, and the holes are the arrears; a lump no longer clears older occurrences automatically
+  (settle them, or pin the payment that did), nothing pre-pays, and `partial` is no longer derived.
+  The SAFE CUSTODY fee — declared at $37 over a $32 history — now derives with **zero arrears**,
+  exactly as its charges say. The log grammar and every decision type are unchanged; the derived
+  tables rebuild.
 - **The candidate menu lists the series' transactions.** **Actions…** now fetches
   `GET /api/commitments/facts?stem=…` — the current facts grouped by the same frozen
   `MerchantStem.stem` the detector used (synthetic clearing legs and `noop` rows excluded,

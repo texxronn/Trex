@@ -33,10 +33,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Stage 2 acceptance for the occurrence matcher (V2-COMMITMENTS-PLAN.md §2.5, §2.9, §6):
- * calendar generation, rule and pin assignment, windows and statuses, catch-up allocation,
- * arrears and determinism — hand-built facts, no I/O, no clock. The worked acceptance cases
- * (§7.4, §7.5, §7.8, §7.11, §7.12, §7.13) are reproduced here rather than read from the index.
+ * Stage 2 acceptance for the occurrence matcher (V2-COMMITMENTS-PLAN.md §2.5; the attachment
+ * semantics of V2-MANUAL-ARREARS-PLAN.md §3): calendar generation, rule and pin assignment,
+ * windows and statuses, attachment, holes and determinism — hand-built facts, no I/O, no clock.
+ * The worked acceptance cases (§7.4, §7.5, §7.8, §7.11, §7.12, §7.13) are reproduced here rather
+ * than read from the index.
  */
 class CommitmentMatchTest {
 
@@ -249,7 +250,7 @@ class CommitmentMatchTest {
     }
 
     @Test
-    void aPinAllocatesLikeARuleOldestFirst() {
+    void aPinnedLumpLandsOnItsOwnWindowAndOlderMissesStay() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 1, 10), -10000L, 1);
         CurrentFact lump = fact(1, "cba-netsaver", LocalDate.of(2026, 4, 3), -30000L,
@@ -259,17 +260,18 @@ class CommitmentMatchTest {
             List.of(new CommitmentPin("id-1", "bill")), List.of(),
             Instant.parse("2026-04-05T00:00:00Z"));
 
+        CommitmentOccurrence april = at(match, "bill", LocalDate.of(2026, 4, 10));
+        assertEquals(OccurrenceStatus.OCCURRED, april.status(), "the lump lands on its own window");
+        assertEquals("pin", april.matchedBy());
+        assertEquals("id-1", april.matchedExternalId());
+        assertEquals(-30000L, april.amount().longValue(), "what moved that day, not a split");
         for (LocalDate due : List.of(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10),
                 LocalDate.of(2026, 3, 10))) {
-            CommitmentOccurrence occurrence = at(match, "bill", due);
-            assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
-            assertEquals("pin", occurrence.matchedBy());
-            assertEquals("id-1", occurrence.matchedExternalId());
-            assertEquals(-10000L, occurrence.amount().longValue(),
-                "the one fact covers three periods, oldest first");
+            assertEquals(OccurrenceStatus.MISSED, at(match, "bill", due).status(),
+                "no automatic allocation clears older holes");
         }
-        assertEquals(OccurrenceStatus.DUE, at(match, "bill", LocalDate.of(2026, 4, 10)).status());
-        assertEquals(0, arrears(match, "bill").count());
+        assertEquals(3, arrears(match, "bill").count());
+        assertEquals(-30000L, arrears(match, "bill").amount());
     }
 
     @Test
@@ -403,10 +405,10 @@ class CommitmentMatchTest {
             .count());
     }
 
-    // ---- catch-up allocation and arrears ----------------------------------------------------
+    // ---- attachment, holes and arrears --------------------------------------------------------
 
     @Test
-    void aThreePeriodLumpClearsThreeOccurrencesOldestFirstWithNoArrears() {
+    void aThreePeriodLumpLandsOnItsOwnWindowAndTheMissesRemainHoles() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 1, 10), -10000L, 1);
         CurrentFact lump = fact(1, "cba-netsaver", LocalDate.of(2026, 4, 3), -30000L, "BILL PAYMENT");
@@ -414,22 +416,22 @@ class CommitmentMatchTest {
         CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "BILL")), List.of(lump),
             Instant.parse("2026-04-05T00:00:00Z"));
 
+        CommitmentOccurrence april = at(match, "bill", LocalDate.of(2026, 4, 10));
+        assertEquals(OccurrenceStatus.OCCURRED, april.status(), "the lump lands on its own window");
+        assertEquals("id-1", april.matchedExternalId());
+        assertEquals(-30000L, april.amount().longValue(), "the amount is what moved, not a split");
         for (LocalDate due : List.of(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10),
                 LocalDate.of(2026, 3, 10))) {
-            CommitmentOccurrence occurrence = at(match, "bill", due);
-            assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
-            assertEquals("id-1", occurrence.matchedExternalId(),
-                "the shared fact id says all three were one payment");
-            assertEquals(-10000L, occurrence.amount().longValue());
+            assertEquals(OccurrenceStatus.MISSED, at(match, "bill", due).status(),
+                "no automatic allocation clears older holes");
         }
-        assertEquals(OccurrenceStatus.DUE, at(match, "bill", LocalDate.of(2026, 4, 10)).status());
-        assertEquals(0, arrears(match, "bill").count(), "the backlog cleared from the front");
-        assertEquals(0L, arrears(match, "bill").amount());
-        assertFalse(arrears(match, "bill").lapsed());
+        assertEquals(3, arrears(match, "bill").count());
+        assertEquals(-30000L, arrears(match, "bill").amount());
+        assertTrue(arrears(match, "bill").lapsed(), "March is the most recent closed window");
     }
 
     @Test
-    void aShortLumpLeavesTheNextOccurrencePartialAndTheRemainderInArrears() {
+    void aFactBelowTheExpectationIsOccurredAtItsOwnAmount() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 2, 10), -10000L, 1);
         CurrentFact shortLump = fact(1, "cba-netsaver", LocalDate.of(2026, 4, 3), -15000L,
@@ -438,18 +440,19 @@ class CommitmentMatchTest {
         CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "BILL")),
             List.of(shortLump), Instant.parse("2026-04-05T00:00:00Z"));
 
-        assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 2, 10)).status());
-        CommitmentOccurrence partial = at(match, "bill", LocalDate.of(2026, 3, 10));
-        assertEquals(OccurrenceStatus.PARTIAL, partial.status());
-        assertEquals(-5000L, partial.amount().longValue(), "only what was allocated");
-        assertEquals("id-1", partial.matchedExternalId());
-        assertEquals(1, arrears(match, "bill").count());
-        assertEquals(-5000L, arrears(match, "bill").amount(), "the remainder still short");
-        assertTrue(arrears(match, "bill").lapsed());
+        CommitmentOccurrence april = at(match, "bill", LocalDate.of(2026, 4, 10));
+        assertEquals(OccurrenceStatus.OCCURRED, april.status(), "the amount is what moved");
+        assertEquals(-15000L, april.amount().longValue());
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 2, 10)).status());
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 3, 10)).status());
+        assertEquals(2, arrears(match, "bill").count(), "only the holes are arrears");
+        assertEquals(-20000L, arrears(match, "bill").amount());
+        assertTrue(match.occurrences().stream()
+            .noneMatch(o -> o.status() == OccurrenceStatus.PARTIAL), "partial is not derived");
     }
 
     @Test
-    void aSurplusPrePaysFutureOccurrencesAndTheLeftoverIsOffSchedule() {
+    void aSurplusStaysOnItsWindowAndDoesNotPrePayTheFuture() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 4, 10), -10000L, 1);
         CurrentFact prepay = fact(1, "cba-netsaver", LocalDate.of(2026, 5, 4), -45000L,
@@ -458,19 +461,20 @@ class CommitmentMatchTest {
         CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "BILL")),
             List.of(prepay), Instant.parse("2026-05-05T00:00:00Z"));
 
-        for (LocalDate due : List.of(LocalDate.of(2026, 4, 10), LocalDate.of(2026, 5, 10),
-                LocalDate.of(2026, 6, 10), LocalDate.of(2026, 7, 10))) {
-            assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", due).status(), due.toString());
-        }
-        CommitmentOccurrence leftover = at(match, "bill", LocalDate.of(2026, 5, 4));
-        assertTrue(leftover.offSchedule(), "nothing is swallowed");
-        assertEquals("id-1", leftover.matchedExternalId());
-        assertEquals(-5000L, leftover.amount().longValue());
-        assertEquals(0, arrears(match, "bill").count());
+        CommitmentOccurrence may = at(match, "bill", LocalDate.of(2026, 5, 10));
+        assertEquals(OccurrenceStatus.OCCURRED, may.status());
+        assertEquals(-45000L, may.amount().longValue(), "the whole movement, no pre-payment");
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 4, 10)).status());
+        assertEquals(OccurrenceStatus.DUE, at(match, "bill", LocalDate.of(2026, 6, 10)).status());
+        assertEquals(OccurrenceStatus.DUE, at(match, "bill", LocalDate.of(2026, 7, 10)).status());
+        assertTrue(match.occurrences().stream().noneMatch(CommitmentOccurrence::offSchedule),
+            "nothing is off schedule: the fact has its own window");
+        assertEquals(1, arrears(match, "bill").count());
+        assertEquals(-10000L, arrears(match, "bill").amount());
     }
 
     @Test
-    void aCatchUpFactSkipsSettledOccurrences() {
+    void aPaymentOutsideEveryWindowIsOffScheduleAndTheHoleStays() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 1, 15), -10000L, 1);
         CurrentFact payment = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 30), -15000L,
@@ -484,16 +488,18 @@ class CommitmentMatchTest {
 
         assertEquals(OccurrenceStatus.SETTLED, at(match, "bill", LocalDate.of(2026, 1, 15)).status());
         assertEquals(OccurrenceStatus.SETTLED, at(match, "bill", LocalDate.of(2026, 2, 15)).status());
-        assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 3, 15)).status());
-        CommitmentOccurrence partial = at(match, "bill", LocalDate.of(2026, 4, 15));
-        assertEquals(OccurrenceStatus.PARTIAL, partial.status());
-        assertEquals(-5000L, partial.amount().longValue());
-        assertEquals(1, arrears(match, "bill").count());
-        assertEquals(-5000L, arrears(match, "bill").amount());
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 3, 15)).status(),
+            "March 30 is outside the March 8–22 window: a hole, not a late match");
+        CommitmentOccurrence off = at(match, "bill", LocalDate.of(2026, 3, 30));
+        assertTrue(off.offSchedule());
+        assertEquals("rule", off.matchedBy());
+        assertEquals(-15000L, off.amount().longValue());
+        assertEquals(1, arrears(match, "bill").count(), "the hole stays until a person clears it");
+        assertEquals(-10000L, arrears(match, "bill").amount());
     }
 
     @Test
-    void theExpectedAmountFollowsThePriceSteps() {
+    void theExpectedAmountOfAMissFollowsThePriceSteps() {
         List<Commitment.PriceStep> steps = List.of(
             new Commitment.PriceStep(LocalDate.of(2026, 2, 10), -10000L, null, null),
             new Commitment.PriceStep(LocalDate.of(2026, 4, 10), -12000L, -10000L, 20.0));
@@ -505,14 +511,15 @@ class CommitmentMatchTest {
         CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "BILL")), List.of(lump),
             Instant.parse("2026-05-05T00:00:00Z"));
 
-        // January predates the first point and expects the first point's amount.
-        assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 1, 10)).status());
-        assertEquals(-10000L, at(match, "bill", LocalDate.of(2026, 1, 10)).amount().longValue());
-        assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 3, 10)).status());
-        CommitmentOccurrence partial = at(match, "bill", LocalDate.of(2026, 4, 10));
-        assertEquals(OccurrenceStatus.PARTIAL, partial.status());
-        assertEquals(-3000L, partial.amount().longValue(), "April expects the $120 step");
-        assertEquals(-9000L, arrears(match, "bill").amount());
+        // The movement lands on its own window at its own amount; the misses price by their step.
+        CommitmentOccurrence april = at(match, "bill", LocalDate.of(2026, 4, 10));
+        assertEquals(OccurrenceStatus.OCCURRED, april.status());
+        assertEquals(-33000L, april.amount().longValue());
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 1, 10)).status());
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 3, 10)).status());
+        assertEquals(3, arrears(match, "bill").count());
+        assertEquals(-30000L, arrears(match, "bill").amount(),
+            "January–March miss the $100 step; April occurred");
         assertEquals(OccurrenceStatus.DUE, at(match, "bill", LocalDate.of(2026, 5, 10)).status());
     }
 
@@ -535,22 +542,18 @@ class CommitmentMatchTest {
     }
 
     @Test
-    void aPinWithNoOpenOccurrenceIsOffSchedule() {
+    void aPinnedFactOutsideEveryWindowIsOffSchedule() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 3, 10), -10000L, 1);
         CurrentFact bpay = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L,
             "BPAY 999888");
 
         CommitmentMatch match = Commitments.match(List.of(bill), List.of(), List.of(bpay),
-            List.of(new CommitmentPin("id-1", "bill")),
-            List.of(new CommitmentSettle("bill", LocalDate.of(2026, 3, 10), 7),
-                new CommitmentSettle("bill", LocalDate.of(2026, 4, 10), 8),
-                new CommitmentSettle("bill", LocalDate.of(2026, 5, 10), 9),
-                new CommitmentSettle("bill", LocalDate.of(2026, 6, 10), 10)),
+            List.of(new CommitmentPin("id-1", "bill")), List.of(),
             Instant.parse("2026-04-05T00:00:00Z"));
 
         CommitmentOccurrence off = at(match, "bill", LocalDate.of(2026, 3, 20));
-        assertTrue(off.offSchedule(), "every occurrence is settled; nothing is open");
+        assertTrue(off.offSchedule(), "March 20 is outside the March 3–17 window");
         assertEquals(OccurrenceStatus.OCCURRED, off.status());
         assertEquals("pin", off.matchedBy());
         assertEquals(-10000L, off.amount().longValue());
@@ -558,7 +561,8 @@ class CommitmentMatchTest {
         assertEquals(List.of(LocalDate.of(2026, 3, 10), LocalDate.of(2026, 4, 10),
             LocalDate.of(2026, 5, 10), LocalDate.of(2026, 6, 10)), scheduled(match, "bill"),
             "the pin never moves the anchor");
-        assertEquals(0, arrears(match, "bill").count());
+        assertEquals(1, arrears(match, "bill").count(), "March stays a hole");
+        assertEquals(-10000L, arrears(match, "bill").amount());
     }
 
     @Test
@@ -588,7 +592,7 @@ class CommitmentMatchTest {
     }
 
     @Test
-    void aLeftoverOnACoveredOccurrenceDateMergesIntoThatRow() {
+    void factsOnOneCoveredDateSumAndKeepTheFirstFact() {
         Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 3, 10), -10000L, 1);
         CurrentFact covered = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 10), -10000L, "BILL PAYMENT");
@@ -602,9 +606,9 @@ class CommitmentMatchTest {
             Instant.parse("2026-04-05T00:00:00Z"));
 
         CommitmentOccurrence march = at(match, "bill", LocalDate.of(2026, 3, 10));
-        assertEquals(OccurrenceStatus.OCCURRED, march.status(), "the covered row keeps its status");
-        assertEquals(-15000L, march.amount().longValue(), "the extra merged into the covered day");
-        assertEquals("id-1", march.matchedExternalId(), "the covered row keeps its fact");
+        assertEquals(OccurrenceStatus.OCCURRED, march.status());
+        assertEquals(-15000L, march.amount().longValue(), "the window's facts sum");
+        assertEquals("id-1", march.matchedExternalId(), "the first fact names the row");
         assertFalse(march.offSchedule());
         assertEquals(1, match.occurrences().stream()
             .filter(o -> o.dueDate().equals(LocalDate.of(2026, 3, 10))).count());
@@ -639,10 +643,10 @@ class CommitmentMatchTest {
     }
 
     @Test
-    void aVariableCommitmentKeepsOneFactPerOccurrence() {
+    void aVariableCommitmentAttachesTheWholeFactToItsWindow() {
         Commitment aws = declared("aws", Commitment.OUT, Cadence.MONTHLY,
             LocalDate.of(2026, 3, 5), -5000L, AmountKind.VARIABLE, 1);
-        CurrentFact doubleCharge = fact(1, "ing-credit-card", LocalDate.of(2026, 3, 20), -10000L,
+        CurrentFact doubleCharge = fact(1, "ing-credit-card", LocalDate.of(2026, 3, 8), -10000L,
             "AMAZON WEB SERVICES");
 
         CommitmentMatch match = run(List.of(aws), List.of(rule("aws", "AMAZON WEB SERVICES")),

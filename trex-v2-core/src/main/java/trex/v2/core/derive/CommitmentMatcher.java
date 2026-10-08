@@ -30,13 +30,16 @@ import java.util.regex.PatternSyntaxException;
  *
  * <p>Assignment is global and deterministic: facts are processed in {@code (date, n)} order, pins
  * first, then the rules, where a fact matching several commitments goes to the latest declaration
- * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. Every matching
- * fact — by rule or by pin — is allocated oldest-first across the commitment's open occurrences:
- * the arrears clear from the front and a surplus pre-pays the materialised future; anything left
- * over is an {@code off_schedule} occurrence at the fact's date, and a same-day extra merges into
- * the row already there (§2.5) — the table keys one row per {@code (commitment, dueDate)}, so no
- * second row and no dropped amount. A {@code variable} commitment instead keeps one fact per
- * occurrence: its range is too wide to infer multiples. A regular commitment also ignores facts
+ * ({@code declaredN}, ties by commitment id). Facts of the wrong sign never match. Every assigned
+ * fact then <b>attaches</b> to the occurrence whose window contains its date
+ * (V2-MANUAL-ARREARS-PLAN.md §3.1): several facts in one window sum, and the occurrence is
+ * {@code occurred} at what actually moved — the declared or stepped expectation is a forecast for
+ * windows with no fact, never a shortfall. Nothing is allocated across occurrences and nothing
+ * pre-pays; a fact with no window is an {@code off_schedule} occurrence at its own date, and a
+ * same-day extra merges into the row already there (§2.5) — the table keys one row per
+ * {@code (commitment, dueDate)}, so no second row and no dropped amount. Overlapping windows
+ * (fortnightly ± 7 meets on the boundary day) resolve to the earliest due date, so the answer
+ * cannot depend on list order. A regular commitment also ignores facts
  * that predate its first materialised window — history outside the occurrence set is never folded
  * onto the oldest occurrence. A retired commitment ({@code endedAt} set) stops generating
  * occurrences after it ended (an occurrence on {@code endedAt} still counts) and takes no fact
@@ -57,25 +60,15 @@ final class CommitmentMatcher {
 
     /**
      * The matching window: {@code ± min(cadence/2, 7)} days (§2.5, provisional). The cap absorbs
-     * weekends and month lengths without letting neighbouring periods overlap; for a weekly
-     * cadence the half-period is 3 days, for everything fortnightly and longer it is the 7-day cap.
+     * weekends and month lengths; for a weekly cadence the half-period is 3 days, for everything
+     * fortnightly and longer it is the 7-day cap — fortnightly windows then touch on the boundary
+     * day, and attachment resolves it to the earliest due date (V2-MANUAL-ARREARS-PLAN.md §3.1).
      */
     private static final int WINDOW_MAX_DAYS = 7;
 
     private static final Comparator<CurrentFact> BY_DATE_N = Comparator
         .comparing((CurrentFact c) -> c.fact().date())
         .thenComparingLong(c -> c.fact().n());
-
-    /**
-     * A fact covers an occurrence "fully" — within {@code max(2%, 50¢)} of its expected amount
-     * (§2.9). The percentage absorbs FX and rounding wobble on a real price; the cents floor
-     * keeps a small bill from going {@code partial} over a sub-dollar difference. Below the band
-     * the occurrence is {@code partial} and only the remainder stays in arrears.
-     */
-    private static final double FULL_FRACTION = 0.02;
-
-    /** The cents floor of the full-coverage tolerance: half a dollar. */
-    private static final long FULL_MIN_CENTS = 50;
 
     private CommitmentMatcher() {}
 
@@ -209,7 +202,7 @@ final class CommitmentMatcher {
                 irregular(assigned, slots);
             } else {
                 applySettles(commitment, settleByCommitment.get(commitment.commitmentId()), slots);
-                allocate(commitment, assigned, slots);
+                attach(assigned, slots);
                 slots.sort(Comparator.comparing((Slot s) -> s.dueDate)
                     .thenComparing(s -> s.offSchedule));
             }
@@ -317,52 +310,38 @@ final class CommitmentMatcher {
     }
 
     /**
-     * Allocate each assigned fact (§2.9). Every matching fact — by rule or by pin, right sign —
-     * goes to the commitment's open occurrences ({@code due}, {@code missed}, {@code partial})
-     * oldest first, each taking up to its expected amount: the backlog clears from the front and
-     * a surplus pre-pays the future occurrences already materialised. A fact that finds no open
-     * occurrence at all becomes an {@code off_schedule} occurrence at its own date — nothing is
-     * swallowed and a pin never re-anchors.
+     * Attach each assigned fact to the occurrence its date lands on (V2-MANUAL-ARREARS-PLAN.md
+     * §3.1). A window's facts sum and the occurrence is {@code occurred} at what actually moved;
+     * the declared or stepped expectation is a forecast for windows with no fact, never a
+     * shortfall. Overlapping windows resolve to the earliest due date, so the answer cannot depend
+     * on list order. A fact with no window is an {@code off_schedule} occurrence at its own date —
+     * nothing is allocated across occurrences and nothing is swallowed.
      */
-    private static void allocate(Commitment commitment, List<Assigned> facts, List<Slot> slots) {
+    private static void attach(List<Assigned> facts, List<Slot> slots) {
         for (Assigned assigned : facts) {
             CurrentFact fact = assigned.fact;
-            long remaining = Math.abs(fact.fact().amount());
-            if (commitment.amountKind() == AmountKind.VARIABLE) {
-                // A usage amount's range is too wide to infer multiples (§2.9): the whole fact
-                // satisfies the oldest open occurrence — no partial, no splitting, no
-                // pre-payment — and with nothing open it is off_schedule like any other fact.
-                Slot oldest = oldestOpen(slots);
-                if (oldest == null) {
-                    offSchedule(assigned, slots, remaining);
-                } else {
-                    oldest.status = OccurrenceStatus.OCCURRED;
-                    oldest.amount = fact.fact().amount();
-                    oldest.matchedExternalId = fact.externalId();
-                    oldest.matchedDate = fact.fact().date();
-                    oldest.matchedBy = assigned.matchedBy;
-                }
+            LocalDate date = fact.fact().date();
+            Slot window = windowFor(slots, date);
+            if (window == null) {
+                offSchedule(assigned, slots, Math.abs(fact.fact().amount()));
                 continue;
             }
-            for (Slot slot : slots) {
-                if (remaining == 0) {
-                    break;
-                }
-                if (!slot.open()) {
-                    continue;
-                }
-                remaining = allocateTo(commitment, slot, assigned, remaining);
+            // The first fact on the row names it; later facts in the same window only sum.
+            if (window.matchedExternalId == null) {
+                window.matchedExternalId = fact.externalId();
+                window.matchedDate = date;
+                window.matchedBy = assigned.matchedBy;
             }
-            if (remaining > 0) {
-                offSchedule(assigned, slots, remaining);
-            }
+            window.amount = (window.amount == null ? 0L : window.amount) + fact.fact().amount();
+            window.status = OccurrenceStatus.OCCURRED;
         }
     }
 
-    /** The oldest open occurrence, in due-date order, or null when none is open. */
-    private static Slot oldestOpen(List<Slot> slots) {
+    /** The scheduled occurrence whose window contains the date, earliest due date first. */
+    private static Slot windowFor(List<Slot> slots, LocalDate date) {
         for (Slot slot : slots) {
-            if (slot.open()) {
+            if (!slot.offSchedule && slot.windowStart != null && slot.windowEnd != null
+                && !date.isBefore(slot.windowStart) && !date.isAfter(slot.windowEnd)) {
                 return slot;
             }
         }
@@ -370,51 +349,12 @@ final class CommitmentMatcher {
     }
 
     /**
-     * Take up to the slot's still-expected amount from the fact. Returns the fact's unallocated
-     * remainder. The occurrence becomes {@code occurred} once covered within {@code max(2%, 50¢)}
-     * of its expected amount — the fact id and the allocated total land on the row — and
-     * {@code partial} otherwise, carrying only what was allocated. With no price anywhere to
-     * split against (a declared commitment with no amount), the fact settles the occurrence at its
-     * full value: one fact, one occurrence, rather than an invented division.
-     */
-    private static long allocateTo(Commitment commitment, Slot slot, Assigned assigned,
-                                   long remaining) {
-        CurrentFact fact = assigned.fact;
-        long sign = fact.fact().amount() < 0 ? -1 : 1;
-        Long expected = expected(commitment, slot.dueDate);
-        if (expected == null || expected == 0) {
-            slot.status = OccurrenceStatus.OCCURRED;
-            slot.amount = sign * remaining;
-            slot.matchedExternalId = fact.externalId();
-            slot.matchedDate = fact.fact().date();
-            slot.matchedBy = assigned.matchedBy;
-            return 0;
-        }
-        long expectedAbs = Math.abs(expected);
-        long take = Math.min(remaining, expectedAbs - slot.allocated);
-        long total = slot.allocated + take;
-        long tolerance = Math.max(FULL_MIN_CENTS, Math.round(expectedAbs * FULL_FRACTION));
-        slot.amount = sign * total;
-        slot.matchedExternalId = fact.externalId();
-        slot.matchedDate = fact.fact().date();
-        slot.matchedBy = assigned.matchedBy;
-        if (total >= expectedAbs - tolerance) {
-            slot.status = OccurrenceStatus.OCCURRED;
-        } else {
-            slot.status = OccurrenceStatus.PARTIAL;
-            slot.allocated = total;
-        }
-        return remaining - take;
-    }
-
-    /**
-     * Record the unallocated remainder — or a fact that found no occurrence — at its own date;
-     * the occurrence table's natural overflow, never a silent adjustment. The table keys one row
-     * per {@code (commitment, dueDate)}, so detection's same-day collapse (§2.3.3) applies on the
-     * outcome side too (§2.5): an amount whose date already has a row merges into it — the day's
-     * total is preserved and no money is dropped. A scheduled row that is already covered or
-     * settled keeps its status and matched fact; an off-schedule row keeps the earliest fact,
-     * because facts are processed in {@code (date, n)} order.
+     * Record a fact that has no window to land on at its own date; the occurrence table's natural
+     * overflow, never a silent adjustment. The table keys one row per {@code (commitment,
+     * dueDate)}, so detection's same-day collapse (§2.3.3) applies on the outcome side too (§2.5):
+     * an amount whose date already has a row merges into it — the day's total is preserved and no
+     * money is dropped. An off-schedule row keeps the earliest fact, because facts are processed in
+     * {@code (date, n)} order.
      */
     private static void offSchedule(Assigned assigned, List<Slot> slots, long amount) {
         CurrentFact fact = assigned.fact;
@@ -466,9 +406,9 @@ final class CommitmentMatcher {
     // ---- arrears ------------------------------------------------------------------------------
 
     /**
-     * The commitment's backlog (§2.9): every closed-window occurrence still short is counted, and
-     * {@code lapsed} mirrors the most recent closed-window occurrence — the current red state,
-     * never the older backlog.
+     * The commitment's backlog (V2-MANUAL-ARREARS-PLAN.md §3.4): every closed-window occurrence
+     * with no fact — a hole — is counted, and {@code lapsed} mirrors the most recent closed-window
+     * occurrence, the current red state, never the older backlog.
      */
     private static CommitmentArrears arrears(Commitment commitment, List<Slot> slots,
                                              LocalDate asOfDate) {
@@ -479,29 +419,18 @@ final class CommitmentMatcher {
             if (slot.offSchedule || slot.windowEnd == null) {
                 continue;
             }
-            if (slot.status == OccurrenceStatus.MISSED || slot.status == OccurrenceStatus.PARTIAL) {
+            if (slot.status == OccurrenceStatus.MISSED) {
                 count++;
-                amount += shortfall(commitment, slot);
+                Long expected = expected(commitment, slot.dueDate);
+                amount += expected == null ? 0 : expected;
             }
             if (slot.windowEnd.isBefore(asOfDate)
                 && (recent == null || slot.dueDate.isAfter(recent.dueDate))) {
                 recent = slot;
             }
         }
-        boolean lapsed = recent != null
-            && (recent.status == OccurrenceStatus.MISSED
-                || recent.status == OccurrenceStatus.PARTIAL);
+        boolean lapsed = recent != null && recent.status == OccurrenceStatus.MISSED;
         return new CommitmentArrears(commitment.commitmentId(), count, amount, lapsed);
-    }
-
-    /** The expected amount still short on one occurrence, signed like its price point. */
-    private static long shortfall(Commitment commitment, Slot slot) {
-        Long expected = expected(commitment, slot.dueDate);
-        if (expected == null) {
-            return 0;
-        }
-        long shortAbs = Math.abs(expected) - slot.allocated;
-        return shortAbs <= 0 ? 0 : Long.signum(expected) * shortAbs;
     }
 
     /**
@@ -573,8 +502,8 @@ final class CommitmentMatcher {
     }
 
     /**
-     * One occurrence while it is being built. {@code amount} is the allocated amount in cents,
-     * {@code allocated} its magnitude (what the arrears subtract), and the window is null for
+     * One occurrence while it is being built. {@code amount} is the summed movement of the facts
+     * attached to the window (or the expected amount on a settled row), and the window is null for
      * irregular and off-schedule rows.
      */
     private static final class Slot {
@@ -588,19 +517,12 @@ final class CommitmentMatcher {
         boolean offSchedule;
         Long settleN;
         Long amount;
-        long allocated;
 
         Slot(LocalDate dueDate, LocalDate windowStart, LocalDate windowEnd, OccurrenceStatus status) {
             this.dueDate = dueDate;
             this.windowStart = windowStart;
             this.windowEnd = windowEnd;
             this.status = status;
-        }
-
-        boolean open() {
-            return status == OccurrenceStatus.DUE
-                || status == OccurrenceStatus.MISSED
-                || status == OccurrenceStatus.PARTIAL;
         }
 
         CommitmentOccurrence toOccurrence(String commitmentId) {

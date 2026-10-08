@@ -119,13 +119,13 @@ final class HubSql {
         WHERE o.due_date >= ? AND o.due_date <= ?
         ORDER BY o.due_date, o.commitment_id""";
 
-    /** Every occurrence in arrears, oldest first, with the price its shortfall is measured against. */
+    /** Every hole (a missed occurrence), oldest first, measured against the current price. */
     static final String ARREARS_OCCURRENCES = """
         SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
                o.due_date, o.status, o.amount
         FROM commitment_occurrence o
         JOIN commitment c ON c.commitment_id = o.commitment_id
-        WHERE o.status IN ('missed', 'partial')
+        WHERE o.status = 'missed'
         ORDER BY o.due_date, o.commitment_id""";
 
     /** All-time first/last transaction date and the row count, one row per account. */
