@@ -2470,6 +2470,10 @@ Transaction notes (`NOTE`, §6.2) are **not projected** for now: they are privat
 and a note may name a person. If projected later, they map to the Firefly transaction note,
 one-way like the category tag.
 
+Commitments (§6.11) are **not projected** to Firefly in v1: Firefly's unit is a transaction,
+and a commitment is an expectation — projecting one would post money that never moved. The
+parking is deliberate, not a silent drop.
+
 ---
 
 ## 12. Ingest: sources, feeds, pending
@@ -2774,6 +2778,21 @@ v1's tests are good; v2 adds invariants that only exist once derivation is separ
     is shown to depend on intra-day order); a forward/backward gap is reported as "the
     journal is short", never posted as zeros; a liability is seeded negative; category
     seeding fills empty notes only and never overwrites typed ones.
+22. **Commitments are curated by decisions and disposable in every other part.** The seven
+    §6.11 actions are latest-effective-wins — per id, per candidate key, per fact, per
+    `(commitment, dueDate)` — and revocable; a decision naming an unknown target is
+    ineffective and surfaced. Candidates, rules, occurrences, prices, arrears and the
+    dormancy question come from `(facts, decisions, config, asOf)`, and the four tables join
+    rebuild equivalence: `trex verify` covers them (`IndexerTest`), and a rebuild reproduces
+    the same rows. `occurred` (a fact) is never conflated with `settled` (a conclusion).
+23. **Commitment detection and matching are deterministic and core-fields-only.** At the same
+    inputs and `asOf` the candidates, rules, occurrences and arrears are identical
+    (`CommitmentsTest`, `CommitmentMatchTest`, the `DeriveTest` commitment cases); a
+    commitment matched on a transfer leg does not move when `transfers.yaml` changes, because
+    a rule and the domain it runs over read only `rawDescription`, `account`, `amount`/sign
+    and `date` — never `leg`, `pairing`, `category`, `role` or `synthetic`. An `irregular`
+    commitment records each matching fact at its own date without ever predicting, going
+    dormant or accumulating arrears.
 
 Everything else from v1 §7 carries over: golden files per source, day-atomic batching,
 gzip transparency, torn-tail recovery, materialize bit-identity, listener separation.
