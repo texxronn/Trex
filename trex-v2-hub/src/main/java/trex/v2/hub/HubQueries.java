@@ -523,9 +523,17 @@ public final class HubQueries implements AutoCloseable {
 
     // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
 
-    /** The registry: every candidate and declared row, each with its notes thread (oldest first). */
+    /** The registry: every candidate and declared row, each with its rules and notes thread. */
     public List<CommitmentJson> commitments() {
         return read(conn -> {
+            Map<String, List<CommitmentJson.RuleJson>> rules = new LinkedHashMap<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.COMMITMENT_RULES_SELECT)) {
+                while (rs.next()) {
+                    rules.computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
+                        .add(new CommitmentJson.RuleJson(rs.getString(2), rs.getString(3)));
+                }
+            }
             Map<String, List<NoteJson>> notes = new LinkedHashMap<>();
             try (Statement st = conn.createStatement();
                  ResultSet rs = st.executeQuery(HubSql.COMMITMENT_NOTES_SELECT)) {
@@ -547,7 +555,8 @@ public final class HubQueries implements AutoCloseable {
                         nullableDouble(rs, 14), nullableDate(rs.getString(15)), rs.getInt(16),
                         nullableDouble(rs, 17), rs.getInt(18) != 0, rs.getInt(19),
                         nullableLong(rs, 20), nullableLong(rs, 21), nullableLong(rs, 22),
-                        nullableDate(rs.getString(23)), notes.getOrDefault(id, List.of())));
+                        nullableDate(rs.getString(23)), rules.getOrDefault(id, List.of()),
+                        nullableDate(rs.getString(24)), notes.getOrDefault(id, List.of())));
                 }
             }
             return out;

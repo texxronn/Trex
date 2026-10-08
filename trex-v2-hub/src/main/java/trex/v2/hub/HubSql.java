@@ -85,8 +85,15 @@ final class HubSql {
         SELECT commitment_id, name, origin, direction, cadence, amount_kind, kind, status,
                first_date, last_date, anchor_date, current_amount, previous_amount, change_pct,
                change_date, occurrence_count, regularity, variable, arrears_count, arrears_amount,
-               declared_n, retired_n, ended_at
+               declared_n, retired_n, ended_at,
+               (SELECT MIN(o.due_date) FROM commitment_occurrence o
+                 WHERE o.commitment_id = commitment.commitment_id AND o.status = 'due') AS next_due
         FROM commitment ORDER BY commitment_id""";
+
+    /** The effective rule set (a projection of the latest effective declaration), deterministic. */
+    static final String COMMITMENT_RULES_SELECT =
+        "SELECT commitment_id, match, account_ref FROM commitment_rule "
+        + "ORDER BY commitment_id, decision_n, match, account_ref";
 
     /** The effective {@code NOTE_COMMITMENT} thread, oldest first, like {@code note_current}. */
     static final String COMMITMENT_NOTES_SELECT =
