@@ -926,7 +926,16 @@ public final class Derive {
             Map<String, TreeMap<LocalDate, Long>> settles = new TreeMap<>();
             for (Decision d : effective) {
                 if (d instanceof Decision.DeclareCommitment dc) {
-                    declared.put(dc.commitmentId(), new DeclaredCommitment(dc, null, null));
+                    String bad = badMatch(dc);
+                    if (bad == null) {
+                        declared.put(dc.commitmentId(), new DeclaredCommitment(dc, null, null));
+                    } else {
+                        // The hub prechecks rules (§2.2); a line from another writer must not
+                        // fail the derivation — the declaration is ineffective and visible, and
+                        // an earlier or later good declaration of the id still stands.
+                        ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
+                            "DECLARE_COMMITMENT rule does not compile: " + bad));
+                    }
                 } else if (d instanceof Decision.RetireCommitment rc) {
                     DeclaredCommitment existing = declared.get(rc.commitmentId());
                     if (existing == null) {
@@ -1122,6 +1131,25 @@ public final class Derive {
             commitmentOccurrences = match.occurrences();
             commitmentNotes = List.copyOf(notes);
             commitmentReview = items;
+        }
+
+        /**
+         * The first match of a declaration that does not compile, or null when the rule set is
+         * usable. Compilation goes through the matcher's own convention, so the fold and the
+         * matcher can never disagree about what a valid rule is (§2.2); the hub's 422 precheck is
+         * the first line, this is the defence for a line from another writer.
+         */
+        private static String badMatch(Decision.DeclareCommitment dc) {
+            for (Decision.Match m : dc.matches()) {
+                String account = m.account() == null || m.account().isBlank() ? null : m.account();
+                try {
+                    CommitmentMatcher.compile(new CommitmentRule(dc.commitmentId(), m.match(),
+                        account, dc.n()));
+                } catch (IllegalArgumentException e) {
+                    return m.match();
+                }
+            }
+            return null;
         }
 
         /** True when some declaration's rules match every fact of a candidate's group (§2.3.8). */

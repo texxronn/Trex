@@ -580,6 +580,43 @@ class DeriveTest {
     }
 
     @Test
+    void aDeclarationWithAnUncompilableRuleIsIneffectiveAndALaterGoodOneTakesOver() {
+        List<Fact> facts = acmeFacts();
+        Decision.DeclareCommitment bad = new Decision.DeclareCommitment(10, "acme", "Acme", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            List.of(new Decision.Match("ACME[", null)), 10000L, LocalDate.of(2026, 1, 15),
+            null, null, Actor.USER, "ron", ASOF);
+
+        Derivation d = Derive.derive(facts, List.of(bad), config(), ASOF);
+        assertTrue(d.commitments().stream().noneMatch(c -> c.commitmentId().equals("acme")),
+            d.commitments().toString());
+        assertTrue(d.commitmentRules().isEmpty());
+        assertTrue(d.ineffective().stream()
+            .anyMatch(i -> i.action().equals(Action.DECLARE_COMMITMENT.wire())
+                && i.reason().contains("ACME[")), d.ineffective().toString());
+        assertTrue(d.review().stream().anyMatch(r -> r.kind().equals(ReviewItem.INEFFECTIVE_DECISION)
+            && r.subject().equals("10")), d.review().toString());
+
+        // A later effective good declaration of the same id takes over.
+        Derivation fixed = Derive.derive(facts, List.of(bad,
+            declare(11, "acme", "Acme fixed", "out", 10000, LocalDate.of(2026, 1, 15), "ACME")),
+            config(), ASOF);
+        assertEquals("Acme fixed", commitment(fixed, "acme").name());
+        assertEquals(List.of(new CommitmentRule("acme", "ACME", null, 11L)), fixed.commitmentRules());
+
+        // An earlier good declaration survives a later bad one: ineffective means no effect.
+        Decision.DeclareCommitment badLater = new Decision.DeclareCommitment(13, "acme", "Acme", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            List.of(new Decision.Match("ACME[", null)), 10000L, LocalDate.of(2026, 1, 15),
+            null, null, Actor.USER, "ron", ASOF);
+        Derivation kept = Derive.derive(facts, List.of(
+            declare(12, "acme", "Acme good", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"), badLater),
+            config(), ASOF);
+        assertEquals("Acme good", commitment(kept, "acme").name());
+        assertEquals(List.of(new CommitmentRule("acme", "ACME", null, 12L)), kept.commitmentRules());
+    }
+
+    @Test
     void aRetirementStopsFutureOccurrencesClearsDormancyAndKeepsArrears() {
         List<Fact> facts = acmeFacts();
         Decision declare = declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME");
