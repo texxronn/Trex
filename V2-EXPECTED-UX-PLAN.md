@@ -6,8 +6,8 @@
 > no derivation, no API and no invariant. Proposal §10.6 keeps its composition and
 > vocabulary; no proposal amendment is proposed.
 
-**Status:** Stage 1 (the accordion) implemented; Stage 2 (the registry curation surface) in
-progress; Stage 2b parked.
+**Status:** Stage 1 (the accordion) and Stage 2 (the registry curation surface) implemented;
+Stage 2b parked.
 **Authority:** `V2-PROPOSAL.md` §10.1 (the Expected mode), §10.6 (the composition and the
 vocabulary); `V2-COMMITMENTS-PLAN.md` §2.8, §10.12 (names locked: **Commitments** = the
 registry, **Expected** = the forward view); `V2-SPEC.md` (as built); `AGENTS.md`.
