@@ -3,6 +3,7 @@
 // recomputed from the facts, and marking a side writes a MARK_NOOP decision.
 
 import { api } from './api.js';
+import { accountChip } from './account.js';
 import { decisions } from './decisions.js';
 import { el, clear, field } from './dom.js';
 import { money, shortId } from './format.js';
@@ -58,7 +59,7 @@ function renderAccount(acct) {
   const previews = new Map(acct.previews.map((p) => [p.externalId, p]));
   const section = el('div', { class: 'mode-section' },
     el('h3', {},
-      acct.accountRef, ' ',
+      accountChip(ctx.refdata, acct.accountRef), ' ',
       el('span', { class: 'badge ' + (acct.reconciled ? 'good' : 'AMBIGUOUS_TRANSFER') }, acct.status)),
     el('div', { class: 'ops' },
       chip('opening', money(acct.opening)),

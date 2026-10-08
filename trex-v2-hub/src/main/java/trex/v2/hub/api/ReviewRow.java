@@ -10,8 +10,9 @@ import java.util.List;
  * queue can show a person what the item is about instead of a bare id. {@code date} is the subject
  * fact's own transaction date, distinct from {@code openedAt} (when the item was derived); it is
  * null when the subject is a decision rather than a fact. {@code members} carries the rows of a
- * POTENTIAL_DUP/RESTATEMENT cluster (empty for every other kind).
+ * POTENTIAL_DUP/RESTATEMENT cluster (empty for every other kind). {@code accountRef} is the subject
+ * fact's account (null for a decision subject), so the queue can show which account it concerns.
  */
 public record ReviewRow(String subject, String kind, String detail, Long amountStake,
                         Instant openedAt, String stateHash, String subjectDescription,
-                        LocalDate date, List<ReviewMember> members) {}
+                        LocalDate date, List<ReviewMember> members, String accountRef) {}

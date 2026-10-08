@@ -300,13 +300,25 @@ public final class HubQueries implements AutoCloseable {
         return conditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", conditions);
     }
 
-    public List<ReviewRow> review(String kind, TransferRules rules) {
+    public List<ReviewRow> review(String kind, String account, TransferRules rules) {
         return read(conn -> {
-            String sql = HubSql.REVIEW_SELECT + (kind == null ? "" : " WHERE r.kind = ?") + HubSql.REVIEW_ORDER;
+            List<String> conditions = new ArrayList<>();
+            List<Object> params = new ArrayList<>();
+            if (kind != null && !kind.isBlank()) {
+                conditions.add("r.kind = ?");
+                params.add(kind);
+            }
+            if (account != null && !account.isBlank()) {
+                conditions.add("COALESCE(x.account_ref, CASE WHEN r.kind = 'BALANCE_BREAK' THEN r.subject END) = ?");
+                params.add(account);
+            }
+            String sql = HubSql.REVIEW_SELECT
+                + (conditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", conditions))
+                + HubSql.REVIEW_ORDER;
             List<ReviewRow> rows = new ArrayList<>();
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                if (kind != null) {
-                    ps.setString(1, kind);
+                for (int i = 0; i < params.size(); i++) {
+                    ps.setObject(i + 1, params.get(i));
                 }
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
@@ -320,7 +332,7 @@ public final class HubQueries implements AutoCloseable {
                         rows.add(new ReviewRow(subject, rowKind, rs.getString(3),
                             rs.wasNull() ? null : stake, Instant.parse(rs.getString(5)), rs.getString(6),
                             description == null ? null : trex.v2.core.Clean.clean(description),
-                            date == null ? null : LocalDate.parse(date), members));
+                            date == null ? null : LocalDate.parse(date), members, rs.getString(9)));
                     }
                 }
             }
@@ -387,7 +399,7 @@ public final class HubQueries implements AutoCloseable {
                         && Math.abs(a.amount - b.amount) <= rules.dupTolerance();
                 } else {
                     link = a.amount == b.amount
-                        && MerchantStem.similar(a.raw, b.raw, rules.restatementOverlap());
+                        && MerchantStem.restatement(a.raw, b.raw, rules.restatementOverlap());
                 }
                 if (link) {
                     int ra = find(parent, i);

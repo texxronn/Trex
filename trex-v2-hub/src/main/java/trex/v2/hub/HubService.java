@@ -198,7 +198,7 @@ public final class HubService implements HubApi, AutoCloseable {
         Registry registry = c.registry();
         List<RefdataResponse.AccountJson> accounts = registry.accounts().values().stream()
             .map(a -> new RefdataResponse.AccountJson(a.ref(), a.currency(), a.balanceSource().wire(),
-                a.settlementWindowDays()))
+                a.settlementWindowDays(), a.chipColor()))
             .toList();
         List<RefdataResponse.UserJson> users = registry.users().values().stream()
             .map(u -> new RefdataResponse.UserJson(u.id(), u.name(), u.active(), u.cadence()))
@@ -213,8 +213,8 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     @Override
-    public List<ReviewRow> review(String kind) {
-        return reads.review(kind, refresher.config().transfers());
+    public List<ReviewRow> review(String kind, String account) {
+        return reads.review(kind, account, refresher.config().transfers());
     }
 
     @Override
@@ -411,7 +411,7 @@ public final class HubService implements HubApi, AutoCloseable {
         List<Fact> facts = reads.currentFacts();
         LedgerPage page = reads.ledger(new BlotterQuery(null, null, null, null, null, range.from(), range.to(),
             null, null, null, false, "date", "asc", MAX_WALK_ROWS, 0));
-        return Eyeball.walk(period, user, at, bucket, facts, page.rows(), reads.review(null, c.transfers()), reads.pending(),
+        return Eyeball.walk(period, user, at, bucket, facts, page.rows(), reads.review(null, null, c.transfers()), reads.pending(),
             c.registry(), c.transfers());
     }
 

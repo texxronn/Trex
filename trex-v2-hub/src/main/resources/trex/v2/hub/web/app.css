@@ -238,6 +238,37 @@ td.members .chip.t5 { background: color-mix(in srgb, #06b6d4 16%, var(--surface)
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
 }
 
+/* A solid account chip, shared by every mode: one vivid colour per account, spread across the hue
+   wheel. Each colour carries its own foreground so the light hues (yellow, lime, cyan) stay legible.
+   The names are the palette named by `chip_color` in accounts.yaml. */
+.acct {
+  display: inline-block; padding: 0 0.45rem; border-radius: 999px;
+  font-size: 11px; line-height: 1.6; white-space: nowrap;
+  background: var(--chip-bg, #64748b); color: var(--chip-fg, #fff);
+}
+.acct.slate { --chip-bg: #64748b; --chip-fg: #fff; }
+.acct.gray, .acct.grey { --chip-bg: #6b7280; --chip-fg: #fff; }
+.acct.stone { --chip-bg: #78716c; --chip-fg: #fff; }
+.acct.zinc { --chip-bg: #71717a; --chip-fg: #fff; }
+.acct.red { --chip-bg: #dc2626; --chip-fg: #fff; }
+.acct.rose { --chip-bg: #e11d48; --chip-fg: #fff; }
+.acct.pink { --chip-bg: #db2777; --chip-fg: #fff; }
+.acct.fuchsia { --chip-bg: #c026d3; --chip-fg: #fff; }
+.acct.purple { --chip-bg: #9333ea; --chip-fg: #fff; }
+.acct.violet { --chip-bg: #7c3aed; --chip-fg: #fff; }
+.acct.indigo { --chip-bg: #4f46e5; --chip-fg: #fff; }
+.acct.blue { --chip-bg: #2563eb; --chip-fg: #fff; }
+.acct.sky { --chip-bg: #0284c7; --chip-fg: #fff; }
+.acct.cyan { --chip-bg: #06b6d4; --chip-fg: #083344; }
+.acct.teal { --chip-bg: #0d9488; --chip-fg: #fff; }
+.acct.emerald { --chip-bg: #059669; --chip-fg: #fff; }
+.acct.green { --chip-bg: #16a34a; --chip-fg: #fff; }
+.acct.lime { --chip-bg: #84cc16; --chip-fg: #1a2e05; }
+.acct.yellow { --chip-bg: #eab308; --chip-fg: #3a2f00; }
+.acct.amber { --chip-bg: #f59e0b; --chip-fg: #3a2a00; }
+.acct.orange { --chip-bg: #ea580c; --chip-fg: #fff; }
+.acct-link { text-decoration: none; }
+
 /* ---- badges and tags ---------------------------------------------------- */
 
 .tag, .badge {

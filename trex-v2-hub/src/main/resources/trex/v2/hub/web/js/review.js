@@ -1,6 +1,7 @@
 // Review mode (V2-PROPOSAL.md §10.1): the derived review queue, one decision away from clear.
 
 import { api } from './api.js';
+import { accountChip } from './account.js';
 import { decisions } from './decisions.js';
 import { openAnnotate } from './annotate.js';
 import { openPrompt } from './dialog.js';
@@ -13,6 +14,7 @@ let ctx;
 let listHost;
 let errorBar;
 let kind = '';
+let account = '';
 // Subjects the person has expanded; kept across re-renders so a refresh does not snap them shut.
 const expanded = new Set();
 
@@ -41,16 +43,21 @@ function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
   listHost = el('div');
+  const accounts = ((ctx.refdata && ctx.refdata.accounts) || []).map((a) => a.ref).filter(Boolean);
   host.append(errorBar, el('div', { class: 'toolbar' },
     field('Kind', el('select', {
       onchange: (e) => { kind = e.target.value; load(); },
-    }, ...KINDS.map((k) => el('option', { value: k, selected: k === kind }, k === '' ? 'all' : k))))),
+    }, ...KINDS.map((k) => el('option', { value: k, selected: k === kind }, k === '' ? 'all' : k)))),
+    field('Account', el('select', {
+      onchange: (e) => { account = e.target.value; load(); },
+    }, el('option', { value: '', selected: account === '' }, 'all'),
+      ...accounts.map((a) => el('option', { value: a, selected: a === account }, a))))),
     listHost);
 }
 
 async function load() {
   try {
-    const rows = await api.review(kind || undefined);
+    const rows = await api.review(kind || undefined, account || undefined);
     renderRows(rows);
     errorBar.hidden = true;
   } catch (error) {
@@ -65,12 +72,14 @@ function renderRows(rows) {
     listHost.append(el('p', { class: 'muted' }, 'Nothing open.'));
     return;
   }
-  const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'Date'), el('th', {}, 'Subject'),
-    el('th', {}, 'Detail'), el('th', { class: 'amount' }, 'Stake'), el('th', {}, 'Opened'), el('th', {}));
+  const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'Account'), el('th', {}, 'Date'),
+    el('th', {}, 'Subject'), el('th', {}, 'Detail'), el('th', { class: 'amount' }, 'Stake'),
+    el('th', {}, 'Opened'), el('th', {}));
   const body = rows.map((row) => {
     const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';
     return el('tr', {},
       el('td', {}, el('span', { class: 'badge ' + row.kind }, KIND_LABEL[row.kind] || row.kind)),
+      el('td', {}, accountChip(ctx.refdata, row.accountRef)),
       el('td', {}, row.date || ''),
       el('td', { class: 'desc', title: row.subject }, row.subjectDescription || shortId(row.subject)),
       memberCell(row),

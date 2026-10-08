@@ -32,6 +32,8 @@ class ConfigLoaderTest {
         assertTrue(registry.findAccount("ing-savings").isPresent());
         assertEquals("AUD", registry.account("ing-savings").currency());
         assertEquals(7, registry.account("ing-savings").settlementWindowDays());
+        assertEquals("blue", registry.account("ing-savings").chipColor());
+        assertEquals("stone", registry.account("westpac-card").chipColor());
 
         DeriveConfig config = loaded.config();
         assertTrue(config.configRevision().startsWith("sha256:"));

@@ -2,6 +2,7 @@
 // with inline decisions. Selection drives the batch actions.
 
 import { api } from './api.js';
+import { accountChip } from './account.js';
 import { decisions } from './decisions.js';
 import { openAnnotate } from './annotate.js';
 import { el, clear, field, scroll } from './dom.js';
@@ -125,7 +126,7 @@ function renderRows() {
     return el('tr', { class: classes },
       el('td', {}, checkbox),
       el('td', {}, row.date),
-      el('td', {}, row.accountRef),
+      el('td', {}, accountChip(refdata, row.accountRef)),
       el('td', { class: 'amount' }, money(row.amount)),
       el('td', { class: 'amount' }, money(row.balance)),
       el('td', { class: 'desc' }, row.rawDescription,

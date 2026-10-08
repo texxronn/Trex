@@ -54,8 +54,10 @@ final class HubHttpApi {
                 sendError(ex, 400, e.getMessage());
             }
         });
-        route(server, "/api/review", "GET",
-            ex -> write(ex, 200, api.review(param(ex.getRequestURI().getQuery(), "kind"))));
+        route(server, "/api/review", "GET", ex -> {
+            String query = ex.getRequestURI().getQuery();
+            write(ex, 200, api.review(param(query, "kind"), param(query, "account")));
+        });
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
         route(server, "/api/notes", "GET",
             ex -> write(ex, 200, api.notes(param(ex.getRequestURI().getQuery(), "externalId"))));
