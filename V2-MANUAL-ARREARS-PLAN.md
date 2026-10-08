@@ -5,7 +5,7 @@
 > wins — until the §4 amendment lands. `V2-COMMITMENTS-PLAN.md` §2.5/§2.9 is the earlier build
 > order this file **supersedes**.
 >
-> **Status:** planned; Stage 1 not started.
+> **Status:** Stages 0–2 implemented (`derive/10`); Stage 3 (dev rebuild + acceptance) in progress.
 > **Authority:** `V2-PROPOSAL.md` §6.11, §10.6; `V2-COMMITMENTS-PLAN.md` §2.5, §2.9;
 > `V2-EXPECTED-UX-PLAN.md`; `AGENTS.md`.
 > **Decision (operator, 2026-10-08):** the arrears/backlog workflow is **manual** — a fact attaches

@@ -1341,23 +1341,24 @@ or a declaration's rules cover every fact of its group.
 **Occurrences** are generated from cadence and anchor with `java.time` calendar arithmetic — a
 monthly bill on the 30th clamps in February, never "add 30 days" — for the recent past and a
 forward horizon, and are as disposable as the rest. A fact that matches one of the commitment's
-rules (or is pinned to it) and has the commitment's sign is allocated to the open occurrences
-oldest first (below); the window decides status, not admission — a window that closes unmatched is
-`missed`, and a later fact catches it up. Facts are consumed in `(date, n)` order and each belongs
-to at most one occurrence. Status is `occurred` (a fact satisfied it, with the fact id), `settled`
-(a person concluded it without a fact), `due`, `partial` (a fact covered part; the remainder is
-arrears) or `missed`. An `irregular` commitment generates no dates: each matching fact becomes an
-occurrence at its own date — tracked by observation, never predicted, never missed, never in
-arrears, never dormant. A pin never re-anchors; a pinned fact with no open occurrence is an
-`off_schedule` occurrence at its own date — "charged twice this month" is a true statement,
-never a silent match.
+rules (or is pinned to it) and has the commitment's sign **attaches to the occurrence whose window
+contains its date** (below); several facts in one window sum. The window decides status, not
+admission — a window that closes unmatched is `missed`, and a later fact in the window catches it
+up. Facts are consumed in `(date, n)` order and each belongs to at most one occurrence. Status is
+`occurred` (a fact landed in the window: the row carries the fact id and the amount that moved —
+a price, never an inferred shortfall), `settled` (a person concluded it without a fact), `due`, or
+`missed` (the window closed with no fact — a hole). `partial` is retired from automatic output.
+An `irregular` commitment generates no dates: each matching fact becomes an occurrence at its own
+date — tracked by observation, never predicted, never missed, never in arrears, never dormant.
+A pin never re-anchors; a pinned fact with no window is an `off_schedule` occurrence at its own
+date — "charged twice this month" is a true statement, never a silent match.
 
-**Arrears and catch-up.** An occurrence is in arrears while it is `missed`, or `partial` with a
-remainder; an `irregular` commitment has no due dates and therefore none. A matching fact is
-allocated oldest-first across the commitment's open occurrences — each takes up to its expected
-amount, a surplus pre-pays already-materialised future occurrences, and anything left is
-`off_schedule`. The backlog is visible until a fact or a `SETTLE_OCCURRENCE` clears it: nothing
-is auto-forgiven and nothing is auto-retired.
+**Arrears and catch-up are manual.** An occurrence is in arrears while it is `missed` — a window
+that closed with no fact, a hole; an `irregular` commitment has no due dates and therefore none.
+Nothing is allocated across occurrences and nothing pre-pays: a payment attaches to its own
+window, and how a lump maps onto holes is a person's conclusion, recorded by `SETTLE_OCCURRENCE`
+(paid off-journal) or by pinning the fact that paid them. The backlog is visible until a person
+clears it: nothing is auto-forgiven and nothing is auto-retired.
 
 **Dormancy is a review question.** A tracked, non-retired, regular commitment whose last
 satisfied occurrence is more than one cadence plus tolerance behind the frontier of the accounts

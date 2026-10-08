@@ -183,16 +183,16 @@ candidate raises review. Declared commitments generate occurrences from cadence 
 calendar arithmetic (past 12 months through `asOf + 92 days`); each occurrence carries a
 `± min(cadence/2, 7)`-day window, and one whose window closed with nothing covering it is `missed`.
 A fact is claimed by a pin first, else by the latest declaration whose rules, sign and materialised
-span admit it (facts are processed in `(date, n)` order), and every claimed fact is allocated
-oldest-first across that commitment's open occurrences (`due`, `missed`, `partial`) — the catch-up
-path, deliberately not bounded by the window. A catch-up payment clears arrears from the front, a
-surplus pre-pays already-materialised future occurrences, and anything left becomes an `off_schedule`
-occurrence at its own date; full coverage is within `max(2%, 50¢)`, below it the occurrence is
-`partial`. A `variable` commitment keeps one fact per occurrence; an `irregular` commitment generates
-no dates and records each matching fact at its own date — never a window, a miss, arrears or
-dormancy. Status is `occurred` (green, carrying the matched fact), `settled` (a person concluded it
-without a fact), `due`, `partial` or `missed`; `lapsed` mirrors the most recent closed-window
-occurrence still short — never the older backlog — and the older misses accumulate as
+span admit it (facts are processed in `(date, n)` order), and every claimed fact **attaches to the
+occurrence whose window contains its date** (V2-MANUAL-ARREARS-PLAN.md); several facts in one
+window sum and the occurrence is `occurred` at the amount that moved. Nothing is allocated across
+occurrences, nothing pre-pays, and a fact with no window becomes an `off_schedule` occurrence at
+its own date. A `variable` commitment attaches the whole fact like any other; an `irregular`
+commitment generates no dates and records each matching fact at its own date — never a window, a
+miss, arrears or dormancy. Status is `occurred` (green, carrying the matched fact), `settled` (a
+person concluded it without a fact), `due` or `missed`; `partial` is retired from automatic output
+(an amount is what moved, never an inferred shortfall); `lapsed` mirrors the most recent
+closed-window occurrence that is a hole — never the older backlog — and the holes accumulate as
 **arrears**. A retired commitment stops at `endedAt`; a dormant one is
 a question for a person (`DORMANT_COMMITMENT`), never auto-ended, and nothing is auto-forgiven.
 
@@ -376,7 +376,7 @@ after the §15 guarantees (`deriveIsPure`, `deriveComposeDeriveIsDerive`, `rebui
 `decisionsWinOverReflow`, …), and regression tests carrying the measured story. The commitments
 feature is pinned by `CommitmentsTest` (detection: buckets, regularity, same-day collapse, refunds,
 steps, FCY, coverage, determinism), `CommitmentMatchTest` (calendar generation, the window, pins,
-settle, catch-up allocation oldest-first, partial/pre-pay/off-schedule, variable and irregular,
+settle, attachment by date, holes and manual clearing, off-schedule, variable and irregular,
 retirement and the span), the `DeriveTest` commitment cases (curation fold, the three review kinds
 and their dismissal aging, transfer-leg commitments, dormancy, arrears), `IndexerTest` (the four
 tables through rebuild ≡ incremental), `CommitmentsApiTest` (the two endpoints and the review
@@ -441,7 +441,8 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 - `REVOKE`'s wire field renamed `target` → `revokes` (the envelope owns `target`);
 - the commitments feature (§6.11): rules, not vendors; core-fields-only matching with transfer legs
   in scope; the seven curation actions; the four derived tables; the three review kinds with their
-  own dismissal aging; the **Expected** mode; and arrears with automatic oldest-first catch-up —
+  own dismissal aging; the **Expected** mode; and **manual arrears** — a fact attaches to its own
+  window, holes are the backlog, and clearing is a decision (V2-MANUAL-ARREARS-PLAN.md) —
   post-proposal, with no v1 counterpart (pinned by `CommitmentsTest`, `CommitmentMatchTest`,
   `DeriveTest`, `IndexerTest` and `CommitmentsApiTest`);
 - migration (§16) is retired — there is no migration, and the importer is a dev tool.

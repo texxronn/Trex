@@ -153,6 +153,10 @@ annotated with a `NOTE` against the matched fact, or on the commitment's own thr
 
 ### 2.5 Occurrences and matching
 
+> **Superseded in part 2026-10-08:** the admission and status rules here stand, but the
+> "nearest unassigned fact" allocation and `partial` shortfall are replaced by attachment to the
+> fact's own window (`V2-MANUAL-ARREARS-PLAN.md` §3).
+
 - Generated from cadence + anchor with `java.time` **calendar arithmetic** — a monthly bill on the
   30th clamps in February; never "add 30 days".
 - Materialise the recent past (12 months) and a forward horizon (`asOf + 92 days`); all disposable
@@ -286,6 +290,10 @@ touch the fact chain.
   commitments land it can be re-sourced from missed occurrences, as a follow-up (§10.12).
 
 ### 2.9 Arrears and catch-up (the point of the feature)
+
+> **Superseded 2026-10-08:** `V2-MANUAL-ARREARS-PLAN.md`. A fact attaches to the occurrence its
+> window contains and arrears are the holes; there is no automatic oldest-first allocation,
+> `partial` shortfall or pre-payment. This section records the original build order only.
 
 A commitment that stops being paid does not disappear; the misses accumulate and stare back.
 Arrears are derived state, never stored on a fact, and clearing them is a first-class flow.
