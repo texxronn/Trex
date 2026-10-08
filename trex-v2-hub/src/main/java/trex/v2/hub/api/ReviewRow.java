@@ -15,4 +15,5 @@ import java.util.List;
  */
 public record ReviewRow(String subject, String kind, String detail, Long amountStake,
                         Instant openedAt, String stateHash, String subjectDescription,
-                        LocalDate date, List<ReviewMember> members, String accountRef) {}
+                        LocalDate date, List<ReviewMember> members, String accountRef,
+                        Long amount) {}

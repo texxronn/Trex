@@ -29,6 +29,9 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A Direction column** (`IN ←` green, `OUT →` bright red) on the **Review**, **Blotter** and
+  **Eyeball** tables, alongside the signed amount. `/api/review` now carries the signed `amount` as
+  well as the absolute stake, so the queue can show direction.
 - **Attached clearing transfers** (`ATTACH_ACCOUNT`): a pruned counterparty period (statements gone)
   is reconciled by naming the transfer-shaped legs and a `clearing` account — the legs become
   transfers with an account side, never a fabricated fact. Derive also materialises the clearing side

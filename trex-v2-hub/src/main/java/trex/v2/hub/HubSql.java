@@ -30,10 +30,11 @@ final class HubSql {
     static final String REVIEW_SELECT = """
         SELECT r.subject, r.kind, r.detail, r.amount_stake, r.opened_at, r.state_hash,
                x.raw_description, x.date,
-               COALESCE(x.account_ref, CASE WHEN r.kind = 'BALANCE_BREAK' THEN r.subject END) AS account_ref
+               COALESCE(x.account_ref, CASE WHEN r.kind = 'BALANCE_BREAK' THEN r.subject END) AS account_ref,
+               x.amount
         FROM review_item r
         LEFT JOIN (
-            SELECT f.external_id, f.raw_description, f.date, f.account_ref
+            SELECT f.external_id, f.raw_description, f.date, f.account_ref, f.amount
             FROM fact f
             WHERE f.n = (SELECT MAX(g.n) FROM fact g WHERE g.external_id = f.external_id)
         ) x ON x.external_id = r.subject""";

@@ -272,6 +272,11 @@ td.members .chip.t5 { background: color-mix(in srgb, #06b6d4 16%, var(--surface)
 /* A derived clearing leg (§6.10): visibly not a source observation. */
 .tag.synthetic { background: var(--surface-2); color: var(--muted); border-color: var(--line-strong); }
 
+/* Direction: a credit is green IN, a debit is bright red OUT. */
+.dir { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dir.in { color: var(--good); }
+.dir.out { color: #ef4444; font-weight: 600; }
+
 /* ---- badges and tags ---------------------------------------------------- */
 
 .tag, .badge {
