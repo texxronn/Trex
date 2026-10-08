@@ -704,21 +704,25 @@ class DeriveTest {
 
         Derivation byRule = Derive.derive(facts, List.of(declare), config(), ASOF);
         assertEquals(OccurrenceStatus.MISSED,
-            at(occurrences(byRule, "bills"), LocalDate.of(2026, 3, 15)).status());
-        assertNull(at(occurrences(byRule, "bills"), LocalDate.of(2026, 3, 15)).matchedExternalId());
+            at(occurrences(byRule, "bills"), LocalDate.of(2026, 6, 15)).status(),
+            "the rules miss the BPAY row");
+        assertNull(at(occurrences(byRule, "bills"), LocalDate.of(2026, 6, 15)).matchedExternalId());
 
-        // A pin allocates like a rule match: the oldest open occurrence takes the fact (§2.9).
+        // The pin places the fact on its own window: the June 15 occurrence.
         Derivation pinned = Derive.derive(facts, List.of(declare, pin), config(), ASOF);
-        CommitmentOccurrence march = at(occurrences(pinned, "bills"), LocalDate.of(2026, 3, 15));
-        assertEquals(OccurrenceStatus.OCCURRED, march.status());
-        assertEquals("bpay", march.matchedExternalId());
-        assertEquals("pin", march.matchedBy());
+        CommitmentOccurrence june = at(occurrences(pinned, "bills"), LocalDate.of(2026, 6, 15));
+        assertEquals(OccurrenceStatus.OCCURRED, june.status());
+        assertEquals("bpay", june.matchedExternalId());
+        assertEquals("pin", june.matchedBy());
+        assertEquals(OccurrenceStatus.MISSED,
+            at(occurrences(pinned, "bills"), LocalDate.of(2026, 3, 15)).status(),
+            "a pin lands on the fact's own window, never oldest-first");
 
         Derivation unpinned = Derive.derive(facts, List.of(declare, pin,
             new Decision.UnpinCommitment(21, List.of("bpay"), "back to the rules", Actor.USER, "ron", ASOF)),
             config(), ASOF);
         assertEquals(OccurrenceStatus.MISSED,
-            at(occurrences(unpinned, "bills"), LocalDate.of(2026, 3, 15)).status());
+            at(occurrences(unpinned, "bills"), LocalDate.of(2026, 6, 15)).status());
         assertTrue(unpinned.ineffective().stream()
             .noneMatch(i -> i.action().equals(Action.UNPIN_COMMITMENT.wire())), "not pinned is harmless");
     }
@@ -764,9 +768,9 @@ class DeriveTest {
             new Decision.RetireCommitment(12, "bills", LocalDate.of(2026, 6, 20), "closed",
                 Actor.USER, "ron", ASOF)),
             config(), ASOF);
-        CommitmentOccurrence march = at(occurrences(d, "bills"), LocalDate.of(2026, 3, 15));
-        assertEquals(OccurrenceStatus.OCCURRED, march.status(), "the pin predates the retirement");
-        assertEquals("pin", march.matchedBy());
+        CommitmentOccurrence june = at(occurrences(d, "bills"), LocalDate.of(2026, 6, 15));
+        assertEquals(OccurrenceStatus.OCCURRED, june.status(), "the pin predates the retirement");
+        assertEquals("pin", june.matchedBy());
         assertTrue(d.ineffective().stream()
             .noneMatch(i -> i.action().equals(Action.PIN_COMMITMENT.wire())));
         assertEquals(CommitmentStatus.ENDED, commitment(d, "bills").status());
@@ -906,23 +910,34 @@ class DeriveTest {
     }
 
     @Test
-    void aCatchUpLumpClearsTheArrearsAndTheReviewItem() {
+    void aLumpOutsideEveryWindowIsOffScheduleAndTheHolesStayUntilSettled() {
         List<Fact> facts = new ArrayList<>(acmeFacts());
         facts.add(fact(8, "lump", "ing-savings", LocalDate.of(2026, 9, 28), -30000, "ACME BILL", null, 0));
 
         Derivation d = Derive.derive(facts,
             List.of(declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME")),
             config(), ASOF);
-        assertEquals(0, commitment(d, "acme").arrearsCount(), "the backlog cleared from the front");
-        assertTrue(item(d, ReviewItem.COMMITMENT_ARREARS, "acme").isEmpty());
-        for (LocalDate due : List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15),
-                LocalDate.of(2026, 9, 15))) {
-            CommitmentOccurrence occurrence = at(occurrences(d, "acme"), due);
-            assertEquals(OccurrenceStatus.OCCURRED, occurrence.status());
-            assertEquals("lump", occurrence.matchedExternalId(), "one payment covered three periods");
-        }
+        assertEquals(3, commitment(d, "acme").arrearsCount(),
+            "July–September are holes; nothing auto-clears them");
+        assertEquals(-30000L, commitment(d, "acme").arrearsAmount().longValue());
+        assertTrue(item(d, ReviewItem.COMMITMENT_ARREARS, "acme").isPresent());
+        CommitmentOccurrence lump = at(occurrences(d, "acme"), LocalDate.of(2026, 9, 28));
+        assertTrue(lump.offSchedule(), "September 28 is outside the September 8–22 window");
+        assertEquals(-30000L, lump.amount().longValue(), "the movement is never swallowed");
         assertEquals(CommitmentStatus.ACTIVE, commitment(d, "acme").status(),
-            "the catch-up is engagement, not silence");
+            "the off-schedule lump is engagement, not silence");
+
+        // The manual clearing path: a person concludes the holes (SETTLE_OCCURRENCE).
+        Derivation settled = Derive.derive(facts, List.of(
+            declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"),
+            new Decision.SettleOccurrence(11, "acme",
+                List.of(LocalDate.of(2026, 7, 15), LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 15)),
+                "paid in cash", Actor.USER, "ron", ASOF)),
+            config(), ASOF);
+        assertEquals(0, commitment(settled, "acme").arrearsCount(), "the backlog cleared by decision");
+        assertTrue(item(settled, ReviewItem.COMMITMENT_ARREARS, "acme").isEmpty());
+        assertEquals(CommitmentStatus.ACTIVE, commitment(settled, "acme").status(),
+            "September is satisfied again");
     }
 
     @Test
