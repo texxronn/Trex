@@ -28,6 +28,12 @@ import java.util.List;
  * <p>{@code stateHash} is the row's content hash (§2.7): a canonical serialisation of the fields
  * that make up the candidate, so a rebuild re-derives the same value. It is a method, not a
  * component, so no caller can set it out of step with the content.
+ *
+ * <p>{@code outliers} counts the transient one-offs detection flagged in the series
+ * (V2-COMMITMENT-EXCLUSIONS-PLAN.md §3): an interior occurrence at least double (or at most half)
+ * its predecessor's magnitude whose successor returns to that level. Flagging only — the
+ * occurrence list, gaps, steps and cost are unchanged; a person excludes a fact with a decision.
+ * Always 0 for a declared row.
  */
 public record Commitment(
     String commitmentId,
@@ -50,6 +56,7 @@ public record Commitment(
     Long costToDate,
     Long annualised,
     int occurrenceCount,
+    int outliers,
     Double regularity,
     boolean variable,
     int arrearsCount,
@@ -108,6 +115,7 @@ public record Commitment(
             .append(costToDate).append('|')
             .append(annualised).append('|')
             .append(occurrenceCount).append('|')
+            .append(outliers).append('|')
             .append(regularity).append('|')
             .append(variable).append('|')
             .append(arrearsCount).append('|')

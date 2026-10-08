@@ -551,16 +551,16 @@ public final class HubQueries implements AutoCloseable {
                  ResultSet rs = st.executeQuery(HubSql.COMMITMENTS_SELECT)) {
                 while (rs.next()) {
                     String id = rs.getString(1);
-                    out.add(new CommitmentJson(id, rs.getString(2), rs.getString(24),
+                    out.add(new CommitmentJson(id, rs.getString(2), rs.getString(25),
                         rs.getString(3), rs.getString(4),
                         rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
                         nullableDate(rs.getString(9)), nullableDate(rs.getString(10)),
                         nullableDate(rs.getString(11)), nullableLong(rs, 12), nullableLong(rs, 13),
                         nullableDouble(rs, 14), nullableDate(rs.getString(15)), rs.getInt(16),
-                        nullableDouble(rs, 17), rs.getInt(18) != 0, rs.getInt(19),
-                        nullableLong(rs, 20), nullableLong(rs, 21), nullableLong(rs, 22),
-                        nullableDate(rs.getString(23)), rules.getOrDefault(id, List.of()),
-                        nullableDate(rs.getString(25)), notes.getOrDefault(id, List.of())));
+                        rs.getInt(17), nullableDouble(rs, 18), rs.getInt(19) != 0, rs.getInt(20),
+                        nullableLong(rs, 21), nullableLong(rs, 22), nullableLong(rs, 23),
+                        nullableDate(rs.getString(24)), rules.getOrDefault(id, List.of()),
+                        nullableDate(rs.getString(26)), notes.getOrDefault(id, List.of())));
                 }
             }
             return out;

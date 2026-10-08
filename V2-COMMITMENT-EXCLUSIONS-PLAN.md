@@ -4,7 +4,7 @@
 > is the build order for one change to it. Where this file and the proposal disagree, the proposal
 > wins — until the §5 amendment lands.
 >
-> **Status:** planned; not started.
+> **Status:** Stage 1 (the flag) implemented (`derive/11`); Stage 2 (the decisions) next.
 > **Authority:** `V2-PROPOSAL.md` §6.2 (the action set), §6.11 (commitments); `AGENTS.md`.
 > **Decision (operator, 2026-10-09):** transient one-offs are **flagged** by detection (a deviation
 > check), never silently dropped; a person **excludes** a specific fact from a specific commitment

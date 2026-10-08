@@ -117,9 +117,9 @@ migration, `trex verify` stays green and is not part of this acceptance.
     (disposable; `IndexSchema` carries the shape guard) and is exposed as `stem` in
     `CommitmentJson`: a candidate shows its stem where a declared row shows its name; the
     hash id is the hover title only.
-  - **Evidence.** The row gains a series line — occurrence count, span, regularity,
-    `variable` — and the price change date; kind `other` renders as `—` for candidates
-    (a default, not a conclusion).
+  - **Evidence.** The row gains a series line — occurrence count, span, regularity, `variable`,
+    `+n one-off(s)` when detection flagged a transient deviation — and the price change date; kind
+    `other` renders as `—` for candidates (a default, not a conclusion).
   - **Actions.** Candidates get an **Actions…** dialog: **Review** (deep-links
     `#review?kind=SUSPECTED_RECURRING`; Review learns `ctx.modeQuery`), **Confirm…** (the
     same prefill as Review, shared from `commitment.js`) and **Ignore…** (a reason required).

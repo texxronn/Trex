@@ -175,7 +175,10 @@ grouping on the frozen `MerchantStem.stem`: at least three occurrences; gaps wit
 collapsed into one occurrence; refunds netted against the charge they reverse; a consecutive change
 of `≥ 5%` or `≥ 50¢` is a price step; and a series whose every row carries
 `Foreign Currency Amount:` compares the FCY price (a series where only some rows do stays on
-AUD, so mixing bases cannot invent a step). Coverage is relative to the accounts' posted
+AUD, so mixing bases cannot invent a step). Detection also **flags transient one-offs**: an
+interior occurrence at least double (or at most half) its predecessor's magnitude whose successor
+returns to that level counts as `outliers` — flagging only, the series and steps are unchanged;
+excluding one is a decision (`V2-COMMITMENT-EXCLUSIONS-PLAN.md`). Coverage is relative to the accounts' posted
 frontier, never a clock: `active` inside one cadence plus tolerance, `ended` beyond two periods,
 otherwise `dormant`. A candidate is suppressed by an effective `IGNORE_RECURRING`, by a declaration
 that named it as `fromCandidate`, or by declaration rules covering its facts, and only a non-ended
