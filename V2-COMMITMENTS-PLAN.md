@@ -98,6 +98,9 @@ execution order is incidental.
   written (lint, like category pins).
 - **Rules are hygiene-checked.** The hub precheck compiles each rule and runs the existing
   catastrophic-backtracking lint (`CatastrophicRegex`); a bad rule is a `422` naming the rule.
+  A bad rule that still reaches the log through another writer (a stream, a hand-edited line)
+  makes its declaration ineffective — an `INEFFECTIVE_DECISION` naming the rule — rather than
+  failing the derivation; an earlier or later good declaration of the same id stands.
 
 ### 2.3 Detection (pure, deterministic)
 
@@ -300,6 +303,9 @@ Arrears are derived state, never stored on a fact, and clearing them is a first-
   allocated amount; one covered only partly becomes `partial`, with the remainder still in
   arrears. A surplus beyond all open occurrences pre-pays future occurrences already materialised;
   anything left after that becomes an `off_schedule` occurrence — nothing is swallowed. The
+  occurrence table holds one row per `(commitment, dueDate)`, so a leftover amount on a date that
+  already has a row merges into it — the day's summed amount, never a second row and never a
+  dropped amount (detection's same-day collapse, §2.3.3, now on the outcome side). The
   allocation is not bounded by the normal ± date window (that window only finds the occurrence an
   on-time fact belongs to) and never reaches past the first occurrence; a fact older than the
   materialised span is not an occurrence of a regular commitment at all (an `irregular`

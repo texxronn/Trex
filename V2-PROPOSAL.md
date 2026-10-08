@@ -1289,7 +1289,10 @@ as **arrears**.
 **Rules, not vendors.** There is no vendor entity. A commitment is exactly a name, its faces
 and its rules; a rule is `{match: <regex>, account?: <ref>}` evaluated against
 `clean(rawDescription)` with the same pattern semantics and lint as `categories.yaml` /
-`transfers.yaml` (a bad rule is a `422`, §9.3). Descriptor churn is just another rule
+`transfers.yaml` (a bad rule is a `422`, §9.3). A rule that does not compile and still reaches
+the log through another writer makes its declaration ineffective and visible
+(`INEFFECTIVE_DECISION` naming the rule) rather than failing the derivation; an earlier or later
+good declaration of the id stands. Descriptor churn is just another rule
 (`ANTHROPIC`, `ANTHROPIC* CLAUDE SUB`, `CLAUDE.AI SUBSCRIPTION` are three rules on one
 commitment), and a provider move is a workflow, not a link: `RETIRE_COMMITMENT` ends the old
 series and `DECLARE_COMMITMENT` starts the new one; the two histories stand alone.
