@@ -1,0 +1,23 @@
+package trex.v2.hub.api;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * One row of the commitment registry (V2-COMMITMENTS-PLAN.md §2.7, §2.8): the faces a person
+ * curates and the derived cost, coverage and arrears figures, plus the commitment's note thread
+ * (oldest first, like {@code NOTE}). Candidates ({@code origin=detected}, id {@code cand|<hex>})
+ * and declared rows share the shape; a candidate's {@code name} is null and its
+ * {@code declaredN}/{@code retiredN} are null.
+ *
+ * <p>All amounts are signed exactly as the facts and {@code commitment} hold them: a {@code −} for
+ * an outflow, a {@code +} for income.
+ */
+public record CommitmentJson(String commitmentId, String name, String origin, String direction,
+                             String cadence, String amountKind, String kind, String status,
+                             LocalDate firstDate, LocalDate lastDate, LocalDate anchorDate,
+                             Long currentAmount, Long previousAmount, Double changePct,
+                             LocalDate changeDate, int occurrenceCount, Double regularity,
+                             boolean variable, int arrearsCount, Long arrearsAmount,
+                             Long declaredN, Long retiredN, LocalDate endedAt,
+                             List<NoteJson> notes) {}

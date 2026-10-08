@@ -226,6 +226,31 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     @Override
+    public List<trex.v2.hub.api.CommitmentJson> commitments() {
+        return reads.commitments();
+    }
+
+    /**
+     * The Expected view (§2.8): the window is a calendar period, spelled with the same grains as
+     * every other mode — today is one day, week is the ISO week, month the calendar month — and the
+     * occurrences themselves are the materialised rows, filtered by due date. The clock enters only
+     * as the default measurement day, exactly as {@link #accounts}.
+     */
+    @Override
+    public trex.v2.hub.api.ExpectedResponse expected(String window, LocalDate asOf) {
+        String win = window == null || window.isBlank() ? "month" : window;
+        LocalDate at = asOf == null ? LocalDate.now() : asOf;
+        Period.Range range = switch (win) {
+            case "today" -> Period.bounds(at.toString());
+            case "week" -> Period.bounds(Period.weekKey(at));
+            case "month" -> Period.bounds(YearMonth.from(at).toString());
+            default -> throw new IllegalArgumentException(
+                "window must be today, week or month, not '" + win + "'");
+        };
+        return reads.expected(win, range);
+    }
+
+    @Override
     public List<TransferJson> transfers() {
         return reads.transfers();
     }

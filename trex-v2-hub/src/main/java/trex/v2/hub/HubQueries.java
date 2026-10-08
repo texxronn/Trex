@@ -1,6 +1,8 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
+import trex.v2.hub.api.ExpectedResponse;
 import trex.v2.hub.api.LedgerPage;
 import trex.v2.hub.api.LedgerRow;
 import trex.v2.hub.api.NoteJson;
@@ -10,6 +12,7 @@ import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
 import trex.v2.core.config.TransferRules;
+import trex.v2.core.derive.Period;
 import trex.v2.core.derive.ReviewItem;
 
 import java.nio.file.Path;
@@ -39,7 +42,8 @@ public final class HubQueries implements AutoCloseable {
 
     private static final List<String> STATUS_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
-        "pending", "review_item", "category_current", "pin_current", "ineffective_decision", "unit", "evidence");
+        "pending", "review_item", "category_current", "pin_current", "ineffective_decision",
+        "commitment", "commitment_rule", "commitment_occurrence", "commitment_note", "unit", "evidence");
 
     private final BlockingQueue<Connection> pool;
     private final int size;
@@ -488,6 +492,113 @@ public final class HubQueries implements AutoCloseable {
         } catch (com.fasterxml.jackson.core.JacksonException e) {
             return List.of();
         }
+    }
+
+    // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
+
+    /** The registry: every candidate and declared row, each with its notes thread (oldest first). */
+    public List<CommitmentJson> commitments() {
+        return read(conn -> {
+            Map<String, List<NoteJson>> notes = new LinkedHashMap<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.COMMITMENT_NOTES_SELECT)) {
+                while (rs.next()) {
+                    notes.computeIfAbsent(rs.getString(2), k -> new ArrayList<>())
+                        .add(new NoteJson(rs.getString(2), rs.getString(3), rs.getLong(1),
+                            rs.getString(4), Instant.parse(rs.getString(5))));
+                }
+            }
+            List<CommitmentJson> out = new ArrayList<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.COMMITMENTS_SELECT)) {
+                while (rs.next()) {
+                    String id = rs.getString(1);
+                    out.add(new CommitmentJson(id, rs.getString(2), rs.getString(3), rs.getString(4),
+                        rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
+                        nullableDate(rs.getString(9)), nullableDate(rs.getString(10)),
+                        nullableDate(rs.getString(11)), nullableLong(rs, 12), nullableLong(rs, 13),
+                        nullableDouble(rs, 14), nullableDate(rs.getString(15)), rs.getInt(16),
+                        nullableDouble(rs, 17), rs.getInt(18) != 0, rs.getInt(19),
+                        nullableLong(rs, 20), nullableLong(rs, 21), nullableLong(rs, 22),
+                        nullableDate(rs.getString(23)), notes.getOrDefault(id, List.of())));
+                }
+            }
+            return out;
+        });
+    }
+
+    /**
+     * The Expected view (§2.8) for one calendar window: the window's occurrences, the whole
+     * arrears backlog (oldest first, running total) and the window's committed totals by direction.
+     * A row's committed magnitude is what it carries — the allocated share once a fact landed, the
+     * commitment's current price while nothing has — so a {@code partial} row contributes its
+     * allocated part here and its remainder is in the backlog.
+     */
+    public ExpectedResponse expected(String window, Period.Range range) {
+        return read(conn -> {
+            List<ExpectedResponse.Occurrence> occurrences = new ArrayList<>();
+            long out = 0;
+            long in = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.EXPECTED_OCCURRENCES)) {
+                ps.setString(1, range.from().toString());
+                ps.setString(2, range.to().toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String direction = rs.getString(3);
+                        Long currentAmount = nullableLong(rs, 5);
+                        Long amount = nullableLong(rs, 10);
+                        occurrences.add(new ExpectedResponse.Occurrence(rs.getString(1),
+                            rs.getString(2), direction, rs.getString(4),
+                            LocalDate.parse(rs.getString(6)), nullableDate(rs.getString(7)),
+                            nullableDate(rs.getString(8)), rs.getString(9), amount,
+                            rs.getString(11), nullableDate(rs.getString(12)), rs.getString(13),
+                            rs.getInt(14) != 0, nullableLong(rs, 15)));
+                        long committed = amount != null ? Math.abs(amount)
+                            : currentAmount == null ? 0 : Math.abs(currentAmount);
+                        if ("out".equals(direction)) {
+                            out += committed;
+                        } else {
+                            in += committed;
+                        }
+                    }
+                }
+            }
+            List<ExpectedResponse.Arrear> arrears = new ArrayList<>();
+            long running = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ARREARS_OCCURRENCES);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Long currentAmount = nullableLong(rs, 5);
+                    Long amount = nullableLong(rs, 8);
+                    String status = rs.getString(7);
+                    long expected = currentAmount != null ? Math.abs(currentAmount)
+                        : amount == null ? 0 : Math.abs(amount);
+                    long paid = amount == null ? 0 : Math.abs(amount);
+                    long shortfall = "missed".equals(status) ? expected
+                        : Math.max(0, expected - paid);
+                    running += shortfall;
+                    arrears.add(new ExpectedResponse.Arrear(rs.getString(1), rs.getString(2),
+                        rs.getString(3), rs.getString(4), LocalDate.parse(rs.getString(6)), status,
+                        amount, expected, shortfall, running));
+                }
+            }
+            return new ExpectedResponse(window, range.from(), range.to(), occurrences, arrears,
+                new ExpectedResponse.Totals(out, in));
+        });
+    }
+
+    private static Long nullableLong(ResultSet rs, int column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    private static Double nullableDouble(ResultSet rs, int column) throws SQLException {
+        double value = rs.getDouble(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    private static LocalDate nullableDate(String value) {
+        return value == null ? null : LocalDate.parse(value);
     }
 
     public List<TransferJson> transfers() {

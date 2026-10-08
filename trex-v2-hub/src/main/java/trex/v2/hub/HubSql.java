@@ -61,6 +61,39 @@ final class HubSql {
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, method, clearing_account, matched_at
         FROM transfer ORDER BY transfer_id""";
 
+    // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
+
+    /** The registry: every candidate and declared row, ordered by id (deterministic). */
+    static final String COMMITMENTS_SELECT = """
+        SELECT commitment_id, name, origin, direction, cadence, amount_kind, kind, status,
+               first_date, last_date, anchor_date, current_amount, previous_amount, change_pct,
+               change_date, occurrence_count, regularity, variable, arrears_count, arrears_amount,
+               declared_n, retired_n, ended_at
+        FROM commitment ORDER BY commitment_id""";
+
+    /** The effective {@code NOTE_COMMITMENT} thread, oldest first, like {@code note_current}. */
+    static final String COMMITMENT_NOTES_SELECT =
+        "SELECT decision_n, commitment_id, text, user_id, at FROM commitment_note ORDER BY decision_n";
+
+    /** The window's occurrences joined to their commitment, oldest first (§2.8). */
+    static final String EXPECTED_OCCURRENCES = """
+        SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
+               o.due_date, o.window_start, o.window_end, o.status, o.amount,
+               o.matched_external_id, o.matched_date, o.matched_by, o.off_schedule, o.settle_n
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE o.due_date >= ? AND o.due_date <= ?
+        ORDER BY o.due_date, o.commitment_id""";
+
+    /** Every occurrence in arrears, oldest first, with the price its shortfall is measured against. */
+    static final String ARREARS_OCCURRENCES = """
+        SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
+               o.due_date, o.status, o.amount
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE o.status IN ('missed', 'partial')
+        ORDER BY o.due_date, o.commitment_id""";
+
     /** All-time first/last transaction date and the row count, one row per account. */
     static final String ACCOUNT_TOTALS = """
         SELECT account_ref, MIN(date), MAX(date), COUNT(*)
