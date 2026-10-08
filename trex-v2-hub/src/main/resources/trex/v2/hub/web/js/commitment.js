@@ -344,77 +344,185 @@ export function ignoreCandidate(ctx, candidate, onDone) {
 }
 
 /**
- * A candidate row's menu: the series' transactions in a table and a rudimentary price
- * timeseries, then confirm it here, hand it to Review, or ignore it for good. The facts load on
- * open — the registry payload stays lean.
+ * A commitment's menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): the activity table and a rudimentary
+ * price timeseries, with the curation actions below — Review/Confirm/Ignore for a candidate,
+ * Re-declare/Retire/Note/Settle for a declared commitment. The activity loads on open, by id.
  */
-export function openCandidateActions(ctx, candidate, onDone) {
+export function openCommitmentActions(ctx, c, onDone) {
   const txPane = el('div', { class: 'tx-pane' }, el('p', { class: 'muted' }, 'Loading…'));
   const chartPane = el('div', { class: 'chart-pane' }, el('p', { class: 'muted' }, 'Loading…'));
   openChoice({
-    title: candidate.stem || shortId(candidate.commitmentId),
-    summary: candidate.detail || 'Detected recurring series',
+    title: c.name || c.stem || shortId(c.commitmentId),
+    summary: rowDetail(c),
     body: el('div', { class: 'popup-split' },
       el('div', { class: 'popup-pane' }, el('h4', {}, 'Transactions'), txPane),
       el('div', { class: 'popup-pane' }, el('h4', {}, 'Price'), chartPane)),
     xwide: true,
-  }, [
+  }, c.origin === 'detected' ? candidateChoices(ctx, c, onDone) : declaredChoices(ctx, c, onDone));
+  loadActivity(c, txPane, chartPane);
+}
+
+/** The registry row's faces as one line for the menu's subtitle. */
+function rowDetail(c) {
+  const bits = [c.cadence];
+  if (c.origin === 'detected' && c.occurrenceCount) {
+    bits.push(`${c.occurrenceCount}\u00d7`);
+  }
+  if (c.origin === 'detected' && c.firstDate) {
+    bits.push(c.lastDate ? `${c.firstDate} \u2192 ${c.lastDate}` : c.firstDate);
+  }
+  if (c.currentAmount != null) {
+    bits.push(`last ${money(c.currentAmount)}`
+      + (c.previousAmount != null ? ` (was ${money(c.previousAmount)})` : ''));
+  }
+  if (c.origin === 'detected' && c.regularity != null) {
+    bits.push(`regularity ${c.regularity.toFixed(2)}`);
+  }
+  return bits.join(' \u00b7 ');
+}
+
+/** A candidate's actions: confirm it here, hand it to Review, or ignore it for good. */
+function candidateChoices(ctx, c, onDone) {
+  const candidate = { stem: c.stem, cadence: c.cadence, currentAmount: c.currentAmount,
+    firstDate: c.firstDate, detail: rowDetail(c) };
+  return [
     { label: 'Review', onPick: () => { location.hash = '#review?kind=SUSPECTED_RECURRING'; } },
     { label: 'Ignore…', class: 'warn', onPick: () => ignoreCandidate(ctx, candidate, onDone) },
     { label: 'Confirm…', class: 'primary', onPick: () => confirmCandidate(ctx, candidate, onDone) },
-  ]);
-  loadCandidateFacts(candidate, txPane, chartPane);
+  ];
 }
 
-/** The series behind the candidate: the same lens the detector grouped with (§7 Stage 2). */
-async function loadCandidateFacts(candidate, txPane, chartPane) {
-  let facts;
+/** A declared commitment's actions: the row's curation gestures, in the menu. */
+function declaredChoices(ctx, c, onDone) {
+  const choices = [
+    { label: 'Re-declare', class: 'ghost',
+      onPick: () => openDeclare(ctx, reDeclarePrefill(c), onDone) },
+  ];
+  if (c.retiredN == null) {
+    choices.push({ label: 'Retire', class: 'warn',
+      onPick: () => openRetire(ctx, { commitmentId: c.commitmentId, name: c.name }, onDone) });
+  }
+  choices.push({ label: 'Note', class: 'ghost',
+    onPick: () => openCommitmentNote(ctx, { commitmentId: c.commitmentId, name: c.name }, onDone) });
+  if (c.arrearsCount) {
+    choices.push({ label: 'Settle', class: 'primary',
+      onPick: () => settleBacklog(ctx, c, onDone) });
+  }
+  return choices;
+}
+
+/** The declaration dialog's prefill: the current faces and the effective rules under the same id. */
+function reDeclarePrefill(c) {
+  return {
+    commitmentId: c.commitmentId,
+    name: c.name || '',
+    kind: c.kind,
+    direction: c.direction,
+    cadence: c.cadence,
+    amountKind: c.amountKind,
+    amount: c.currentAmount == null ? null : Math.abs(c.currentAmount),
+    anchor: c.anchorDate || '',
+    matches: c.rules || [],
+    fromCandidate: null,
+    idLocked: true,
+  };
+}
+
+/** Settle the whole backlog: the same gesture as Review and the Catch up panel. */
+async function settleBacklog(ctx, c, onDone) {
+  let expected;
   try {
-    facts = await api.candidateFacts(candidate.stem);
+    expected = await api.expected('today');
+  } catch (error) {
+    reportError(error);
+    return;
+  }
+  const dueDates = [...new Set((expected.arrears || [])
+    .filter((a) => a.commitmentId === c.commitmentId)
+    .map((a) => a.dueDate))];
+  if (!dueDates.length) {
+    toast('Nothing in arrears to settle', 'bad');
+    return;
+  }
+  openSettle(ctx, { commitmentId: c.commitmentId, name: c.name, dueDates }, onDone);
+}
+
+/** The commitment's activity, by id: a candidate's facts, or a declared commitment's periods. */
+async function loadActivity(c, txPane, chartPane) {
+  let rows;
+  try {
+    rows = await api.activity(c.commitmentId);
   } catch (error) {
     clear(txPane);
     clear(chartPane);
-    const message = error.message || 'failed to load transactions';
+    const message = error.message || 'failed to load activity';
     txPane.append(el('p', { class: 'error' }, message));
-    chartPane.append(el('p', { class: 'muted' }, '—'));
+    chartPane.append(el('p', { class: 'muted' }, '\u2014'));
     return;
   }
   clear(txPane);
   clear(chartPane);
-  if (!facts.length) {
-    txPane.append(el('p', { class: 'muted' }, 'No current transactions.'));
+  if (!rows.length) {
+    txPane.append(el('p', { class: 'muted' }, 'No activity.'));
     chartPane.append(el('p', { class: 'muted' }, 'No price points.'));
     return;
   }
-  txPane.append(factsTable(facts));
-  chartPane.append(priceChart(facts));
-}
-
-/** The transactions as a compact table: date, account, signed amount, raw description. */
-function factsTable(facts) {
-  return el('table', { class: 'tx-table' },
-    el('thead', {}, el('tr', {},
-      el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', { class: 'amount' }, 'Amount'),
-      el('th', {}, 'Description'))),
-    el('tbody', {}, ...facts.map((f) => el('tr', {},
-      el('td', { class: 'tx-date' }, f.date),
-      el('td', { class: 'tx-account muted', title: f.accountRef }, f.accountRef),
-      el('td', { class: 'amount ' + (f.amount < 0 ? 'tx-out' : 'tx-in') }, money(f.amount)),
-      el('td', { class: 'tx-desc muted', title: f.rawDescription }, f.rawDescription)))));
+  txPane.append(activityTable(rows));
+  chartPane.append(priceChart(rows));
 }
 
 /**
- * A rudimentary price timeseries: same-day facts sum (detection's collapse), magnitudes plot
+ * The activity as a compact table: date, account, signed amount, description; a Status column
+ * appears when the rows carry one (a declared commitment's occurrences).
+ */
+function activityTable(rows) {
+  const withStatus = rows.some((r) => r.status);
+  return el('table', { class: 'tx-table' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, 'Date'),
+      withStatus ? el('th', {}, 'Status') : null,
+      el('th', {}, 'Account'),
+      el('th', { class: 'amount' }, 'Amount'),
+      el('th', {}, 'Description'))),
+    el('tbody', {}, ...rows.map((r) => el('tr', {},
+      el('td', { class: 'tx-date' }, r.date),
+      withStatus ? el('td', {}, statusLabel(r.status)) : null,
+      el('td', { class: 'tx-account muted', title: r.accountRef || '' }, r.accountRef || '\u2014'),
+      el('td', { class: 'amount ' + (r.amount == null ? '' : r.amount < 0 ? 'tx-out' : 'tx-in') },
+        r.amount == null ? '\u2014' : money(r.amount)),
+      el('td', { class: 'tx-desc muted', title: r.rawDescription || '' },
+        r.rawDescription || '')))));
+}
+
+/** The occurrence states in the activity table, the same reading as the Expected view. */
+function statusLabel(status) {
+  switch (status) {
+    case 'occurred': return el('span', { class: 'tick' }, '\u2713 occurred');
+    case 'settled': return el('span', { class: 'occ-settled' }, '\u25c6 settled');
+    case 'missed': return el('span', { class: 'occ-missed' }, '\u2717 missed');
+    case 'due': return el('span', { class: 'muted' }, 'due');
+    default: return el('span', { class: 'muted' }, status || '');
+  }
+}
+
+/**
+ * A rudimentary price timeseries: same-day movements sum (detection's collapse), magnitudes plot
  * against a zero baseline, and each point carries its signed value on hover.
  */
-function priceChart(facts) {
+function priceChart(rows) {
   const byDate = new Map();
-  for (const f of facts) {
-    byDate.set(f.date, (byDate.get(f.date) || 0) + f.amount);
+  for (const r of rows) {
+    if (r.amount == null) {
+      continue;
+    }
+    byDate.set(r.date, (byDate.get(r.date) || 0) + r.amount);
   }
   const points = [...byDate.entries()]
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
+  if (!points.length) {
+    return el('p', { class: 'muted' }, 'No price points.');
+  }
   const W = 360, H = 240, pad = 30;
   const at = (date) => Date.parse(date + 'T00:00:00Z');
   const minT = at(points[0].date);
@@ -439,7 +547,7 @@ function priceChart(facts) {
         svgEl('circle', { class: 'dot', cx: x(p.date), cy: y(p.amount), r: 3 },
           svgEl('title', {}, `${p.date} \u00b7 ${money(p.amount)}`))) : [])),
     el('div', { class: 'muted chart-note' },
-      `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day facts summed`));
+      `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day movements summed`));
 }
 
 // ---- shared transformations -------------------------------------------------------------------

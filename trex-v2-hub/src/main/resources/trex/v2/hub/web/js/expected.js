@@ -10,7 +10,7 @@
 // preference, like the window.
 
 import { api } from './api.js';
-import { openCandidateActions, openCommitmentNote, openDeclare, openRetire, openSettle } from './commitment.js';
+import { openCommitmentActions, openSettle } from './commitment.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
@@ -323,7 +323,7 @@ function registryRow(c) {
     el('td', { class: 'muted' }, c.lastDate || '—'),
     el('td', { class: 'muted' }, c.nextDue || '—'),
     el('td', { class: 'amount' }, arrears),
-    el('td', {}, ...actions(c, declared)));
+    el('td', {}, ...actions(c)));
 }
 
 function labelOf(c) {
@@ -337,30 +337,6 @@ function seriesLine(c) {
   if (c.firstDate) bits.push(c.lastDate ? `${c.firstDate} → ${c.lastDate}` : c.firstDate);
   if (c.regularity != null) bits.push(`regularity ${c.regularity.toFixed(2)}`);
   if (c.variable) bits.push('variable');
-  return bits.join(' · ');
-}
-
-/** The candidate's shape for the shared menu (commitment.js), with its one-line context. */
-function candidateOf(c) {
-  return {
-    stem: c.stem,
-    commitmentId: c.commitmentId,
-    cadence: c.cadence,
-    currentAmount: c.currentAmount,
-    firstDate: c.firstDate,
-    detail: candidateDetail(c),
-  };
-}
-
-function candidateDetail(c) {
-  const bits = [c.cadence];
-  if (c.occurrenceCount) bits.push(`${c.occurrenceCount}\u00d7`);
-  if (c.firstDate) bits.push(c.lastDate ? `${c.firstDate} → ${c.lastDate}` : c.firstDate);
-  if (c.currentAmount != null) {
-    bits.push(`last ${money(c.currentAmount)}`
-      + (c.previousAmount != null ? ` (was ${money(c.previousAmount)})` : ''));
-  }
-  if (c.regularity != null) bits.push(`regularity ${c.regularity.toFixed(2)}`);
   return bits.join(' · ');
 }
 
@@ -380,43 +356,10 @@ function currentCell(c) {
   return cell;
 }
 
-function actions(c, declared) {
-  if (!declared) {
-    return [el('button', { type: 'button', class: 'ghost',
-      onclick: () => openCandidateActions(ctx, candidateOf(c), load) }, 'Actions…')];
-  }
-  const out = [
-    el('button', { type: 'button', class: 'ghost',
-      onclick: () => openDeclare(ctx, reDeclarePrefill(c), load) }, 'Re-declare'),
-  ];
-  if (c.retiredN == null) {
-    out.push(el('button', { type: 'button', class: 'ghost',
-      onclick: () => openRetire(ctx, { commitmentId: c.commitmentId, name: c.name }, load) }, 'Retire'));
-  }
-  out.push(el('button', { type: 'button', class: 'ghost',
-    onclick: () => openCommitmentNote(ctx, { commitmentId: c.commitmentId, name: c.name }, load) }, 'Note'));
-  if (c.arrearsCount) {
-    out.push(el('button', { type: 'button', class: 'ghost',
-      onclick: () => settleCommitment(c) }, 'Settle'));
-  }
-  return out;
-}
-
-/** The declaration dialog's prefill: the current faces and the effective rules under the same id. */
-function reDeclarePrefill(c) {
-  return {
-    commitmentId: c.commitmentId,
-    name: c.name || '',
-    kind: c.kind,
-    direction: c.direction,
-    cadence: c.cadence,
-    amountKind: c.amountKind,
-    amount: c.currentAmount == null ? null : Math.abs(c.currentAmount),
-    anchor: c.anchorDate || '',
-    matches: c.rules || [],
-    fromCandidate: null,
-    idLocked: true,
-  };
+/** Every row opens the same menu; its actions follow the row's origin. */
+function actions(c) {
+  return [el('button', { type: 'button', class: 'ghost',
+    onclick: () => openCommitmentActions(ctx, c, load) }, 'Actions…')];
 }
 
 // ---- lint -------------------------------------------------------------------------------------
