@@ -972,7 +972,7 @@ public final class HubService implements HubApi, AutoCloseable {
             case UNPIN_COMMITMENT -> checkIds(d.externalIds(), "externalIds");
             case EXCLUDE_COMMITMENT, INCLUDE_COMMITMENT -> {
                 String e = checkIds(d.externalIds(), "externalIds");
-                yield e != null ? e : checkCommitmentTarget(d.commitmentId(), true);
+                yield e != null ? e : checkCommitmentTarget(d.commitmentId(), false);
             }
             case NOTE_COMMITMENT -> {
                 String e = checkCommitmentTarget(d.commitmentId(), false);
@@ -1069,9 +1069,9 @@ public final class HubService implements HubApi, AutoCloseable {
      * The commitment a decision names (V2-COMMITMENTS-PLAN.md §2.6): it must be declared — a
      * candidate id or an unknown slug is ineffective in the fold and refused by the writer, so the
      * hub says 422 first. A pin additionally refuses a retired commitment, because a pin to an
-     * ended commitment can never win; a note and a settle are conclusions about the past, so they
-     * may name one. A retire keeps its Stage 3 semantics: the writer decides, and an undeclared id
-     * surfaces as {@code INEFFECTIVE_DECISION}.
+     * ended commitment can never win; a note, a settle and an exclusion are conclusions about the
+     * past, so they may name one. A retire keeps its Stage 3 semantics: the writer decides, and an
+     * undeclared id surfaces as {@code INEFFECTIVE_DECISION}.
      */
     private String checkCommitmentTarget(String commitmentId, boolean mustBeUnretired) {
         if (commitmentId == null || commitmentId.isBlank()) {

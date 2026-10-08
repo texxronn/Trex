@@ -28,7 +28,8 @@ everything is under **Unreleased**.
   commitments behind a **confirmation box**; an excluded row leaves the table (the pane shows
   `n excluded` with a reveal toggle) and its point drops from the chart — both reactively. The
   effective set is a derived table (`commitment_exclusion`). Two new actions; the proposal's §6.2
-  table, wire catalogue and §6.11 are amended.
+  table, wire catalogue and §6.11 are amended. An exclusion is a conclusion about the past, like a
+  note or a settle: it may name a **retired** commitment (a pin still may not).
 - **Transient one-offs are flagged** (`V2-COMMITMENT-EXCLUSIONS-PLAN.md` §3; `derive/11`).
   Detection counts an interior occurrence at least double (or at most half) its predecessor's
   magnitude whose successor returns to that level — NRMA's −$190.40 claim, a payroll bonus, a UBS

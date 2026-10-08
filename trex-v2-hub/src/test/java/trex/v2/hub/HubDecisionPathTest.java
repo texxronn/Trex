@@ -160,6 +160,8 @@ class HubDecisionPathTest {
                 .add(settle("ghost", List.of(LocalDate.of(2026, 9, 1)))).json()).statusCode());
             assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
                 .add(pinCommitment("a", "old")).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(excludeCommitment("a", "ghost")).json()).statusCode());
 
             assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
                 .add(pinCommitment("a", "netflix")).json()).statusCode());
@@ -167,6 +169,9 @@ class HubDecisionPathTest {
                 .add(noteCommitment("old", "final note")).json()).statusCode());
             assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
                 .add(settle("old", List.of(LocalDate.of(2026, 9, 1)))).json()).statusCode());
+            // An exclusion is a conclusion about the past too: a retired target is fine.
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(excludeCommitment("a", "old")).json()).statusCode());
 
             // DISMISS subjects follow the review kind (§9.9.F): facts, accounts, grouping stems
             // and declared commitment ids (a dormant or retired id still counts).
@@ -246,6 +251,13 @@ class HubDecisionPathTest {
             null, null, List.of(externalId), null, null, null, null, null, null, null, null, null,
             null, null, commitmentId, null, null, null, null, null, null, null, null, null, null,
             null, null);
+    }
+
+    private static DecisionDraft excludeCommitment(String externalId, String commitmentId) {
+        return new DecisionDraft("EXCLUDE_COMMITMENT", "user", "ron", AT, null, null, null, null,
+            null, null, null, List.of(externalId), null, null, null, null, null, null, null, null,
+            null, null, null, commitmentId, null, null, null, null, null, null, null, null, null,
+            null, null, null);
     }
 
     private static DecisionDraft noteCommitment(String commitmentId, String text) {

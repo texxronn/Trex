@@ -126,7 +126,8 @@ content rows each take `0`.
   through the supersession map; a pin naming a retired or unknown commitment is ineffective and
   visible. `EXCLUDE_COMMITMENT`/`INCLUDE_COMMITMENT` declare a fact not part of a commitment — a
   one-off inside a series — per (commitment, fact), latest effective wins; an excluded pair is
-  never claimed (a pin falls through to the rules) and the fact itself is untouched.
+  never claimed (a pin falls through to the rules) and the fact itself is untouched. A note, a
+  settle and an exclusion are conclusions about the past, so they may name a retired commitment.
   `NOTE_COMMITMENT` accumulates a thread on a commitment (the `NOTE` gesture, targeted; a
   note may name a retired commitment). `SETTLE_OCCURRENCE` concludes that occurrences were paid (or
   received) off-journal — a conclusion with no fact, attributed and revocable, rendered `settled`,
