@@ -71,6 +71,12 @@ final class IndexSchema {
                 st.execute("ALTER TABLE commitment ADD COLUMN candidate_key TEXT");
                 clearDerivedMeta(st);
             }
+            // commitment gained the one-off count (V2-COMMITMENT-EXCLUSIONS-PLAN.md §3): defaulted,
+            // so ALTER in place and let the next apply re-derive into it.
+            if (hasTable(st, "commitment") && !hasColumn(st, "commitment", "outliers")) {
+                st.execute("ALTER TABLE commitment ADD COLUMN outliers INTEGER NOT NULL DEFAULT 0");
+                clearDerivedMeta(st);
+            }
         }
     }
 

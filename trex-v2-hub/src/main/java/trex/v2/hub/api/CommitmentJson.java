@@ -10,7 +10,8 @@ import java.util.List;
  * Candidates ({@code origin=detected}, id {@code cand|<hex>}) and declared rows share the shape; a
  * candidate's {@code name} is null, its {@code stem} (the grouping {@code MerchantStem.stem}) is
  * set, and it carries no rules or occurrences. {@code stem} is null once a candidate is declared —
- * the name replaces it, exactly as the key stops naming the row in Review.
+ * the name replaces it, exactly as the key stops naming the row in Review. {@code outliers} counts
+ * the transient one-offs detection flagged (always 0 for a declared row).
  *
  * <p>All amounts are signed exactly as the facts and {@code commitment} hold them: a {@code −} for
  * an outflow, a {@code +} for income.
@@ -19,8 +20,8 @@ public record CommitmentJson(String commitmentId, String name, String stem, Stri
                              String cadence, String amountKind, String kind, String status,
                              LocalDate firstDate, LocalDate lastDate, LocalDate anchorDate,
                              Long currentAmount, Long previousAmount, Double changePct,
-                             LocalDate changeDate, int occurrenceCount, Double regularity,
-                             boolean variable, int arrearsCount, Long arrearsAmount,
+                             LocalDate changeDate, int occurrenceCount, int outliers,
+                             Double regularity, boolean variable, int arrearsCount, Long arrearsAmount,
                              Long declaredN, Long retiredN, LocalDate endedAt,
                              List<RuleJson> rules, LocalDate nextDue, List<NoteJson> notes) {
 

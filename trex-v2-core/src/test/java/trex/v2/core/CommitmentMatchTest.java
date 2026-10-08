@@ -63,7 +63,7 @@ class CommitmentMatchTest {
         return new Commitment(id, null, id, CommitmentOrigin.DECLARED, direction, cadence,
             AmountKind.FIXED, CommitmentKind.BILL, CommitmentStatus.ACTIVE, anchor, null, anchor,
             amount, null, null, null,
-            List.of(new Commitment.PriceStep(anchor, amount, null, null)), null, null, 0, 1.0,
+            List.of(new Commitment.PriceStep(anchor, amount, null, null)), null, null, 0, 0, 1.0,
             false, 0, null, declaredN, null, null);
     }
 
@@ -72,7 +72,7 @@ class CommitmentMatchTest {
                                        List<Commitment.PriceStep> steps, long declaredN) {
         return new Commitment(id, null, id, CommitmentOrigin.DECLARED, direction, cadence,
             AmountKind.FIXED, CommitmentKind.BILL, CommitmentStatus.ACTIVE, anchor, null, anchor,
-            currentAmount, null, null, null, steps, null, null, 0, 1.0, false, 0, null,
+            currentAmount, null, null, null, steps, null, null, 0, 0, 1.0, false, 0, null,
             declaredN, null, null);
     }
 
@@ -82,7 +82,7 @@ class CommitmentMatchTest {
         return new Commitment(id, null, id, CommitmentOrigin.DECLARED, direction, cadence,
             amountKind, CommitmentKind.BILL, CommitmentStatus.ACTIVE, anchor, null, anchor,
             amount, null, null, null,
-            List.of(new Commitment.PriceStep(anchor, amount, null, null)), null, null, 0, 1.0,
+            List.of(new Commitment.PriceStep(anchor, amount, null, null)), null, null, 0, 0, 1.0,
             false, 0, null, declaredN, null, null);
     }
 
@@ -669,7 +669,7 @@ class CommitmentMatchTest {
         Commitment broken = new Commitment("broken", null, "broken", CommitmentOrigin.DECLARED,
             Commitment.OUT, Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
             CommitmentStatus.ACTIVE, null, null, null, -1000L, null, null, null, List.of(), null,
-            null, 0, 1.0, false, 0, null, 1L, null, null);
+            null, 0, 0, 1.0, false, 0, null, 1L, null, null);
         assertThrows(IllegalArgumentException.class,
             () -> run(List.of(broken), List.of(), List.of(), ASOF));
     }

@@ -315,6 +315,7 @@ public final class Commitments {
             costToDate,
             (long) perYear(cadence) * annualisedBasis,
             occurrences.size(),
+            countOneOffs(occurrences),
             regularity,
             variable,
             0,
@@ -389,6 +390,17 @@ public final class Commitments {
             : (sorted.get(middle - 1) + sorted.get(middle)) / 2.0;
     }
 
+    /**
+     * The one-off flag (V2-COMMITMENT-EXCLUSIONS-PLAN.md §3): an interior occurrence at least this
+     * many times its predecessor's magnitude — or at most its inverse — whose successor returns to
+     * the predecessor's level is a transient one-off. Measured: NRMA's claim is 16.7× its premium,
+     * JPM's bonus 2.7×, UBS's distributions 2.1× and 3.1×; all return within 2%.
+     */
+    private static final double OUTLIER_FACTOR = 2.0;
+
+    /** How close the successor must return to the predecessor's magnitude to call it a one-off. */
+    private static final double OUTLIER_RETURN = 0.10;
+
     /** A consecutive change is a step at {@code |Δ| ≥ 5%} or {@code |Δ| ≥ 50¢} (also §6.11 cost). */
     static boolean isStep(long previous, long current) {
         long delta = Math.abs(current) - Math.abs(previous);
@@ -401,6 +413,29 @@ public final class Commitments {
     static double changePct(long previous, long current) {
         long base = Math.abs(previous);
         return 100.0 * (Math.abs(current) - base) / base;
+    }
+
+    /**
+     * Count the transient one-offs in the series (§3): flagging only — the caller keeps the series
+     * exactly as it is. A spike needs both a big move and a return; a lasting change stays a step.
+     */
+    static int countOneOffs(List<Occ> occurrences) {
+        int count = 0;
+        for (int i = 1; i < occurrences.size() - 1; i++) {
+            long previous = Math.abs(occurrences.get(i - 1).amount);
+            long current = Math.abs(occurrences.get(i).amount);
+            long next = Math.abs(occurrences.get(i + 1).amount);
+            if (previous == 0) {
+                continue;
+            }
+            boolean deviates = current >= OUTLIER_FACTOR * previous
+                || current * OUTLIER_FACTOR <= previous;
+            boolean returns = Math.abs(next - previous) <= OUTLIER_RETURN * previous;
+            if (deviates && returns) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** Annualisation factors (§2.4): {@code 52/26/12/6/4/2/1} × the amount. */

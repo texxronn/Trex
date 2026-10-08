@@ -336,6 +336,7 @@ function seriesLine(c) {
   if (c.occurrenceCount) bits.push(`${c.occurrenceCount}\u00d7`);
   if (c.firstDate) bits.push(c.lastDate ? `${c.firstDate} → ${c.lastDate}` : c.firstDate);
   if (c.regularity != null) bits.push(`regularity ${c.regularity.toFixed(2)}`);
+  if (c.outliers) bits.push(`+${c.outliers} one-off${c.outliers === 1 ? '' : 's'}`);
   if (c.variable) bits.push('variable');
   return bits.join(' · ');
 }

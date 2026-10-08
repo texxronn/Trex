@@ -1295,6 +1295,7 @@ public final class Derive {
                 cost,
                 annualised(d, observed, current),
                 observed.size(),
+                0,
                 regularity(d.cadence(), observed),
                 d.amountKind() == AmountKind.VARIABLE,
                 arrears.count(),
@@ -1366,7 +1367,9 @@ public final class Derive {
                 + "\u00d7 \u00b7 " + candidate.firstDate() + "\u2192" + candidate.lastDate()
                 + " \u00b7 last " + candidate.currentAmount()
                 + (candidate.previousAmount() == null ? "" : " (was " + candidate.previousAmount() + ")")
-                + " \u00b7 regularity " + candidate.regularity();
+                + " \u00b7 regularity " + candidate.regularity()
+                + (candidate.outliers() == 0 ? "" : " \u00b7 " + candidate.outliers()
+                    + (candidate.outliers() == 1 ? " one-off" : " one-offs"));
             Instant opened = Instant.EPOCH;
             for (CurrentFact c : group) {
                 if (c.fact().ingestedAt().isAfter(opened)) {
@@ -1950,7 +1953,7 @@ public final class Derive {
                 : (Commitment.OUT.equals(direction) ? -Math.abs(amount) : Math.abs(amount));
             return new Commitment(commitmentId, null, name, CommitmentOrigin.DECLARED, direction,
                 cadence, amountKind, kind, retired() ? CommitmentStatus.ENDED : CommitmentStatus.ACTIVE,
-                null, null, anchor, signed, null, null, null, List.of(), null, null, 0, null,
+                null, null, anchor, signed, null, null, null, List.of(), null, null, 0, 0, null,
                 amountKind == AmountKind.VARIABLE, 0, null, declaredN, retiredN, endedAt);
         }
     }

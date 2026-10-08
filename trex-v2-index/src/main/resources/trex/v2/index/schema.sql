@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS commitment (
   change_pct       REAL,
   change_date      TEXT,
   occurrence_count INTEGER NOT NULL,
+  outliers         INTEGER NOT NULL DEFAULT 0,
   regularity       REAL,
   variable         INTEGER NOT NULL,
   arrears_count    INTEGER NOT NULL,

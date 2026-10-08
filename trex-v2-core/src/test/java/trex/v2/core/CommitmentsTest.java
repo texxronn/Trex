@@ -420,6 +420,35 @@ class CommitmentsTest {
     }
 
     @Test
+    void aTransientOneOffIsFlaggedButKept() {
+        List<CurrentFact> facts = new ArrayList<>();
+        LocalDate date = LocalDate.of(2026, 1, 10);
+        long[] amounts = {-1000, -1000, -1000, -1000, -15000, -1000, -1000, -1000, -1000};
+        for (int i = 0; i < amounts.length; i++) {
+            facts.add(row(i + 1, "bw-credit-card", date, amounts[i], "NRMA LTD"));
+            date = date.plusMonths(1);
+        }
+
+        Commitment commitment = Commitments.detect(facts, ASOF).getFirst();
+        assertEquals(9, commitment.occurrenceCount(), "flagging only: the one-off stays");
+        assertEquals(1, commitment.outliers(), "the spike reverses: a one-off, not a step");
+    }
+
+    @Test
+    void aLastingPriceChangeIsNotAOneOff() {
+        List<CurrentFact> facts = new ArrayList<>();
+        LocalDate date = LocalDate.of(2026, 1, 10);
+        long[] amounts = {-1000, -1000, -1000, -1000, -2000, -2000, -2000, -2000, -2000};
+        for (int i = 0; i < amounts.length; i++) {
+            facts.add(row(i + 1, "bw-credit-card", date, amounts[i], "NRMA LTD"));
+            date = date.plusMonths(1);
+        }
+
+        Commitment commitment = Commitments.detect(facts, ASOF).getFirst();
+        assertEquals(0, commitment.outliers(), "the new level lasts: a step, not a one-off");
+    }
+
+    @Test
     void enumValuesAreThePlanValues() {
         assertEquals(List.of("weekly", "fortnightly", "monthly", "bimonthly", "quarterly",
                 "semiannual", "annual", "irregular"),

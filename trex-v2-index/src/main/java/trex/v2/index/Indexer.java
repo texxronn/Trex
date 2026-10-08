@@ -552,6 +552,7 @@ public final class Indexer implements AutoCloseable {
                 setNullableDouble(ps, i++, c.changePct());
                 ps.setString(i++, date(c.changeDate()));
                 ps.setInt(i++, c.occurrenceCount());
+                ps.setInt(i++, c.outliers());
                 setNullableDouble(ps, i++, c.regularity());
                 ps.setBoolean(i++, c.variable());
                 ps.setInt(i++, c.arrearsCount());

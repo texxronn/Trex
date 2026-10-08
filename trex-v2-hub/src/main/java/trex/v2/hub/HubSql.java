@@ -84,8 +84,8 @@ final class HubSql {
     static final String COMMITMENTS_SELECT = """
         SELECT commitment_id, name, origin, direction, cadence, amount_kind, kind, status,
                first_date, last_date, anchor_date, current_amount, previous_amount, change_pct,
-               change_date, occurrence_count, regularity, variable, arrears_count, arrears_amount,
-               declared_n, retired_n, ended_at, candidate_key,
+               change_date, occurrence_count, outliers, regularity, variable, arrears_count,
+               arrears_amount, declared_n, retired_n, ended_at, candidate_key,
                (SELECT MIN(o.due_date) FROM commitment_occurrence o
                  WHERE o.commitment_id = commitment.commitment_id AND o.status = 'due') AS next_due
         FROM commitment ORDER BY commitment_id""";
