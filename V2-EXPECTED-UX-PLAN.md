@@ -123,10 +123,12 @@ migration, `trex verify` stays green and is not part of this acceptance.
   - **Actions.** Candidates get an **Actions…** dialog: **Review** (deep-links
     `#review?kind=SUSPECTED_RECURRING`; Review learns `ctx.modeQuery`), **Confirm…** (the
     same prefill as Review, shared from `commitment.js`) and **Ignore…** (a reason required).
-    The dialog lists the series' own transactions, fetched on open from
-    `GET /api/commitments/facts?stem=…` — the same lens the detector grouped with, oldest
-    first — so the decision is made against the evidence: a transactions table on the left and a
-    rudimentary price timeseries on the right (same-day facts summed).
+    Every row opens the menu, fetched on open from `GET /api/commitments/activity?id=…` —
+    a candidate's series facts (the detector's own lens) or a declared commitment's occurrences
+    with the fact each carries — as a transactions table on the left and a rudimentary price
+    timeseries on the right (same-day movements summed). The row's curation actions sit in the
+    menu: Review/Confirm/Ignore for a candidate, Re-declare/Retire/Note/Settle for a declared
+    commitment.
   - **Filters.** Inside the Commitments section: All | Candidates | Declared, status,
     direction, text search and sort; all rows show by default (operator, 2026-10-08); the
     header count follows the filter (`n of total` when filtered).
