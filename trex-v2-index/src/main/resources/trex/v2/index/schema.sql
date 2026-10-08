@@ -170,6 +170,16 @@ CREATE TABLE IF NOT EXISTS pin_current (
   comment     TEXT
 );
 
+-- Effective notes (§6.2 NOTE): a thread, one row per decision, ids chain-resolved (§9.4).
+CREATE TABLE IF NOT EXISTS note_current (
+  decision_n  INTEGER PRIMARY KEY,
+  external_id TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  user_id     TEXT,
+  at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS note_current_external ON note_current(external_id);
+
 CREATE TABLE IF NOT EXISTS ineffective_decision (
   decision_n INTEGER PRIMARY KEY,
   action     TEXT NOT NULL,
