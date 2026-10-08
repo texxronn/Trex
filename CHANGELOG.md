@@ -45,7 +45,7 @@ everything is under **Unreleased**.
   conclusion with no fact, rendered `settled`, never `occurred`). Detection groups the current facts
   by the frozen `MerchantStem.stem`; a series needs ≥3 occurrences, gaps within `max(2, 20%)` of a
   `{7,14,30,61,91,182,365}`-day bucket and regularity ≥0.7, with same-day collapse, refund netting,
-  `≥5% / ≥50¢` price steps and the FCY price where the description carries one; coverage is relative
+  `≥5% / ≥50¢` price steps and the FCY price when the whole series carries one; coverage is relative
   to the account's posted frontier. Declared commitments generate calendar occurrences (12 months
   back through `asOf + 92 days`) and allocate each matching fact — by rule or pin, right sign —
   oldest-first across the open occurrences: a catch-up payment clears the arrears from the front, a
