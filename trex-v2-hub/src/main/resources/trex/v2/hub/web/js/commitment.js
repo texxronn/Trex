@@ -355,8 +355,8 @@ export function openCommitmentActions(ctx, c, onDone) {
     title: c.name || c.stem || shortId(c.commitmentId),
     summary: rowDetail(c),
     body: el('div', { class: 'popup-split' },
-      el('div', { class: 'popup-pane' }, el('h4', {}, 'Transactions'), txPane),
-      el('div', { class: 'popup-pane' }, el('h4', {}, 'Price'), chartPane)),
+      el('div', { class: 'popup-pane' }, el('h4', {}, 'Price'), chartPane),
+      el('div', { class: 'popup-pane' }, el('h4', {}, 'Transactions'), txPane)),
     xwide: true,
   }, c.origin === 'detected' ? candidateChoices(ctx, c, onDone) : declaredChoices(ctx, c, onDone));
   loadActivity(c, txPane, chartPane);
@@ -507,7 +507,8 @@ function statusLabel(status) {
 
 /**
  * A rudimentary price timeseries: same-day movements sum (detection's collapse), magnitudes plot
- * against a zero baseline, and each point carries its signed value on hover.
+ * against a zero baseline with horizontal grid lines (and verticals when the series is short), and
+ * each point carries its signed value on hover.
  */
 function priceChart(rows) {
   const byDate = new Map();
@@ -523,28 +524,42 @@ function priceChart(rows) {
   if (!points.length) {
     return el('p', { class: 'muted' }, 'No price points.');
   }
-  const W = 360, H = 240, pad = 30;
+  const W = 720, H = 260, padL = 52, padR = 14, padT = 14, padB = 26;
   const at = (date) => Date.parse(date + 'T00:00:00Z');
   const minT = at(points[0].date);
   const maxT = at(points[points.length - 1].date);
   const maxV = Math.max(...points.map((p) => Math.abs(p.amount))) * 1.1 || 1;
-  const x = (date) => minT === maxT ? W / 2
-    : pad + ((at(date) - minT) / (maxT - minT)) * (W - 2 * pad);
-  const y = (amount) => H - pad - (Math.abs(amount) / maxV) * (H - 2 * pad);
+  const x = (date) => minT === maxT ? (padL + W - padR) / 2
+    : padL + ((at(date) - minT) / (maxT - minT)) * (W - padL - padR);
+  const y = (value) => H - padB - (value / maxV) * (H - padT - padB);
+  const grid = [];
+  for (let i = 0; i <= 4; i++) {
+    const value = (maxV * i) / 4;
+    const gy = y(value);
+    grid.push(svgEl('line', { class: 'grid', x1: padL, y1: gy, x2: W - padR, y2: gy }));
+    grid.push(svgEl('text', { class: 'lbl', x: padL - 6, y: gy + 3, 'text-anchor': 'end' },
+      money(Math.round(value))));
+  }
+  if (points.length <= 24) {
+    for (const p of points) {
+      grid.push(svgEl('line', { class: 'grid', x1: x(p.date), y1: padT, x2: x(p.date), y2: H - padB }));
+    }
+  }
   return el('div', {},
     svgEl('svg', { class: 'price-chart', viewBox: `0 0 ${W} ${H}`,
         preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Price over time' },
-      svgEl('line', { class: 'axis', x1: pad, y1: H - pad, x2: W - pad, y2: H - pad }),
-      svgEl('line', { class: 'axis', x1: pad, y1: pad, x2: pad, y2: H - pad }),
-      svgEl('text', { class: 'lbl', x: pad, y: pad - 10 }, money(Math.round(maxV))),
-      svgEl('text', { class: 'lbl', x: pad, y: H - pad + 14 }, points[0].date),
-      svgEl('text', { class: 'lbl end', x: W - pad, y: H - pad + 14 }, points[points.length - 1].date),
+      ...grid,
+      svgEl('line', { class: 'axis', x1: padL, y1: H - padB, x2: W - padR, y2: H - padB }),
+      svgEl('line', { class: 'axis', x1: padL, y1: padT, x2: padL, y2: H - padB }),
+      svgEl('text', { class: 'lbl', x: padL, y: H - padB + 14 }, points[0].date),
+      svgEl('text', { class: 'lbl end', x: W - padR, y: H - padB + 14 }, points[points.length - 1].date),
       points.length > 1
         ? svgEl('polyline', { class: 'line',
-            points: points.map((p) => `${x(p.date).toFixed(1)},${y(p.amount).toFixed(1)}`).join(' ') })
+            points: points.map((p) => `${x(p.date).toFixed(1)},${y(Math.abs(p.amount)).toFixed(1)}`)
+              .join(' ') })
         : null,
       ...(points.length <= 80 ? points.map((p) =>
-        svgEl('circle', { class: 'dot', cx: x(p.date), cy: y(p.amount), r: 3 },
+        svgEl('circle', { class: 'dot', cx: x(p.date), cy: y(Math.abs(p.amount)), r: 4 },
           svgEl('title', {}, `${p.date} \u00b7 ${money(p.amount)}`))) : [])),
     el('div', { class: 'muted chart-note' },
       `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day movements summed`));
