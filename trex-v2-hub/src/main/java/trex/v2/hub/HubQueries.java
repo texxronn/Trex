@@ -1,6 +1,6 @@
 package trex.v2.hub;
 
-import trex.v2.hub.api.CandidateFactJson;
+import trex.v2.hub.api.ActivityJson;
 import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
 import trex.v2.hub.api.ExpectedResponse;
@@ -566,19 +566,42 @@ public final class HubQueries implements AutoCloseable {
     }
 
     /**
-     * A detected candidate's observed facts (V2-EXPECTED-UX-PLAN.md §7 Stage 2): the current facts
-     * whose frozen {@code MerchantStem.stem} equals the candidate's key — the same lens the
-     * detector grouped with (synthetic legs and {@code noop} rows excluded), oldest first.
+     * A commitment's activity for its menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): a detected
+     * candidate's series facts (the same frozen-stem lens the detector grouped with, synthetic
+     * legs and {@code noop} excluded), or a declared commitment's materialised occurrences joined
+     * to the fact each carries. Oldest first; an unknown id is an empty list.
      */
-    public List<CandidateFactJson> candidateFacts(String stem) {
+    public List<ActivityJson> activity(String commitmentId) {
         return read(conn -> {
-            List<CandidateFactJson> out = new ArrayList<>();
-            try (Statement st = conn.createStatement();
-                 ResultSet rs = st.executeQuery(HubSql.CANDIDATE_FACTS)) {
-                while (rs.next()) {
-                    if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
-                        out.add(new CandidateFactJson(rs.getString(1),
-                            LocalDate.parse(rs.getString(2)), rs.getString(3), rs.getLong(4),
+            String stem = null;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_STEM)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        stem = rs.getString(1);
+                    }
+                }
+            }
+            List<ActivityJson> out = new ArrayList<>();
+            if (stem != null) {
+                try (Statement st = conn.createStatement();
+                     ResultSet rs = st.executeQuery(HubSql.CANDIDATE_FACTS)) {
+                    while (rs.next()) {
+                        if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
+                            out.add(new ActivityJson(LocalDate.parse(rs.getString(2)), null,
+                                rs.getString(3), rs.getLong(4), rs.getString(5), rs.getString(1),
+                                null));
+                        }
+                    }
+                }
+                return out;
+            }
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_ACTIVITY)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new ActivityJson(LocalDate.parse(rs.getString(1)), rs.getString(2),
+                            rs.getString(6), nullableLong(rs, 3), rs.getString(7), rs.getString(4),
                             rs.getString(5)));
                     }
                 }

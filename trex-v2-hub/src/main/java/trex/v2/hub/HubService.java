@@ -232,8 +232,8 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     @Override
-    public List<trex.v2.hub.api.CandidateFactJson> candidateFacts(String stem) {
-        return reads.candidateFacts(stem);
+    public List<trex.v2.hub.api.ActivityJson> activity(String commitmentId) {
+        return reads.activity(commitmentId);
     }
 
     /**
