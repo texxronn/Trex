@@ -135,7 +135,9 @@ migration, `trex verify` stays green and is not part of this acceptance.
     timeseries (same-day movements summed). The row's curation actions sit in the
     menu: Review/Confirm/Ignore or Record ended for a candidate, Re-declare/Retire/Note/Settle
     for a declared commitment, and an **Exclude**/**Include** toggle per transaction row on a
-    declared commitment (excluded facts dim; `V2-COMMITMENT-EXCLUSIONS-PLAN.md`).
+    declared commitment behind a confirmation box — the excluded row leaves the table
+    (`n excluded` with a reveal toggle) and its chart point drops
+    (`V2-COMMITMENT-EXCLUSIONS-PLAN.md`).
   - **Filters.** Inside the Commitments section: All | Candidates | Declared, status,
     direction, text search and sort; all rows show by default (operator, 2026-10-08); the
     header count follows the filter (`n of total` when filtered).
