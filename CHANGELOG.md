@@ -9,6 +9,15 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Receipt-share shaping is per-fact.** The pre-filter shaped *every* row carrying a receipt once
+  *any* pair in that receipt's group had a plausible counterpart; ING receipt numbers are not unique
+  across products or eras, so an unrelated row could inherit the shape. Now only the facts that
+  themselves participate in a plausible pair are shaped (the proposal's wording, `derive/8`). On the
+  dev fixture a 2026 card purchase carrying a 2024 mortgage repayment's receipt no longer pools, and
+  `UNMATCHED_LEG` falls 8 → 6.
+
 ### Changed
 
 - **`RESTATEMENT` is now disjoint from `POTENTIAL_DUP`.** It requires *different merchant stems*
