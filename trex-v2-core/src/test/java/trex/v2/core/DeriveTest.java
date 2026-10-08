@@ -950,6 +950,23 @@ class DeriveTest {
     }
 
     @Test
+    void anExclusionMayNameARetiredCommitment() {
+        List<Fact> facts = List.of(
+            fact(1, "acme-1", "ing-savings", LocalDate.of(2026, 1, 15), -10000, "ACME BILL", null, 0));
+        Derivation d = Derive.derive(facts, List.of(
+            declare(10, "acme", "Acme", "out", 10000, LocalDate.of(2026, 1, 15), "ACME"),
+            new Decision.RetireCommitment(11, "acme", LocalDate.of(2026, 6, 30), "done",
+                Actor.USER, "ron", ASOF),
+            new Decision.ExcludeCommitment(12, "acme", List.of("acme-1"), "one-off",
+                Actor.USER, "ron", ASOF)), config(), ASOF);
+
+        assertTrue(d.ineffective().isEmpty(), d.ineffective().toString());
+        assertEquals(List.of("acme-1"), d.commitmentExclusions().stream()
+            .map(CommitmentExclusion::externalId).toList(),
+            "an exclusion is a conclusion about the past");
+    }
+
+    @Test
     void aLumpOutsideEveryWindowIsOffScheduleAndTheHolesStayUntilSettled() {
         List<Fact> facts = new ArrayList<>(acmeFacts());
         facts.add(fact(8, "lump", "ing-savings", LocalDate.of(2026, 9, 28), -30000, "ACME BILL", null, 0));
