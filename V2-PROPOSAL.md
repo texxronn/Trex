@@ -2598,6 +2598,11 @@ ingest and a UI ingest behave alike, and the runner only supplies the archive lo
 the original name. It is per-attempt and not deduped: the arrival log is the point, and
 statements are small. Evidence remains the machine copy; the source archive is the human one.
 
+The ingest history the Hub reads pairs each batch with its account's **frontier** — the newest
+transaction date already processed for that account (`MAX(txn_current.date)`, clamped to today) —
+a plain read, not stored state. It is the lower bound for requesting the next statement file by
+date range (`V2-INGEST-FRONTIER-PLAN.md`).
+
 ---
 
 ## 13. Decisions: append-only, never final

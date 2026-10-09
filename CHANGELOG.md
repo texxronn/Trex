@@ -20,6 +20,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **The Jobs page shows the ingest frontier** (`V2-INGEST-FRONTIER-PLAN.md`). Each ingest row
+  carries `latestTxnDate`, the account's newest transaction date already processed
+  (`MAX(txn_current.date)`, clamped to today), and a per-account **fetch frontier** strip shows the
+  newest file, the frontier and the suggested range (frontier → today) — so the next statement
+  file can be requested by date range. A plain read over `txn_current`; nothing new is stored, and
+  no derivation changes.
 - **Facts can be excluded from a commitment** (`V2-COMMITMENT-EXCLUSIONS-PLAN.md` §4).
   `EXCLUDE_COMMITMENT` (`INCLUDE_COMMITMENT` to restore, `REVOKE` as always) marks a fact as not
   part of a commitment — the one-off inside a series; an excluded pair is never claimed (a pin
