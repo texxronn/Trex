@@ -33,7 +33,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -336,7 +335,16 @@ public final class Sequencer implements AutoCloseable {
             return new BatchResponse(handle(), BatchResponse.REJECTED, results);
         }
 
-        Map<String, Integer> contentCounts = new HashMap<>();
+        // Mint over the rows that passed validation, in batch order: a rejected row claims no occ.
+        List<Ids.Row> mintRows = new ArrayList<>();
+        for (int i = 0; i < drafts.size(); i++) {
+            if (errors[i] == null) {
+                FactDraft d = drafts.get(i);
+                mintRows.add(new Ids.Row(d.accountRef(), d.date(), d.amount(), d.rawDescription(),
+                    normalized(d.receipt())));
+            }
+        }
+        java.util.Iterator<Ids.Minted> minted = Ids.mint(mintRows).iterator();
         Set<ObsKey> batchSeen = new HashSet<>();
         List<Fact> toAppend = new ArrayList<>();
         long next = state.headN;
@@ -348,9 +356,10 @@ public final class Sequencer implements AutoCloseable {
                 results.add(rejected(ref(i, d), errors[i]));
                 continue;
             }
-            int occ = assignOcc(d, contentCounts);
+            Ids.Minted m = minted.next();
+            int occ = m.occ();
             String receipt = normalized(d.receipt());
-            String id = Ids.externalId(d.accountRef(), d.date(), d.amount(), d.rawDescription(), receipt, occ);
+            String id = m.id();
             ObsKey key = new ObsKey(id, d.accountRef(), d.date(), d.amount(), d.rawDescription(), receipt, occ,
                 d.balance());
             if (state.observations.contains(key) || !batchSeen.add(key)) {
@@ -382,23 +391,6 @@ public final class Sequencer implements AutoCloseable {
             ? (wroteAny ? BatchResponse.PARTIAL : BatchResponse.REJECTED)
             : BatchResponse.COMMITTED;
         return new BatchResponse(handle(), status, results);
-    }
-
-    /**
-     * The occurrence index (V2-PROPOSAL.md §6.1, v1's rule): a receipt-keyed row is identified by its
-     * natural key and carries {@code occ 0}; a content-hash row takes the count of earlier rows in
-     * this batch with the same {@code (account, day, amount, rawDescription)}. Distinct rows on a
-     * day are each {@code occ 0}; identical rows get {@code 0, 1, 2}. This is what keeps identity
-     * stable across a v1 import and a re-parse.
-     */
-    private static int assignOcc(FactDraft d, Map<String, Integer> contentCounts) {
-        if (d.receipt() != null && !d.receipt().isBlank()) {
-            return 0;
-        }
-        String key = d.accountRef() + '\u0000' + d.date() + '\u0000' + d.amount() + '\u0000' + d.rawDescription();
-        int occ = contentCounts.getOrDefault(key, 0);
-        contentCounts.put(key, occ + 1);
-        return occ;
     }
 
     private String validateDraft(FactDraft d) {

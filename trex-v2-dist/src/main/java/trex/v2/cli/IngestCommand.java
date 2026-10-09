@@ -3,6 +3,7 @@ package trex.v2.cli;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.ingest.Adapters;
 import trex.v2.ingest.FactDraft;
@@ -114,7 +115,10 @@ public final class IngestCommand implements Callable<Integer> {
             parsed.bad().forEach(b -> System.err.printf("  %s:%d %s%n", b.file(), b.line(), b.reason()));
             return IngestRunner.BAD_ROWS;
         }
-        List<Reparse.Proposal> proposals = Reparse.diff(readJournalFacts(journal), reparseEvidence,
+        List<Fact> facts = new ArrayList<>();
+        List<Decision> decisions = new ArrayList<>();
+        readJournal(journal, facts, decisions);
+        List<Reparse.Proposal> proposals = Reparse.diff(facts, Reparse.closedIds(decisions), reparseEvidence,
             parsed.candidates());
         long changed = proposals.stream().filter(p -> p.kind() != Reparse.Kind.MATCHED).count();
         System.out.printf("re-parse with %s: %d matched, %d changed%n", adapter.parser(),
@@ -139,16 +143,16 @@ public final class IngestCommand implements Callable<Integer> {
         }
     }
 
-    private static List<Fact> readJournalFacts(Path journal) {
-        List<Fact> facts = new ArrayList<>();
+    private static void readJournal(Path journal, List<Fact> facts, List<Decision> decisions) {
         try (FramedReader reader = new FramedReader(journal, 0)) {
             FramedReader.Framed framed;
             while ((framed = reader.next()) != null) {
                 if (framed.line() instanceof Fact fact) {
                     facts.add(fact);
+                } else if (framed.line() instanceof Decision decision) {
+                    decisions.add(decision);
                 }
             }
         }
-        return facts;
     }
 }
