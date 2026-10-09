@@ -158,7 +158,7 @@ replay → effective decisions → supersession / chain resolution → current t
 (`note_current`) → clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/13"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/14"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
@@ -198,7 +198,10 @@ otherwise `dormant`. A candidate is suppressed by an effective `IGNORE_RECURRING
 that named it as `fromCandidate`, or by declaration rules covering its facts, and only a non-ended
 candidate raises review. Declared commitments generate occurrences from cadence and anchor with
 calendar arithmetic (past 12 months through `asOf + 92 days`); each occurrence carries a
-`± min(cadence/2, 7)`-day window, and one whose window closed with nothing covering it is `missed`.
+`± min(cadence/2, 7)`-day window, and one whose window closed with nothing covering it is `missed` —
+but only once the commitment's **frontier** (the newest posted date over its rule accounts, else the
+accounts of its claimed facts) has passed the window; closed by `asOf` and not yet reached by the
+statements it is `awaiting` (grey, never a hole, never arrears).
 A fact is claimed by a pin first, else by the latest declaration whose rules, sign and materialised
 span admit it (facts are processed in `(date, n)` order), and every claimed fact **attaches to the
 occurrence whose window contains its date** (V2-MANUAL-ARREARS-PLAN.md); several facts in one
@@ -207,7 +210,7 @@ occurrences, nothing pre-pays, and a fact with no window becomes an `off_schedul
 its own date. A `variable` commitment attaches the whole fact like any other; an `irregular`
 commitment generates no dates and records each matching fact at its own date — never a window, a
 miss, arrears or dormancy. Status is `occurred` (green, carrying the matched fact), `settled` (a
-person concluded it without a fact), `due` or `missed`; `partial` is retired from automatic output
+person concluded it without a fact), `due`, `awaiting` or `missed`; `partial` is retired from automatic output
 (an amount is what moved, never an inferred shortfall); `lapsed` mirrors the most recent
 closed-window occurrence that is a hole — never the older backlog — and the holes accumulate as
 **arrears**. A retired commitment stops at `endedAt`; a dormant one is

@@ -462,7 +462,7 @@ class CommitmentsTest {
             Arrays.stream(CommitmentOrigin.values()).map(CommitmentOrigin::wire).toList());
         assertEquals(List.of("candidate", "active", "dormant", "ended"),
             Arrays.stream(CommitmentStatus.values()).map(CommitmentStatus::wire).toList());
-        assertEquals(List.of("occurred", "settled", "due", "partial", "missed"),
+        assertEquals(List.of("occurred", "settled", "due", "partial", "missed", "awaiting"),
             Arrays.stream(OccurrenceStatus.values()).map(OccurrenceStatus::wire).toList());
         assertEquals("out", Commitment.OUT);
         assertEquals("in", Commitment.IN);

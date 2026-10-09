@@ -176,8 +176,10 @@ class CommitmentMatchTest {
         CommitmentRule billRule = rule("bill", "ACME");
         CurrentFact january = fact(1, "bw-credit-card", LocalDate.of(2026, 1, 15), -10000L,
             "ACME BILL");
+        // The card's statement reaches 2026-03-30, so the February and March windows were seen.
+        CurrentFact seen = fact(9, "bw-credit-card", LocalDate.of(2026, 3, 30), -500L, "OTHER SHOP");
 
-        CommitmentMatch first = run(List.of(bill), List.of(billRule), List.of(january), ASOF);
+        CommitmentMatch first = run(List.of(bill), List.of(billRule), List.of(january, seen), ASOF);
         assertEquals(OccurrenceStatus.OCCURRED, at(first, "bill", LocalDate.of(2026, 1, 15)).status());
         assertEquals(OccurrenceStatus.MISSED, at(first, "bill", LocalDate.of(2026, 2, 15)).status());
         assertEquals(OccurrenceStatus.MISSED, at(first, "bill", LocalDate.of(2026, 3, 15)).status());
@@ -189,13 +191,73 @@ class CommitmentMatchTest {
         CurrentFact february = fact(2, "bw-credit-card", LocalDate.of(2026, 2, 20), -10000L,
             "ACME BILL");
         CommitmentMatch second =
-            run(List.of(bill), List.of(billRule), List.of(january, february), ASOF);
+            run(List.of(bill), List.of(billRule), List.of(january, february, seen), ASOF);
         CommitmentOccurrence flipped = at(second, "bill", LocalDate.of(2026, 2, 15));
         assertEquals(OccurrenceStatus.OCCURRED, flipped.status());
         assertEquals("id-2", flipped.matchedExternalId());
         assertEquals(OccurrenceStatus.MISSED, at(second, "bill", LocalDate.of(2026, 3, 15)).status());
         assertEquals(1, arrears(second, "bill").count());
         assertEquals(-10000L, arrears(second, "bill").amount());
+    }
+
+    // ---- the statement frontier (V2-REVIEW-FIXES-PLAN.md §6) --------------------------------
+
+    @Test
+    void aWindowClosedBeyondTheFrontierIsAwaitingNotMissed() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        // The card's statement reaches 2026-02-10: the February window (to 02-22) is not seen yet.
+        CurrentFact january = fact(1, "bw-credit-card", LocalDate.of(2026, 1, 15), -10000L, "ACME BILL");
+        CurrentFact lastSeen = fact(2, "bw-credit-card", LocalDate.of(2026, 2, 10), -500L, "OTHER SHOP");
+
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(january, lastSeen), ASOF);
+
+        assertEquals(OccurrenceStatus.AWAITING, at(match, "bill", LocalDate.of(2026, 2, 15)).status());
+        assertEquals(OccurrenceStatus.AWAITING, at(match, "bill", LocalDate.of(2026, 3, 15)).status());
+        assertEquals(0, arrears(match, "bill").count(), "an unseen window is never a hole");
+        assertFalse(arrears(match, "bill").lapsed());
+    }
+
+    @Test
+    void awaitingBecomesMissedOnceTheFrontierPassesTheWindow() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        CurrentFact january = fact(1, "bw-credit-card", LocalDate.of(2026, 1, 15), -10000L, "ACME BILL");
+        CurrentFact lastSeen = fact(2, "bw-credit-card", LocalDate.of(2026, 2, 25), -500L, "OTHER SHOP");
+
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(january, lastSeen), ASOF);
+
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 2, 15)).status(),
+            "the statement passed the window and the bill is not on it");
+        assertEquals(OccurrenceStatus.AWAITING, at(match, "bill", LocalDate.of(2026, 3, 15)).status());
+        assertEquals(1, arrears(match, "bill").count());
+    }
+
+    @Test
+    void awaitingBecomesOccurredWhenTheStatementLands() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        CurrentFact january = fact(1, "bw-credit-card", LocalDate.of(2026, 1, 15), -10000L, "ACME BILL");
+        CurrentFact february = fact(2, "bw-credit-card", LocalDate.of(2026, 2, 16), -10000L, "ACME BILL");
+
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(january, february), ASOF);
+
+        assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 2, 15)).status());
+        assertEquals(OccurrenceStatus.AWAITING, at(match, "bill", LocalDate.of(2026, 3, 15)).status());
+    }
+
+    @Test
+    void theNewestOfACommitmentsAccountsDecides() {
+        // The bill moved from a closed card (last row 2026-01-15) to a new one that is current.
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        CurrentFact old = fact(1, "bw-card-legacy", LocalDate.of(2026, 1, 15), -10000L, "ACME BILL");
+        CurrentFact fresh = fact(2, "bw-credit-card", LocalDate.of(2026, 3, 30), -10000L, "ACME BILL");
+
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(old, fresh), ASOF);
+
+        assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 2, 15)).status(),
+            "a closed card's frontier must not hold the bill awaiting forever");
     }
 
     @Test
@@ -638,8 +700,9 @@ class CommitmentMatchTest {
             LocalDate.of(2026, 1, 15), -10000L, 1);
         CurrentFact old = fact(1, "bw-credit-card", LocalDate.of(2025, 12, 20), -10000L,
             "ACME BILL");
+        CurrentFact seen = fact(9, "bw-credit-card", LocalDate.of(2026, 4, 1), -500L, "OTHER SHOP");
 
-        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(old),
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(old, seen),
             Instant.parse("2026-04-05T00:00:00Z"));
 
         CommitmentOccurrence january = at(match, "bill", LocalDate.of(2026, 1, 15));
@@ -679,10 +742,11 @@ class CommitmentMatchTest {
             LocalDate.of(2026, 1, 10), -10000L, 1);
         CurrentFact january = fact(1, "cba-netsaver", LocalDate.of(2026, 1, 10), -10000L, "BILL");
         CurrentFact february = fact(2, "cba-netsaver", LocalDate.of(2026, 2, 12), -12000L, "BILL");
+        CurrentFact seen = fact(9, "cba-netsaver", LocalDate.of(2026, 3, 1), 100L, "INTEREST");
         List<CommitmentExclusion> exclusions = List.of(new CommitmentExclusion("bill", "id-2", 9));
 
         CommitmentMatch match = Commitments.match(List.of(bill), List.of(rule("bill", "BILL")),
-            List.of(january, february), List.of(), List.of(), exclusions,
+            List.of(january, february, seen), List.of(), List.of(), exclusions,
             Instant.parse("2026-03-05T00:00:00Z"));
 
         assertEquals(OccurrenceStatus.OCCURRED, at(match, "bill", LocalDate.of(2026, 1, 10)).status());
