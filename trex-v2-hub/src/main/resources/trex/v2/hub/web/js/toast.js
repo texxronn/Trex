@@ -1,13 +1,22 @@
 // Transient notifications. A 409 (stale view) is called out specially, because the fix is to
-// refresh rather than to retry.
+// refresh rather than to retry. A third argument makes the toast a button that opens somewhere
+// (QOL_Improvements.md §1) — one click target at a time, cleared whenever a toast is shown.
 
 let timer = null;
+let clickHandler = null;
 
-export function toast(message, kind = '') {
+export function toast(message, kind = '', onClick = null) {
   const node = document.getElementById('toast');
   if (!node) return;
   node.textContent = message;
-  node.className = 'toast ' + kind;
+  if (clickHandler) {
+    node.removeEventListener('click', clickHandler);
+  }
+  clickHandler = typeof onClick === 'function' ? onClick : null;
+  if (clickHandler) {
+    node.addEventListener('click', clickHandler);
+  }
+  node.className = 'toast ' + kind + (clickHandler ? ' clickable' : '');
   node.hidden = false;
   clearTimeout(timer);
   timer = setTimeout(() => { node.hidden = true; }, kind === 'bad' ? 6000 : 3000);

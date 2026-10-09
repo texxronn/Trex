@@ -87,7 +87,14 @@ final class HubHttpApi {
             ex -> write(ex, 200, api.chains(param(ex.getRequestURI().getQuery(), "account"))));
         route(server, "/api/opening", "GET", ex -> write(ex, 200, api.opening()));
         route(server, "/api/workbook", "GET", ex -> write(ex, 200, api.workbook()));
-        route(server, "/api/ingests", "GET", ex -> write(ex, 200, api.ingests()));
+        route(server, "/api/ingests", "GET", ex -> {
+            try {
+                String sinceN = param(ex.getRequestURI().getQuery(), "sinceN");
+                write(ex, 200, api.ingests(sinceN == null ? null : Long.valueOf(sinceN)));
+            } catch (NumberFormatException e) {
+                sendError(ex, 422, "sinceN must be a number");
+            }
+        });
         route(server, "/api/accounts", "GET", ex -> {
             try {
                 String query = ex.getRequestURI().getQuery();

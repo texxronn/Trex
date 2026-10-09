@@ -4,7 +4,7 @@
 > the build order for five quality-of-life changes. Each stage's PR updates `V2-SPEC.md` where it
 > changes behaviour.
 >
-> **Status:** proposed (2026-10-09). Nothing is built.
+> **Status:** in progress (2026-10-09): Q6 is built (§1); Q2–Q5 are proposed.
 > **Goal:** the daily-use goal (`docs/reviews/CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
 > routine with a finish line, no trips to the terminal. Each item removes friction that actually
 > happened while the review fixes were rolled out on the dev stack.
@@ -70,6 +70,26 @@ completed in between, it shows one toast:
   one toast with the right counts; a re-run of the same files toasts "0 new rows · 2 duplicates"
   (the duplicate count is shown when every row was a duplicate, so a no-op sweep is still
   confirmed).
+
+**As built (2026-10-09).** `GET /api/ingests?sinceN=<n>` keeps batches with `n_end > n`, untruncated
+— the 50-batch page size applies to the unfiltered history only, so a delta that missed more than 50
+batches still reports them all (no filter is the old read; a non-numeric filter is 422). The SQL
+stayed inline in `HubQueries.ingests`, so `HubSql` was not touched. A new `web/js/ingestToast.js`
+hangs off `app.js`: `onSnapshot` seeds the baseline and fetches the review total the page loaded
+with, so the first delta after load/reconnect fetches (and toasts) the batches completed since the
+snapshot and diffs its review delta against that total when it had already settled — a status read
+that failed, or was still in flight when the delta arrived, shows no review delta rather than a
+guess; only a stream that never saw a snapshot treats its first delta as the baseline. An in-flight
+fetch is void if a snapshot or rollback rebaselines the journal mid-fetch, so no stale cursor or
+toast survives a rebuild. Duplicates are named only when every row was a duplicate — nothing appended,
+nothing flagged, no failed batch — and any batch whose status is not `ok` makes the toast
+error-styled and names the file with the runner's word (`bad_rows` → "bad rows"). `toast()` gained
+an optional click target (a `clickable` class); a click sets `#jobs`, the mode switch the nav
+already uses. Nothing writes: the runner, the sequencer and the log are untouched. Pinned by
+`HubIngestsApiTest` (`sinceNReturnsOnlyLaterBatches`: whole history without the filter, later-only,
+empty at the head, 422; `sinceNReturnsEveryLaterBatchPastTheHistoryLimit`: 55 batches, the plain read
+is 50 rows, `sinceN=0` is 55) and `HubAccountsTest` still reads the unfiltered history. The UI was
+not checked in a browser; the manual acceptance above is still to run on the dev stack.
 
 ---
 

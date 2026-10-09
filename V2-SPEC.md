@@ -405,7 +405,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, committed totals, and the month's **headroom** (§9.2) |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings |
-| GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier |
+| GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
 | GET/POST | `/api/acks` | per-user `USER_ACK` rows and their validity |

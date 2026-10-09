@@ -104,8 +104,12 @@ interface HubApi {
     /** Evidence ids present on facts, so the Jobs view can tick the files already in. */
     java.util.Set<String> ingestedEvidenceIds();
 
-    /** The ingest history, paired from the log's markers (§12.6). */
-    trex.v2.hub.api.IngestsResponse ingests();
+    /**
+     * The ingest history, paired from the log's markers (§12.6), newest first. {@code sinceN} is
+     * the ingest toast's catch-up: every batch that completed after it ({@code n_end > sinceN}),
+     * untruncated; null returns the newest page for the Jobs view.
+     */
+    trex.v2.hub.api.IngestsResponse ingests(Long sinceN);
 
     /** The Accounts overview (§10.1, §10.5): per-account first/last and the coverage strip. */
     AccountsResponse accounts(String window, String granularity, java.time.LocalDate asOf);

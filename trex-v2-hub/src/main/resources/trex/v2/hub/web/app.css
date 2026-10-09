@@ -362,6 +362,7 @@ tbody tr.noop:hover td { opacity: .8; }
   max-width: min(28rem, calc(100vw - 2rem));
 }
 .toast.bad { background: var(--bad); color: #fff; }
+.toast.clickable { cursor: pointer; }
 
 .mode-section { margin-top: 1.1rem; }
 .mode-section h3 { margin: 0 0 0.4rem; font-size: 13px; letter-spacing: 0.02em; }

@@ -65,7 +65,8 @@ export const api = {
   transfersYaml: () => request('GET', '/api/config/transfers'),
   saveTransfers: (transfers) => request('PUT', '/api/config/transfers', { transfers }),
   workbook: () => request('GET', '/api/workbook'),
-  ingests: () => request('GET', '/api/ingests'),
+  ingests: (sinceN) => request('GET', '/api/ingests'
+    + (sinceN === null || sinceN === undefined ? '' : '?' + new URLSearchParams({ sinceN }))),
   accounts: (params = {}) => request('GET', '/api/accounts?' + new URLSearchParams(params)),
   jobs: () => request('GET', '/api/jobs'),
   jobAdapters: () => request('GET', '/api/jobs/adapters'),

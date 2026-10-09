@@ -142,18 +142,32 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
-    /** The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. */
-    public List<trex.v2.hub.api.IngestsResponse.IngestRow> ingests(int limit) {
+    /**
+     * The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. Null
+     * returns the newest {@code limit} batches, including one whose complete marker has not
+     * arrived — the Jobs page. {@code sinceN} is the catch-up the ingest toast sends on an SSE
+     * delta (QOL_Improvements.md §1): every batch that completed after it ({@code n_end > sinceN}),
+     * never truncated to the page size, because a delta that missed the older half of its range
+     * could never report it again.
+     */
+    public List<trex.v2.hub.api.IngestsResponse.IngestRow> ingests(int limit, Long sinceN) {
         LocalDate asOf = LocalDate.now();
         return read(conn -> {
             List<trex.v2.hub.api.IngestsResponse.IngestRow> out = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT batch, file, evidence_id, account_ref, n_start, n_end, appended, duplicate, flagged, "
-                    + "status, started_ms, completed_ms, "
-                    + "(SELECT MAX(t.date) FROM txn_current t WHERE t.account_ref = ingest_batch.account_ref "
-                    + "AND t.date <= ?) FROM ingest_batch ORDER BY n_start DESC LIMIT ?")) {
+            String sql = "SELECT batch, file, evidence_id, account_ref, n_start, n_end, appended, duplicate, "
+                + "flagged, status, started_ms, completed_ms, "
+                + "(SELECT MAX(t.date) FROM txn_current t WHERE t.account_ref = ingest_batch.account_ref "
+                + "AND t.date <= ?) FROM ingest_batch"
+                + (sinceN == null ? "" : " WHERE n_end > ?")
+                + " ORDER BY n_start DESC"
+                + (sinceN == null ? " LIMIT ?" : "");
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, asOf.toString());
-                ps.setInt(2, limit);
+                if (sinceN == null) {
+                    ps.setInt(2, limit);
+                } else {
+                    ps.setLong(2, sinceN);
+                }
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         out.add(new trex.v2.hub.api.IngestsResponse.IngestRow(

@@ -13,6 +13,7 @@ import * as rules from './rules.js';
 import * as accounts from './accounts.js';
 import * as chains from './chains.js';
 import * as jobs from './jobs.js';
+import * as ingestToast from './ingestToast.js';
 
 const modes = { blotter, review, expected, eyeball, rules, accounts, chains, jobs };
 
@@ -47,6 +48,7 @@ async function boot() {
   connect({
     onSnapshot: (head) => {
       ctx.n = head.n;
+      ingestToast.onSnapshot(head.n);
       status.refresh();
       refreshActive();
     },
@@ -55,6 +57,7 @@ async function boot() {
       ctx.configRevision = change.configRevision;
       status.refresh();
       refreshActive();
+      ingestToast.onDelta(change);
     },
   });
 }
