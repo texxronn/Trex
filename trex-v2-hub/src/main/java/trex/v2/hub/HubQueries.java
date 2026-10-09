@@ -144,19 +144,24 @@ public final class HubQueries implements AutoCloseable {
 
     /** The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. */
     public List<trex.v2.hub.api.IngestsResponse.IngestRow> ingests(int limit) {
+        LocalDate asOf = LocalDate.now();
         return read(conn -> {
             List<trex.v2.hub.api.IngestsResponse.IngestRow> out = new ArrayList<>();
             try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT batch, file, evidence_id, account_ref, n_start, n_end, appended, duplicate, flagged, "
-                    + "status, started_ms, completed_ms FROM ingest_batch ORDER BY n_start DESC LIMIT ?")) {
-                ps.setInt(1, limit);
+                    + "status, started_ms, completed_ms, "
+                    + "(SELECT MAX(t.date) FROM txn_current t WHERE t.account_ref = ingest_batch.account_ref "
+                    + "AND t.date <= ?) FROM ingest_batch ORDER BY n_start DESC LIMIT ?")) {
+                ps.setString(1, asOf.toString());
+                ps.setInt(2, limit);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         out.add(new trex.v2.hub.api.IngestsResponse.IngestRow(
                             rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
                             rs.getLong(5), rs.getLong(6),
                             (Integer) rs.getObject(7), (Integer) rs.getObject(8), (Integer) rs.getObject(9),
-                            rs.getString(10), rs.getLong(11), rs.getLong(12)));
+                            rs.getString(10), rs.getLong(11), rs.getLong(12),
+                            nullableDate(rs.getString(13))));
                     }
                 }
             }

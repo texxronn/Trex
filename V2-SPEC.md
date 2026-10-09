@@ -241,6 +241,11 @@ table and clears the derived meta, so the next apply re-derives. Every table can
 `trex index --rebuild` reproduces them. The hub holds one writer connection and a small read pool,
 with `query_only` reads.
 
+The ingest history (`GET /api/ingests`) pairs each batch with its account's **frontier** — the
+newest transaction date processed for the account, clamped to today — as a read over
+`txn_current`; the Jobs page shows it per row and as a per-account fetch strip, so the next
+statement file can be requested by date range (`V2-INGEST-FRONTIER-PLAN.md`).
+
 ---
 
 ## 8. Sequencer API (`trex-v2-sequencer`)
