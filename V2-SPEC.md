@@ -161,6 +161,14 @@ Every output list is ordered, so an unchanged input yields byte-identical tables
 recorded alongside, never inside, a hash: `deriveVersion = "derive/14"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
+**The `asOf` contract.** `asOf` is the only notion of now, and only these outputs may depend on it:
+`pending` status; the `UNMATCHED_LEG`, `STALE_PENDING`, `DORMANT_COMMITMENT` and `COMMITMENT_ARREARS`
+review items; the commitment faces (arrears, `lapsed`, next due) and `commitment_occurrence`
+(generated `asOf − 12 months … asOf + 92 days`, and `due`/`awaiting`/`missed`); and the exclusion of
+facts dated after `asOf`. Every other table and every other review kind is identical at any later
+`asOf` (`DeriveTest.laterAsOfMovesOnlyTimeRelativeOutputs`). A change that adds an `asOf` dependency
+adds it to this list and to that test.
+
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
 recorded and visible but is not a posting — no chain edge, no transfer leg, no unit, no sum. The role
 comes from an account-profile rule in `profiles.yaml` (matched on the cleaned description) or a
