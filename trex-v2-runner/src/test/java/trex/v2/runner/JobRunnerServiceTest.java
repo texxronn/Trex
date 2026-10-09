@@ -57,6 +57,21 @@ class JobRunnerServiceTest {
     }
 
     @Test
+    void afterReceivesEachStepsExitCode(@TempDir Path dir) throws Exception {
+        CommandRunner fake = (argv, line, handle) -> argv.get(0).equals("bad") ? 1 : 0;
+        List<Integer> seen = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        JobSpec spec = new JobSpec("demo", "Demo", "d", "write", List.of(),
+            p -> List.of(new Step("ok", List.of("good"), seen::add), new Step("bad", List.of("bad"), seen::add)));
+        JobRunnerService service = new JobRunnerService(config(dir), Map.of("demo", spec), fake);
+        try {
+            awaitTerminal(service.submit("demo", null));
+            assertEquals(List.of(0, 1), seen);
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
     void unknownJobIsRejected(@TempDir Path dir) throws Exception {
         JobRunnerService service = new JobRunnerService(config(dir), Map.of(), (argv, line, handle) -> 0);
         try {

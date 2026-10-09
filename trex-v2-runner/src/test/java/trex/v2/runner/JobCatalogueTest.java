@@ -39,6 +39,63 @@ class JobCatalogueTest {
         assertTrue(apply.steps().build(mode("apply")).get(0).argv().contains("--apply"));
     }
 
+    // ---- the inbox sweep (V2-REVIEW-FIXES-PLAN.md §9) ---------------------------------------
+
+    private static final long LATER = System.currentTimeMillis() + 10 * JobCatalogue.SETTLE_MS;
+
+    private static JobSpec inbox(Path dir, StagingStore staging, long now) throws Exception {
+        Files.writeString(dir.resolve("statements.yaml"), """
+            files:
+              - { match: "ING_*.csv", sourceType: ing-csv, account: ing-salary }
+            """);
+        return JobCatalogue.ingestInbox(config(dir, false), StatementsMap.load(dir), staging, () -> now);
+    }
+
+    @Test
+    void inboxSweepIngestsMatchedFilesAndFilesThemByExitCode(@TempDir Path dir) throws Exception {
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        StagingStore.Staged ok = staging.put("a".getBytes(StandardCharsets.UTF_8), "ING_Salary.csv");
+        StagingStore.Staged bad = staging.put("b".getBytes(StandardCharsets.UTF_8), "ING_Orange.csv");
+        StagingStore.Staged flaky = staging.put("c".getBytes(StandardCharsets.UTF_8), "ING_Loan.csv");
+
+        List<Step> steps = inbox(dir, staging, LATER).steps().build(Json.mapper().createObjectNode());
+        assertEquals(List.of("ING_Loan.csv", "ING_Orange.csv", "ING_Salary.csv"),
+            steps.stream().map(Step::label).sorted().toList());
+        Map<String, Step> byLabel = steps.stream().collect(java.util.stream.Collectors.toMap(Step::label, s -> s));
+        assertTrue(byLabel.get("ING_Salary.csv").argv().contains("ing-salary"), "the map names the account");
+
+        byLabel.get("ING_Salary.csv").after().accept(0);
+        byLabel.get("ING_Orange.csv").after().accept(1);
+        byLabel.get("ING_Loan.csv").after().accept(2);
+
+        Map<String, String> state = staging.list().stream()
+            .collect(java.util.stream.Collectors.toMap(StagingStore.Staged::name, StagingStore.Staged::state));
+        assertEquals("done", state.get(ok.name()));
+        assertEquals("failed", state.get(bad.name()), "bad rows are kept, out of the next sweep");
+        assertEquals("staged", state.get(flaky.name()), "a transport failure is retried next sweep");
+    }
+
+    @Test
+    void inboxSweepLeavesUnmatchedAndUnsettledFiles(@TempDir Path dir) throws Exception {
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        staging.put("x".getBytes(StandardCharsets.UTF_8), "unknown-bank.csv");
+        NothingToDo none = assertThrows(NothingToDo.class,
+            () -> inbox(dir, staging, LATER).steps().build(Json.mapper().createObjectNode()));
+        assertTrue(none.getMessage().contains("need a type"), none.getMessage());
+
+        staging.put("y".getBytes(StandardCharsets.UTF_8), "ING_Salary.csv");
+        assertThrows(NothingToDo.class,
+            () -> inbox(dir, staging, System.currentTimeMillis()).steps().build(Json.mapper().createObjectNode()),
+            "a file still being copied in is left for the next sweep");
+    }
+
+    @Test
+    void anEmptyInboxIsNothingToDo(@TempDir Path dir) throws Exception {
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        assertThrows(NothingToDo.class,
+            () -> inbox(dir, staging, LATER).steps().build(Json.mapper().createObjectNode()));
+    }
+
     @Test
     void ingestUsesMappingAndStagedPath(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("statements.yaml"), """

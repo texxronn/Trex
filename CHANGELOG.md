@@ -9,6 +9,14 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **The drop folder** (`ingest-inbox`, `V2-REVIEW-FIXES-PLAN.md` §9). A runner job that ingests every
+  settled staged file `statements.yaml` names and files it under `done/` or `failed/` by exit code;
+  unknown files stay for a person. **Ingest inbox** on the Jobs page, an hourly `schedule.yaml`
+  entry (commented out until enabled), globs for the dated bank file names, and a bind-mount recipe
+  in `docs/DEPLOYMENTS.md`.
+
 ### Fixed
 
 - **The sequencer picks up config edits without a restart** (`V2-REVIEW-FIXES-PLAN.md` §8). It read

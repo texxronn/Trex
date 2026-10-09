@@ -4,13 +4,16 @@
 #
 # Empty or absent means no scheduled jobs: every job is manual (the Jobs page buttons).
 #
-# `job` must be one of the runner's jobs (ingest, egress-firefly, journal-snapshot); `params` are
-# validated at load. A daily/weekly entry is a calendar cadence (the local wall time is preserved
+# `job` must be one of the runner's jobs (ingest, ingest-inbox, egress-firefly, journal-snapshot);
+# `params` are validated at load. A daily/weekly entry is a calendar cadence (the local wall time is preserved
 # across a DST change).
 
 jobs: []
 
 # Examples (uncomment to enable):
+#  - job: ingest-inbox            # the drop folder: ingest what statements.yaml names, hourly
+#    every: 1h
+#    at: "00:05"
 #  - job: journal-snapshot
 #    every: 24h
 #    at: "02:30"

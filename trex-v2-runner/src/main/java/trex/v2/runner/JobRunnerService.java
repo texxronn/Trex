@@ -62,7 +62,7 @@ public final class JobRunnerService implements AutoCloseable {
         List<Step> steps = spec.steps().build(params == null ? com.fasterxml.jackson.databind.node.JsonNodeFactory
             .instance.nullNode() : params);
         if (steps.isEmpty()) {
-            throw new IllegalArgumentException("no work to do");
+            throw new NothingToDo("no work to do");
         }
         RunRecord run = new RunRecord(UUID.randomUUID().toString(), jobName, params, steps, trigger);
         synchronized (history) {
@@ -154,6 +154,13 @@ public final class JobRunnerService implements AutoCloseable {
                 } catch (Exception e) {
                     run.append("!! " + e.getClass().getSimpleName() + ": " + e.getMessage());
                     code = -1;
+                }
+                if (step.after() != null) {
+                    try {
+                        step.after().accept(code);
+                    } catch (Exception e) {
+                        run.append("!! after " + step.label() + ": " + e.getMessage());
+                    }
                 }
                 run.stepExit(step.label(), code);
                 run.append("-- " + step.label() + " exit " + code);

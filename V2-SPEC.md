@@ -433,9 +433,13 @@ equivalence ledger; `StatementsE2ETest` is the end-to-end run over real statemen
 ## 16. The runner and its schedule
 
 `trex-v2-runner` is a loopback service the hub proxies. A **job** is an invocation of an existing
-subcommand — `ingest`, `egress-firefly`, `journal-snapshot`, `stream` (mode `export | ingest`) — never
-new logic: the runner starts the process, streams its output and records the exit code. One serialized
-worker, a bounded in-memory run history, and a **staging inbox** for uploads. `POST /jobs/{name}/runs`
+subcommand — `ingest`, `ingest-inbox`, `egress-firefly`, `journal-snapshot`, `stream` (mode
+`export | ingest`) — never new logic: the runner starts the process, streams its output and records the exit code. One serialized
+worker, a bounded in-memory run history, and a **staging inbox** for uploads. `ingest-inbox` is the
+one allowed composition: the `ingest` subcommand with its items resolved from `statements.yaml`
+over the settled inbox files, each filed by exit code — `0` to `done/`, `1`/`3` to `failed/`,
+otherwise left for the next sweep; an empty or all-unnamed inbox is *nothing to do*, which a
+scheduled run skips quietly. `POST /jobs/{name}/runs`
 is async (`202 {runId}`) or, with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
 The runner mounts the journal read-only so the `stream` export job can read it.
 

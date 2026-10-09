@@ -206,7 +206,10 @@ function renderStaging() {
   clear(stagingHost);
   ingestButton = el('button', { class: 'primary', onclick: runIngest }, 'Ingest selected');
   ingestButton.disabled = selected.size === 0;
-  stagingHost.append(el('div', { class: 'toolbar' }, ingestButton,
+  const inboxButton = el('button', { onclick: () => startRun('ingest-inbox', {}).then(load) },
+    'Ingest inbox');
+  inboxButton.title = 'ingest every settled file statements.yaml names; file each under done/ or failed/';
+  stagingHost.append(el('div', { class: 'toolbar' }, ingestButton, inboxButton,
     el('span', { class: 'muted' }, 'The tick means these bytes are already in the log.')));
   if (!staged.length) {
     stagingHost.append(el('p', { class: 'muted' }, 'Nothing staged.'));
@@ -250,6 +253,10 @@ function statusCell(file) {
   }
   if (file.state === 'done') {
     return el('span', { class: 'muted', title: 'cleared from the inbox' }, 'cleared');
+  }
+  if (file.state === 'failed') {
+    return el('span', { class: 'occ-missed',
+      title: 'the inbox sweep could not ingest it (bad rows or rejected); see the run output' }, '\u2717 failed');
   }
   return el('span', { class: 'muted' }, 'staged');
 }

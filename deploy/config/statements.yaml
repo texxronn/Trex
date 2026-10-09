@@ -11,6 +11,6 @@ files:
   - { match: "ING_Variable_Rate.csv",                  sourceType: ing-csv, account: ing-variable-rate }
   - { match: "ING_Orange_Everyday.csv",                sourceType: ing-csv, account: ing-orange }
   - { match: "ING_One_LowRate_Credit.csv",             sourceType: ing-csv, account: ing-credit-card }
-  - { match: "BW_20240101_20261001.csv",               sourceType: bw-csv,  account: bw-credit-card }
-  - { match: "CBA_SmartAccess_20241002_20261002.pdf",  sourceType: cba-pdf, account: cba-smartaccess }
-  - { match: "CBA_Netbank_Saver_20241002_20261002.pdf", sourceType: cba-pdf, account: cba-netsaver }
+  - { match: "BW_*.csv",                               sourceType: bw-csv,  account: bw-credit-card }
+  - { match: "CBA_SmartAccess_*.pdf",                  sourceType: cba-pdf, account: cba-smartaccess }
+  - { match: "CBA_Netbank_Saver_*.pdf",                sourceType: cba-pdf, account: cba-netsaver }
