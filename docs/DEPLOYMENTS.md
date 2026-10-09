@@ -55,7 +55,8 @@ DOCKER_CONTEXT=trex deploy/bin/trex-v2-docker.sh build
 scp deploy/v2/compose.server.yml deploy@10.10.10.142:/tmp/compose.yml
 scp deploy/config/accounts.yaml deploy/config/users.yaml deploy/config/categories.yaml \
     deploy/config/transfers.yaml deploy/config/pins.yaml deploy/config/firefly.yaml \
-    deploy/v2/sequencer.yaml deploy@10.10.10.142:/tmp/
+    deploy/config/profiles.yaml deploy/config/statements.yaml deploy/config/sources.yaml \
+    deploy/config/schedule.yaml deploy/v2/sequencer.yaml deploy@10.10.10.142:/tmp/
 # as root on the host: install into /opt/trex/config and `docker compose up -d`
 ```
 
@@ -85,8 +86,9 @@ docker run --rm -i -v trex-v2_config:/etc/trex alpine \
 
 It prints every file's verdict, backs each file it updates up to `/etc/trex/.backup/<file>.<ts>`,
 copies the image's copy over the live file, and never touches an `edited-here`, `both-changed` or
-`unknown` file. The first run after this ships has no `.base/`, so every edited file reads
-`unknown`; after looking, record it with `ADOPT`:
+`unknown` file. A path that exists but is not a regular file stops the run instead of being
+compared. The first run after this ships has no `.base/`, so every edited file reads `unknown`;
+after looking, record it with `ADOPT` — refused when `.shipped` has no copy, which one `up` seeds:
 
 ```sh
 docker run --rm -i -v trex-v2_config:/etc/trex -e ADOPT=profiles.yaml alpine \

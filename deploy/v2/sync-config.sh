@@ -11,7 +11,9 @@
 # possibly edited in the UI) — the same table as the hub's GET /api/config/drift. A repo-newer
 # file (C == B, S != B) is backed up to .backup/<f>.<ts>, then S overwrites C and B;
 # edited-here, both-changed and unknown are reported and left alone. ADOPT=<f> records the
-# current file as its base, for the first run after drift ships. POSIX sh + cmp/cp only.
+# current file as its base, for the first run after drift ships; it is refused when .shipped has
+# no copy of the file (start the stack once so init seeds it). A path that exists but is not a
+# regular file fails the run rather than being compared or overwritten. POSIX sh + cmp/cp only.
 # A sync needs no restart: the sequencer re-checks config before each write and the hub watches it.
 
 set -eu
@@ -33,6 +35,15 @@ state() {
     echo both-changed
 }
 
+# An existing path that is not a regular file cannot be compared or overwritten: fail loudly
+# rather than treating it as absent (or letting cp/rm fail with a cryptic message).
+check_regular() {
+    if [ -e "$1" ] && [ ! -f "$1" ]; then
+        echo "sync-config: $1 exists but is not a regular file — refusing to touch it" >&2
+        exit 1
+    fi
+}
+
 [ -d /etc/trex ] || { echo "sync-config: /etc/trex is not mounted — check the -v config volume" >&2; exit 1; }
 [ -d /etc/trex/.shipped ] || {
     echo "sync-config: /etc/trex/.shipped is missing — start the stack once so init seeds it" >&2
@@ -44,8 +55,16 @@ if [ -n "$adopt" ]; then
         *" $adopt "*) ;;
         *) echo "sync-config: unknown file '$adopt' (expected one of: $files)" >&2; exit 1 ;;
     esac
+    check_regular "/etc/trex/$adopt"
+    check_regular "/etc/trex/.base/$adopt"
+    check_regular "/etc/trex/.shipped/$adopt"
     [ -f "/etc/trex/$adopt" ] || {
         echo "sync-config: /etc/trex/$adopt is missing — there is nothing to adopt" >&2
+        exit 1
+    }
+    [ -f "/etc/trex/.shipped/$adopt" ] || {
+        echo "sync-config: /etc/trex/.shipped/$adopt is missing — start the stack once so init" \
+            "seeds it; adopting cannot settle a file with no shipped copy" >&2
         exit 1
     }
     mkdir -p /etc/trex/.base
@@ -57,6 +76,9 @@ for f in $files; do
     s="/etc/trex/.shipped/$f"
     b="/etc/trex/.base/$f"
     c="/etc/trex/$f"
+    check_regular "$s"
+    check_regular "$b"
+    check_regular "$c"
     case "$(state "$s" "$b" "$c")" in
         same)
             echo "$f: same" ;;
@@ -71,6 +93,10 @@ for f in $files; do
         both-changed)
             echo "$f: both-changed — left alone (changed here and in the repo; merge by hand)" ;;
         unknown)
-            echo "$f: unknown — left alone (no base yet; look, then adopt it)" ;;
+            if [ ! -f "$s" ]; then
+                echo "$f: unknown — left alone (no .shipped copy; start the stack once so init seeds it)"
+            else
+                echo "$f: unknown — left alone (no base recorded; look, then adopt it)"
+            fi ;;
     esac
 done
