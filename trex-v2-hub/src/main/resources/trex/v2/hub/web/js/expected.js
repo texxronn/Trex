@@ -68,7 +68,41 @@ function render() {
     host.append(el('p', { class: 'muted' }, 'Loading…'));
     return;
   }
-  host.append(occurrences(), catchUp(), registrySection(), lint());
+  host.append(headroom(), occurrences(), catchUp(), registrySection(), lint());
+}
+
+/**
+ * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10): one figure that answers "am I okay?", with the
+ * arithmetic beside it and the date the statements reach, so a late statement reads as a late
+ * statement and not as money.
+ */
+function headroom() {
+  const h = data.headroom;
+  if (!h) return el('div');
+  const month = new Date(h.month + 'T00:00:00Z')
+    .toLocaleString(undefined, { month: 'long', timeZone: 'UTC' });
+  const figure = el('b', { class: h.left < 0 ? 'occ-missed' : 'tick' },
+    money(h.left));
+  const parts = [
+    `in ${money(h.incomeIn)}` + (h.incomeDue ? ` + ${money(h.incomeDue)} due` : ''),
+    `commitments ${money(h.committedPaid)}` + (h.committedDue ? ` + ${money(h.committedDue)} due` : ''),
+    `other spend ${money(h.uncommittedSpend)}`,
+  ];
+  if (h.movedOut || h.movedIn) {
+    parts.push(`moved to your other accounts ${money(h.movedOut - h.movedIn)}`);
+  }
+  const notes = [];
+  if (h.missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(h.missed)}`));
+  if (h.unpaired) {
+    notes.push(el('span', { class: 'muted', title: 'transfer legs still waiting for their other side' },
+      `unpaired transfers: ${money(h.unpaired)}`));
+  }
+  return el('section', { class: 'headroom' },
+    el('div', {}, el('span', { class: 'muted' }, `Left in ${month} `), figure),
+    el('div', { class: 'muted' }, parts.join(' · ')),
+    el('div', { class: 'muted', title: 'budget accounts: ' + (h.accounts || []).join(', ') },
+      h.through ? `through ${h.through} — the statements say nothing after it` : 'no statements yet'),
+    notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '');
 }
 
 function tabs() {

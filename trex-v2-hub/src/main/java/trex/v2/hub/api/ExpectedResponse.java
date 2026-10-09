@@ -9,7 +9,24 @@ import java.util.List;
  * commitment, oldest first, with a running total; and the window's committed totals by direction.
  */
 public record ExpectedResponse(String window, LocalDate from, LocalDate to,
-                               List<Occurrence> occurrences, List<Arrear> arrears, Totals totals) {
+                               List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
+                               Headroom headroom) {
+
+    /**
+     * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10) over the accounts in the budget: what came in
+     * and is still expected in, minus what the commitments took and still will, minus everything else
+     * spent. A read over the derived tables, not a budget: nothing is planned or stored. Every field
+     * is a positive magnitude except {@code left}. {@code movedOut}/{@code movedIn} are transfers
+     * between a budget account and one of your own accounts outside it (the offset, savings, a loan):
+     * they move {@code left} like any outflow or inflow, but they are not spending or income. {@code missed} (out-commitments whose window
+     * closed with nothing seen) and {@code unpaired} (transfer legs still waiting for their other
+     * side) are shown, never folded into {@code left}. {@code through} is the oldest statement
+     * frontier among the budget accounts: the figure knows nothing after it.
+     */
+    public record Headroom(LocalDate month, long left, long incomeIn, long incomeDue, long committedPaid,
+                           long committedDue, long uncommittedSpend, long movedOut, long movedIn, long missed,
+                           long unpaired, LocalDate through, List<String> accounts) {}
+
 
     /**
      * One occurrence due in the window. {@code amount} is what the occurrence carries — the

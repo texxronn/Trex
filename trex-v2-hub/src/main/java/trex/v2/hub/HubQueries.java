@@ -721,7 +721,152 @@ public final class HubQueries implements AutoCloseable {
                 }
             }
             return new ExpectedResponse(window, range.from(), range.to(), occurrences, arrears,
-                new ExpectedResponse.Totals(out, in));
+                new ExpectedResponse.Totals(out, in), null);
+        });
+    }
+
+    /**
+     * The headroom of one calendar month over the budget accounts (V2-REVIEW-FIXES-PLAN.md §10). A
+     * transfer is internal — and skipped — when both sides are budget accounts; one that crosses the
+     * boundary (to savings, to the mortgage) is money in or out. A claimed fact is counted through
+     * its commitment's occurrence, never again as spend; a commitment that lands only outside the
+     * budget, or only ever moves money between budget accounts, is left out.
+     */
+    public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, java.util.Set<String> budget,
+                                             java.util.Set<String> statementBudget) {
+        return read(conn -> {
+            // Where each commitment lands, and whether it is only ever an internal move.
+            Map<String, java.util.Set<String>> landsOn = new java.util.TreeMap<>();
+            Map<String, Boolean> internalOnly = new java.util.TreeMap<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACT_ACCOUNTS);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String id = rs.getString(1);
+                    landsOn.computeIfAbsent(id, k -> new java.util.TreeSet<>()).add(rs.getString(2));
+                    boolean internal = rs.getString(3) != null && budget.contains(rs.getString(2))
+                        && budget.contains(rs.getString(4));
+                    internalOnly.merge(id, internal, Boolean::logicalAnd);
+                }
+            }
+            Map<String, java.util.Set<String>> ruleAccounts = new java.util.TreeMap<>();
+            java.util.Set<String> unscoped = new java.util.TreeSet<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULE_ACCOUNTS);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String account = rs.getString(2);
+                    if (account == null || account.isBlank()) {
+                        unscoped.add(rs.getString(1));
+                    } else {
+                        ruleAccounts.computeIfAbsent(rs.getString(1), k -> new java.util.TreeSet<>()).add(account);
+                    }
+                }
+            }
+
+            long incomeIn = 0;
+            long incomeDue = 0;
+            long committedPaid = 0;
+            long committedDue = 0;
+            long missed = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.EXPECTED_OCCURRENCES)) {
+                ps.setString(1, month.from().toString());
+                ps.setString(2, month.to().toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String id = rs.getString(1);
+                        java.util.Set<String> accounts = !unscoped.contains(id) && ruleAccounts.containsKey(id)
+                            ? ruleAccounts.get(id) : landsOn.getOrDefault(id, java.util.Set.of());
+                        if (Boolean.TRUE.equals(internalOnly.get(id))
+                            || (!accounts.isEmpty() && accounts.stream().noneMatch(budget::contains))) {
+                            continue;
+                        }
+                        boolean in = "in".equals(rs.getString(3));
+                        Long expected = nullableLong(rs, 5);
+                        Long amount = nullableLong(rs, 10);
+                        long moved = amount != null ? Math.abs(amount) : 0;
+                        long owed = expected == null ? 0 : Math.abs(expected);
+                        switch (rs.getString(9)) {
+                            case "occurred", "settled", "partial" -> {
+                                if (in) {
+                                    incomeIn += moved;
+                                } else {
+                                    committedPaid += moved;
+                                }
+                            }
+                            case "due", "awaiting" -> {
+                                if (in) {
+                                    incomeDue += owed;
+                                } else {
+                                    committedDue += owed;
+                                }
+                            }
+                            case "missed" -> {
+                                if (!in) {
+                                    missed += owed;
+                                }
+                            }
+                            default -> { }
+                        }
+                    }
+                }
+            }
+
+            long uncommittedSpend = 0;
+            long movedOut = 0;
+            long movedIn = 0;
+            long unpaired = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.HEADROOM_ROWS)) {
+                ps.setString(1, month.from().toString());
+                ps.setString(2, month.to().toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String account = rs.getString(1);
+                        long amount = rs.getLong(2);
+                        if (!budget.contains(account) || "noop".equals(rs.getString(3)) || rs.getString(6) != null) {
+                            continue; // outside the budget, not a posting, or counted by its commitment
+                        }
+                        if ("HELD".equals(rs.getString(4))) {
+                            unpaired += Math.abs(amount);
+                            continue;
+                        }
+                        if (rs.getString(5) != null && budget.contains(rs.getString(7))) {
+                            continue; // a transfer between two budget accounts moves nothing
+                        }
+                        if (rs.getString(5) != null && rs.getString(7) != null) {
+                            // To or from one of your own accounts outside the budget: moved, not spent.
+                            if (amount < 0) {
+                                movedOut += -amount;
+                            } else {
+                                movedIn += amount;
+                            }
+                            continue;
+                        }
+                        if (amount < 0) {
+                            uncommittedSpend += -amount;
+                        } else {
+                            incomeIn += amount;
+                        }
+                    }
+                }
+            }
+
+            LocalDate through = null;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ACCOUNT_FRONTIERS)) {
+                ps.setString(1, today.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (statementBudget.contains(rs.getString(1))) {
+                            LocalDate frontier = LocalDate.parse(rs.getString(2));
+                            if (through == null || frontier.isBefore(through)) {
+                                through = frontier;
+                            }
+                        }
+                    }
+                }
+            }
+            long left = incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend - movedOut;
+            return new ExpectedResponse.Headroom(month.from(), left, incomeIn, incomeDue, committedPaid,
+                committedDue, uncommittedSpend, movedOut, movedIn, missed, unpaired, through,
+                List.copyOf(new java.util.TreeSet<>(budget)));
         });
     }
 

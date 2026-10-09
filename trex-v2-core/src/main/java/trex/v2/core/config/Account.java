@@ -20,7 +20,7 @@ import java.time.LocalDate;
  * deterministic colour in the UI.
  */
 public record Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
-                      Long closingBalance, LocalDate closedAt, String chipColor) {
+                      Long closingBalance, LocalDate closedAt, String chipColor, boolean budget) {
 
     /** The common shape: a statement or declared account with no clearing fields and no chip colour. */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays) {
@@ -31,6 +31,16 @@ public record Account(String ref, String currency, BalanceSource balanceSource, 
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
                    Long closingBalance, LocalDate closedAt) {
         this(ref, currency, balanceSource, settlementWindowDays, closingBalance, closedAt, null);
+    }
+
+    /**
+     * Without an explicit {@code budget} flag: every account the money is spent from is in the
+     * monthly budget, and a clearing account (no facts of its own) never is.
+     */
+    public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
+                   Long closingBalance, LocalDate closedAt, String chipColor) {
+        this(ref, currency, balanceSource, settlementWindowDays, closingBalance, closedAt, chipColor,
+            balanceSource != BalanceSource.CLEARING);
     }
 
     public Account {

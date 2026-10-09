@@ -300,8 +300,11 @@ price, next due, arrears, notes thread), `/api/commitments/activity?id=` (a cand
 facts, or a declared commitment's rule-matched facts across all history — life-bounded at its end
 date, oldest first),
 `/api/expected?window=today|week|month` (the window's
-occurrences, the arrears backlog oldest-first with a running total, and committed totals by
-direction),
+occurrences, the arrears backlog oldest-first with a running total, committed totals by
+direction, and the month's **headroom** — "left this month" over the `budget` accounts: income in and
+due, commitments paid and due, other spend, money moved to or from your own non-budget accounts,
+with `missed` and unpaired transfers shown apart and a `through` date, the oldest statement
+frontier),
 `/api/transfers`, `/api/units`, `/api/reconcile` (with named `noop` exclusions), `/api/chains` (the
 §6.9 balance check: per-account forks and a per-side noop preview), `/api/opening`, `/api/workbook`,
 `/api/projection` (GET/POST), `/api/cursors` (GET/POST), `/api/decisions` (POST), `/api/acks`
@@ -375,7 +378,8 @@ staleness — last plan/apply and unprojected/drifted/orphaned unit counts).
 
 `sequencer.yaml` (bind host/port, journal source/target), `accounts.yaml` (ref, currency,
 `balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, `chip_color` — the hub
-chip colour, presentation only — and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
+chip colour, presentation only — `budget` (default true, never for a clearing account: whether the
+account is in Expected's "left this month"; presentation only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing`),

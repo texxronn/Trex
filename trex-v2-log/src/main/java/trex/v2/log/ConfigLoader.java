@@ -72,8 +72,10 @@ public final class ConfigLoader {
                         + "' closedAt must be an ISO date, not '" + e.closedAt() + "'");
                 }
             }
+            // budget: presentation only — which accounts the Expected "left this month" figure reads
+            // (V2-REVIEW-FIXES-PLAN.md §10). Absent means in the budget, except a clearing account.
             Account account = new Account(e.ref(), e.currency(), source, settlement, e.closingBalance(),
-                closedAt, e.chipColor());
+                closedAt, e.chipColor(), e.budget() == null ? source != BalanceSource.CLEARING : e.budget());
             if (accountMap.putIfAbsent(account.ref(), account) != null) {
                 throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref() + "' is declared twice");
             }
@@ -292,7 +294,8 @@ public final class ConfigLoader {
     public record AccountEntry(String ref, String currency, String balanceSource, Integer settlementWindowDays,
                                Long closingBalance, String closedAt,
                                @com.fasterxml.jackson.annotation.JsonProperty("chip_color")
-                               @com.fasterxml.jackson.annotation.JsonAlias("chipColor") String chipColor) {}
+                               @com.fasterxml.jackson.annotation.JsonAlias("chipColor") String chipColor,
+                               Boolean budget) {}
 
     public record UsersFile(List<UserEntry> users) {}
 
