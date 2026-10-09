@@ -119,11 +119,22 @@ public final class EvidenceStore {
         }
     }
 
+    /**
+     * The 64 lowercase hex characters behind a {@code sha256:} id. The id becomes a filesystem
+     * path, so anything else — a traversal, uppercase, a wrong length — must be refused here,
+     * before any caller slices or resolves it.
+     */
     private static String hexOf(String evidenceId) {
-        if (evidenceId == null || !evidenceId.startsWith("sha256:")) {
+        String hex = evidenceId != null && evidenceId.startsWith("sha256:")
+            ? evidenceId.substring("sha256:".length()) : null;
+        if (hex == null || hex.length() != 64 || !hex.chars().allMatch(EvidenceStore::isLowerHex)) {
             throw new IllegalArgumentException("not an evidence id: " + evidenceId);
         }
-        return evidenceId.substring("sha256:".length());
+        return hex;
+    }
+
+    private static boolean isLowerHex(int c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
     }
 
     private static long size(Path file) {
