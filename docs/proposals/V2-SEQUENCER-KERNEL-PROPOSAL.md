@@ -1,5 +1,9 @@
 # Sequencer kernel — separating the writer from trex
 
+> **Parked (2026-10-09).** An idea, not a plan: nothing is decided and no code exists. The
+> specification is now `V2-SPEC.md` — adopting this would amend it (and add a `V2-*-PLAN.md`), not
+> `V2-PROPOSAL.md`, which is frozen.
+
 **Status.** Proposal, for tuning. No code has been written and nothing here is decided.
 `V2-PROPOSAL.md` remains authoritative; adopting this means amending its §5.2 (modules), §6 (the
 envelope's ownership) and §6.5 (the write path), and adding a stage to

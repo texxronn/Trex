@@ -1,5 +1,7 @@
 # V2-SPEC.md review
 
+> **Archived 2026-10-09 — every finding is actioned in `V2-REVIEW-FIXES-PLAN.md` (PRs #47–#56); kept as the record.**
+
 **Reviewed:** `V2-SPEC.md` (465 lines), checked against `V2-PROPOSAL.md` and the `trex-v2-*` code
 at `05ac842`, as of 2026-10-09.
 **Prior review:** `claude-v2-proposal-spec-review.md` (2026-09-30). This review first re-checks its

@@ -1,8 +1,8 @@
 # V2-REVIEW-FIXES-PLAN.md
 
 > **Personal project, single operator, private.** `V2-PROPOSAL.md` is the specification; this file
-> is the build order for the fixes raised in `CLAUDE-REVIEW.md` (and the still-open items of
-> `claude-v2-proposal-spec-review.md`). Where this file and the proposal disagree, the proposal
+> is the build order for the fixes raised in `docs/reviews/CLAUDE-REVIEW.md` (and the still-open items of
+> `docs/reviews/claude-v2-proposal-spec-review.md`). Where this file and the proposal disagree, the proposal
 > wins — until each stage's amendment lands.
 >
 > **Status:** built — Stages 1–9 (PRs #47–#55); Stage 10 waits for the first feed.
@@ -33,7 +33,7 @@
 | 10 | Feed cursors in the log | M5 | log + index | **D-F**; before the first feed |
 
 Stages 1–3 are the **90% line's** correctness half; 6–8 its daily-use half. After Stage 8, freeze
-features for a month (`CLAUDE-REVIEW.md`, "The 90% line").
+features for a month (`docs/reviews/CLAUDE-REVIEW.md`, "The 90% line").
 
 Each stage is one PR: its tests first (failing), then the change, then the doc amendment, with the
 tree green after every commit (`AGENTS.md`). Each derive-changing PR bumps `deriveVersion` once.

@@ -1,5 +1,8 @@
 # V2-EXPECTED-UX-PLAN.md
 
+> **Archived 2026-10-09 — built (PRs #24–#25, #32, #35).** The outcome lives in `V2-SPEC.md` (the specification); this
+> file is the record of why. Its references to `V2-PROPOSAL.md` as authoritative are history.
+
 > **Personal project, single operator, private.** `V2-PROPOSAL.md` is the specification;
 > this file is the build order for one change to it. Where this file and the proposal
 > disagree, the proposal wins. This change is **presentation only**: it amends no event,

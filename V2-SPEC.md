@@ -613,8 +613,13 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 |---|---|
 | `V2-SPEC.md` (this) | **the specification.** A change to behaviour changes this file in the same PR. |
 | `AGENTS.md` | the invariants that never move, and how work is done |
-| `V2-PROPOSAL.md` | **frozen** (2026-10-09): the history of intent and the rationale behind the design. Read it for *why*; never for *what* — where it differs from this file, this file wins, and it is not edited to catch up. |
-| `V2-*-PLAN.md` | build records: one per change, with its measured facts and as-built notes. A plan is written before its stage and amended as it lands; once built, its outcome lives here and the plan stays as the record of why. |
-| `docs/V2-PARITY.md` | the v1 ↔ v2 equivalence ledger and the deliberate divergences, with the tests that pin them |
-| `CHANGELOG.md` | what changed, for a reader who was not there |
+| `README.md`, `CHANGELOG.md` | the entry point; what changed, for a reader who was not there |
+| `QOL_Improvements.md`, `V2-REVIEW-FIXES-PLAN.md` | the **open** plans (root): written before a stage, amended as it lands |
+| `V2-PROPOSAL.md` | **frozen** (2026-10-09): the history of intent and the rationale. Read it for *why*, never for *what* — where it differs from this file, this file wins. It stays at the root because code comments cite it. |
+| `docs/plans/V2-*-PLAN.md` | **built** plans, each with a banner naming the PRs that built it: the record of why and of what was measured. Code comments cite them by file name. |
+| `docs/reviews/` | design reviews, every finding actioned |
+| `docs/proposals/` | parked ideas, nothing decided (the sequencer kernel) |
+| `docs/archive/` | superseded snapshots (the 2026-10-08 proposal, the 2026-09-30 lifecycle diagram) |
+| `docs/DEPLOYMENTS.md`, `docs/RELEASE.md`, `docs/V2-PARITY.md`, `deploy/v2/README.md` | operations: where it runs, how a release is cut, the v1 ↔ v2 ledger, the compose stack |
 
+When a plan's last stage lands, its PR moves it to `docs/plans/` with a banner.

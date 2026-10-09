@@ -1,5 +1,7 @@
 # V2-PROPOSAL.md + V2-SPEC.md review — correctness gaps and drift
 
+> **Archived 2026-10-09 — superseded by `CLAUDE-REVIEW.md` (beside it), which re-checks every finding.**
+
 **Reviewed:** `V2-PROPOSAL.md` (2,585 lines) and `V2-SPEC.md` (312 lines), as of 2026-09-30,
 spot-checked against the `trex-v2-*` code at `3bd1df5`.
 **Out of scope:** authentication and security (deliberately left out of v2).

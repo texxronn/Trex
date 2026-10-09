@@ -11,7 +11,7 @@ derived table is rebuildable.
 
 - **Specification:** [V2-SPEC.md](V2-SPEC.md) — authoritative; §18 says what every other document is for.
 - **History of intent:** [V2-PROPOSAL.md](V2-PROPOSAL.md) — frozen 2026-10-09; read it for *why*.
-- **Current plan:** [QOL_Improvements.md](QOL_Improvements.md).
+- **Current plan:** [QOL_Improvements.md](QOL_Improvements.md); built plans are in [docs/plans/](docs/plans/).
 - **Parity with v1:** [docs/V2-PARITY.md](docs/V2-PARITY.md).
 - **Release, deploy:** [docs/RELEASE.md](docs/RELEASE.md), [docs/DEPLOYMENTS.md](docs/DEPLOYMENTS.md).
 

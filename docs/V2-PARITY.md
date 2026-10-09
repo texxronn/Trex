@@ -1,6 +1,6 @@
 # V2 ↔ V1 parity
 
-**Why this exists.** `V2-IMPLEMENTATION-PLAN.md` §1.1 says v1 is *the executable record of behaviour
+**Why this exists.** `docs/plans/V2-IMPLEMENTATION-PLAN.md` §1.1 says v1 is *the executable record of behaviour
 the proposal describes but does not spell out*: read the v1 implementation, restate the rule, then
 implement it. The proposal's prose is sometimes looser than the code it was written from, so where
 the two disagree the default is **v1 is the contract**; a divergence is a bug until it is a stated
