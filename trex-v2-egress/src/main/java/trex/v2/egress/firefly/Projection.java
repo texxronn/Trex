@@ -32,7 +32,13 @@ public final class Projection {
 
     private Projection() {}
 
-    public record Posting(String unitId, Map<String, Object> body) {}
+    public record Posting(String unitId, Map<String, Object> body) {
+
+        @SuppressWarnings("unchecked")
+        public Map<String, Object> split() {
+            return ((List<Map<String, Object>>) body.get("transactions")).getFirst();
+        }
+    }
 
     public static Posting of(HubUnit unit, String configRevision, AccountMap accounts) {
         AccountMap.Entry own = require(accounts, unit.accountRef(), unit);

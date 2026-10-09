@@ -12,6 +12,7 @@ import trex.v2.egress.firefly.AccountProvisioning;
 import trex.v2.egress.firefly.CategorySeeding;
 import trex.v2.egress.firefly.FireflyClient;
 import trex.v2.egress.firefly.FireflyEgress;
+import trex.v2.egress.firefly.Validate;
 import trex.v2.egress.hub.HubClient;
 import trex.v2.log.ConfigLoader;
 
@@ -97,6 +98,9 @@ public final class EgressCommand implements Callable<Integer> {
         @Option(names = "--verify", description = "Rebuild state from Firefly, then plan; non-zero if not empty.")
         boolean verify;
 
+        @Option(names = "--validate", description = "Read-only contract check; exit 1 on a Firefly-side edit.")
+        boolean validate;
+
         @Option(names = "--remove-orphans", description = "Delete groups for units no longer projectable.")
         boolean removeOrphans;
 
@@ -145,6 +149,29 @@ public final class EgressCommand implements Callable<Integer> {
                 return 0;
             }
 
+            // Read-only contract check (D9/R2): classify every Firefly-side edit beside the normal
+            // states, write nothing. The names must resolve first, or Projection.of cannot compute
+            // what trex expects. Violations exit 1; the informational kinds do not.
+            if (validate) {
+                List<String> unresolved = resolved.unresolved();
+                if (!unresolved.isEmpty()) {
+                    System.err.println("firefly.yaml names accounts this instance does not have: "
+                        + String.join(", ", unresolved)
+                        + ". Fix the name, or pass --create-missing-accounts.");
+                    return 1;
+                }
+                var units = hub.units(0);
+                List<Validate.Finding> findings = Validate.check(units, hub.projection(),
+                    firefly.inventory(), resolved);
+                findings.forEach(f -> System.out.printf("  %-10s %-14s group %-6s %s%n",
+                    f.kind(), f.unitId(), f.groupId(), f.detail()));
+                java.util.Set<String> violations =
+                    java.util.Set.of("MISSING", "UNTAGGED", "TAMPERED", "DRIFT");
+                boolean bad = findings.stream().anyMatch(f -> violations.contains(f.kind()));
+                System.out.printf("validate: %d finding(s)%n", findings.size());
+                return bad ? 1 : 0;
+            }
+
             // Every account we already resolve is checked before any write, so that
             // --create-missing-accounts cannot leave Firefly changed when a mapping disagrees.
             List<String> existingProblems = AccountChecks.problems(resolved, instance, hub.currencyByAccount());
@@ -176,8 +203,10 @@ public final class EgressCommand implements Callable<Integer> {
 
             FireflyEgress.Outcome outcome = new FireflyEgress(hub, firefly, resolved, mode, removeOrphans,
                 System.out, DeriveConfig.DERIVE_VERSION).run();
-            System.out.printf("done: %d created, %d retagged, %d orphan(s), %d removed, %d of your edits preserved%n",
-                outcome.creates(), outcome.retags(), outcome.orphans(), outcome.removed(), outcome.preserved());
+            System.out.printf("done: %d created, %d re-keyed, %d updated, %d retagged, %d unchanged, "
+                    + "%d orphan(s), %d removed, %d of your edits preserved%n",
+                outcome.creates(), outcome.rekeys(), outcome.updates(), outcome.retags(), outcome.unchanged(),
+                outcome.orphans(), outcome.removed(), outcome.preserved());
             return mode == FireflyEgress.Mode.VERIFY && !outcome.empty() ? 1 : 0;
         }
 

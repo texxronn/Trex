@@ -127,6 +127,21 @@ public final class FireflyClient {
                            List<String> tags, long journalN, JsonNode group) {}
 
     public List<Existing> allTransactions() throws IOException, InterruptedException {
+        return transactions(true, true);
+    }
+
+    /**
+     * Every transaction group, tagged or not and keyed by {@code external_id} or not: what
+     * {@code --validate} inventories so a lost ownership or a removed {@code external_id} can be
+     * named (D9/R2). The tags are kept on {@link Existing} for exactly that; a group with no
+     * {@code external_id} still carries its group id, so a state row can be matched to it.
+     */
+    public List<Existing> inventory() throws IOException, InterruptedException {
+        return transactions(false, false);
+    }
+
+    private List<Existing> transactions(boolean oursOnly, boolean requireExternal)
+            throws IOException, InterruptedException {
         List<Existing> out = new ArrayList<>();
         for (int page = 1; ; page++) {
             JsonNode body = get("/api/v1/transactions?limit=" + PAGE + "&page=" + page);
@@ -137,8 +152,8 @@ public final class FireflyClient {
                 }
                 JsonNode first = splits.get(0);
                 String external = first.path("external_id").asText(null);
-                if (external == null || !isOurs(first)) {
-                    continue;                  // not ours
+                if ((requireExternal && external == null) || (oursOnly && !isOurs(first))) {
+                    continue;                  // nothing to name it by, or not ours
                 }
                 out.add(new Existing(g.path("id").asText(), external,
                     first.path("category_name").asText(null), tagCategory(first), tags(first),
@@ -283,6 +298,22 @@ public final class FireflyClient {
 
     public JsonNode group(String groupId) throws IOException, InterruptedException {
         return get("/api/v1/transactions/" + groupId);
+    }
+
+    /**
+     * The group, or null when Firefly no longer has it (D9). A missing group is a named recovery,
+     * never a raw {@link IOException}: {@link #group} still throws for callers that require it.
+     */
+    public JsonNode groupOrNull(String groupId) throws IOException, InterruptedException {
+        HttpResponse<String> r = send("GET", "/api/v1/transactions/" + groupId, null);
+        if (r.statusCode() == 404) {
+            return null;
+        }
+        if (r.statusCode() / 100 != 2) {
+            throw new IOException("GET /api/v1/transactions/" + groupId + " -> " + r.statusCode()
+                + ": " + message(r.body()));
+        }
+        return Json.mapper().readTree(r.body());
     }
 
     private static byte[] bytes(Object body) {

@@ -569,8 +569,8 @@ account and date); exit non-zero. State is recorded as each write lands, so a re
 PUT each); unchanged rows keep a stale `rules=` in their notes by design. A first full apply on an empty Firefly is slow (measured ~0.6/s past a
 thousand creates) and safe to interrupt.
 
-*Stages 2–5 of V2-FIREFLY-EGRESS-PLAN.md build the validation, fingerprint
-and re-key rules; until each lands, the code is behind this text.*
+*Stages 2–5 of V2-FIREFLY-EGRESS-PLAN.md build the re-key rules;
+until each lands, the code is behind this text.*
 
 - **Archive**: a byte mirror of the journal plus an evidence copy, verified by hash.
 - **Export**: `csv`, `json`, or a portable `sqlite` file.

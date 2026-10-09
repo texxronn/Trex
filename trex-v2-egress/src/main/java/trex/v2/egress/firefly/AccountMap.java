@@ -66,6 +66,17 @@ public record AccountMap(Map<String, Entry> byRef) {
         return new AccountMap(Map.copyOf(out));
     }
 
+    /** The Firefly ids of our own accounts: on a read-back, these sides compare by id, others by name. */
+    public java.util.Set<String> ids() {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        byRef.values().forEach(e -> {
+            if (e.id() != null) {
+                out.add(e.id());
+            }
+        });
+        return out;
+    }
+
     /** Names this map expects that the instance does not have — a rename, usually. */
     public List<String> unresolved() {
         return byRef.entrySet().stream()
