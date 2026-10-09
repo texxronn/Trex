@@ -94,9 +94,15 @@ migrated from.
 - receipt-keyed: `nk|<accountRef>|<date>|<receipt>`
 - otherwise: `ch|<accountRef>|<date>|<amount>|<rawDescription>|<occ>` (raw verbatim)
 
+A receipt is a key only while it names one content on its day: when rows of **different**
+`(amount, rawDescription)` share `(account, date, receipt)` in a batch — ING's purchase, fee and fee
+rebate — each mints the content hash like a receipt-less row (one shared `occ` counter), and keeps
+its `receipt` field. Identical rows sharing a receipt stay one natural key. `Ids.mint` is the one
+implementation, used by the sequencer and the re-parse preview.
+
 A transfer id is `TRF-<receipt>`, or `TRF-<sha256("tr|<minId>|<maxId>")[0:16]>` when the legs share
 no receipt (order-independent). `occ` follows v1: rows with identical `(account, date, amount, raw)`
-in one batch take `0,1,2,…` in batch order; receipt rows are `0` and do not advance; distinct
+in one batch take `0,1,2,…` in batch order; natural-key receipt rows are `0` and do not advance; distinct
 content rows each take `0`.
 
 ---
@@ -450,6 +456,7 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 - pending settlement and its sign convention (v1 skipped pending entirely);
 - the restatement similarity and the payment-noise word list (no v1 counterpart);
 - `occ` restated to v1's exact rule;
+- a receipt shared on one day by different rows mints content ids (v1 merged them);
 - the hub↔sequencer type-only dependency;
 - the uniform envelope, namespaced kinds and `v = 1` (the pre-envelope v2 log was `v = 2` on facts
   with no header — a MAJOR line-format change);

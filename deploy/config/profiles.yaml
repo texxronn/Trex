@@ -12,8 +12,17 @@ profiles:
   # balance never includes it; the fee is paid from the loan-offset account, whose four
   # `OA Annual Fee` rows are the real charge (categorised FEES). The four loan lines are
   # references, not postings — see Issue A in docs/history-review.local.html.
+  #
+  # Each fee line has a same-day `Transfer` (+$299, same receipt) that settles it on the loan. It
+  # was invisible until the receipt-collision fix (V2-REVIEW-FIXES-PLAN.md §4): both lines minted
+  # one id. It is the other half of the same reference pair, so it is excluded with the fee; the
+  # two net to zero and the loan chain closes. The match is anchored: a genuine transfer caught by
+  # it would surface as a BALANCE_BREAK, never silently.
   ing-variable-rate:
     rules:
       - match: 'Orange Advantage annual fee'
         action: MARK_NOOP
         reason: 'fee paid from the loan-offset account; this loan line is a reference'
+      - match: '^Transfer - Receipt No \d+$'
+        action: MARK_NOOP
+        reason: 'settles the Orange Advantage fee line on the loan; a reference, like the fee'

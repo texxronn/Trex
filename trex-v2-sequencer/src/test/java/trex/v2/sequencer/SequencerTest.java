@@ -220,6 +220,51 @@ class SequencerTest {
         }
     }
 
+    /**
+     * ING prints one receipt on a purchase, its international fee and the fee rebate. One natural key
+     * for all three hid two of them as re-observations of the third (V2-REVIEW-FIXES-PLAN.md §4).
+     */
+    @Test
+    void aReceiptSharedOnOneDayByDifferentRowsMintsDistinctIds(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            BatchResponse resp = s.submitFacts(new FactBatch(false, List.of(
+                draft("ing-savings", 192, "Fee Rebate - Receipt 171689", "171689", -63572, "ing-csv"),
+                draft("ing-savings", -192, "Fee - Receipt 171689", "171689", -63764, "ing-csv"),
+                draft("ing-savings", -6401, "SHOP - Visa Purchase - Receipt 171689", "171689", -63572, "ing-csv"))));
+            assertEquals(List.of(RowResult.APPENDED, RowResult.APPENDED, RowResult.APPENDED),
+                resp.results().stream().map(RowResult::outcome).toList());
+            assertEquals(3, resp.results().stream().map(RowResult::externalId).distinct().count());
+            assertEquals(trex.v2.core.Ids.contentHash("ing-savings", LocalDate.of(2026, 9, 1), -192,
+                "Fee - Receipt 171689", 0), resp.results().get(1).externalId(),
+                "a collided row mints like a receipt-less row");
+        }
+    }
+
+    @Test
+    void aUniqueReceiptKeepsItsNaturalKey(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            BatchResponse resp = s.submitFacts(new FactBatch(false, List.of(
+                draft("ing-savings", -6401, "SHOP - Receipt 171689", "171689", 0, "ing-csv"),
+                draft("ing-savings", -500, "OTHER - Receipt 171690", "171690", 0, "ing-csv"))));
+            assertEquals(trex.v2.core.Ids.naturalKey("ing-savings", LocalDate.of(2026, 9, 1), "171689"),
+                resp.results().get(0).externalId(), "no existing id moves");
+        }
+    }
+
+    @Test
+    void reIngestOfACollidedDayIsAllDuplicate(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            List<FactDraft> day = List.of(
+                draft("ing-savings", 29900, "Transfer - Receipt No 900077", "900077", 0, "ing-csv"),
+                draft("ing-savings", -29900, "Annual fee - Receipt No 900077", "900077", 0, "ing-csv"));
+            s.submitFacts(new FactBatch(false, day));
+            long head = s.headN();
+            assertEquals(List.of(RowResult.DUPLICATE, RowResult.DUPLICATE),
+                s.submitFacts(new FactBatch(false, day)).results().stream().map(RowResult::outcome).toList());
+            assertEquals(head, s.headN());
+        }
+    }
+
     @Test
     void allOrNoneWritesNothingWhenAnyRowIsBad(@TempDir Path dir) {
         try (Sequencer s = sequencer(dir)) {

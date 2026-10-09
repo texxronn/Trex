@@ -53,6 +53,24 @@ Pinned by `DeriveTest.theMatcherNeverComparesTextAcrossAccounts`,
 PayID rows, the $600 BankWest↔BPAY case, the receipt collisions). A migrated journal is unaffected:
 v1's pairs arrive as `PAIR` decisions, which win over the matcher.
 
+### Identity: a receipt shared by different rows on one day
+
+v1 (and v2 until 2026-10-09) keyed every receipt row by `nk|account|date|receipt`. ING prints one
+receipt on several different rows of a day — a purchase, its international fee and the fee rebate;
+a loan's fee line and the transfer that settles it — so those rows minted one id, the later rows
+landed as `Flagged` re-observations, and derive kept only the newest. On the private fixture: 58
+ids, **112 transactions hidden** (54 three-row groups on `ing-credit-card`, 4 two-row groups on
+`ing-variable-rate`). v2 now mints such rows like receipt-less rows (`Ids.mint`); unique receipts
+keep their natural key, so no existing id moves, and history is repaired by `ingest --reparse
+--apply` (`SUPERSEDE` from the old id to the row matching its latest observation; the rest
+`Appended`).
+
+Pinned by `IdsMintTest`, `SequencerTest.aReceiptSharedOnOneDayByDifferentRowsMintsDistinctIds`,
+`SequencerTest.aUniqueReceiptKeepsItsNaturalKey`, `SequencerTest.reIngestOfACollidedDayIsAllDuplicate`,
+`ReparseTest.aCollidedReceiptIdIsSupersededByItsMatchingRowAndTheRestAreNew` and the private-fixture
+E2E (current facts 6,029 → 6,141; review counts unchanged once the loan's settling `Transfer` line
+joins its fee line as a `noop` reference in `profiles.yaml`).
+
 ## v2 additions with no v1 counterpart
 
 These are new and deterministic, not restatements; they affect matching and review but never

@@ -1626,6 +1626,12 @@ supersede is not permanent either — `REVOKE` undoes it (§6.2).
 ### 8.3 Identity rules (unchanged, restated for v2)
 
 - Natural key: `nk|accountRef|date(ISO)|receipt`; date in the key because receipts recur.
+- **A receipt shared on one day by rows of different content is not a key** (amended
+  2026-10-09, `V2-REVIEW-FIXES-PLAN.md` §4): ING prints one receipt on a purchase, its
+  international fee and the fee rebate. Those rows mint the content hash, exactly like
+  receipt-less rows (sharing their `occ` counter); the `receipt` field is still stored. Identical
+  rows sharing a receipt stay one natural key. The choice is made per batch (`Ids.mint`), and
+  day-atomic batching makes it complete.
 - Content hash: `ch|accountRef|date(ISO)|amount|rawDescription|occ`; `rawDescription`
   verbatim, untrimmed, exactly as the source published it.
 - SHA-256, UTF-8, lowercase, first 16 hex chars. Frozen.

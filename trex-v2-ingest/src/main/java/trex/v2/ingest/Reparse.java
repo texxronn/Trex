@@ -1,12 +1,13 @@
 package trex.v2.ingest;
 
+import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.core.Ids;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,9 +72,19 @@ public final class Reparse {
     private Reparse() {}
 
     public static List<Proposal> diff(List<Fact> currentFacts, String evidenceId, List<FactDraft> candidates) {
+        return diff(currentFacts, Set.of(), evidenceId, candidates);
+    }
+
+    /**
+     * The diff, skipping ids an effective {@code SUPERSEDE} or {@code RETIRE} has already closed
+     * ({@link #closedIds}). Without this a second re-parse sees the superseded id as a row no longer
+     * read and retires it, which cuts the chain every decision naming that id resolves through.
+     */
+    public static List<Proposal> diff(List<Fact> currentFacts, Set<String> closed, String evidenceId,
+                                      List<FactDraft> candidates) {
         Map<String, Fact> previous = new TreeMap<>();
         for (Fact f : currentFacts) {
-            if (evidenceId.equals(f.evidenceId())) {
+            if (evidenceId.equals(f.evidenceId()) && !closed.contains(f.externalId())) {
                 previous.put(f.externalId(), f);
             }
         }
@@ -112,6 +123,30 @@ public final class Reparse {
         return proposals;
     }
 
+    /**
+     * The fact ids closed by an effective {@code SUPERSEDE} (its {@code fromId}) or {@code RETIRE}
+     * (§6.2). A decision is effective unless an effective {@code REVOKE} names it; a revoke always
+     * has the higher {@code n}, so walking from the newest decision down settles each one once.
+     */
+    public static Set<String> closedIds(List<Decision> decisions) {
+        List<Decision> byN = new ArrayList<>(decisions);
+        byN.sort(Comparator.comparingLong(Decision::n).reversed());
+        Set<Long> revoked = new HashSet<>();
+        Set<String> closed = new TreeSet<>();
+        for (Decision d : byN) {
+            if (revoked.contains(d.n())) {
+                continue;
+            }
+            switch (d) {
+                case Decision.Revoke r -> revoked.add(r.target());
+                case Decision.Supersede s -> closed.add(s.fromId());
+                case Decision.Retire r -> closed.add(r.externalId());
+                default -> { }
+            }
+        }
+        return closed;
+    }
+
     /** A previous fact for the same (account, date, amount): exact text first, then a text fix. */
     private static Fact findSameRow(List<Fact> candidates, Set<String> matched, FactDraft draft) {
         if (candidates == null) {
@@ -138,24 +173,13 @@ public final class Reparse {
 
     /** The same, with the occ each candidate claims (identical-content rows get 0, 1, 2). */
     public static List<Minted> mint(List<FactDraft> candidates) {
-        Map<String, Integer> contentCounts = new HashMap<>();
-        List<Minted> minted = new ArrayList<>();
+        List<Ids.Row> rows = new ArrayList<>(candidates.size());
         for (FactDraft d : candidates) {
             String receipt = d.receipt() == null || d.receipt().isBlank() ? null : d.receipt();
-            int occ;
-            if (receipt != null) {
-                occ = 0;
-            } else {
-                String key = d.accountRef() + '\u0000' + d.date() + '\u0000' + d.amount() + '\u0000'
-                    + d.rawDescription();
-                occ = contentCounts.getOrDefault(key, 0);
-                contentCounts.put(key, occ + 1);
-            }
-            String id = Ids.externalId(d.accountRef(), d.date(), d.amount() == null ? 0 : d.amount(),
-                d.rawDescription(), receipt, occ);
-            minted.add(new Minted(id, occ));
+            rows.add(new Ids.Row(d.accountRef(), d.date(), d.amount() == null ? 0 : d.amount(),
+                d.rawDescription(), receipt));
         }
-        return minted;
+        return Ids.mint(rows).stream().map(m -> new Minted(m.id(), m.occ())).toList();
     }
 
     private static Set<Integer> allOcc(List<Fact> facts) {
