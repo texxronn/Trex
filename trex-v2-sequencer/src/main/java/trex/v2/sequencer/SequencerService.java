@@ -3,7 +3,6 @@ package trex.v2.sequencer;
 import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import trex.v2.log.ConfigLoader;
 import trex.v2.log.JsonlJournal;
 import trex.v2.log.Recovery;
 
@@ -51,14 +50,15 @@ public final class SequencerService implements AutoCloseable {
      */
     public static SequencerService start(Path source, Path target, Path configDir, String host, int port, Clock clock,
                                          Path archive) {
-        ConfigLoader.Loaded loaded = ConfigLoader.load(configDir);
+        ConfigWatch.Validation validation = ConfigWatch.load(configDir);
         JournalLock lock = JournalLock.acquire(target);
         try {
             Recovery.recover(source, target);
             JsonlJournal journal = new JsonlJournal(target);
-            java.util.Set<String> sources = SourceRegistry.load(configDir);
-            Sequencer sequencer = new Sequencer(journal, loaded.registry(), loaded.config().categories(), clock,
-                env(), sources.isEmpty() ? null : sources);
+            java.util.Set<String> sources = validation.sources() == null ? java.util.Set.of() : validation.sources();
+            Sequencer sequencer = new Sequencer(journal, validation.registry(), validation.categories(), clock,
+                env(), validation.sources());
+            sequencer.watch(new ConfigWatch(configDir));
             Maintenance maintenance = new Maintenance(target, archive, sequencer);
             HttpServer server = HttpApi.start(host, port, sequencer, maintenance);
             log.info("trex sequencer listening on {}:{}; journal {} (head n={}); env [{}]; sources {}; archive {}",
