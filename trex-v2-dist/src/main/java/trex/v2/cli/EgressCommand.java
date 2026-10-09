@@ -137,6 +137,14 @@ public final class EgressCommand implements Callable<Integer> {
             instance.forEach((name, info) -> idsByName.put(name, info.id()));
             AccountMap resolved = map.resolved(idsByName);
 
+            // Inspect only: --print-accounts lists the mapping as resolved, never provisioning,
+            // so a missing ref still shows as "(missing)" and the command writes nothing.
+            if (printAccounts) {
+                resolved.byRef().forEach((ref, e) -> System.out.printf("  %-24s %-28s %s%n",
+                    ref, e.name(), e.id() == null ? "(missing)" : "id " + e.id()));
+                return 0;
+            }
+
             // Every account we already resolve is checked before any write, so that
             // --create-missing-accounts cannot leave Firefly changed when a mapping disagrees.
             List<String> existingProblems = AccountChecks.problems(resolved, instance, hub.currencyByAccount());
@@ -148,11 +156,6 @@ public final class EgressCommand implements Callable<Integer> {
 
             if (createMissingAccounts) {
                 resolved = createMissing(firefly, hub, map, idsByName, resolved);
-            }
-            if (printAccounts) {
-                resolved.byRef().forEach((ref, e) -> System.out.printf("  %-24s %-28s %s%n",
-                    ref, e.name(), e.id() == null ? "(missing)" : "id " + e.id()));
-                return 0;
             }
             List<String> unresolved = resolved.unresolved();
             if (!unresolved.isEmpty()) {
