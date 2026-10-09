@@ -259,6 +259,17 @@ CREATE TABLE IF NOT EXISTS commitment_exclusion (
   PRIMARY KEY (commitment_id, external_id)
 );
 
+-- The fact -> commitment reverse map (V2-COMMITMENT-FACT-PLAN.md §3.1): one row per claimed fact.
+-- Assignment is exclusive, so external_id is the key; matched_by is rule or pin. A projection of
+-- the claim pass, disposable and rebuilt by `trex index --rebuild`; it drives the ledger chip and
+-- the commitment popup's transaction list and price chart.
+CREATE TABLE IF NOT EXISTS commitment_fact (
+  external_id   TEXT PRIMARY KEY,
+  commitment_id TEXT NOT NULL,
+  matched_by    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS commitment_fact_commitment ON commitment_fact(commitment_id);
+
 CREATE TABLE IF NOT EXISTS unit (
   unit_id     TEXT PRIMARY KEY,
   unit_kind   TEXT NOT NULL,

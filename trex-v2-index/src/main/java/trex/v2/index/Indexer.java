@@ -13,6 +13,7 @@ import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.ClearingLeg;
 import trex.v2.core.derive.Commitment;
 import trex.v2.core.derive.CommitmentExclusion;
+import trex.v2.core.derive.CommitmentFact;
 import trex.v2.core.derive.CommitmentNote;
 import trex.v2.core.derive.CommitmentOccurrence;
 import trex.v2.core.derive.CommitmentRule;
@@ -610,6 +611,15 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(1, e.commitmentId());
                 ps.setString(2, e.externalId());
                 ps.setLong(3, e.decisionN());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_COMMITMENT_FACT)) {
+            for (CommitmentFact f : d.commitmentFacts()) {
+                ps.setString(1, f.externalId());
+                ps.setString(2, f.commitmentId());
+                ps.setString(3, f.matchedBy());
                 ps.addBatch();
             }
             ps.executeBatch();
