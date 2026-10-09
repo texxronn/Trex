@@ -197,10 +197,52 @@ public final class HubService implements HubApi, AutoCloseable {
         DeriveConfig c = refresher.config();
         long head = journalSize();
         long offset = reads.offset();
+        LocalDate today = LocalDate.now();
+        Map<String, LocalDate> frontiers = reads.frontiers(today);
+        Registry registry = c.registry();
         return new StatusResponse(reads.logHeadN(), offset, head, Math.max(0, head - offset),
             reads.counts(), reads.reviewByKind(), c.configRevision(),
             DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION,
-            reads.oldestFrontier(LocalDate.now(), statementBudget(c.registry())));
+            oldestFrontier(frontiers, statementBudget(registry)),
+            staleAccounts(registry, frontiers, today));
+    }
+
+    /** The oldest frontier among {@code accounts}, from an already-read frontiers map; null if none. */
+    private static LocalDate oldestFrontier(Map<String, LocalDate> frontiers, java.util.Set<String> accounts) {
+        LocalDate oldest = null;
+        for (Map.Entry<String, LocalDate> entry : frontiers.entrySet()) {
+            if (accounts.contains(entry.getKey())
+                && (oldest == null || entry.getValue().isBefore(oldest))) {
+                oldest = entry.getValue();
+            }
+        }
+        return oldest;
+    }
+
+    /**
+     * The statement-age nudge (QOL_Improvements.md §2): every account whose frontier is older than
+     * its effective fetch cadence, oldest first (ties by ref). A null or 0 cadence never nudges —
+     * declared/clearing accounts unless one is set explicitly, and a closed account silenced with
+     * {@code fetchEveryDays: 0} — and an account with no frontier has nothing to fetch yet. The day
+     * count is today − frontier, so days > cadence is strictly past the cadence.
+     */
+    private static List<StatusResponse.Stale> staleAccounts(Registry registry,
+            Map<String, LocalDate> frontiers, LocalDate today) {
+        List<StatusResponse.Stale> stale = new ArrayList<>();
+        for (Map.Entry<String, LocalDate> entry : frontiers.entrySet()) {
+            Account account = registry.accounts().get(entry.getKey());
+            Integer cadence = account == null ? null : account.fetchEveryDays();
+            if (cadence == null || cadence == 0) {
+                continue;
+            }
+            int days = (int) java.time.temporal.ChronoUnit.DAYS.between(entry.getValue(), today);
+            if (days > cadence) {
+                stale.add(new StatusResponse.Stale(account.ref(), entry.getValue(), days, cadence));
+            }
+        }
+        stale.sort(java.util.Comparator.comparingInt(StatusResponse.Stale::days).reversed()
+            .thenComparing(StatusResponse.Stale::account));
+        return stale;
     }
 
     /**
