@@ -132,7 +132,7 @@ public final class JobCatalogue {
     }
 
     /**
-     * Re-read one stored evidence id (QOL_Improvements.md §4). The source type and account come from
+     * Re-read one stored evidence id (V2-QOL-IMPROVEMENTS-PLAN.md §4). The source type and account come from
      * the batch's {@code trex.ingest start} event via the hub, so evidence cannot be paired with the
      * wrong adapter; the evidence id must be one the store already holds, exactly the check
      * {@code IngestCommand --reparse} makes. Applying is the egress gate: locked without

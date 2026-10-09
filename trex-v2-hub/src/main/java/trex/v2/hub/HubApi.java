@@ -91,7 +91,7 @@ interface HubApi {
     DecisionOutcome saveTransfers(String transfersYaml);
 
     /**
-     * Config drift (QOL_Improvements.md §3): shipped vs base vs current for every seeded config
+     * Config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3): shipped vs base vs current for every seeded config
      * file, in {@link ConfigDrift#FILES} order. Pure file reads of the volume; nothing is stored.
      */
     List<ConfigDrift.Row> configDrift();

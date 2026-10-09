@@ -1,10 +1,13 @@
-# QOL_Improvements.md
+# V2-QOL-IMPROVEMENTS-PLAN.md
+
+> **Archived 2026-10-09 — built (PRs #61–#64 and this plan's PR); the outcome lives in `V2-SPEC.md`
+> (the specification); this file is the record of why.**
 
 > **Personal project, single operator, private.** `V2-SPEC.md` is the specification; this file is
 > the build order for five quality-of-life changes. Each stage's PR updates `V2-SPEC.md` where it
 > changes behaviour.
 >
-> **Status:** in progress (2026-10-09): Q6, Q4, Q3 and Q2 are built (§1, §2, §3, §4); Q5 is proposed.
+> **Status:** built (2026-10-09): Q6, Q4, Q3, Q2 and Q5 are built (§1–§5).
 > **Goal:** the daily-use goal (`docs/reviews/CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
 > routine with a finish line, no trips to the terminal. Each item removes friction that actually
 > happened while the review fixes were rolled out on the dev stack.
@@ -360,6 +363,41 @@ routine is meant to replace.
 - `HubSinceApiTest`: a journal, a marker `n`, then more facts, an item and an occurrence → the
   counts; a marker at the head → all zero.
 - Manual: clear the queue, ingest a statement, reload → the line names the new rows and items.
+
+**As built (2026-10-09).** `GET /api/since?n=<n>&user=<id>` is a pure read over the disposable
+index, served by a new `SinceResponse`: the marker line's time (`at`), new facts as a total
+(`rows`) and a per-account list, completed batches (`batches`), review items opened after the
+marker's time (`items`), the occurrences that turned `occurred`/`missed`, decisions after `n`
+excluding the acting user's own (per user), and the month's `headroom`. An absent or non-numeric
+`n` is 422 ("n is required" / "n must be a number"), the `sinceN` convention. The marker's time
+comes from whichever level-1 table holds line `n` — `fact.at_ms`/`ingest_event.at_ms` as
+millis, `decision.at` as an instant; a line that is not in the log (`n <= 0`, past the head, or
+a rebuilt journal that no longer has it) is **not an error**: `at` is null and every count is
+zero (treat as nothing), and the client shows nothing until the next all-clear resets the
+marker. Review items compare through SQLite `julianday(opened_at)`: `opened_at` is
+`Instant.toString()` text whose fractional-second groups do not collate (".500Z" sorts before
+"Z"), so a plain text comparison would misplace a boundary. `occurred` counts when the fact the
+matcher attached is after `n` in `txn_current`; `missed` counts when the window closed after the
+marker's **UTC** date — the calendar the derive measures windows in. The month's headroom is the
+Expected view's own read, factored into one `monthHeadroom` so the two can never drift.
+
+On the client, `since.js` captures `trex.clearedAtN`/`trex.clearedLeft` at **module load** —
+before `boot()` runs, so before `status.refresh()` can rewrite them — and `boot()` fetches once
+per visit (`since.load(ctx)`) *before* `status.refresh()`, so the all-clear write of
+`trex.clearedLeft` has the fetched left to store; `status.js` moves `trex.clearedAtN` to the
+head on every all-clear and records the last known left beside it. The cached read renders one
+line above the Expected headroom and at the top of the Blotter: "Since Tue 08:40: 47 new rows
+(ing-salary, bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was
+−$95)". The parenthetical comes from the stored `trex.clearedLeft` and is omitted when the
+marker's month is not the current one or nothing is stored; zero news says "Nothing new since
+Tue 08:40."; a dismiss is module state, so it hides the line for the rest of the visit only; a
+new device has no marker and no line. Pinned by `HubSinceApiTest` (a fixture with a mid-journal
+marker: 5 new facts split over two accounts, 1 batch, 2 items opened after it — a pre-marker
+duplicate pair stays out — the Netflix occurrence that turned `occurred`, the one that turned
+`missed` after the marker's date, and only Anna's decision, not ron's; a marker at the head →
+all zero; a marker line that is gone → null `at` and zeros; absent/non-numeric `n` → 422). The
+UI was not checked in a browser, and the manual acceptance above is still to run on the dev
+stack.
 
 ---
 

@@ -147,7 +147,7 @@ public final class HubQueries implements AutoCloseable {
      * The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. Null
      * returns the newest {@code limit} batches, including one whose complete marker has not
      * arrived — the Jobs page. {@code sinceN} is the catch-up the ingest toast sends on an SSE
-     * delta (QOL_Improvements.md §1): every batch that completed after it ({@code n_end > sinceN}),
+     * delta (V2-QOL-IMPROVEMENTS-PLAN.md §1): every batch that completed after it ({@code n_end > sinceN}),
      * never truncated to the page size, because a delta that missed the older half of its range
      * could never report it again.
      */
@@ -982,7 +982,7 @@ public final class HubQueries implements AutoCloseable {
 
     /**
      * Every account's frontier — its newest non-synthetic transaction date at or before
-     * {@code today} (QOL_Improvements.md §2); an account with no such row is absent (nothing to
+     * {@code today} (V2-QOL-IMPROVEMENTS-PLAN.md §2); an account with no such row is absent (nothing to
      * fetch yet).
      */
     public Map<String, LocalDate> frontiers(LocalDate today) {

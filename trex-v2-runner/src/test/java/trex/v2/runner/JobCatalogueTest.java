@@ -40,7 +40,7 @@ class JobCatalogueTest {
         assertTrue(apply.steps().build(mode("apply")).get(0).argv().contains("--apply"));
     }
 
-    // ---- re-read evidence (QOL_Improvements.md §4) ------------------------------------------
+    // ---- re-read evidence (V2-QOL-IMPROVEMENTS-PLAN.md §4) ------------------------------------------
 
     @Test
     void reparseArgvPreviewAndApplyGate(@TempDir Path dir) throws Exception {

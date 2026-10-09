@@ -21,7 +21,7 @@
 #              logic; unset falls back to a deterministic colour, and the hub shows the same chip in
 #              Blotter, Review, Eyeball, Accounts and Chains.
 #
-# fetchEveryDays  optional statement-age nudge (QOL_Improvements.md §2): the age of the account's
+# fetchEveryDays  optional statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): the age of the account's
 #              frontier — its newest statement row — beyond which the status strip says how many
 #              statements to fetch. Presentation only; a read computes it, nothing is stored.
 #              Default 31 for a statement account and none for declared/clearing; 0 turns the

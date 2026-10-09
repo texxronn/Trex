@@ -221,7 +221,7 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
-     * The statement-age nudge (QOL_Improvements.md §2): every account whose frontier is older than
+     * The statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): every account whose frontier is older than
      * its effective fetch cadence, oldest first (ties by ref). A null or 0 cadence never nudges —
      * declared/clearing accounts unless one is set explicitly, and a closed account silenced with
      * {@code fetchEveryDays: 0} — and an account with no frontier has nothing to fetch yet. The day
@@ -816,7 +816,7 @@ public final class HubService implements HubApi, AutoCloseable {
         return new DecisionOutcome(200, Map.of("saved", true));
     }
 
-    /** Config drift (QOL_Improvements.md §3): pure reads of the three versions under the volume. */
+    /** Config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3): pure reads of the three versions under the volume. */
     @Override
     public List<ConfigDrift.Row> configDrift() {
         try {

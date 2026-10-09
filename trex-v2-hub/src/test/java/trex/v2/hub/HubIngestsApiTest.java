@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@code GET /api/ingests?sinceN=} (QOL_Improvements.md §1): the filter the ingest toast sends on an
+ * {@code GET /api/ingests?sinceN=} (V2-QOL-IMPROVEMENTS-PLAN.md §1): the filter the ingest toast sends on an
  * SSE delta, so the UI pulls only the batches that completed after the n it last saw.
  */
 class HubIngestsApiTest {
@@ -54,7 +54,7 @@ class HubIngestsApiTest {
             assertEquals(2, all.get("rows").size(), all.toPrettyString());
             assertEquals("new.csv", all.get("rows").get(0).get("file").asText(), all.toPrettyString());
             assertEquals("old.csv", all.get("rows").get(1).get("file").asText(), all.toPrettyString());
-            // The start marker's sourceType rides along (QOL_Improvements.md §4): the Jobs page
+            // The start marker's sourceType rides along (V2-QOL-IMPROVEMENTS-PLAN.md §4): the Jobs page
             // pairs evidence with the adapter it was ingested with.
             assertEquals("ing-csv", all.get("rows").get(0).get("sourceType").asText(), all.toPrettyString());
             assertEquals("ing-csv", all.get("rows").get(1).get("sourceType").asText(), all.toPrettyString());

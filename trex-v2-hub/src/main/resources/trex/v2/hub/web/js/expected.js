@@ -23,7 +23,7 @@ let ctx;
 let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
-let stale = [];        // /api/status stale accounts, oldest first (QOL_Improvements.md §2)
+let stale = [];        // /api/status stale accounts, oldest first (V2-QOL-IMPROVEMENTS-PLAN.md §2)
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
 
@@ -193,7 +193,7 @@ function statusCell(o) {
 }
 
 /**
- * The awaiting tooltip (QOL_Improvements.md §2): the matcher escalates to awaiting on the newest
+ * The awaiting tooltip (V2-QOL-IMPROVEMENTS-PLAN.md §2): the matcher escalates to awaiting on the newest
  * frontier over the commitment's rule accounts, so one account can be named honestly only when the
  * rules resolve to exactly one distinct account — repeated refs are one account. With several,
  * which statement closed the window is a guess, so the tooltip keeps the generic fetch-it hint, as

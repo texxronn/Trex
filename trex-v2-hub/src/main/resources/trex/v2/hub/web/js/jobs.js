@@ -38,7 +38,7 @@ export function mount(container, context) {
   host = container;
   ctx = context;
   // The status strip's "N statements to fetch" opens Jobs at this table (#jobs?frontier), so the
-  // nudge lands where the date range is already suggested (QOL_Improvements.md §2). The scroll
+  // nudge lands where the date range is already suggested (V2-QOL-IMPROVEMENTS-PLAN.md §2). The scroll
   // waits for load() to render the sections above, which would otherwise move the heading.
   focusFrontier = !!(ctx.modeQuery && ctx.modeQuery.has('frontier'));
   render();
@@ -207,7 +207,7 @@ function relFuture(ms) {
   return `in ${Math.round(s / 86400)}d`;
 }
 
-// ---- config drift (QOL_Improvements.md §3) --------------------------------------------------
+// ---- config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3) --------------------------------------------------
 
 /**
  * The config the stack runs can lag the repo: init never overwrites a live file, so a repo change
@@ -374,7 +374,7 @@ function jobCard(job) {
   if (job.name === 'reparse') {
     // A preview comes from a Re-read on an ingest-history row, so Apply can only ever post that
     // same evidence; it stays locked until the preview found something and nothing to RETIRE, and
-    // after a successful apply it locks again (QOL_Improvements.md §4).
+    // after a successful apply it locks again (V2-QOL-IMPROVEMENTS-PLAN.md §4).
     const canApply = !busy && lastPreview != null && lastPreview.exit === 0
       && lastPreview.changed > 0
       && (lastPreview.counts.MISSING === 0 || lastPreview.acked);
@@ -525,7 +525,7 @@ function parseReparseOutput(output) {
   return { matched: m ? Number(m[1]) : null, changed: m ? Number(m[2]) : null, counts };
 }
 
-/** The per-evidence summary above the raw output (QOL_Improvements.md §4). */
+/** The per-evidence summary above the raw output (V2-QOL-IMPROVEMENTS-PLAN.md §4). */
 function renderReparseSummary(params, detail, parsed) {
   if (!reparseSummaryHost) return;
   clear(reparseSummaryHost);
@@ -656,7 +656,7 @@ function renderIngests() {
 }
 
 /**
- * The ingest row's action (QOL_Improvements.md §4): preview this batch's evidence with the adapter
+ * The ingest row's action (V2-QOL-IMPROVEMENTS-PLAN.md §4): preview this batch's evidence with the adapter
  * and account the start marker recorded, so evidence is never paired with the wrong parser.
  */
 function reReadButton(row) {

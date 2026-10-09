@@ -10,7 +10,7 @@ import java.util.Map;
  * {@code through} is the oldest statement frontier among the budget accounts — the date an
  * "all clear" holds to (V2-REVIEW-FIXES-PLAN.md §11); null before any statement.
  *
- * <p>{@code stale} is the statement-age nudge (QOL_Improvements.md §2): every account whose
+ * <p>{@code stale} is the statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): every account whose
  * frontier is older than its fetch cadence, oldest first. Empty when nothing to fetch.
  */
 public record StatusResponse(long n, long offset, long journalHead, long lagBytes,

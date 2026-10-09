@@ -490,7 +490,7 @@ button.warn:hover { background: var(--warn-soft); }
 .ops-chip b.bad { color: var(--bad); }
 .ops-chip b.muted { color: var(--muted); }
 
-/* One line when the volume's config is behind the repo (QOL_Improvements.md §3). */
+/* One line when the volume's config is behind the repo (V2-QOL-IMPROVEMENTS-PLAN.md §3). */
 .drift-strip { border: 1px solid var(--warn); border-radius: var(--radius); padding: 0.4rem 0.65rem;
   margin-bottom: 0.8rem; font-size: 12px; background: var(--surface); }
 

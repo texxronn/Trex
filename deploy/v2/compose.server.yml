@@ -62,7 +62,7 @@ services:
   # Existing rule files are kept (a UI edit survives a container rebuild): init never overwrites
   # /etc/trex/<file>. It does refresh /etc/trex/.shipped/<file> with the image's copy on every up,
   # and records /etc/trex/.base/<file> when it installs a missing file — the hub's config-drift
-  # read (QOL_Improvements.md §3) compares the three.
+  # read (V2-QOL-IMPROVEMENTS-PLAN.md §3) compares the three.
   init:
     <<: *hardening
     image: ${TREX_IMAGE_PREFIX:-trex}/trex-v2:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}

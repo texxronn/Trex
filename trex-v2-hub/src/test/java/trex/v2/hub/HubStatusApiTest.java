@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The statement-age nudge (QOL_Improvements.md §2): {@code /api/status} lists the accounts past
+ * The statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): {@code /api/status} lists the accounts past
  * their {@code fetchEveryDays} cadence, oldest first, and stays silent for a fresh account, one
  * with the nudge off, one without a cadence at all, and one that has no frontier yet.
  */

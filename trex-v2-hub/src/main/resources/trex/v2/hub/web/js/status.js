@@ -66,7 +66,7 @@ function recordClear(n) {
 }
 
 /**
- * The statement-age nudge (QOL_Improvements.md §2): how many accounts are past the fetch cadence
+ * The statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): how many accounts are past the fetch cadence
  * their frontier implies. Quiet — muted — until one is more than twice its cadence, then amber; the
  * tooltip names each account's age and frontier, and a click opens Jobs at the fetch-frontier
  * table, which already suggests the date range. Nothing to fetch renders an empty span.

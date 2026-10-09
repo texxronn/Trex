@@ -82,7 +82,7 @@ class ScheduleTest {
 
     @Test
     void reparseEntryCarriesItsParams(@TempDir Path dir) throws Exception {
-        // Schedulable like egress (QOL_Improvements.md §4, operator decision 2026-10-09): an entry
+        // Schedulable like egress (V2-QOL-IMPROVEMENTS-PLAN.md §4, operator decision 2026-10-09): an entry
         // may carry a full apply request; --allow-apply is the real gate when it fires.
         String evidence = "sha256:" + "0".repeat(64);
         Schedule.Entry e = entry(dir, """
