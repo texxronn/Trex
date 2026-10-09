@@ -60,7 +60,41 @@ scp deploy/config/accounts.yaml deploy/config/users.yaml deploy/config/categorie
 ```
 
 `docker compose up -d` re-runs the `init` service, which seeds the config volume only if a file is
-absent, so live rule edits survive an update.
+absent, so live rule edits survive an update. It also refreshes `/etc/trex/.shipped/<file>` on
+every `up` — the image's copy of each seeded file — so the Jobs page can say which files the
+volume is behind on (see *Config drift* below).
+
+### Config drift (`sync-config`)
+
+A repo change to a config file the volume already has never reaches the stack: `init` keeps live
+files. The hub compares the three versions of each seeded file — `/etc/trex/.shipped/<file>` (the
+image), `/etc/trex/.base/<file>` (the shipped version last installed) and `/etc/trex/<file>`
+(live) — and the Jobs page shows a one-line strip when they differ. A file the strip calls
+**repo-newer** is safe to update: you never edited it, the repo moved.
+
+`deploy/v2/sync-config.sh` is the container-side script (the one `dev.sh sync-config` runs). Copy
+it with the others, then run it as root on the host inside a throwaway container:
+
+```sh
+scp deploy/v2/sync-config.sh deploy@10.10.10.142:/tmp/
+# as root on the host:
+install -m 0644 /tmp/sync-config.sh /opt/trex/sync-config.sh
+docker run --rm -i -v trex-v2_config:/etc/trex alpine \
+  sh -s < /opt/trex/sync-config.sh
+```
+
+It prints every file's verdict, backs each file it updates up to `/etc/trex/.backup/<file>.<ts>`,
+copies the image's copy over the live file, and never touches an `edited-here`, `both-changed` or
+`unknown` file. The first run after this ships has no `.base/`, so every edited file reads
+`unknown`; after looking, record it with `ADOPT`:
+
+```sh
+docker run --rm -i -v trex-v2_config:/etc/trex -e ADOPT=profiles.yaml alpine \
+  sh -s < /opt/trex/sync-config.sh
+```
+
+A sync needs no restart: the sequencer re-checks the config before each write, and the hub's
+watcher re-derives on the change.
 
 ### Seeding and testing (day 0)
 

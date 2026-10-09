@@ -8,6 +8,7 @@
 #   dev.sh down              stop, keep volumes
 #   dev.sh reset             stop and delete the volumes (day 0 again)
 #   dev.sh ingest [DIR]      ingest statements (default ~/Downloads/Statements/Statements_CSV)
+#   dev.sh sync-config [--adopt FILE]  update the volume's repo-newer config files (QOL §3)
 #   dev.sh ps | logs [svc]   convenience
 #
 # Iterating on the UI: edit trex-v2-hub/src/main/resources/trex/v2/hub/web/*, reload
@@ -46,6 +47,15 @@ build() {
     (cd "$repo" && deploy/bin/trex-v2-docker.sh build)
 }
 
+# Config drift (QOL_Improvements.md §3): compare ., .shipped and .base under the config volume and
+# update only the files the repo moved while you did not — in a throwaway alpine container, so the
+# host needs no tools and the script itself never runs on this machine's filesystem.
+sync_config() {
+    local_docker
+    docker run --rm -i -v trex-v2_config:/etc/trex -e ADOPT="${1:-}" alpine \
+        sh -s < "$here/sync-config.sh"
+}
+
 case "${1:-up}" in
     build) build ;;
     up)
@@ -64,7 +74,16 @@ case "${1:-up}" in
         dir="${2:-$HOME/Downloads/Statements/Statements_CSV}"
         TREX_COMPOSE_DIR="$repo/deploy/v2" "$repo/deploy/v2/ingest-all.sh" "$dir"
         ;;
+    sync-config)
+        adopt=""
+        if [ "${2:-}" = "--adopt" ]; then
+            adopt="${3:?--adopt needs a file}"
+        elif [ -n "${2:-}" ]; then
+            die "usage: dev.sh sync-config [--adopt FILE]"
+        fi
+        sync_config "$adopt"
+        ;;
     ps) local_docker; "${compose[@]}" ps ;;
     logs) shift; local_docker; "${compose[@]}" logs --tail 50 "$@" ;;
-    *) sed -n '3,22p' "$0" | sed 's|^# \{0,1\}||' ;;
+    *) sed -n '3,23p' "$0" | sed 's|^# \{0,1\}||' ;;
 esac
