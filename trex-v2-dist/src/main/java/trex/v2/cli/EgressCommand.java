@@ -6,6 +6,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.egress.archive.ArchiveMirror;
+import trex.v2.egress.firefly.AccountChecks;
 import trex.v2.egress.firefly.AccountMap;
 import trex.v2.egress.firefly.AccountProvisioning;
 import trex.v2.egress.firefly.CategorySeeding;
@@ -148,6 +149,12 @@ public final class EgressCommand implements Callable<Integer> {
                 System.err.println("firefly.yaml names accounts this instance does not have: "
                     + String.join(", ", unresolved)
                     + ". Fix the name, or pass --create-missing-accounts.");
+                return 1;
+            }
+            List<String> problems = AccountChecks.problems(resolved, firefly.accounts(), hub.currencyByAccount());
+            if (!problems.isEmpty()) {
+                System.err.println("firefly.yaml disagrees with the instance; nothing has been written:");
+                problems.forEach(p -> System.err.println("  " + p));
                 return 1;
             }
             if (seedCategories) {
