@@ -2,6 +2,7 @@ package trex.v2.runner;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import trex.v2.ingest.Adapters;
+import trex.v2.log.EvidenceStore;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,6 +26,7 @@ public final class JobCatalogue {
         jobs.put("egress-firefly", egressFirefly(config));
         jobs.put("ingest", ingest(config, statements, staging));
         jobs.put("ingest-inbox", ingestInbox(config, statements, staging, System::currentTimeMillis));
+        jobs.put("reparse", reparse(config));
         jobs.put("journal-snapshot", journalSnapshot(config));
         jobs.put("stream", stream(config, staging));
         return jobs;
@@ -127,6 +129,77 @@ public final class JobCatalogue {
                 argv.add("--" + mode);
                 return List.of(new Step("egress firefly --" + mode, argv));
             });
+    }
+
+    /**
+     * Re-read one stored evidence id (QOL_Improvements.md §4). The source type and account come from
+     * the batch's {@code trex.ingest start} event via the hub, so evidence cannot be paired with the
+     * wrong adapter; the evidence id must be one the store already holds, exactly the check
+     * {@code IngestCommand --reparse} makes. Applying is the egress gate: locked without
+     * {@code --allow-apply}.
+     */
+    static JobSpec reparse(RunnerConfig config) {
+        List<JobParam> params = List.of(
+            JobParam.of("evidence", "string", true, "the stored evidence id to replay, e.g. sha256:…"),
+            JobParam.of("sourceType", "string", true, "the adapter the batch was ingested with"),
+            JobParam.of("account", "string", true, "the accountRef the batch was ingested for"),
+            JobParam.choice("mode", List.of("preview", "apply"),
+                "preview diffs stored evidence; apply posts the new facts and SUPERSEDE/RETIRE"));
+        return new JobSpec("reparse", "Re-read evidence",
+            "Replay stored evidence with the current parser and diff it against its facts "
+                + "(V2-PROPOSAL.md §8.2).",
+            "write", params, p -> {
+                String mode = p.path("mode").asText("preview");
+                if (!List.of("preview", "apply").contains(mode)) {
+                    throw new IllegalArgumentException("mode must be preview or apply");
+                }
+                if ("apply".equals(mode) && !config.allowApply()) {
+                    throw new IllegalArgumentException("apply is disabled; start the runner with --allow-apply");
+                }
+                String evidence = text(p, "evidence");
+                if (evidence == null) {
+                    throw new IllegalArgumentException("evidence is required");
+                }
+                requireStoredEvidence(config, evidence);
+                String sourceType = text(p, "sourceType");
+                if (sourceType == null) {
+                    throw new IllegalArgumentException("sourceType is required");
+                }
+                if (!Adapters.types().contains(sourceType)) {
+                    throw new IllegalArgumentException("unknown source type '" + sourceType + "'");
+                }
+                String account = text(p, "account");
+                if (account == null) {
+                    throw new IllegalArgumentException("account is required");
+                }
+                require(config.sequencerUrl(), "--sequencer-url is not configured");
+                if (config.journal() == null) {
+                    throw new IllegalArgumentException("--journal is not configured");
+                }
+                List<String> argv = new ArrayList<>(List.of("ingest",
+                    "--reparse", evidence,
+                    "--source-type", sourceType,
+                    "--account", account,
+                    "--evidence", config.evidenceDir().toString(),
+                    "--journal", config.journal().toString(),
+                    "--sequencer-url", config.sequencerUrl()));
+                if ("apply".equals(mode)) {
+                    argv.add("--apply");
+                }
+                return List.of(new Step("ingest --reparse " + mode, argv));
+            });
+    }
+
+    private static void requireStoredEvidence(RunnerConfig config, String evidence) {
+        boolean known;
+        try {
+            known = new EvidenceStore(config.evidenceDir()).contains(evidence);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("not an evidence id: " + evidence);
+        }
+        if (!known) {
+            throw new IllegalArgumentException("no such evidence: " + evidence);
+        }
     }
 
     static JobSpec ingest(RunnerConfig config, StatementsMap statements, StagingStore staging) {
