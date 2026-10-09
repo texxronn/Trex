@@ -127,6 +127,18 @@ public final class FireflyClient {
                            List<String> tags, long journalN, JsonNode group) {}
 
     public List<Existing> allTransactions() throws IOException, InterruptedException {
+        return transactions(true);
+    }
+
+    /**
+     * Every transaction group, tagged or not: what {@code --validate} inventories so a lost
+     * ownership can be named (D9/R2). The tags are kept on {@link Existing} for exactly that.
+     */
+    public List<Existing> inventory() throws IOException, InterruptedException {
+        return transactions(false);
+    }
+
+    private List<Existing> transactions(boolean oursOnly) throws IOException, InterruptedException {
         List<Existing> out = new ArrayList<>();
         for (int page = 1; ; page++) {
             JsonNode body = get("/api/v1/transactions?limit=" + PAGE + "&page=" + page);
@@ -137,8 +149,8 @@ public final class FireflyClient {
                 }
                 JsonNode first = splits.get(0);
                 String external = first.path("external_id").asText(null);
-                if (external == null || !isOurs(first)) {
-                    continue;                  // not ours
+                if (external == null || (oursOnly && !isOurs(first))) {
+                    continue;                  // nothing to name it by, or not ours
                 }
                 out.add(new Existing(g.path("id").asText(), external,
                     first.path("category_name").asText(null), tagCategory(first), tags(first),

@@ -12,6 +12,7 @@ import trex.v2.egress.firefly.AccountProvisioning;
 import trex.v2.egress.firefly.CategorySeeding;
 import trex.v2.egress.firefly.FireflyClient;
 import trex.v2.egress.firefly.FireflyEgress;
+import trex.v2.egress.firefly.Validate;
 import trex.v2.egress.hub.HubClient;
 import trex.v2.log.ConfigLoader;
 
@@ -97,6 +98,9 @@ public final class EgressCommand implements Callable<Integer> {
         @Option(names = "--verify", description = "Rebuild state from Firefly, then plan; non-zero if not empty.")
         boolean verify;
 
+        @Option(names = "--validate", description = "Read-only contract check; exit 1 on a Firefly-side edit.")
+        boolean validate;
+
         @Option(names = "--remove-orphans", description = "Delete groups for units no longer projectable.")
         boolean removeOrphans;
 
@@ -143,6 +147,29 @@ public final class EgressCommand implements Callable<Integer> {
                 resolved.byRef().forEach((ref, e) -> System.out.printf("  %-24s %-28s %s%n",
                     ref, e.name(), e.id() == null ? "(missing)" : "id " + e.id()));
                 return 0;
+            }
+
+            // Read-only contract check (D9/R2): classify every Firefly-side edit beside the normal
+            // states, write nothing. The names must resolve first, or Projection.of cannot compute
+            // what trex expects. Violations exit 1; the informational kinds do not.
+            if (validate) {
+                List<String> unresolved = resolved.unresolved();
+                if (!unresolved.isEmpty()) {
+                    System.err.println("firefly.yaml names accounts this instance does not have: "
+                        + String.join(", ", unresolved)
+                        + ". Fix the name, or pass --create-missing-accounts.");
+                    return 1;
+                }
+                var units = hub.units(0);
+                List<Validate.Finding> findings = Validate.check(units, hub.projection(),
+                    firefly.inventory(), resolved);
+                findings.forEach(f -> System.out.printf("  %-10s %-14s group %-6s %s%n",
+                    f.kind(), f.unitId(), f.groupId(), f.detail()));
+                java.util.Set<String> violations =
+                    java.util.Set.of("MISSING", "UNTAGGED", "TAMPERED", "DRIFT");
+                boolean bad = findings.stream().anyMatch(f -> violations.contains(f.kind()));
+                System.out.printf("validate: %d finding(s)%n", findings.size());
+                return bad ? 1 : 0;
             }
 
             // Every account we already resolve is checked before any write, so that
