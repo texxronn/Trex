@@ -132,9 +132,19 @@ public final class EgressCommand implements Callable<Integer> {
             HubClient hub = new HubClient(hubUrl);
             AccountMap map = AccountMap.load(accountsFile);
 
+            Map<String, FireflyClient.AccountInfo> instance = firefly.accounts();
             Map<String, String> idsByName = new LinkedHashMap<>();
-            firefly.accounts().forEach((name, info) -> idsByName.put(name, info.id()));
+            instance.forEach((name, info) -> idsByName.put(name, info.id()));
             AccountMap resolved = map.resolved(idsByName);
+
+            // Every account we already resolve is checked before any write, so that
+            // --create-missing-accounts cannot leave Firefly changed when a mapping disagrees.
+            List<String> existingProblems = AccountChecks.problems(resolved, instance, hub.currencyByAccount());
+            if (!existingProblems.isEmpty()) {
+                System.err.println("firefly.yaml disagrees with the instance; nothing has been written:");
+                existingProblems.forEach(p -> System.err.println("  " + p));
+                return 1;
+            }
 
             if (createMissingAccounts) {
                 resolved = createMissing(firefly, hub, map, idsByName, resolved);
