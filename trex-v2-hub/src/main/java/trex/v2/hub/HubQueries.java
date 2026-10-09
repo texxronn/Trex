@@ -154,7 +154,11 @@ public final class HubQueries implements AutoCloseable {
         LocalDate asOf = LocalDate.now();
         return read(conn -> {
             List<trex.v2.hub.api.IngestsResponse.IngestRow> out = new ArrayList<>();
-            String sql = "SELECT batch, file, evidence_id, account_ref, n_start, n_end, appended, duplicate, "
+            String sql = "SELECT batch, file, evidence_id, account_ref, "
+                // The view pairs the markers but predates source_type; the start row carries it.
+                + "(SELECT s.source_type FROM ingest_event s WHERE s.batch = ingest_batch.batch "
+                + "AND s.phase = 'start'), "
+                + "n_start, n_end, appended, duplicate, "
                 + "flagged, status, started_ms, completed_ms, "
                 + "(SELECT MAX(t.date) FROM txn_current t WHERE t.account_ref = ingest_batch.account_ref "
                 + "AND t.date <= ?) FROM ingest_batch"
@@ -171,11 +175,11 @@ public final class HubQueries implements AutoCloseable {
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         out.add(new trex.v2.hub.api.IngestsResponse.IngestRow(
-                            rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
-                            rs.getLong(5), rs.getLong(6),
-                            (Integer) rs.getObject(7), (Integer) rs.getObject(8), (Integer) rs.getObject(9),
-                            rs.getString(10), rs.getLong(11), rs.getLong(12),
-                            nullableDate(rs.getString(13))));
+                            rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
+                            rs.getLong(6), rs.getLong(7),
+                            (Integer) rs.getObject(8), (Integer) rs.getObject(9), (Integer) rs.getObject(10),
+                            rs.getString(11), rs.getLong(12), rs.getLong(13),
+                            nullableDate(rs.getString(14))));
                     }
                 }
             }
