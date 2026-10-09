@@ -214,4 +214,22 @@ class FireflyEgressTest {
             assertEquals(1, fake.groups().size(), "and never deleted, even with --remove-orphans");
         }
     }
+
+    @Test
+    void aRetagKeepsTagsYouAddedInFirefly() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            String gid = fake.seedGroup("ext1", null, List.of(new java.util.HashMap<>(Map.of(
+                "external_id", "ext1", "type", "withdrawal", "date", "2026-09-01", "amount", "10.00",
+                "currency_code", "AUD", "source_id", "1", "destination_name", "COLES",
+                "description", "COLES 1234", "category_name", "GROCERIES",
+                "tags", List.of("trex", "trex-category:GROCERIES", "holiday")))));
+            hub.projection.put("ext1", Map.of("unitId", "ext1", "unitKind", "EXTERNAL", "groupId", gid,
+                "category", "GROCERIES", "stateHash", "", "configRevision", "cfg", "deriveVersion", "d",
+                "verifiedAt", "t"));
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "FOOD", "COLES 1234", "h1"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertTrue(((List<?>) splitOf(fake, "ext1").get("tags")).contains("holiday"));
+        }
+    }
 }
