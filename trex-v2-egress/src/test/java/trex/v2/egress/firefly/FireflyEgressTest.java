@@ -373,7 +373,30 @@ class FireflyEgressTest {
             assertEquals(0, out.orphans());
             assertEquals(1, fake.groups().size());
             assertEquals("TRF-new", splitOf(fake, "TRF-new").get("external_id"));
+            assertEquals(java.util.Set.of("TRF-new"), hub.projection.keySet(),
+                "no stale alias: new and old rows are persisted in one replace");
             assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.VERIFY, false).run().empty());
+        }
+    }
+
+    @Test
+    void aRemoveOrphansNeverDeletesAGroupACurrentRowStillUses() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.transfer("TRF-old", 1, "ing-savings", "ing-orange", "2026-09-01", 500, "a", "b"));
+            AccountMap accounts = accounts();
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, false).run();
+            String gid = (String) hub.projection.get("TRF-old").get("groupId");
+            // A stale alias: the new unit's row names the same group as the old (an interruption with an
+            // older build, or a hand-written state). The old row must not delete the current group.
+            hub.resolved = Map.of("a", "a2");
+            hub.units = List.of(FakeHub.transfer("TRF-new", 2, "ing-savings", "ing-orange", "2026-09-01", 500, "a2", "b"));
+            hub.projection.put("TRF-new", Map.of("unitId", "TRF-new", "unitKind", "TRANSFER", "groupId", gid,
+                "category", "TRANSFER", "stateHash", Content.HAND_SPLIT, "configRevision", "cfg",
+                "deriveVersion", "d", "verifiedAt", "t"));
+
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, true).run();   // --remove-orphans
+            assertEquals(1, fake.groups().size(), "the group a current row still uses is never deleted");
+            assertFalse(hub.projection.containsKey("TRF-old"), "the stale alias leaves the accelerator");
         }
     }
 
