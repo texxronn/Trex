@@ -37,6 +37,25 @@ class IngestRunnerTest {
         }
     }
 
+    /**
+     * The complete event carries the writer's Flagged count: it is the one place an ingest says a
+     * re-observation happened (V2-REVIEW-FIXES-PLAN.md §4 — it once read "flagged 0" over 58 merges).
+     */
+    @Test
+    void flaggedRowsAreCountedOnTheCompleteEvent(@TempDir Path dir) throws Exception {
+        try (FakeSequencer sequencer = new FakeSequencer("Flagged")) {
+            int exit = IngestRunner.run(Adapters.byType("ing-csv"), SAMPLE.getBytes(StandardCharsets.UTF_8),
+                "f.csv", "ing-savings", new EvidenceStore(dir.resolve("evidence")),
+                new IngestClient(sequencer.url()), quiet());
+            assertEquals(IngestRunner.OK, exit);
+            assertTrue(sequencer.factsSeen > 0, "the sample must post rows");
+            java.util.Map<String, Object> complete = sequencer.ingestEvents.stream()
+                .filter(e -> "complete".equals(e.get("phase"))).findFirst().orElseThrow();
+            assertEquals(sequencer.factsSeen, ((Number) complete.get("flagged")).intValue(), complete.toString());
+            assertEquals(0, ((Number) complete.get("appended")).intValue());
+        }
+    }
+
     @Test
     void aBadRowSendsNothing(@TempDir Path dir) throws Exception {
         String bad = "Date,Description,Credit,Debit,Balance\n31/02/2026,Bad,,-2.00,0.00\n";

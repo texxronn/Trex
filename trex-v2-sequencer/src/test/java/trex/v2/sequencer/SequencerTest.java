@@ -278,6 +278,35 @@ class SequencerTest {
         }
     }
 
+    /**
+     * A second observation of an id minted earlier in the same batch is Flagged, like one of an id
+     * already in the log: the ingest counts must say a re-observation happened.
+     */
+    @Test
+    void aReObservationWithinOneBatchIsFlagged(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            BatchResponse resp = s.submitFacts(new FactBatch(false, List.of(
+                draft("ing-savings", -1000, "MAN market", "MAN-1", 500, "manual"),
+                draft("ing-savings", -1000, "MAN market", "MAN-1", 900, "manual"))));
+            assertEquals(List.of(RowResult.APPENDED, RowResult.FLAGGED),
+                resp.results().stream().map(RowResult::outcome).toList());
+            assertEquals(resp.results().get(0).externalId(), resp.results().get(1).externalId());
+            assertEquals(2, s.headN(), "the new observation is still kept, once");
+        }
+    }
+
+    @Test
+    void distinctRowsInOneBatchAreAllAppended(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            BatchResponse resp = s.submitFacts(new FactBatch(false, List.of(
+                draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"),
+                draft("ing-savings", -2000, "OTHER SHOP", null, 500, "csv"),
+                draft("ing-savings", -1000, "COLES 1234", null, 500, "csv"))));
+            assertEquals(List.of(RowResult.APPENDED, RowResult.APPENDED, RowResult.APPENDED),
+                resp.results().stream().map(RowResult::outcome).toList(), "occ keeps identical rows apart");
+        }
+    }
+
     @Test
     void allOrNoneWritesNothingWhenAnyRowIsBad(@TempDir Path dir) {
         try (Sequencer s = sequencer(dir)) {

@@ -158,6 +158,12 @@ retired one's content — the projection depends on it.
   broke the loan chain, because only the fee line was a `noop` reference (a workaround for this very
   bug). `profiles.yaml` now marks the settling line `noop` too, with an anchored match; the chain
   closes and the review queue is unchanged.
+- **Honest counts (follow-up, 2026-10-09).** The writer decided `Flagged` from the log only, so a
+  re-observation of an id minted earlier *in the same batch* was answered `Appended` — which is why
+  the card file's ingest event read `appended 2438, flagged 0` over 58 merged groups. It now tracks
+  the batch's ids too (`SequencerTest.aReObservationWithinOneBatchIsFlagged`, failing before the
+  fix), and `IngestRunnerTest.flaggedRowsAreCountedOnTheCompleteEvent` pins that the count reaches
+  the `trex.ingest complete` event.
 - **Build note.** An incremental `package` kept a stale `Ids.class` in the shaded jar; build release
   images from `mvn clean package`.
 

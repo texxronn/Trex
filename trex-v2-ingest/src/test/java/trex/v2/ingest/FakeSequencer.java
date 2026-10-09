@@ -28,6 +28,7 @@ public final class FakeSequencer implements AutoCloseable {
     public volatile int decisionCalls;
     public volatile int ingests;
     public final List<Map<String, Object>> decisions = new CopyOnWriteArrayList<>();
+    public final List<Map<String, Object>> ingestEvents = new CopyOnWriteArrayList<>();
     private final String outcome;
 
     public FakeSequencer(String outcome) throws Exception {
@@ -55,7 +56,7 @@ public final class FakeSequencer implements AutoCloseable {
         });
         server.createContext("/ingest", exchange -> {
             ingests++;
-            body(exchange);
+            ingestEvents.add(Json.mapper().readValue(body(exchange), Map.class));
             respond(exchange, 200, "{\"n\":1,\"offset\":1}");
         });
         server.start();
