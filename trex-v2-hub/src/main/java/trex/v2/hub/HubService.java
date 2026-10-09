@@ -199,7 +199,22 @@ public final class HubService implements HubApi, AutoCloseable {
         long offset = reads.offset();
         return new StatusResponse(reads.logHeadN(), offset, head, Math.max(0, head - offset),
             reads.counts(), reads.reviewByKind(), c.configRevision(),
-            DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION);
+            DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION,
+            reads.oldestFrontier(LocalDate.now(), statementBudget(c.registry())));
+    }
+
+    /**
+     * The budget accounts that have statements: a cash account has no statement to be late, so it
+     * never holds a "through" date back (V2-REVIEW-FIXES-PLAN.md §10, §11).
+     */
+    private static java.util.Set<String> statementBudget(Registry registry) {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        for (var account : registry.accounts().values()) {
+            if (account.budget() && account.balanceSource() == trex.v2.core.config.BalanceSource.STATEMENT) {
+                out.add(account.ref());
+            }
+        }
+        return out;
     }
 
     @Override
@@ -255,20 +270,14 @@ public final class HubService implements HubApi, AutoCloseable {
                 "window must be today, week or month, not '" + win + "'");
         };
         ExpectedResponse base = reads.expected(win, range);
-        // The budget accounts, and those of them with statements: a cash account has no statement
-        // to be late, so it never holds the "through" date back.
         java.util.Set<String> budget = new java.util.TreeSet<>();
-        java.util.Set<String> statementBudget = new java.util.TreeSet<>();
         for (var account : refresher.config().registry().accounts().values()) {
             if (account.budget()) {
                 budget.add(account.ref());
-                if (account.balanceSource() == trex.v2.core.config.BalanceSource.STATEMENT) {
-                    statementBudget.add(account.ref());
-                }
             }
         }
-        ExpectedResponse.Headroom headroom =
-            reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, budget, statementBudget);
+        ExpectedResponse.Headroom headroom = reads.headroom(Period.bounds(YearMonth.from(at).toString()), at,
+            budget, statementBudget(refresher.config().registry()));
         return new ExpectedResponse(base.window(), base.from(), base.to(), base.occurrences(), base.arrears(),
             base.totals(), headroom);
     }

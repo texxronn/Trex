@@ -849,25 +849,36 @@ public final class HubQueries implements AutoCloseable {
                 }
             }
 
-            LocalDate through = null;
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.ACCOUNT_FRONTIERS)) {
-                ps.setString(1, today.toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if (statementBudget.contains(rs.getString(1))) {
-                            LocalDate frontier = LocalDate.parse(rs.getString(2));
-                            if (through == null || frontier.isBefore(through)) {
-                                through = frontier;
-                            }
-                        }
-                    }
-                }
-            }
+            LocalDate through = oldestFrontier(conn, today, statementBudget);
             long left = incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend - movedOut;
             return new ExpectedResponse.Headroom(month.from(), left, incomeIn, incomeDue, committedPaid,
                 committedDue, uncommittedSpend, movedOut, movedIn, missed, unpaired, through,
                 List.copyOf(new java.util.TreeSet<>(budget)));
         });
+    }
+
+    /** The oldest statement frontier among {@code accounts}, at or before {@code today}; null if none. */
+    public LocalDate oldestFrontier(LocalDate today, java.util.Set<String> accounts) {
+        return read(conn -> oldestFrontier(conn, today, accounts));
+    }
+
+    private static LocalDate oldestFrontier(Connection conn, LocalDate today, java.util.Set<String> accounts)
+        throws SQLException {
+        LocalDate through = null;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.ACCOUNT_FRONTIERS)) {
+            ps.setString(1, today.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    if (accounts.contains(rs.getString(1))) {
+                        LocalDate frontier = LocalDate.parse(rs.getString(2));
+                        if (through == null || frontier.isBefore(through)) {
+                            through = frontier;
+                        }
+                    }
+                }
+            }
+        }
+        return through;
     }
 
     public List<TransferJson> transfers() {

@@ -28,7 +28,7 @@ export async function refresh() {
       item('lag', status.lagBytes + ' B', status.lagBytes > 0 ? 'bad' : 'good'),
       item('txn', status.counts.txn_current ?? 0),
       item('transfers', status.counts.transfer ?? 0),
-      item('review', review, review > 0 ? 'bad' : 'good'),
+      allClear(review, status.through),
       item('pending', status.counts.pending ?? 0),
       revisions(status),
       userSelect(),
@@ -36,6 +36,18 @@ export async function refresh() {
   } catch {
     // transient: the next delta retries
   }
+}
+
+/**
+ * The daily finish line (V2-REVIEW-FIXES-PLAN.md §11): a count while anything is open, and once the
+ * queue is empty a plain "all clear", with the date the statements reach so it never claims more.
+ */
+function allClear(open, through) {
+  if (open > 0) {
+    return el('a', { href: '#review', title: 'open review items' }, item('review', open, 'bad'));
+  }
+  return el('span', { class: 'tick', title: 'nothing open in review' },
+    '\u2713 all clear' + (through ? ` \u2014 through ${through}` : ''));
 }
 
 function revisions(status) {

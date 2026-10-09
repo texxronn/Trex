@@ -485,6 +485,14 @@ A finish line for the daily routine: Expected → left this month → clear revi
 - `Dismiss` stays one click (the reason is optional). No new decision kinds.
 - Tests: `StatusApiTest.attentionCountsOpenItemsAndInbox`, `StatusApiTest.allClearWhenNothingIsOpen`.
 
+**As built (2026-10-09).** Smaller than planned: `/api/status` already carried `reviewByKind`
+(dismissed items are excluded at derive time), so it gains only `through`, the oldest statement
+frontier of the budget accounts. The strip shows the open count as a link to Review, or
+**✓ all clear — through <date>**; an unfiltered empty Review says "All clear — nothing to review.
+Done for today." Inbox counts are **not** in the status: they live in the runner, and the Jobs page
+already shows `failed` files. Pinned by the `through` assertion in `HeadroomApiTest`; the UI change
+was not checked in a browser.
+
 ---
 
 ## 12. Stage 9 — spec and document fixes

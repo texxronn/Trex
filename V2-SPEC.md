@@ -316,7 +316,9 @@ frontier),
 The UI has eight modes: **Blotter** (SQL-backed filters including role, a commitment chip, inline
 decisions — pin, pair, mark external, `noop`/`unmark noop`, **note** (a `NOTE`, single or over a
 selection), and **Assign**/**Unassign** to a commitment (`PIN_COMMITMENT`/`UNPIN_COMMITMENT`) — a note
-badge on any row with a thread, status strip), **Review** (the derived queue, one decision away from
+badge on any row with a thread, status strip — which shows the open review count, or **✓ all clear —
+through <date>** once nothing is open, the date being the oldest statement frontier of the budget
+accounts), **Review** (the derived queue, one decision away from
 clear; a cluster expands to its members as colored chips, `Dismiss` takes an optional reason, a
 cluster can be annotated in one fan-out, `SUSPECTED_RECURRING` offers Confirm/Ignore,
 `DORMANT_COMMITMENT` Mark ended/Keep tracking, and `COMMITMENT_ARREARS` Settle/Snooze),
