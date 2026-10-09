@@ -285,6 +285,22 @@ public final class FireflyClient {
         return get("/api/v1/transactions/" + groupId);
     }
 
+    /**
+     * The group, or null when Firefly no longer has it (D9). A missing group is a named recovery,
+     * never a raw {@link IOException}: {@link #group} still throws for callers that require it.
+     */
+    public JsonNode groupOrNull(String groupId) throws IOException, InterruptedException {
+        HttpResponse<String> r = send("GET", "/api/v1/transactions/" + groupId, null);
+        if (r.statusCode() == 404) {
+            return null;
+        }
+        if (r.statusCode() / 100 != 2) {
+            throw new IOException("GET /api/v1/transactions/" + groupId + " -> " + r.statusCode()
+                + ": " + message(r.body()));
+        }
+        return Json.mapper().readTree(r.body());
+    }
+
     private static byte[] bytes(Object body) {
         try {
             return Json.mapper().writeValueAsBytes(body);

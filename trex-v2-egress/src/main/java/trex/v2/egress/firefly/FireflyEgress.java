@@ -29,11 +29,11 @@ public final class FireflyEgress {
 
     public enum Mode { PLAN, APPLY, VERIFY }
 
-    public record Outcome(int creates, int retags, int updates, int unchanged, int orphans, int removed,
-                          int preserved) {
+    public record Outcome(int creates, int rekeys, int retags, int updates, int unchanged, int orphans,
+                          int removed, int preserved) {
 
         public boolean empty() {
-            return creates == 0 && retags == 0 && updates == 0 && orphans == 0;
+            return creates == 0 && rekeys == 0 && retags == 0 && updates == 0 && orphans == 0;
         }
     }
 
@@ -88,10 +88,7 @@ public final class FireflyEgress {
             ProjectionState row = known.get(unit.unitId());
             if (row == null) {
                 creates.add(unit);
-            } else if (!unit.category().equals(row.category())) {
-                moves.add(unit);
-            } else if (row.stateHash() != null && !row.stateHash().isBlank()
-                && !row.stateHash().equals(unit.unitHash())) {
+            } else if (reason(unit, row, revision) != null) {
                 moves.add(unit);
             } else {
                 unchanged++;
@@ -100,35 +97,35 @@ public final class FireflyEgress {
         List<ProjectionState> orphans = known.values().stream()
             .filter(r -> !currentIds.contains(r.unitId())).toList();
 
-        out.printf("%s: %d create, %d retag/update, %d unchanged, %d orphan(s)%n",
-            mode, creates.size(), moves.size(), unchanged, orphans.size());
-        if (mode != Mode.APPLY) {
-            creates.forEach(u -> out.println("  CREATE " + summarise(u)));
-            moves.forEach(u -> out.println("  RETAG  " + u.unitId() + "  " + known.get(u.unitId()).category()
-                + " -> " + u.category()));
-            orphans.forEach(o -> out.println("  ORPHAN " + o.unitId() + " (group " + o.groupId()
-                + ", category " + o.category() + ") — not deleted; rerun with --remove-orphans"));
-            return new Outcome(creates.size(), moves.size(), 0, unchanged, orphans.size(), 0, 0);
+        int retags = 0;
+        int updates = 0;
+        for (HubUnit unit : moves) {
+            if (reason(unit, known.get(unit.unitId()), revision) == Reason.RETAG) {
+                retags++;
+            } else {
+                updates++;
+            }
         }
 
-        int created = 0;
-        int retagged = 0;
-        int updated = 0;
-        int preserved = 0;
+        out.printf("%s: %d create, %d retag, %d update, %d unchanged, %d orphan(s)%n",
+            mode, creates.size(), retags, updates, unchanged, orphans.size());
+        if (mode != Mode.APPLY) {
+            creates.forEach(u -> out.println("  CREATE " + summarise(u)));
+            moves.forEach(u -> printMove(u, known.get(u.unitId()), revision));
+            orphans.forEach(o -> out.println("  ORPHAN " + o.unitId() + " (group " + o.groupId()
+                + ", category " + o.category() + ") — not deleted; rerun with --remove-orphans"));
+            return new Outcome(creates.size(), 0, retags, updates, unchanged, orphans.size(), 0, 0);
+        }
+
+        Tally tally = new Tally();
         Progress progress = new Progress(creates.size() + moves.size(), out);
         for (HubUnit unit : creates) {
             progress.tick();
-            created += create(unit, revision, known);
+            tally.add(create(unit, revision, known));
         }
         for (HubUnit unit : moves) {
             progress.tick();
-            Step step = retag(unit, known.get(unit.unitId()), revision, known);
-            if (step == Step.PRESERVED) {
-                preserved++;
-            } else {
-                retagged++;
-                updated++;
-            }
+            tally.add(converge(unit, known.get(unit.unitId()).groupId(), revision, known));
         }
         progress.done();
 
@@ -143,7 +140,44 @@ public final class FireflyEgress {
             hub.record(true, new ArrayList<>(known.values()));
         }
 
-        return new Outcome(created, retagged, updated, unchanged, orphans.size(), removed, preserved);
+        return new Outcome(tally.created, 0, tally.retagged, tally.updated,
+            unchanged + tally.unchanged, orphans.size(), removed, tally.preserved);
+    }
+
+    /** Why a known unit no longer converges: a category move, an unverified hash, or content drift. */
+    private enum Reason { RETAG, CHECK, UPDATE }
+
+    /**
+     * The reason a known unit moves, or null when it converges. A category move is a retag (the tag
+     * moves with it); a blank or old hub hash is checked once without a write; a verified hash whose
+     * fingerprint differs from the posting is a content move (F10). A hand-split group is never a
+     * content move — its content is yours.
+     */
+    private Reason reason(HubUnit unit, ProjectionState row, String revision) {
+        if (!unit.category().equals(row.category())) {
+            return Reason.RETAG;
+        }
+        if (!Content.verified(row.stateHash())) {
+            return Reason.CHECK;
+        }
+        if (!Content.HAND_SPLIT.equals(row.stateHash())
+                && !row.stateHash().equals(expected(unit, revision).fingerprint())) {
+            return Reason.UPDATE;
+        }
+        return null;
+    }
+
+    private void printMove(HubUnit unit, ProjectionState row, String revision) {
+        switch (reason(unit, row, revision)) {
+            case RETAG -> out.println("  RETAG  " + unit.unitId() + "  " + row.category()
+                + " -> " + unit.category());
+            case CHECK -> out.println("  CHECK  " + unit.unitId() + "  (content not verified)");
+            case UPDATE -> out.println("  UPDATE " + unit.unitId() + "  (content moved)");
+        }
+    }
+
+    private Content expected(HubUnit unit, String revision) {
+        return Content.expected(Projection.of(unit, revision, accounts).split());
     }
 
     /** Refuse the whole pass if any unit names an account {@code firefly.yaml} does not map. */
@@ -160,73 +194,138 @@ public final class FireflyEgress {
         }
     }
 
-    private int create(HubUnit unit, String revision, Map<String, ProjectionState> known)
+    private Step create(HubUnit unit, String revision, Map<String, ProjectionState> known)
             throws IOException, InterruptedException {
         Projection.Posting posting = Projection.of(unit, revision, accounts);
         FireflyClient.Result result = firefly.post(posting.body());
         return switch (result) {
             case FireflyClient.Result.Created c -> {
-                record(unit, c.groupId(), revision, known);
-                yield 1;
+                record(unit, c.groupId(), expected(unit, revision).fingerprint(), revision, known);
+                yield Step.CREATED;
             }
-            case FireflyClient.Result.Duplicate d -> {
-                record(unit, d.groupId(), revision, known);
-                yield 0;
-            }
+            // The state was lost but Firefly kept the group: converge on it rather than record blindly,
+            // or a category trex has since moved would stay stale (F7).
+            case FireflyClient.Result.Duplicate d -> converge(unit, d.groupId(), revision, known);
             case FireflyClient.Result.Failed f -> throw new Refused("Firefly refused " + unit.unitId()
                 + " (" + unit.accountRef() + " " + unit.date() + "): " + f.status() + " " + f.message());
         };
     }
 
-    private enum Step { RETAGGED, PRESERVED }
+    private enum Step { CREATED, RETAGGED, UPDATED, PRESERVED, UNCHANGED, NOT_OURS }
 
     /**
-     * Read, change only the tag and (if you have not touched it) the category, write back.
-     * Read-modify-write is a rule: a body built from scratch collapses a split group and destroys
-     * the work silently, and {@code group_title} must come back or Firefly refuses a multi-split group.
+     * Read the group, change only what we own and what moved, write back only if something did
+     * (V2-SPEC.md §11.1). Read-modify-write is a rule: a body built from scratch collapses a split
+     * group, and group_title must come back or Firefly refuses a multi-split group. On a single split
+     * trex is the authority for content (the bank said so); a group you split by hand keeps its
+     * content, and only its category (where untouched) and tags move.
      */
     @SuppressWarnings("unchecked")
-    private Step retag(HubUnit unit, ProjectionState row, String revision, Map<String, ProjectionState> known)
+    private Step converge(HubUnit unit, String groupId, String revision, Map<String, ProjectionState> known)
             throws IOException, InterruptedException {
-        JsonNode group = firefly.group(row.groupId()).path("data").path("attributes");
+        JsonNode found = firefly.groupOrNull(groupId);
+        if (found == null) {
+            // A missing group is a named recovery, never a raw 404 (D9/R2) and never a silent recreate.
+            throw new Refused("group " + groupId + " for unit " + unit.unitId()
+                + " is missing in Firefly — run --validate; to recreate it run --verify then --apply");
+        }
+        JsonNode group = found.path("data").path("attributes");
+        JsonNode splits = group.path("transactions");
+        if (splits.isEmpty() || !FireflyClient.isOurs(splits.get(0))) {
+            out.println("  NOT OURS " + unit.unitId() + " (group " + groupId + ") — the trex tag is gone; left alone");
+            return Step.NOT_OURS;
+        }
+        Map<String, Object> want = Projection.of(unit, revision, accounts).split();
+        Content expected = Content.expected(want);
+        boolean single = splits.size() == 1;
+        boolean contentMoves = single && !expected.equals(Content.observed(splits.get(0), accounts.ids()));
+        if (!single) {
+            long sum = 0;
+            for (JsonNode s : splits) {
+                sum += Content.cents(s.path("amount").asText("0"));
+            }
+            if (sum != Content.cents(expected.amount())) {
+                out.println("  HAND-SPLIT " + unit.unitId() + " (group " + groupId + ") — the bank now says "
+                    + expected.amount() + "; your splits total " + Projection.amount(sum)
+                    + " and are left as you made them");
+            }
+        }
+
         Map<String, Object> body = new LinkedHashMap<>();
         String title = group.path("group_title").asText("");
         if (!title.isEmpty()) {
             body.put("group_title", title);
         }
-        List<Map<String, Object>> splits = new ArrayList<>();
+        List<Map<String, Object>> splitsOut = new ArrayList<>();
         boolean preserved = false;
-        for (JsonNode split : group.path("transactions")) {
+        boolean changed = contentMoves;
+        for (JsonNode split : splits) {
             Map<String, Object> map = trex.v2.log.Json.mapper().convertValue(split, Map.class);
             String tagCategory = FireflyClient.tagCategory(split);
             String current = split.path("category_name").asText(null);
-            boolean untouched = tagCategory != null && tagCategory.equals(current);
-            if (untouched) {
-                map.put("category_name", unit.category());
-                // Firefly resolves category_id before category_name, so a stale id makes the name a
-                // silent no-op: the tag moves and the category stays put. Clear it.
-                map.remove("category_id");
+            if (tagCategory != null && tagCategory.equals(current)) {
+                if (!unit.category().equals(current)) {
+                    map.put("category_name", unit.category());
+                    // Firefly resolves category_id before category_name: a stale id makes the name a
+                    // silent no-op — the tag moves and the category stays put.
+                    map.remove("category_id");
+                    changed = true;
+                }
             } else {
                 preserved = true;
             }
-            map.put("tags", Projection.tags(split.path("tags"), unit.category()));
-            splits.add(map);
+            List<String> tags = Projection.tags(split.path("tags"), unit.category());
+            if (!tags.equals(trex.v2.log.Json.mapper().convertValue(split.path("tags"), List.class))) {
+                changed = true;
+            }
+            map.put("tags", tags);
+            if (contentMoves) {
+                applyContent(map, want);
+            }
+            splitsOut.add(map);
+        }
+        String fingerprint = single ? expected.fingerprint() : Content.HAND_SPLIT;
+        if (!changed) {
+            record(unit, groupId, fingerprint, revision, known);
+            return Step.UNCHANGED;
         }
         body.put("apply_rules", false);
-        body.put("transactions", splits);
-
-        FireflyClient.Result result = firefly.put(row.groupId(), body);
+        body.put("transactions", splitsOut);
+        FireflyClient.Result result = firefly.put(groupId, body);
         if (result instanceof FireflyClient.Result.Failed f) {
-            throw new Refused("Firefly refused the re-tag of " + unit.unitId()
-                + " (group " + row.groupId() + "): " + f.status() + " " + f.message());
+            throw new Refused("Firefly refused the update of " + unit.unitId()
+                + " (group " + groupId + "): " + f.status() + " " + f.message());
         }
-        record(unit, row.groupId(), revision, known);
-        return preserved ? Step.PRESERVED : Step.RETAGGED;
+        record(unit, groupId, fingerprint, revision, known);
+        return contentMoves ? Step.UPDATED : preserved ? Step.PRESERVED : Step.RETAGGED;
     }
 
-    private void record(HubUnit unit, String groupId, String revision, Map<String, ProjectionState> known) {
+    /**
+     * The content we own, from the posting. A side moved by name drops its id, and a side moved by
+     * id drops its name: Firefly resolves the id first (measured for categories; Stage 0 A4 for
+     * accounts), so a stale id would win silently.
+     */
+    private static void applyContent(Map<String, Object> map, Map<String, Object> want) {
+        for (String key : List.of("type", "date", "amount", "currency_code", "description", "external_id")) {
+            map.put(key, want.get(key));
+        }
+        map.remove("currency_id");
+        for (String side : List.of("source", "destination")) {
+            map.remove(side + "_id");
+            map.remove(side + "_name");
+            if (want.containsKey(side + "_id")) {
+                map.put(side + "_id", want.get(side + "_id"));
+            }
+            if (want.containsKey(side + "_name")) {
+                map.put(side + "_name", want.get(side + "_name"));
+            }
+        }
+    }
+
+    private void record(HubUnit unit, String groupId, String fingerprint, String revision,
+                        Map<String, ProjectionState> known) {
         ProjectionState state = new ProjectionState(unit.unitId(), unit.unitKind(), groupId,
-            unit.category(), unit.unitHash(), revision, deriveVersion, Instant.now().toString());
+            unit.category(), fingerprint, revision, deriveVersion, Instant.now().toString());
         known.put(unit.unitId(), state);
         hub.record(false, List.of(state));
     }
@@ -234,9 +333,12 @@ public final class FireflyEgress {
     private Map<String, ProjectionState> rebuildFromFirefly() throws IOException, InterruptedException {
         Map<String, ProjectionState> out = new TreeMap<>();
         for (FireflyClient.Existing e : firefly.allTransactions()) {
-            // stateHash is not recoverable from Firefly, so it is left blank (advisory only).
-            out.put(e.externalId(), new ProjectionState(e.externalId(), "UNKNOWN", e.groupId(),
-                e.projectedCategory() == null ? "" : e.projectedCategory(), "", "", deriveVersion,
+            JsonNode splits = e.group().path("attributes").path("transactions");
+            String fingerprint = splits.size() == 1
+                ? Content.observed(splits.get(0), accounts.ids()).fingerprint() : Content.HAND_SPLIT;
+            String kind = e.externalId().startsWith("TRF-") ? "TRANSFER" : "EXTERNAL";
+            out.put(e.externalId(), new ProjectionState(e.externalId(), kind, e.groupId(),
+                e.projectedCategory() == null ? "" : e.projectedCategory(), fingerprint, "", deriveVersion,
                 Instant.now().toString()));
         }
         return out;
@@ -246,6 +348,26 @@ public final class FireflyEgress {
         return "%-10s %-10s %10s  %-24s %s".formatted(unit.unitKind(), unit.date(),
             Projection.signedAmount(unit.amount()), unit.accountRef() + " -> "
                 + (unit.toAccountRef() == null ? "(merchant)" : unit.toAccountRef()), unit.category());
+    }
+
+    /** Counts one apply's steps. {@code NOT_OURS} is printed inside {@link #converge}, never counted. */
+    private static final class Tally {
+        private int created;
+        private int retagged;
+        private int updated;
+        private int preserved;
+        private int unchanged;
+
+        void add(Step step) {
+            switch (step) {
+                case CREATED -> created++;
+                case RETAGGED -> retagged++;
+                case UPDATED -> updated++;
+                case PRESERVED -> preserved++;
+                case UNCHANGED -> unchanged++;
+                case NOT_OURS -> { }
+            }
+        }
     }
 
     private static final class Progress {

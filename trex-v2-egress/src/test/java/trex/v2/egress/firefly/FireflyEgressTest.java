@@ -232,4 +232,130 @@ class FireflyEgressTest {
             assertTrue(((List<?>) splitOf(fake, "ext1").get("tags")).contains("holiday"));
         }
     }
+
+    /** A group as a previous run left it, and the state that run recorded. */
+    private static String projected(FakeFirefly fake, FakeHub hub, String unitId, String amount,
+                                    String category, String stateHash) {
+        Map<String, Object> split = new java.util.HashMap<>(Map.ofEntries(
+            Map.entry("external_id", unitId), Map.entry("type", "withdrawal"),
+            Map.entry("date", "2026-09-01T00:00:00+10:00"), Map.entry("amount", amount),
+            Map.entry("currency_code", "AUD"), Map.entry("source_id", "1"),
+            Map.entry("source_name", "ING Savings"), Map.entry("destination_id", "901"),
+            Map.entry("destination_name", "COLES"), Map.entry("description", "COLES 1234"),
+            Map.entry("category_name", category),
+            Map.entry("tags", List.of("trex", "trex-category:" + category))));
+        String gid = fake.seedGroup(unitId, null, List.of(split));
+        hub.projection.put(unitId, Map.of("unitId", unitId, "unitKind", "EXTERNAL", "groupId", gid,
+            "category", category, "stateHash", stateHash, "configRevision", "cfg", "deriveVersion", "d",
+            "verifiedAt", "t"));
+        return gid;
+    }
+
+    @Test
+    void aRestatedAmountReachesFirefly() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            projected(fake, hub, "ext1", "10.00", "GROCERIES", "fp1:stale");
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1200, "GROCERIES", "COLES 1234", "h2"));
+            FireflyEgress.Outcome out = egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals(1, out.updates());
+            assertEquals(0, out.retags(), "a content move is not a retag (F10)");
+            assertEquals(0, new java.math.BigDecimal("12.00").compareTo(
+                new java.math.BigDecimal((String) splitOf(fake, "ext1").get("amount"))));
+            assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.PLAN, false).run().empty());
+            assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.VERIFY, false).run().empty(),
+                "and a rebuilt state agrees (F3)");
+        }
+    }
+
+    @Test
+    void verifyFindsContentDriftThatTheStateDoesNotKnowAbout() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "GROCERIES", "COLES 1234", "h1"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            splitOf(fake, "ext1").put("amount", "99.000000000000");   // edited in Firefly
+            assertFalse(egress(hub, fake, accounts(), FireflyEgress.Mode.VERIFY, false).run().empty());
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals(0, new java.math.BigDecimal("10.00").compareTo(
+                new java.math.BigDecimal((String) splitOf(fake, "ext1").get("amount"))), "trex wins (D2)");
+        }
+    }
+
+    @Test
+    void aHandSplitGroupIsNeverRewrittenAndVerifiesClean() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            Map<String, Object> a = new java.util.HashMap<>(Map.of("external_id", "ext1", "type", "withdrawal",
+                "date", "2026-09-01T00:00:00+10:00", "amount", "6.00", "currency_code", "AUD",
+                "source_id", "1", "destination_name", "COLES", "description", "food",
+                "category_name", "GROCERIES", "tags", List.of("trex", "trex-category:GROCERIES")));
+            Map<String, Object> b = new java.util.HashMap<>(a);
+            b.put("amount", "4.00");
+            b.put("description", "soap");
+            String gid = fake.seedGroup("ext1", "COLES 1234", List.of(a, b));
+            hub.projection.put("ext1", Map.of("unitId", "ext1", "unitKind", "EXTERNAL", "groupId", gid,
+                "category", "GROCERIES", "stateHash", "", "configRevision", "cfg", "deriveVersion", "d",
+                "verifiedAt", "t"));
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1200, "GROCERIES", "COLES 1234", "h2"));     // the bank restated 10.00 -> 12.00
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            var splits = fake.groups().get(gid).splits();
+            assertEquals(2, splits.size());
+            assertEquals("6.00", splits.get(0).get("amount"), "your split stays as you made it");
+            assertEquals(Content.HAND_SPLIT, hub.projection.get("ext1").get("stateHash"));
+            assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.VERIFY, false).run().empty(),
+                "a hand-split group does not fail verify forever");
+        }
+    }
+
+    @Test
+    void oldStateHashesAreCheckedOnceWithoutWrites() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "GROCERIES", "COLES 1234", "h1"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            Map<String, Object> old = new java.util.HashMap<>(hub.projection.get("ext1"));
+            old.put("stateHash", "9f2c-an-old-hub-unit-hash");
+            hub.projection.put("ext1", old);
+            int puts = fake.puts.get();
+            FireflyEgress.Outcome first = egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals(puts, fake.puts.get(), "Firefly already matches: nothing written");
+            assertEquals(1, first.unchanged());
+            assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.PLAN, false).run().empty(), "and quiet after");
+        }
+    }
+
+    @Test
+    void aDuplicateCreateConvergesTheExistingGroup() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            fake.seedGroup("ext1", null, List.of(new java.util.HashMap<>(Map.of("external_id", "ext1",
+                "type", "withdrawal", "date", "2026-09-01T00:00:00+10:00", "amount", "10.00",
+                "currency_code", "AUD", "source_id", "1", "destination_name", "COLES",
+                "description", "COLES 1234", "category_name", "GROCERIES",
+                "tags", List.of("trex", "trex-category:GROCERIES")))));
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "FOOD", "COLES 1234", "h1"));      // state lost; trex has since moved the category
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals("FOOD", splitOf(fake, "ext1").get("category_name"), "F7: not left stale");
+        }
+    }
+
+    @Test
+    void aDeletedGroupStopsThePassWithANamedRefusal() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "GROCERIES", "COLES 1234", "h1"));
+            AccountMap accounts = accounts();
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, false).run();
+            String gid = (String) hub.projection.get("ext1").get("groupId");
+            fake.groups().remove(gid);       // deleted in Firefly
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "FOOD", "COLES 1234", "h1"));      // and trex has moved the category
+            FireflyEgress.Refused refused = org.junit.jupiter.api.Assertions.assertThrows(
+                FireflyEgress.Refused.class,
+                () -> egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, false).run());
+            assertTrue(refused.getMessage().contains("ext1"), refused.getMessage());
+            assertTrue(refused.getMessage().contains(gid), refused.getMessage());
+        }
+    }
 }

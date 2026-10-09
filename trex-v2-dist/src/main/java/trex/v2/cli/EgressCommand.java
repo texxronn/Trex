@@ -176,8 +176,10 @@ public final class EgressCommand implements Callable<Integer> {
 
             FireflyEgress.Outcome outcome = new FireflyEgress(hub, firefly, resolved, mode, removeOrphans,
                 System.out, DeriveConfig.DERIVE_VERSION).run();
-            System.out.printf("done: %d created, %d retagged, %d orphan(s), %d removed, %d of your edits preserved%n",
-                outcome.creates(), outcome.retags(), outcome.orphans(), outcome.removed(), outcome.preserved());
+            System.out.printf("done: %d created, %d re-keyed, %d updated, %d retagged, %d unchanged, "
+                    + "%d orphan(s), %d removed, %d of your edits preserved%n",
+                outcome.creates(), outcome.rekeys(), outcome.updates(), outcome.retags(), outcome.unchanged(),
+                outcome.orphans(), outcome.removed(), outcome.preserved());
             return mode == FireflyEgress.Mode.VERIFY && !outcome.empty() ? 1 : 0;
         }
 
