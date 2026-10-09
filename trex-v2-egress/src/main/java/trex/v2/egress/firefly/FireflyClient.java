@@ -127,18 +127,21 @@ public final class FireflyClient {
                            List<String> tags, long journalN, JsonNode group) {}
 
     public List<Existing> allTransactions() throws IOException, InterruptedException {
-        return transactions(true);
+        return transactions(true, true);
     }
 
     /**
-     * Every transaction group, tagged or not: what {@code --validate} inventories so a lost
-     * ownership can be named (D9/R2). The tags are kept on {@link Existing} for exactly that.
+     * Every transaction group, tagged or not and keyed by {@code external_id} or not: what
+     * {@code --validate} inventories so a lost ownership or a removed {@code external_id} can be
+     * named (D9/R2). The tags are kept on {@link Existing} for exactly that; a group with no
+     * {@code external_id} still carries its group id, so a state row can be matched to it.
      */
     public List<Existing> inventory() throws IOException, InterruptedException {
-        return transactions(false);
+        return transactions(false, false);
     }
 
-    private List<Existing> transactions(boolean oursOnly) throws IOException, InterruptedException {
+    private List<Existing> transactions(boolean oursOnly, boolean requireExternal)
+            throws IOException, InterruptedException {
         List<Existing> out = new ArrayList<>();
         for (int page = 1; ; page++) {
             JsonNode body = get("/api/v1/transactions?limit=" + PAGE + "&page=" + page);
@@ -149,7 +152,7 @@ public final class FireflyClient {
                 }
                 JsonNode first = splits.get(0);
                 String external = first.path("external_id").asText(null);
-                if (external == null || (oursOnly && !isOurs(first))) {
+                if ((requireExternal && external == null) || (oursOnly && !isOurs(first))) {
                     continue;                  // nothing to name it by, or not ours
                 }
                 out.add(new Existing(g.path("id").asText(), external,

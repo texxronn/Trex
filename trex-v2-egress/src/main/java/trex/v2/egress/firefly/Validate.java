@@ -119,6 +119,9 @@ public final class Validate {
         }
 
         for (Existing e : inventory) {
+            if (e.externalId() == null) {
+                continue;                  // no external_id to name it by; ownership is irrelevant
+            }
             HubUnit unit = byId.get(e.externalId());
             if (unit == null) {
                 continue;                  // not a current unit; ownership is irrelevant

@@ -217,4 +217,19 @@ class ValidateTest {
             assertEquals("ext1", findings.getFirst().unitId());
         }
     }
+
+    @Test
+    void aRemovedExternalIdIsTamperedNotMissing() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1000, "GROCERIES", "COLES 1234", "h1"));
+            AccountMap accounts = accounts();
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY).run();
+            splitOf(fake, "ext1").remove("external_id");   // edited in Firefly: outside the contract (D9)
+
+            List<Validate.Finding> findings = validate(hub, fake, accounts);
+            assertEquals(List.of("TAMPERED"), kinds(findings), findings.toString());
+            assertEquals("ext1", findings.getFirst().unitId());
+        }
+    }
 }
