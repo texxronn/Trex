@@ -13,7 +13,7 @@
 > #67–#71, and this archive PR is Stage 6. The outcome lives in `V2-SPEC.md` §11.
 > **Review (2026-10-09):** `docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md` — R1–R8 resolved; the second
 > pass on those resolutions (V1–V7) is folded into Tasks 4.1, 4.4, 5.3, D8 and Stage 6.
-> **Execution (2026-10-09):** `V2-FIREFLY-EGRESS-EXECUTION.md` — the dispatch map, worker protocol
+> **Execution (2026-10-09):** `docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md` — the dispatch map, worker protocol
 > and reviewer gates. Read it before starting a stage; this plan is the *what*.
 > **Authority:** `V2-SPEC.md` §4 (identity), §6.3 (transfers, clearing), §6.7, §11 (egress);
 > `V2-PROPOSAL.md` §11 (the rationale and the v1 lessons — read for *why*); `AGENTS.md`.
@@ -164,7 +164,7 @@ written into §3.2. **The operator runs this, or explicitly hands an agent the t
 
 **Files:**
 - Create (scratch, not committed): `$SCRATCH/firefly-spike.sh`
-- Modify: `V2-FIREFLY-EGRESS-PLAN.md` §3.2 (the answers)
+- Modify: `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` §3.2 (the answers)
 
 - [x] **Step 1: Write the script**
 
@@ -350,7 +350,7 @@ thousand creates) and safe to interrupt.
 ```
 
 - [x] **Step 2: Mark the not-yet-built rules.** In the same PR, append to the subsection:
-  `*Stages 2–5 of V2-FIREFLY-EGRESS-PLAN.md build the clearing, ownership, validation, fingerprint
+  `*Stages 2–5 of docs/plans/V2-FIREFLY-EGRESS-PLAN.md build the clearing, ownership, validation, fingerprint
   and re-key rules; until each lands, the code is behind this text.*` Each later stage removes its
   part of this sentence.
 
@@ -361,7 +361,7 @@ thousand creates) and safe to interrupt.
 
 ```bash
 git checkout -b docs/firefly-egress-spec
-git add V2-SPEC.md AGENTS.md V2-FIREFLY-EGRESS-PLAN.md
+git add V2-SPEC.md AGENTS.md docs/plans/V2-FIREFLY-EGRESS-PLAN.md
 git commit -m "docs: the Firefly egress rules in the spec, and the egress-impact rule"
 ```
 
@@ -2343,12 +2343,12 @@ git commit -m "fix(egress): a superseded unit re-keys its group; a replacement i
     "was known" signal.
 - [x] **Step 2: Add the CHANGELOG entry** naming F1–F11 in one line each.
 - [x] **Step 3: Move the plan to `docs/plans/`** with its status line set to built and the PRs
-  listed, and move `V2-FIREFLY-EGRESS-EXECUTION.md` beside it.
+  listed, and move `docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md` beside it.
 - [x] **Step 4: Commit; open the PR**
 
 ```bash
 git checkout -b docs/firefly-egress-archive
-git add docs CHANGELOG.md V2-FIREFLY-EGRESS-PLAN.md
+git add docs CHANGELOG.md docs/plans/V2-FIREFLY-EGRESS-PLAN.md
 git commit -m "docs: Firefly egress convergence — running notes; archive the plan"
 ```
 
