@@ -212,7 +212,8 @@ function relFuture(ms) {
  */
 function renderConfigDrift() {
   clear(configDriftHost);
-  const rows = (configDrift || []).filter((row) => row.state !== 'same');
+  if (!Array.isArray(configDrift)) return;
+  const rows = configDrift.filter((row) => row && row.file && row.state && row.state !== 'same');
   if (!rows.length) return;
   configDriftHost.append(el('div', { class: 'drift-strip' },
     'config: ' + rows.map(configDriftText).join(' \u00b7 ')));
@@ -223,7 +224,7 @@ function configDriftText(row) {
     case 'repo-newer': return `${row.file} is newer in the repo (safe to update)`;
     case 'edited-here': return `${row.file} edited here`;
     case 'both-changed': return `${row.file} changed here and in the repo \u2014 merge by hand`;
-    case 'unknown': return `${row.file} unknown (first run \u2014 sync-config --adopt ${row.file})`;
+    case 'unknown': return `${row.file} unknown (no base recorded \u2014 look, then sync-config --adopt; up first if .shipped is missing)`;
     default: return `${row.file} ${row.state}`;
   }
 }
