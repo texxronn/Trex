@@ -8,6 +8,7 @@ import trex.v2.egress.hub.HubClient.Units;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -82,8 +83,24 @@ public final class Validate {
                 out.add(new Finding("TAMPERED", row.unitId(), row.groupId(),
                     "the first notes line is not ours: \"" + firstLine(first.path("notes").asText("")) + "\""));
             }
-            // A transfer's legs= is compared once HubUnit.legs and Units.resolved exist (Stage 5,
-            // Task 5.1); before then no group carries legs=, so there is nothing to compare.
+            if ("TRANSFER".equals(unit.unitKind())) {
+                List<String> notesLegs = FireflyClient.legs(first.path("notes").asText(""));
+                if (!notesLegs.isEmpty()) {
+                    // Resolve the notes' legs the same way the hub resolves a unit's: a leg superseded
+                    // by a re-parse resolves to its current id (default: itself), so a re-keyed group
+                    // is not TAMPERED. A group with no legs= (pre-Stage-5, or EXTERNAL) is never judged.
+                    Map<String, String> resolved = units.resolved() == null ? Map.of() : units.resolved();
+                    List<String> legs = new ArrayList<>();
+                    for (String leg : notesLegs) {
+                        legs.add(resolved.getOrDefault(leg, leg));
+                    }
+                    List<String> unitLegs = unit.legs() == null ? List.of() : unit.legs();
+                    if (!new HashSet<>(legs).equals(new HashSet<>(unitLegs))) {
+                        out.add(new Finding("TAMPERED", row.unitId(), row.groupId(),
+                            "the notes legs " + legs + " are not the unit's legs " + unitLegs));
+                    }
+                }
+            }
 
             boolean single = splits.size() == 1;
             boolean verified = Content.verified(row.stateHash()) && !Content.HAND_SPLIT.equals(row.stateHash());

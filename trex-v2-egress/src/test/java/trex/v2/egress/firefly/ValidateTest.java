@@ -219,6 +219,20 @@ class ValidateTest {
     }
 
     @Test
+    void aTransferWhoseNotesLegsDoNotMatchIsTampered() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.transfer("TRF-1", 1, "ing-savings", "ing-orange",
+                "2026-09-01", 500, "a", "b"));
+            AccountMap accounts = accounts();
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY).run();
+            splitOf(fake, "TRF-1").put("notes", "trex n=1 rules=cfg legs=x,y\nTransfer"); // edited in Firefly
+
+            List<Validate.Finding> findings = validate(hub, fake, accounts);
+            assertTrue(kinds(findings).contains("TAMPERED"), findings.toString());
+        }
+    }
+
+    @Test
     void aRemovedExternalIdIsTamperedNotMissing() throws Exception {
         try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
             hub.units = List.of(FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",

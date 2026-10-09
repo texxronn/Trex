@@ -36,6 +36,9 @@ public final class FireflyClient {
     /** "Duplicate of transaction #2." — the rejection names the group, so no search is needed. */
     private static final Pattern DUPLICATE = Pattern.compile("Duplicate of transaction #(\\d+)");
 
+    /** A transfer's legs, written into our first notes line (Stage 5). */
+    private static final Pattern LEGS = Pattern.compile("\\blegs=(\\S+)");
+
     private final HttpClient http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NEVER)
@@ -196,6 +199,16 @@ public final class FireflyClient {
     static long journalN(String notes) {
         Matcher m = Pattern.compile("\\btrex n=(\\d+)").matcher(notes == null ? "" : notes);
         return m.find() ? Long.parseLong(m.group(1)) : -1;
+    }
+
+    /** A transfer's legs, from our first notes line — empty for a group projected before Stage 5. */
+    static List<String> legs(String notes) {
+        if (notes == null) {
+            return List.of();
+        }
+        int nl = notes.indexOf('\n');
+        Matcher m = LEGS.matcher(nl < 0 ? notes : notes.substring(0, nl));
+        return m.find() ? List.of(m.group(1).split(",")) : List.of();
     }
 
     public record CategoryInfo(String id, String name, String notes) {

@@ -69,7 +69,7 @@ public final class Projection {
         // is what a rebuild reads back to learn what was last projected (§11.6).
         split.put("category_name", unit.category());
         split.put("tags", List.of(TAG, CATEGORY_TAG_PREFIX + unit.category()));
-        split.put("notes", notes(unit, configRevision));
+        split.put("notes", notes(null, unit, configRevision));
 
         Map<String, Object> body = new LinkedHashMap<>();
         // Firefly's own duplicate hash, under our dedup rather than instead of it. A rejection names
@@ -109,10 +109,21 @@ public final class Projection {
         return cleaned.isBlank() ? unit.rawDescription() : cleaned;
     }
 
-    /** Everything a rebuild needs that the tag does not carry: the journal {@code n} and the raw text. */
-    private static String notes(HubUnit unit, String configRevision) {
-        return "trex n=" + unit.n() + " rules=" + (configRevision == null ? "none" : configRevision)
-            + "\n" + unit.rawDescription();
+    /**
+     * Our first notes line, and anything below it kept: what a rebuild needs that the tags do not
+     * carry — the journal n, the rules revision, and a transfer's legs (how a re-parsed transfer is
+     * found again, Stage 5). The raw description is written once, under it, on create.
+     */
+    static String notes(String existing, HubUnit unit, String configRevision) {
+        String first = "trex n=" + unit.n() + " rules=" + (configRevision == null ? "none" : configRevision)
+            + (unit.legs() == null || unit.legs().isEmpty() ? "" : " legs=" + String.join(",", unit.legs()));
+        if (existing == null || existing.isEmpty()) {
+            return first + "\n" + unit.rawDescription();
+        }
+        int nl = existing.indexOf('\n');
+        String head = nl < 0 ? existing : existing.substring(0, nl);
+        String rest = nl < 0 ? "" : existing.substring(nl);
+        return head.startsWith("trex ") ? first + rest : first + "\n" + existing;
     }
 
     /** Yours stay; ours are replaced. A re-tag that wrote only ours would delete what you added. */

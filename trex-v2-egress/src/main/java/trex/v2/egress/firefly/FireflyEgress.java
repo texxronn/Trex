@@ -279,6 +279,15 @@ public final class FireflyEgress {
                 changed = true;
             }
             map.put("tags", tags);
+            if (splitsOut.isEmpty()) {
+                // Our first line rides along with a write another change caused: notes are not part of
+                // the fingerprint, so refreshing them must never force a write by itself (a hand-split
+                // group's content is never rewritten, and unchanged rows keep a stale rules= by design).
+                String notes = Projection.notes(split.path("notes").asText(""), unit, revision);
+                if (!notes.equals(split.path("notes").asText(""))) {
+                    map.put("notes", notes);
+                }
+            }
             if (contentMoves) {
                 applyContent(map, want);
             }
