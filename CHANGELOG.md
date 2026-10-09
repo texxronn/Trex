@@ -11,6 +11,19 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **A receipt shared by different rows on one day no longer hides transactions**
+  (`V2-REVIEW-FIXES-PLAN.md` §4). ING prints one receipt on a purchase, its international fee and
+  the fee rebate; the natural key gave all three one id, so the sequencer flagged two as
+  re-observations and derive kept only the newest. Such rows now mint the content hash like
+  receipt-less rows (`Ids.mint`, shared by the sequencer and the re-parse preview); unique receipts
+  keep their natural key, so no existing id moves. On the private fixture current facts rise
+  6,029 → 6,141 (+112). The restored `+$299` loan `Transfer` that settles each Orange Advantage fee
+  line joins that line as a `noop` reference (`profiles.yaml`), so the loan chain still closes and
+  the review queue is unchanged. An existing journal is repaired with `ingest --reparse --apply`
+  over the stored evidence.
+- **A second re-parse no longer retires what the first one superseded.** `Reparse.diff` skips ids
+  already closed by an effective `SUPERSEDE` or `RETIRE`, so `ingest --reparse --apply` is
+  idempotent and never cuts the chain that decisions on the old id resolve through.
 - **Receipt-share shaping is per-fact.** The pre-filter shaped *every* row carrying a receipt once
   *any* pair in that receipt's group had a plausible counterpart; ING receipt numbers are not unique
   across products or eras, so an unrelated row could inherit the shape. Now only the facts that

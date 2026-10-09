@@ -139,6 +139,28 @@ Verify `Reparse` emits exactly that (supersede the matching row, append the rest
 instead `RETIRE X` and append all rows, extend it to prefer `SUPERSEDE` when a new row matches the
 retired one's content — the projection depends on it.
 
+### 4.3a As built (2026-10-09)
+
+- **Rule refined:** the trigger is two or more *different* `(amount, rawDescription)` sharing
+  `(account, date, receipt)`, not two or more rows — identical rows sharing a receipt stay one
+  natural key (`SequencerTest.sameBatchTwoIdenticalNaturalKeyRowsCollapse` pins that). Collided
+  rows share the content rule's `occ` counter, so a receipt-less row of identical content on the same
+  day never mints the same id. One implementation, `Ids.mint`, serves the sequencer and the re-parse
+  preview.
+- **Re-parse made idempotent.** `Reparse.diff` treated an already-superseded id as a row no longer
+  read, so a second `--reparse --apply` retired it — cutting the chain that pins, pairs and units on
+  the old id resolve through. It now skips ids closed by an effective `SUPERSEDE`/`RETIRE`
+  (`Reparse.closedIds`, revocations honoured).
+- **Measured** (private `Final/` statements, E2E at `asOf` 2026-10-01): current facts 6,029 → 6,141;
+  units 5,354 → 5,466; review counts unchanged. A repair of a master-built journal (54 + 4
+  `SUPERSEDE`, 170 facts) yields the same rows as a fresh ingest, and a second pass changes nothing.
+- **Config follow-on.** The restored `+$299` loan `Transfer` settling each Orange Advantage fee line
+  broke the loan chain, because only the fee line was a `noop` reference (a workaround for this very
+  bug). `profiles.yaml` now marks the settling line `noop` too, with an anchored match; the chain
+  closes and the review queue is unchanged.
+- **Build note.** An incremental `package` kept a stale `Ids.class` in the shaded jar; build release
+  images from `mvn clean package`.
+
 ### 4.4 Tests
 
 - `SequencerTest.aReceiptSharedOnOneDayMintsDistinctIds` — the three-row group above → three ids,
