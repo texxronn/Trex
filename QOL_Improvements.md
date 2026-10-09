@@ -71,18 +71,23 @@ completed in between, it shows one toast:
   (the duplicate count is shown when every row was a duplicate, so a no-op sweep is still
   confirmed).
 
-**As built (2026-10-09).** `GET /api/ingests?sinceN=<n>` keeps batches with `n_end > n` (no filter
-is the old read; a non-numeric filter is 422). The SQL stayed inline in `HubQueries.ingests`, so
-`HubSql` was not touched. A new `web/js/ingestToast.js` hangs off `app.js`'s `onDelta`: the first
-delta of a page load only establishes the review-total baseline, later deltas diff the total against
-the previous delta, duplicates are named only when Σ `appended` was 0, and any batch whose status is
-not `ok` makes the toast error-styled and names the file with the runner's word (`bad_rows` → "bad
-rows"). `toast()` gained an optional click target (a `clickable` class); a click sets `#jobs`, the
-mode switch the nav already uses. Nothing writes: the runner, the sequencer and the log are
-untouched. Pinned by `HubIngestsApiTest.sinceNReturnsOnlyLaterBatches` (whole history without the
-filter, later-only, empty at the head, 422) and `HubAccountsTest` still reads the unfiltered
-history. The UI was not checked in a browser; the manual acceptance above is still to run on the dev
-stack.
+**As built (2026-10-09).** `GET /api/ingests?sinceN=<n>` keeps batches with `n_end > n`, untruncated
+— the 50-batch page size applies to the unfiltered history only, so a delta that missed more than 50
+batches still reports them all (no filter is the old read; a non-numeric filter is 422). The SQL
+stayed inline in `HubQueries.ingests`, so `HubSql` was not touched. A new `web/js/ingestToast.js`
+hangs off `app.js`: `onSnapshot` seeds the baseline and fetches the review total the page loaded
+with, so the first delta after load/reconnect fetches (and toasts) the batches completed since the
+snapshot and diffs its review delta against that total — a snapshot whose status read failed shows
+no review delta rather than a guess; only a stream that never saw a snapshot treats its first delta
+as the baseline. Duplicates are named only when every row was a duplicate — nothing appended,
+nothing flagged, no failed batch — and any batch whose status is not `ok` makes the toast
+error-styled and names the file with the runner's word (`bad_rows` → "bad rows"). `toast()` gained
+an optional click target (a `clickable` class); a click sets `#jobs`, the mode switch the nav
+already uses. Nothing writes: the runner, the sequencer and the log are untouched. Pinned by
+`HubIngestsApiTest` (`sinceNReturnsOnlyLaterBatches`: whole history without the filter, later-only,
+empty at the head, 422; `sinceNReturnsEveryLaterBatchPastTheHistoryLimit`: 55 batches, the plain read
+is 50 rows, `sinceN=0` is 55) and `HubAccountsTest` still reads the unfiltered history. The UI was
+not checked in a browser; the manual acceptance above is still to run on the dev stack.
 
 ---
 

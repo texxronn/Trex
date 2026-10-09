@@ -23,8 +23,9 @@ everything is under **Unreleased**.
   delta the UI asks `/api/ingests?sinceN=<previous n>` for just the batches that completed since and
   shows one toast with the sweep's counts ("2 statements ingested · 47 new rows · 1 flagged · 1 new
   review item — ING_Salary_Account.csv, BW_*.csv"). A failed batch names its file ("rejected", "bad
-  rows") in an error toast; the duplicate count appears when the sweep appended nothing; a click
-  opens Jobs. A read of the ingest history and `/api/status`; nothing is stored.
+  rows") in an error toast; the duplicate count appears when every row was a duplicate (a clean
+  no-op sweep); a click opens Jobs. A read of the ingest history and `/api/status`; nothing is
+  stored.
 - **A daily "all clear"** (`V2-REVIEW-FIXES-PLAN.md` §11). The status strip shows the open review
   count, or **✓ all clear — through <date>** when nothing is open; an empty Review says so.
   `/api/status` gains `through`, the oldest statement frontier of the budget accounts.
