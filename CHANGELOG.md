@@ -83,6 +83,24 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **Firefly egress convergence — findings F1–F11 closed** (`docs/plans/V2-FIREFLY-EGRESS-PLAN.md`,
+  archived; PRs #66 plan/review, #67–#71 stages 1–5, this archive PR is Stage 6). One line each:
+  - **F1** clearing transfers reach Firefly: the hub projects the clearing pair as one unit between
+    the real account and the clearing account, and `firefly.yaml` maps the clearing accounts.
+  - **F2** a content move (amount, date, description) is written, not just the category: `converge`
+    replaces `retag` and compares a content fingerprint recomputable from both sides.
+  - **F3** `--verify` rebuilds that fingerprint from Firefly, so a content edit no longer hides
+    behind a blank `stateHash`.
+  - **F4** a re-tag keeps the tags you added in Firefly.
+  - **F5** a group is ours only when its first split carries the `trex` tag; an `external_id` alone
+    is not ownership.
+  - **F6** startup compares account type and currency with Firefly.
+  - **F7** a duplicate create converges the existing group instead of recording a stale category.
+  - **F8** deleting a group that is already gone (404) is not an error.
+  - **F9** a replaced unit (orphan plus successor) is reported as a pair.
+  - **F10** a content-only move counts as an update, not also a retag.
+  - **F11** a superseded unit re-keys its group in place through the hub's supersession map, instead
+    of orphaning it and creating a double count.
 - **An ingest's counts no longer hide a re-observation.** The writer answered `Appended` for a second
   observation of an id first minted earlier in the same batch, so the `trex.ingest complete` event
   said `flagged: 0` over the 58 merged receipt groups. It now answers `Flagged`, like a

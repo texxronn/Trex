@@ -210,6 +210,35 @@ done
   full-history pass is served in chunks — the cap terminates the run (exit 143) and the next plan
   shows only the remainder. Every apply is idempotent (`external_id`, then the duplicate hash), so
   nothing double-posts; raise `--job-timeout-minutes` on the runner if one pass is preferred.
+- **The first run after Stage 4** checks every row once (`CHECK` lines; GETs, no writes where
+  Firefly already matches).
+- **After mapping the clearing accounts**, run `--create-missing-accounts --plan` once, then
+  `--apply`.
+- **A rule change** walks every unit but only the changed categories get a GET + PUT — expected,
+  not a fault; unchanged rows keep their old `rules=` notes value, which `--validate` deliberately
+  ignores.
+- **`--remove-orphans`** is only for orphans the plan does **not** show as re-keyed; read the
+  "replaced by" lines first.
+- **Firefly is rebuilt, not migrated (D8):** the kept instance is refed from empty with the final
+  build; no partial-stage apply. If an instance ever carries pre-Stage-5 groups, refeed it.
+- **What a refeed costs (review V7):** everything done on the Firefly side — hand-assigned budgets,
+  piggy-bank links, your tags, hand-splits — is gone after a refeed. Assign budgets with a Firefly
+  rule group ("budget from category") and re-run it from "apply rule group to transactions" after a
+  refeed and after each sync; never assign budgets by hand.
+- **A missing group stops the pass (D9):** a transaction deleted in Firefly stops the next pass that
+  actually touches its unit (a planned retag or update), which then needs `--verify` then `--apply`
+  (or retire the unit in trex); units that have not moved keep converging. That is the intended
+  forcing function, and `--validate` on a timer is how you hear about it before a pass is blocked.
+- **The Do/Don't contract (`--validate`).** Yours: extra tags, budgets, bills, notes below our first
+  line and hand-splits. Ours: deleting a tagged transaction, removing the `trex` tag, editing
+  `external_id`, the first notes line (`n=`/`rules=`/`legs=`) or a single-split group's content, or
+  running another importer over a tagged row. `--validate` classifies each: `MISSING` (the group was
+  deleted), `UNTAGGED` (the `trex` tag was removed), `TAMPERED` (`external_id`, the notes line's
+  shape or a transfer's `legs=` changed) and `DRIFT` (a single-split content edit); the remedies are
+  restore the tag, revert the edit, fix the source in trex, retire the unit, or recreate via
+  `--verify` → `--apply`. `BEHIND`, `ORPHAN` and `HAND_SPLIT` are informational. Schedule
+  `--validate` (read-only) as the detector — not `--verify`, whose rebuild erases the "was known"
+  signal.
 - **`init` command must be a list of one.** Compose shell-splits a string `command`, so
   `entrypoint: ["/bin/sh","-ec"]` received only `mkdir` as its script; the fix is a one-element
   list so the whole script stays a single argument.

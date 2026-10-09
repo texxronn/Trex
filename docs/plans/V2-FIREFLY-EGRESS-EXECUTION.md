@@ -1,15 +1,16 @@
 # V2-FIREFLY-EGRESS-EXECUTION.md
 
-**Status:** ready to execute (2026-10-09). Companion to `V2-FIREFLY-EGRESS-PLAN.md` (the build
+**Status:** archived (2026-10-09) — Stage 6 has landed, so this is the dispatch record, not a live
+brief. Companion to `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` (the build
 order — the *what*) and `docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md` (the review — R1–R8, V1–V7).
 This file is the dispatch layer: who runs what, in what order, and how the work is accepted.
 `V2-SPEC.md` remains the specification; `AGENTS.md` binds every worker. It archives alongside the
-plan when Stage 6 lands.
+plan, now that Stage 6 has landed.
 
 ## 1. Start here (new session)
 
 1. Read, in order: `AGENTS.md`; `V2-SPEC.md` §4, §6.3, §6.7, §11; this file;
-   `V2-FIREFLY-EGRESS-PLAN.md` (your stage's tasks only);
+   `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` (your stage's tasks only);
    `docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md` (the R/V rows that touch your stage).
 2. Take the next dispatchable task in §3. Do not skip ahead. Code stages wait only on Stage 0's
    answers (A1–A8 in the plan §3.2) and the operator's D1 types.
@@ -21,8 +22,8 @@ plan when Stage 6 lands.
 **Kickoff prompt to paste into the new session:**
 
 ```text
-Execute V2-FIREFLY-EGRESS-EXECUTION.md. Read AGENTS.md, V2-SPEC.md §4/§6.3/§6.7/§11,
-V2-FIREFLY-EGRESS-PLAN.md and docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md first.
+Execute docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md. Read AGENTS.md, V2-SPEC.md §4/§6.3/§6.7/§11,
+docs/plans/V2-FIREFLY-EGRESS-PLAN.md and docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md first.
 Start at Stage <N>. Work only the next dispatchable task; follow its steps verbatim
 (failing test -> implement -> module tests -> mvn -q test -> commit). Return the evidence
 block from §2.3. Do not merge; open the stage PR when its tasks are green.
@@ -34,7 +35,7 @@ block from §2.3. Do not merge; open the stage PR when its tasks are green.
 
 A brief is self-contained — subagents start with fresh context, so never say "as discussed":
 - the stage branch (already named in the plan, §3 of this file);
-- the exact task heading(s) in `V2-FIREFLY-EGRESS-PLAN.md` (paste them into the brief);
+- the exact task heading(s) in `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` (paste them into the brief);
 - the acceptance tests by name (the plan's Step 1 blocks);
 - the review rows that constrain the task (R/V ids);
 - the return format (§2.3).
@@ -146,7 +147,7 @@ file to `docs/plans/`. The operator reviews the DEPLOYMENTS text.
 Dispatch an `architect` subagent (read-only, never edits) with:
 
 ```text
-Review the diff of <branch> against master against V2-FIREFLY-EGRESS-PLAN.md §<stage tasks>,
+Review the diff of <branch> against master against docs/plans/V2-FIREFLY-EGRESS-PLAN.md §<stage tasks>,
 docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md (the R/V rows for this stage) and the AGENTS.md
 invariants. Check: every acceptance test exists with the plan's name and asserts what the plan
 says; no invariant bent; interfaces match the plan's declarations; the §11.1 amendment matches

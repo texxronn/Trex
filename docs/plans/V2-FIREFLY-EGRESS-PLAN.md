@@ -9,10 +9,11 @@
 > 2026-10-09. Where this file and the spec disagree, the spec wins — until each stage's amendment
 > lands (every stage amends `V2-SPEC.md` §11 in the same PR, `AGENTS.md`).
 >
-> **Status:** proposed — waiting on Stage 0 (live measurements) and the operator decisions in §2.
+> **Status:** built (2026-10-09) and archived — the plan and its review landed as #66, Stages 1–5 as
+> #67–#71, and this archive PR is Stage 6. The outcome lives in `V2-SPEC.md` §11.
 > **Review (2026-10-09):** `docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md` — R1–R8 resolved; the second
 > pass on those resolutions (V1–V7) is folded into Tasks 4.1, 4.4, 5.3, D8 and Stage 6.
-> **Execution (2026-10-09):** `V2-FIREFLY-EGRESS-EXECUTION.md` — the dispatch map, worker protocol
+> **Execution (2026-10-09):** `docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md` — the dispatch map, worker protocol
 > and reviewer gates. Read it before starting a stage; this plan is the *what*.
 > **Authority:** `V2-SPEC.md` §4 (identity), §6.3 (transfers, clearing), §6.7, §11 (egress);
 > `V2-PROPOSAL.md` §11 (the rationale and the v1 lessons — read for *why*); `AGENTS.md`.
@@ -163,7 +164,7 @@ written into §3.2. **The operator runs this, or explicitly hands an agent the t
 
 **Files:**
 - Create (scratch, not committed): `$SCRATCH/firefly-spike.sh`
-- Modify: `V2-FIREFLY-EGRESS-PLAN.md` §3.2 (the answers)
+- Modify: `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` §3.2 (the answers)
 
 - [x] **Step 1: Write the script**
 
@@ -273,7 +274,7 @@ Measured against the dev Firefly **6.7.3** (SQLite, AUD) on 2026-10-09, script i
 - Modify: `V2-SPEC.md` §11 (lines starting `## 11. Egress and export`)
 - Modify: `AGENTS.md` ("Development style" list) — only if D6 is accepted
 
-- [ ] **Step 1: Replace the Firefly bullet of §11 with a subsection `### 11.1 Firefly`** holding
+- [x] **Step 1: Replace the Firefly bullet of §11 with a subsection `### 11.1 Firefly`** holding
   these rules (each one line or two, with its reason; the measured numbers stay in the code
   comments that depend on them):
 
@@ -348,19 +349,19 @@ PUT each); unchanged rows keep a stale `rules=` in their notes by design. A firs
 thousand creates) and safe to interrupt.
 ```
 
-- [ ] **Step 2: Mark the not-yet-built rules.** In the same PR, append to the subsection:
-  `*Stages 2–5 of V2-FIREFLY-EGRESS-PLAN.md build the clearing, ownership, validation, fingerprint
+- [x] **Step 2: Mark the not-yet-built rules.** In the same PR, append to the subsection:
+  `*Stages 2–5 of docs/plans/V2-FIREFLY-EGRESS-PLAN.md build the clearing, ownership, validation, fingerprint
   and re-key rules; until each lands, the code is behind this text.*` Each later stage removes its
   part of this sentence.
 
-- [ ] **Step 3 (D6): Add to `AGENTS.md` "Development style"**:
+- [x] **Step 3 (D6): Add to `AGENTS.md` "Development style"**:
   `- A change to derive, identity or units states its effect on the Firefly egress in the same spec PR.`
 
-- [ ] **Step 4: Commit and open the PR**
+- [x] **Step 4: Commit and open the PR**
 
 ```bash
 git checkout -b docs/firefly-egress-spec
-git add V2-SPEC.md AGENTS.md V2-FIREFLY-EGRESS-PLAN.md
+git add V2-SPEC.md AGENTS.md docs/plans/V2-FIREFLY-EGRESS-PLAN.md
 git commit -m "docs: the Firefly egress rules in the spec, and the egress-impact rule"
 ```
 
@@ -379,7 +380,7 @@ git commit -m "docs: the Firefly egress rules in the spec, and the egress-impact
 - Produces: a TRANSFER `ProjectionUnit` for every clearing pair, with `accountRef` = the paying
   side and `toAccountRef` = the receiving side, where one side is the clearing account ref.
 
-- [ ] **Step 1: Write the failing test** (add to `HubUnitsTest`)
+- [x] **Step 1: Write the failing test** (add to `HubUnitsTest`)
 
 ```java
     @Test
@@ -429,12 +430,12 @@ git commit -m "docs: the Firefly egress rules in the spec, and the egress-impact
     }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `mvn -q -pl trex-v2-hub -am test -Dtest=HubUnitsTest -Dsurefire.failIfNoSpecifiedTests=false`
 Expected: FAIL — `await` times out (the unit is dropped, size stays 0).
 
-- [ ] **Step 3: Implement.** In `HubSql`:
+- [x] **Step 3: Implement.** In `HubSql`:
 
 ```java
     static final String TRANSFER_LEGS = "SELECT transfer_id, from_leg, to_leg, clearing_account FROM transfer";
@@ -489,14 +490,14 @@ exactly this silence that hid F1:
 Also replace the EXTERNAL branch's `if (fact == null) { continue; }` with
 `throw new IllegalStateException("unit " + unitId + " has no current fact");`.
 
-- [ ] **Step 4: Run the hub tests**
+- [x] **Step 4: Run the hub tests**
 
 Run: `mvn -q -pl trex-v2-hub -am test`
 Expected: PASS (the existing `theUnitSetIsTransfersPlusPostedExternalTransactionsOnly` still passes —
 if it now throws, an existing fixture had a dangling unit: stop and report it rather than reverting
 to `continue`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fix/firefly-clearing-units
@@ -511,7 +512,7 @@ git commit -m "fix(hub): clearing transfers are projectable units; a dangling un
 - Test: `trex-v2-egress/src/test/java/trex/v2/egress/firefly/FireflyEgressTest.java`
 - Modify: `V2-SPEC.md` §11.1 (drop "clearing" from the not-yet-built sentence)
 
-- [ ] **Step 1: Write the test** (pins Review Focus 5; it passes on today's code, and must keep
+- [x] **Step 1: Write the test** (pins Review Focus 5; it passes on today's code, and must keep
   passing — the clearing ref now reaches the egress, so the preflight is what stands between an
   unmapped clearing account and a half-written pass)
 
@@ -533,18 +534,18 @@ git commit -m "fix(hub): clearing transfers are projectable units; a dangling un
     }
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest=FireflyEgressTest`
 Expected: PASS.
 
-- [ ] **Step 3: Add the approved block to `deploy/config/firefly.yaml`.** Then, on the dev stack,
+- [x] **Step 3: Add the approved block to `deploy/config/firefly.yaml`.** Then, on the dev stack,
   `trex egress firefly --print-accounts …` lists the new refs as `(missing)`, and
   `--create-missing-accounts --plan` creates them with their computed openings (the hub's
   `/api/opening` already computes a clearing account's opening and first date). The operator runs
   this, not an agent.
 
-- [ ] **Step 4: Update §11.1 and commit; open the PR (Tasks 2.1 + 2.2)**
+- [x] **Step 4: Update §11.1 and commit; open the PR (Tasks 2.1 + 2.2)**
 
 ```bash
 git add deploy/config/firefly.yaml trex-v2-egress V2-SPEC.md
@@ -565,7 +566,7 @@ git commit -m "config: map the clearing accounts and cash in firefly.yaml"
 **Interfaces:**
 - Produces: `static List<String> AccountChecks.problems(AccountMap resolved, Map<String, FireflyClient.AccountInfo> instanceByName, Map<String, String> currencyByRef)` — one human sentence per disagreement, sorted; empty means fine.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 package trex.v2.egress.firefly;
@@ -615,12 +616,12 @@ class AccountChecksTest {
 }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest=AccountChecksTest`
 Expected: FAIL — `AccountChecks` does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```java
 package trex.v2.egress.firefly;
@@ -680,12 +681,12 @@ In `EgressCommand.call()`, right after the unresolved-name stop (`return 1;`):
 accounts.) If Stage 0 A7 showed a liability's `type` as something other than a `liabilit…` prefix,
 change `AccountInfo.isLiability()` to match and add that value to the test.
 
-- [ ] **Step 4: Run the egress and dist tests**
+- [x] **Step 4: Run the egress and dist tests**
 
 Run: `mvn -q -pl trex-v2-egress,trex-v2-dist -am test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fix/firefly-egress-guards
@@ -702,7 +703,7 @@ git commit -m "fix(egress): check account type and currency against Firefly at s
 **Interfaces:**
 - Produces: `public static boolean FireflyClient.isOurs(JsonNode split)` — true iff the split's tags contain `Projection.TAG`.
 
-- [ ] **Step 1: Write the failing test** (Review Focus 3)
+- [x] **Step 1: Write the failing test** (Review Focus 3)
 
 ```java
     @Test
@@ -718,13 +719,13 @@ git commit -m "fix(egress): check account type and currency against Firefly at s
     }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest=FireflyEgressTest#aForeignGroupWithAnExternalIdIsNeverOurs`
 Expected: FAIL — `orphans` is 1. (`removeOrphans` is only acted on in APPLY; the orphan count is the
 signal.)
 
-- [ ] **Step 3: Implement.** In `FireflyClient`:
+- [x] **Step 3: Implement.** In `FireflyClient`:
 
 ```java
     /** Ours is the trex tag, never an external_id alone: an importer or a hand entry can carry one. */
@@ -747,12 +748,12 @@ and in `allTransactions` replace the `external == null` skip with:
                 }
 ```
 
-- [ ] **Step 4: Run the egress tests**
+- [x] **Step 4: Run the egress tests**
 
 Run: `mvn -q -pl trex-v2-egress -am test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add trex-v2-egress
@@ -769,7 +770,7 @@ git commit -m "fix(egress): a group is ours only when it carries the trex tag"
 **Interfaces:**
 - Produces: `public static List<String> Projection.tags(JsonNode existing, String category)` — the existing tags minus `trex` and every `trex-category:*`, then `trex`, then `trex-category:<category>`.
 
-- [ ] **Step 1: Write the failing tests.** In `ProjectionTest`:
+- [x] **Step 1: Write the failing tests.** In `ProjectionTest`:
 
 ```java
     @Test
@@ -803,12 +804,12 @@ In `FireflyEgressTest`:
     }
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest='ProjectionTest,FireflyEgressTest'`
 Expected: FAIL — `Projection.tags` missing; then `holiday` gone.
 
-- [ ] **Step 3: Implement** in `Projection`:
+- [x] **Step 3: Implement** in `Projection`:
 
 ```java
     /** Yours stay; ours are replaced. A re-tag that wrote only ours would delete what you added. */
@@ -829,12 +830,12 @@ Expected: FAIL — `Projection.tags` missing; then `holiday` gone.
 and in `FireflyEgress.retag` replace the `map.put("tags", …)` line with
 `map.put("tags", Projection.tags(split.path("tags"), unit.category()));`.
 
-- [ ] **Step 4: Run the egress tests**
+- [x] **Step 4: Run the egress tests**
 
 Run: `mvn -q -pl trex-v2-egress -am test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add trex-v2-egress
@@ -848,7 +849,7 @@ git commit -m "fix(egress): a re-tag keeps the tags you added in Firefly"
 - Modify: `trex-v2-egress/src/test/java/trex/v2/egress/firefly/FakeFirefly.java` (DELETE of a missing id → 404, as Stage 0 A6 measured; if A6 measured another status, use that status in both places)
 - Test: `trex-v2-egress/src/test/java/trex/v2/egress/firefly/FireflyClientTest.java`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
     @Test
@@ -875,12 +876,12 @@ In `FakeFirefly`'s DELETE case, respond 404 when `removed == null`:
                     }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest=FireflyClientTest`
 Expected: FAIL — `IOException: deleting group 404404: 404 …`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```java
     /** Gone is the goal: a group already deleted (by you, or by a run that stopped) is not an error. */
@@ -895,12 +896,12 @@ Expected: FAIL — `IOException: deleting group 404404: 404 …`.
     }
 ```
 
-- [ ] **Step 4: Run the egress tests; update §11.1 (drop "ownership" from the not-yet-built sentence)**
+- [x] **Step 4: Run the egress tests; update §11.1 (drop "ownership" from the not-yet-built sentence)**
 
 Run: `mvn -q -pl trex-v2-egress -am test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit; open the PR (Tasks 3.1–3.4)**
+- [x] **Step 5: Commit; open the PR (Tasks 3.1–3.4)**
 
 ```bash
 git add trex-v2-egress V2-SPEC.md
@@ -936,7 +937,7 @@ git commit -m "fix(egress): deleting an orphan that is already gone is not an er
 An account side is written as `id:<id>` when it is one of our mapped accounts and `name:<name>`
 otherwise (a merchant counterparty), so both sides compare the same way whatever Firefly echoes.
 
-- [ ] **Step 1: Write the failing test.** Use the formats Stage 0 A5 recorded; the values below are
+- [x] **Step 1: Write the failing test.** Use the formats Stage 0 A5 recorded; the values below are
   the ones Firefly 6.x is expected to return — replace them with the measured ones if they differ.
   If A5 shows the echo's date differing from the date sent, `Content.observed` parses
   `OffsetDateTime` and compares `toLocalDate()`, and `Projection.of` posts `<date>T12:00:00` so the
@@ -1033,12 +1034,12 @@ class ContentTest {
 }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest=ContentTest`
 Expected: FAIL — `Content` does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```java
 package trex.v2.egress.firefly;
@@ -1173,12 +1174,12 @@ In `AccountMap`:
 (`trex.v2.core.Hashes.sha256` is the helper the hub uses for `unitHash`; the egress already
 depends on `trex-v2-core`.)
 
-- [ ] **Step 4: Run the egress tests**
+- [x] **Step 4: Run the egress tests**
 
 Run: `mvn -q -pl trex-v2-egress -am test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fix/firefly-egress-convergence
@@ -1195,7 +1196,7 @@ The fake must echo what Firefly echoes (Stage 0 A5) and reproduce the id-wins-ov
 accounts if Stage 0 A4 measured it — otherwise the tests below pass against a Firefly that does not
 exist.
 
-- [ ] **Step 1: Make stored splits look like Firefly's read-back.** In `create` and `put`, store each
+- [x] **Step 1: Make stored splits look like Firefly's read-back.** In `create` and `put`, store each
   split through `echo(split)`:
 
 ```java
@@ -1244,14 +1245,14 @@ external ids, add the new ones), because a re-key (Stage 5) changes `external_id
 duplicate check must see the new one. If Stage 0 A4 showed the **name** wins, delete the "id wins" branch
 (`else if (id != null)` keeps `name` when one was sent) and say so in the comment.
 
-- [ ] **Step 2: Run the egress tests**
+- [x] **Step 2: Run the egress tests**
 
 Run: `mvn -q -pl trex-v2-egress -am test`
 Expected: PASS — existing tests read `tags`, `category_name` and `external_id`, which `echo` keeps.
 If one fails on a date or amount comparison, that test was asserting an echo Firefly never makes;
 fix the assertion, not the fake.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add trex-v2-egress
@@ -1273,7 +1274,7 @@ git commit -m "test(egress): the fake Firefly echoes dates, amounts and account 
   - `private Step converge(HubUnit unit, String groupId, String revision, Map<String, ProjectionState> known)` where `enum Step { UNCHANGED, RETAGGED, UPDATED, PRESERVED, NOT_OURS }`
   - projection state's `stateHash` now holds a `Content` fingerprint or `Content.HAND_SPLIT`
 
-- [ ] **Step 1: Write the failing tests** (in `FireflyEgressTest`; add a helper)
+- [x] **Step 1: Write the failing tests** (in `FireflyEgressTest`; add a helper)
 
 ```java
     /** A group as a previous run left it, and the state that run recorded. */
@@ -1386,14 +1387,14 @@ One more test for the contract (D9/R2): apply a unit, delete its group in the fa
 category, and assert the apply stops with `Refused` naming the unit and the group — no raw
 `IOException`.
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest=FireflyEgressTest`
 Expected: FAIL — `updates()` is 0 and the amount is still `10.00`; the hand-split and old-hash tests
 fail on `stateHash`; the duplicate test leaves `GROCERIES`; `Outcome` has no `rekeys()`/`updates()` in
 the right places (compile error first — fix by changing `Outcome` in Step 3).
 
-- [ ] **Step 3: Implement.** In `FireflyEgress`:
+- [x] **Step 3: Implement.** In `FireflyEgress`:
 
 `Outcome`:
 
@@ -1623,7 +1624,7 @@ In `EgressCommand`, the summary line:
 --verify then --apply")` when it is null. Never let the 404 surface as an `IOException`, and never
 recreate from `converge`.
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 Run: `mvn -q test`
 Expected: PASS. Fix any other caller of the old `Outcome` constructor (search: `new Outcome(`,
@@ -1632,14 +1633,14 @@ Expected: PASS. Fix any other caller of the old `Outcome` constructor (search: `
 move and counts an update instead of a retag: give its seeded split the content its unit would post,
 so the test keeps isolating the category behaviour it was written for. Do not weaken its assertions.
 
-- [ ] **Step 5: Update §11.1 (drop "fingerprint" from the not-yet-built sentence); commit.**
+- [x] **Step 5: Update §11.1 (drop "fingerprint" from the not-yet-built sentence); commit.**
 
 ```bash
 git add trex-v2-egress trex-v2-dist V2-SPEC.md
 git commit -m "fix(egress): content moves reach Firefly; verify rebuilds fingerprints; a duplicate converges"
 ```
 
-- [ ] **Step 6: Live check on the dev stack (operator).** `--verify` once: expect a list of `CHECK`
+- [x] **Step 6: Live check on the dev stack (operator).** `--verify` once: expect a list of `CHECK`
   rows on the first run (old hashes), then `--apply` (GETs, no PUTs where Firefly matches), then
   `--verify` empty. **Run this against the throwaway dev instance only (D8): the kept instance is
   refed after Stage 5, and a Stage-4-only apply there would leave transfers without `legs=`.**
@@ -1694,7 +1695,7 @@ on ordinary days — the noise the daily-use goal rules out. Two consequences:
 - `HAND_SPLIT` — a hand-split group whose splits no longer sum to the unit (each split's amount at
   cents, rounded as Task 4.1; reported on every run, never rewritten).
 
-- [ ] **Step 1: Write the failing tests** (in `ValidateTest`, with `FakeFirefly`/`FakeHub` and the
+- [x] **Step 1: Write the failing tests** (in `ValidateTest`, with `FakeFirefly`/`FakeHub` and the
   `projected` helper): a deleted group is `MISSING`; a group whose tag was removed is `UNTAGGED`;
   a hand-edited single-split amount is `DRIFT`; a hand-split sum mismatch is `HAND_SPLIT`; and
   `validate` writes nothing (`fake.posts/puts/deletes` and `hub.projection` unchanged). Plus the
@@ -1705,14 +1706,14 @@ on ordinary days — the noise the daily-use goal rules out. Two consequences:
     only: one `BEHIND`, exit 0;
   - `aMangledNotesLineIsTampered` — apply, then overwrite the group's notes with `"my notes"`: one
     `TAMPERED`, exit 1.
-- [ ] **Step 2: Run them to see them fail.** Expected: compile error — `Validate` does not exist.
-- [ ] **Step 3: Implement** per the interfaces above. `inventory()` is `allTransactions` with the
+- [x] **Step 2: Run them to see them fail.** Expected: compile error — `Validate` does not exist.
+- [x] **Step 3: Implement** per the interfaces above. `inventory()` is `allTransactions` with the
   `isOurs` filter removed (the tags are kept, so an untagged group can be named). Before anything
   else, run the same unmapped-ref refusal `preflight` uses (`accounts.missing(refs)` over
   `units.units()`): `BEHIND`/`DRIFT` call `Projection.of`, which throws on an unmapped ref, and a
   read-only checker must stop with the named refusal, never a stack trace.
-- [ ] **Step 4: Run all tests.** Run: `mvn -q test`. Expected: PASS.
-- [ ] **Step 5: Update §11.1 (drop "validation" from the not-yet-built sentence); commit; open the PR (Tasks 4.1–4.4)**
+- [x] **Step 4: Run all tests.** Run: `mvn -q test`. Expected: PASS.
+- [x] **Step 5: Update §11.1 (drop "validation" from the not-yet-built sentence); commit; open the PR (Tasks 4.1–4.4)**
 
 ```bash
 git add trex-v2-egress trex-v2-dist V2-SPEC.md
@@ -1747,7 +1748,7 @@ D3 fell back.
   - egress: `HubUnit(..., String unitHash, List<String> legs)`; `Units(..., List<HubUnit> units, Map<String, String> resolved)`
   - test: `FakeHub.unit(...)` unchanged (legs `[]`); new `FakeHub.transfer(String unitId, long n, String from, String to, String date, long amount, String fromLeg, String toLeg)`; `public volatile Map<String, String> resolved = new HashMap<>()`
 
-- [ ] **Step 1: Write the failing test** (in `HubUnitsTest`)
+- [x] **Step 1: Write the failing test** (in `HubUnitsTest`)
 
 ```java
     @Test
@@ -1779,12 +1780,12 @@ D3 fell back.
     }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `mvn -q -pl trex-v2-hub -am test -Dtest=HubUnitsTest`
 Expected: FAIL — compile error (`resolved()`, `legs()` do not exist).
 
-- [ ] **Step 3: Implement.** `HubSql`:
+- [x] **Step 3: Implement.** `HubSql`:
 
 ```java
     static final String RESOLVED_IDS =
@@ -1831,13 +1832,13 @@ include `"resolved", resolved` in the `/api/units` map, add `"legs", List.of()` 
     }
 ```
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 Run: `mvn -q test`
 Expected: PASS (fix every `new ProjectionUnit(` / `new HubUnit(` / `new UnitsResponse(` call site the
 compiler names).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fix/firefly-egress-rekey
@@ -1858,7 +1859,7 @@ git commit -m "feat(hub): units carry transfer legs and the supersession map"
   - `static String Projection.notes(String existing, HubUnit unit, String configRevision)` — replaces the first line when it starts with `trex `, otherwise prepends; the first line is `trex n=<n> rules=<rev>` plus ` legs=<a>,<b>` when the unit has legs
   - `static List<String> FireflyClient.legs(String notes)` — the legs on the first line, or `[]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
     // ProjectionTest
@@ -1882,12 +1883,12 @@ git commit -m "feat(hub): units carry transfer legs and the supersession map"
     }
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest='ProjectionTest,FireflyClientTest'`
 Expected: FAIL — the methods do not exist.
 
-- [ ] **Step 3: Implement.** `Projection` — the posting uses the new form with no existing notes:
+- [x] **Step 3: Implement.** `Projection` — the posting uses the new form with no existing notes:
 
 ```java
     /**
@@ -1944,12 +1945,12 @@ Notes are not part of the fingerprint, so this refresh never forces a write by i
 kept instance has pre-Stage-5 groups, so it is not a backfill mechanism: it keeps `rules=` current
 and writes the new `legs=` when a group is re-keyed.
 
-- [ ] **Step 4: Run the egress tests**
+- [x] **Step 4: Run the egress tests**
 
 Run: `mvn -q -pl trex-v2-egress -am test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add trex-v2-egress
@@ -1976,7 +1977,7 @@ Rules (D3, D5):
   current TRANSFER unit with exactly that leg set → same kind; otherwise every current EXTERNAL unit
   among the resolved legs → not same kind (an unpair).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
 package trex.v2.egress.firefly;
@@ -2120,12 +2121,12 @@ group in the fake into two (30.00 + 20.00), supersede a leg, apply; assert one g
 split carries the new `external_id`, the split amounts are untouched, the state is `HAND_SPLIT`,
 and `--verify` is empty. Run plan → apply → verify a second time and assert it stays empty.
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `mvn -q -pl trex-v2-egress -am test -Dtest='SuccessorsTest,FireflyEgressTest'`
 Expected: FAIL — `Successors` missing; then `rekeys` is 0 and `creates` is 1.
 
-- [ ] **Step 3: Implement** `Successors`:
+- [x] **Step 3: Implement** `Successors`:
 
 ```java
 package trex.v2.egress.firefly;
@@ -2293,12 +2294,12 @@ The fingerprint stays `HAND_SPLIT`, and Task 5.2's notes refresh carries the new
 
 Count `rekeyed` into `Outcome.rekeys`; size the `Progress` with the re-keys included.
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 Run: `mvn -q test`
 Expected: PASS.
 
-- [ ] **Step 5: Update §11.1 (remove the not-yet-built sentence entirely); commit; open the PR (Tasks 5.1–5.3)**
+- [x] **Step 5: Update §11.1 (remove the not-yet-built sentence entirely); commit; open the PR (Tasks 5.1–5.3)**
 
 ```bash
 git add trex-v2-egress trex-v2-hub V2-SPEC.md
@@ -2318,7 +2319,7 @@ git commit -m "fix(egress): a superseded unit re-keys its group; a replacement i
 - Move: `V2-FIREFLY-EGRESS-PLAN.md` → `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` (status: built, PRs named)
 - Move: `V2-FIREFLY-EGRESS-EXECUTION.md` → `docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md`
 
-- [ ] **Step 1: Add to `docs/DEPLOYMENTS.md`**, under the existing first-apply note:
+- [x] **Step 1: Add to `docs/DEPLOYMENTS.md`**, under the existing first-apply note:
   - the first run after Stage 4 checks every row once (`CHECK` lines; GETs, no writes where Firefly
     already matches);
   - after mapping the clearing accounts, run `--create-missing-accounts --plan` once, then `--apply`;
@@ -2340,14 +2341,14 @@ git commit -m "fix(egress): a superseded unit re-keys its group; a replacement i
   - **the Do/Don't contract** with its per-violation remedies (the `--validate` classes), and
     schedule `--validate` (read-only) as the detector — not `--verify`, whose rebuild erases the
     "was known" signal.
-- [ ] **Step 2: Add the CHANGELOG entry** naming F1–F11 in one line each.
-- [ ] **Step 3: Move the plan to `docs/plans/`** with its status line set to built and the PRs
-  listed, and move `V2-FIREFLY-EGRESS-EXECUTION.md` beside it.
-- [ ] **Step 4: Commit; open the PR**
+- [x] **Step 2: Add the CHANGELOG entry** naming F1–F11 in one line each.
+- [x] **Step 3: Move the plan to `docs/plans/`** with its status line set to built and the PRs
+  listed, and move `docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md` beside it.
+- [x] **Step 4: Commit; open the PR**
 
 ```bash
 git checkout -b docs/firefly-egress-archive
-git add docs CHANGELOG.md V2-FIREFLY-EGRESS-PLAN.md
+git add docs CHANGELOG.md docs/plans/V2-FIREFLY-EGRESS-PLAN.md
 git commit -m "docs: Firefly egress convergence — running notes; archive the plan"
 ```
 

@@ -24,7 +24,7 @@ fixture comparison is the end-to-end check behind all of this.
 | bw-csv debit sign inferred per file; mixed rejected | `trex.ingest.bw.BwCsv` | `trex.v2.ingest.bw.BwCsv` | Equivalent — `BwCsvTest` |
 | Firefly type from the two account kinds (the 21-of-30 matrix) | `trex.egress.firefly.Projection.transferType` | `Projection.transferType` | Equivalent — `ProjectionTest.theTypeMatrixFollowsTheAccounts` |
 | Firefly amounts: cents to fixed decimals, sign separate | `Projection.amount`/`signedAmount` | `Projection.amount`/`signedAmount` | Equivalent — `ProjectionFormatParityTest` |
-| Firefly re-tag: read-modify-write, CAS on the tag, clear a stale `category_id` | `trex.egress.firefly.FireflyEgress.retag` | `FireflyEgress.retag` | Equivalent — `FireflyEgressTest` (hand edit preserved; split/title survive; stale id cleared) |
+| Firefly convergence: read-modify-write, CAS on the tag, clear a stale `category_id`; a Firefly-side edit is classified by `--validate`, and recreate is only the explicit `--verify` then `--apply` recovery (D9) | `trex.egress.firefly.FireflyEgress.retag` | `FireflyEgress.converge` | Equivalent, with a deliberate divergence — `FireflyEgressTest` (hand edit preserved; split/title survive; stale id cleared); no automatic recreate (`Validate`, D9) |
 | Byte mirror: append + SHA-256 verify | `trex.egress.archive.ArchiveFollower` | `trex.v2.egress.archive.ArchiveMirror` | Equivalent — `ArchiveMirrorTest` |
 | Transfer matcher: pool pairs on amount/sign/account/currency/date | `trex.sequencer.ingest.Matcher` | `Derive` P7 (§9.9.C.3) | Equivalent, with two deliberate guards — see below |
 
