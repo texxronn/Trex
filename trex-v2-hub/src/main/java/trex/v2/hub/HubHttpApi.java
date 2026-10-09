@@ -223,6 +223,7 @@ final class HubHttpApi {
             }
         });
         route(server, "/api/config/transfers", configTransfers);
+        route(server, "/api/config/drift", "GET", ex -> write(ex, 200, api.configDrift()));
 
         server.createContext("/", ex -> serveStaticOrNotFound(ex));
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
