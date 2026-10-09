@@ -48,14 +48,14 @@ final class Sql {
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
         "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack",
         "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
-        "commitment_exclusion");
+        "commitment_exclusion", "commitment_fact");
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
         "pending", "review_item", "category_current", "pin_current", "note_current", "ineffective_decision", "unit",
         "user_ack", "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
-        "commitment_exclusion");
+        "commitment_exclusion", "commitment_fact");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
@@ -99,6 +99,8 @@ final class Sql {
         + "text, user_id, at) VALUES(?,?,?,?,?)";
     static final String INSERT_COMMITMENT_EXCLUSION = "INSERT INTO commitment_exclusion(commitment_id, "
         + "external_id, decision_n) VALUES(?,?,?)";
+    static final String INSERT_COMMITMENT_FACT = "INSERT INTO commitment_fact(external_id, "
+        + "commitment_id, matched_by) VALUES(?,?,?)";
 
     // ---- projection state (V2-PROPOSAL.md §11.6): an accelerator, never wiped by derive -------
 

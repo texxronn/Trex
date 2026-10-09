@@ -18,6 +18,20 @@ everything is under **Unreleased**.
   dev fixture a 2026 card purchase carrying a 2024 mortgage repayment's receipt no longer pools, and
   `UNMATCHED_LEG` falls 8 → 6.
 
+### Added
+
+- **The fact → commitment map drives the chip and the commitment popup**
+  (`V2-COMMITMENT-FACT-PLAN.md`; `derive/12`). A derived table `commitment_fact` records every
+  fact claimed by a declared commitment — by rule or by pin — as a reverse index, and is
+  **unbounded over history**: a fact older than the materialised occurrence window is still bound.
+  The Blotter/Eyeball **chip** now joins it (so a fact in a summed window, a pinned fact, and an
+  old rule-matched fact all chip), and the commitment popup's **transaction list and price chart**
+  read it (so the chip, the table and the chart agree; pins appear). Previously the chip was
+  reverse-mapped through `commitment_occurrence.matched_external_id`, which kept only the first
+  fact of a summed window and nothing before the twelve-month span. The claim pass simultaneously
+  becomes unbounded, with the span gating display only: a fact before the window is bound but has
+  no occurrence. Candidates are unchanged — a proposal has no map rows until it is declared.
+
 ### Changed
 
 - **Facts can be excluded from a commitment** (`V2-COMMITMENT-EXCLUSIONS-PLAN.md` §4).

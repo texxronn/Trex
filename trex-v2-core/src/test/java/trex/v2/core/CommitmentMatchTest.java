@@ -7,6 +7,7 @@ import trex.v2.core.derive.CategoryOrigin;
 import trex.v2.core.derive.Commitment;
 import trex.v2.core.derive.CommitmentArrears;
 import trex.v2.core.derive.CommitmentExclusion;
+import trex.v2.core.derive.CommitmentFact;
 import trex.v2.core.derive.CommitmentKind;
 import trex.v2.core.derive.CommitmentMatch;
 import trex.v2.core.derive.CommitmentOccurrence;
@@ -710,6 +711,110 @@ class CommitmentMatchTest {
         assertNull(at(match, "pinned-bill", LocalDate.of(2026, 3, 12)).matchedExternalId());
         assertEquals(OccurrenceStatus.MISSED,
             at(match, "pinned-bill", LocalDate.of(2026, 3, 12)).status());
+    }
+
+    // ---- the reverse map (V2-COMMITMENT-FACT-PLAN.md §3) -------------------------------------
+
+    private static CommitmentFact bound(CommitmentMatch match, String externalId) {
+        return match.facts().stream().filter(f -> f.externalId().equals(externalId)).findFirst()
+            .orElseThrow(() -> new AssertionError("no binding for " + externalId + ": "
+                + match.facts()));
+    }
+
+    @Test
+    void everyFactInASummedWindowIsBound() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        CurrentFact covered = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 10), -10000L, "BILL PAYMENT");
+        CurrentFact extra = fact(2, "cba-netsaver", LocalDate.of(2026, 3, 10), -5000L, "BPAY 999888");
+
+        CommitmentMatch match = matched(List.of(bill), List.of(rule("bill", "BILL|BPAY")),
+            List.of(covered, extra), List.of(), List.of(), ASOF);
+
+        assertEquals(2, match.facts().size(), "both facts of a summed window are bound: " + match.facts());
+        assertEquals("bill", bound(match, "id-1").commitmentId());
+        assertEquals("bill", bound(match, "id-2").commitmentId(),
+            "the second fact of a window is not dropped from the reverse map");
+        assertEquals("rule", bound(match, "id-2").matchedBy());
+    }
+
+    @Test
+    void aClaimedFactBeforeTheSpanIsBoundButNotPlaced() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        CurrentFact old = fact(1, "bw-credit-card", LocalDate.of(2025, 12, 20), -10000L, "ACME BILL");
+
+        CommitmentMatch match = run(List.of(bill), List.of(rule("bill", "ACME")), List.of(old),
+            Instant.parse("2026-04-05T00:00:00Z"));
+
+        assertEquals("bill", bound(match, "id-1").commitmentId(),
+            "an old fact is bound even though the occurrence set does not hold it");
+        assertTrue(match.occurrences().stream()
+            .noneMatch(o -> "id-1".equals(o.matchedExternalId())), "still never folded onto a window");
+    }
+
+    @Test
+    void aRetiredCommitmentWithNoMaterialisedWindowBindsFactsButSproutsNoOccurrences() {
+        Commitment old = new Commitment("old", null, "old", CommitmentOrigin.DECLARED,
+            Commitment.OUT, Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            CommitmentStatus.ENDED, LocalDate.of(2019, 12, 1), LocalDate.of(2019, 12, 1),
+            LocalDate.of(2019, 12, 1), -1000L, null, null, null,
+            List.of(new Commitment.PriceStep(LocalDate.of(2019, 12, 1), -1000L, null, null)),
+            null, null, 0, 0, 1.0, false, 0, null, 1L, 2L, LocalDate.of(2020, 1, 1));
+        CurrentFact charge = fact(1, "bw-credit-card", LocalDate.of(2019, 12, 15), -1000L, "OLD BILL");
+
+        CommitmentMatch match = run(List.of(old), List.of(rule("old", "OLD BILL")), List.of(charge),
+            Instant.parse("2026-04-05T00:00:00Z"));
+
+        assertEquals("old", bound(match, "id-1").commitmentId(),
+            "a retirement older than the window still binds its historical facts");
+        assertTrue(match.occurrences().isEmpty(),
+            "no materialised window to attach to and no off-schedule row: " + match.occurrences());
+    }
+
+    @Test
+    void aPinnedFactIsBoundWithPinProvenance() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        CurrentFact bpay = fact(1, "cba-netsaver", LocalDate.of(2026, 3, 20), -10000L, "BPAY 999888");
+
+        CommitmentMatch match = matched(List.of(bill), List.of(), List.of(bpay),
+            List.of(new CommitmentPin("id-1", "bill")), List.of(), ASOF);
+
+        assertEquals("pin", bound(match, "id-1").matchedBy());
+        assertEquals("bill", bound(match, "id-1").commitmentId());
+    }
+
+    @Test
+    void aContestedFactBindsOnlyToTheWinningDeclaration() {
+        Commitment older = declared("a-plan", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 10), -10000L, 1);
+        Commitment newer = declared("b-plan", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 3, 12), -10000L, 2);
+        CurrentFact charge = fact(1, "bw-credit-card", LocalDate.of(2026, 3, 11), -10000L,
+            "PAYPAL *STAN");
+
+        CommitmentMatch match = run(List.of(older, newer),
+            List.of(rule("a-plan", "STAN"), rule("b-plan", "STAN")), List.of(charge), ASOF);
+
+        assertEquals(1, match.facts().size(), "a fact belongs to exactly one commitment");
+        assertEquals("b-plan", bound(match, "id-1").commitmentId(), "declaredN 2 wins");
+    }
+
+    @Test
+    void anExcludedFactIsNotBound() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 10), -10000L, 1);
+        CurrentFact january = fact(1, "cba-netsaver", LocalDate.of(2026, 1, 10), -10000L, "BILL");
+        CurrentFact february = fact(2, "cba-netsaver", LocalDate.of(2026, 2, 12), -12000L, "BILL");
+        List<CommitmentExclusion> exclusions = List.of(new CommitmentExclusion("bill", "id-2", 9));
+
+        CommitmentMatch match = Commitments.match(List.of(bill), List.of(rule("bill", "BILL")),
+            List.of(january, february), List.of(), List.of(), exclusions,
+            Instant.parse("2026-03-05T00:00:00Z"));
+
+        assertEquals(1, match.facts().size(), "an excluded pair has no binding");
+        assertEquals("id-1", match.facts().getFirst().externalId());
     }
 
     // ---- input validation ---------------------------------------------------------------------

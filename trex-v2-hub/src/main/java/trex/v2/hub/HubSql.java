@@ -19,14 +19,11 @@ final class HubSql {
                (SELECT n.text FROM note_current n WHERE n.external_id = t.external_id
                  ORDER BY n.decision_n DESC LIMIT 1) AS latest_note,
                t.synthetic,
-               (SELECT o.commitment_id FROM commitment_occurrence o
-                 WHERE o.matched_external_id = t.external_id
-                 ORDER BY o.due_date DESC, o.commitment_id LIMIT 1) AS commitment_id,
-               (SELECT c.name FROM commitment c WHERE c.commitment_id =
-                 (SELECT o.commitment_id FROM commitment_occurrence o
-                   WHERE o.matched_external_id = t.external_id
-                   ORDER BY o.due_date DESC, o.commitment_id LIMIT 1)) AS commitment_name
-        FROM txn_current t""";
+               cf.commitment_id,
+               cm.name AS commitment_name
+        FROM txn_current t
+        LEFT JOIN commitment_fact cf ON cf.external_id = t.external_id
+        LEFT JOIN commitment cm ON cm.commitment_id = cf.commitment_id""";
 
     static final String LEDGER_COUNT = "SELECT COUNT(*) FROM txn_current t";
 
@@ -112,6 +109,18 @@ final class HubSql {
     /** The registry row's routing fields for an activity read. */
     static final String COMMITMENT_BY_ID =
         "SELECT candidate_key, direction, ended_at FROM commitment WHERE commitment_id = ?";
+
+    /** The facts bound to one declared commitment (the reverse map, V2-COMMITMENT-FACT-PLAN.md §3.3). */
+    static final String COMMITMENT_FACTS_FOR = """
+        SELECT t.external_id, t.date, t.account_ref, t.amount, t.raw_description, t.n, cf.matched_by
+        FROM commitment_fact cf JOIN txn_current t ON t.external_id = cf.external_id
+        WHERE cf.commitment_id = ? ORDER BY t.date, t.n""";
+
+    /** The facts the person excluded from one commitment, with the fact data (so Include works). */
+    static final String COMMITMENT_EXCLUDED_FACTS_FOR = """
+        SELECT t.external_id, t.date, t.account_ref, t.amount, t.raw_description, t.n
+        FROM commitment_exclusion ce JOIN txn_current t ON t.external_id = ce.external_id
+        WHERE ce.commitment_id = ? ORDER BY t.date, t.n""";
 
     /** The effective rules of one commitment, in declaration order (the activity scan). */
     static final String COMMITMENT_RULES_FOR = """

@@ -83,6 +83,7 @@ public final class Derive {
         List<CommitmentOccurrence> commitmentOccurrences = List.of();
         List<CommitmentNote> commitmentNotes = List.of();
         List<CommitmentExclusion> commitmentExclusions = List.of();
+        List<CommitmentFact> commitmentFacts = List.of();
         List<ReviewItem> commitmentReview = List.of();
         Set<String> commitmentIds = new TreeSet<>();
         Set<String> candidateKeys = new TreeSet<>();
@@ -144,7 +145,8 @@ public final class Derive {
                 commitmentRules,
                 commitmentOccurrences,
                 commitmentNotes,
-                commitmentExclusions);
+                commitmentExclusions,
+                commitmentFacts);
         }
 
         /** The latest effective USER_ACK/USER_UNACK per (user, row) (V2-PROPOSAL.md §9.4). */
@@ -1184,6 +1186,7 @@ public final class Derive {
             commitmentRows = rows;
             commitmentRules = List.copyOf(allRules);
             commitmentOccurrences = match.occurrences();
+            commitmentFacts = match.facts();
             commitmentNotes = List.copyOf(notes);
             commitmentExclusions = List.copyOf(exclusionList);
             commitmentReview = items;

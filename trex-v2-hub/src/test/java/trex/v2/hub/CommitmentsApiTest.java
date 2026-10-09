@@ -188,8 +188,10 @@ class CommitmentsApiTest {
             assertEquals("netflix", chip.get("commitmentId").asText());
             assertEquals("Netflix", chip.get("commitmentName").asText());
             assertNotNull(oldCharge, ledger.toPrettyString());
-            assertTrue(oldCharge.get("commitmentId").isNull(),
-                "activity sees the old charge; the occurrence chip does not");
+            assertEquals("netflix", oldCharge.get("commitmentId").asText(),
+                "the reverse map binds an old charge outside the occurrence window "
+                    + "(V2-COMMITMENT-FACT-PLAN.md §3.1)");
+            assertEquals("Netflix", oldCharge.get("commitmentName").asText());
             JsonNode unmatched = json(get(client, base, "/api/ledger?q=gym")).get("rows").get(0);
             assertTrue(unmatched.get("commitmentId").isNull(),
                 "a candidate's facts carry no chip");

@@ -37,9 +37,10 @@ import java.util.TreeSet;
  * same-day extra merges into the row already there (§2.5) — the table keys one row per
  * {@code (commitment, dueDate)}, so no second row and no dropped amount. Overlapping windows
  * (fortnightly ± 7 meets on the boundary day) resolve to the earliest due date, so the answer
- * cannot depend on list order. A regular commitment also ignores facts
- * that predate its first materialised window — history outside the occurrence set is never folded
- * onto the oldest occurrence. A retired commitment ({@code endedAt} set) stops generating
+ * cannot depend on list order. The claim is unbounded: a regular commitment's facts that predate
+ * its first materialised window are still bound to it in the returned {@link CommitmentFact} map
+ * (V2-COMMITMENT-FACT-PLAN.md §3.1) — the span gates display, not association — but they are never
+ * folded onto the oldest occurrence. A retired commitment ({@code endedAt} set) stops generating
  * occurrences after it ended (an occurrence on {@code endedAt} still counts) and takes no fact
  * dated after it; its historical occurrences and arrears remain visible. The output is ordered by
  * commitment id then due date, and no iteration depends on input order.
@@ -170,15 +171,15 @@ final class CommitmentMatcher {
         }
 
         // Claim each fact for at most one commitment: the pin first, then the latest declaration
-        // whose rules, sign and materialised span admit it.
+        // whose rules, sign and life admit it. The claim is unbounded — the materialised window
+        // decides only what is displayed as an occurrence (§3.2), so every claimed fact is bound.
         Map<String, List<Assigned>> assignedByCommitment = new TreeMap<>();
         for (CurrentFact fact : facts) {
             String pinnedTo = pinByFact.get(fact.externalId());
             if (pinnedTo != null) {
                 Commitment pinned = committedById.get(pinnedTo);
                 if (pinned != null && signMatches(pinned, fact)
-                    && !beforeSpan(spanStart.get(pinnedTo), fact)
-                    && !afterLife(pinned, fact, spanStart.get(pinnedTo))
+                    && !afterLife(pinned, fact)
                     && !excludedPairs.contains(pinnedTo + '\u0000' + fact.externalId())) {
                     assignedByCommitment.computeIfAbsent(pinnedTo, k -> new ArrayList<>())
                         .add(new Assigned(fact, BY_PIN));
@@ -187,8 +188,7 @@ final class CommitmentMatcher {
             }
             for (Commitment candidate : byDeclaration) {
                 if (!signMatches(candidate, fact)
-                    || beforeSpan(spanStart.get(candidate.commitmentId()), fact)
-                    || afterLife(candidate, fact, spanStart.get(candidate.commitmentId()))
+                    || afterLife(candidate, fact)
                     || excludedPairs.contains(candidate.commitmentId() + '\u0000'
                         + fact.externalId())) {
                     continue;
@@ -212,8 +212,15 @@ final class CommitmentMatcher {
             if (commitment.cadence() == Cadence.IRREGULAR) {
                 irregular(assigned, slots);
             } else {
+                // The claim is unbounded; the materialised window decides only what is displayed.
+                // A fact with no materialised window to attach to — before the first window, or a
+                // schedule with no window at all (an old retirement) — is bound (in the map) but
+                // attaches to nothing: never folded onto an occurrence and never off-schedule
+                // (§3.2).
+                LocalDate span = spanStart.get(commitment.commitmentId());
                 applySettles(commitment, settleByCommitment.get(commitment.commitmentId()), slots);
-                attach(assigned, slots);
+                attach(assigned.stream()
+                    .filter(a -> span != null && !beforeSpan(span, a.fact())).toList(), slots);
                 slots.sort(Comparator.comparing((Slot s) -> s.dueDate)
                     .thenComparing(s -> s.offSchedule));
             }
@@ -222,13 +229,25 @@ final class CommitmentMatcher {
             }
             arrears.add(arrears(commitment, slots, asOfDate));
         }
-        return new CommitmentMatch(occurrences, arrears);
+
+        // The reverse map: every claimed fact, in fact-id order so the result never depends on the
+        // caller's list order. A claimed fact is bound whether or not it landed on an occurrence.
+        List<CommitmentFact> bindings = new ArrayList<>();
+        for (Map.Entry<String, List<Assigned>> e : assignedByCommitment.entrySet()) {
+            for (Assigned a : e.getValue()) {
+                bindings.add(new CommitmentFact(a.fact().externalId(), e.getKey(), a.matchedBy()));
+            }
+        }
+        bindings.sort(Comparator.comparing(CommitmentFact::externalId));
+        return new CommitmentMatch(occurrences, arrears, bindings);
     }
 
     /**
      * True when the fact predates a regular schedule's first materialised window: it is history
-     * outside the occurrence set and must not satisfy an occurrence. A null bound — no
-     * materialised occurrence, or an irregular commitment — excludes nothing.
+     * outside the occurrence set and must not satisfy an occurrence. It gates <b>attachment</b>
+     * only — the claim is unbounded, so such a fact is still bound to the commitment in the map
+     * (§3.1). A null bound — no materialised occurrence, or an irregular commitment — excludes
+     * nothing.
      */
     private static boolean beforeSpan(LocalDate spanStart, CurrentFact fact) {
         return spanStart != null && fact.fact().date().isBefore(spanStart);
@@ -236,14 +255,12 @@ final class CommitmentMatcher {
 
     /**
      * True when a retired commitment does not take this fact: a fact dated after {@code endedAt}
-     * is outside the commitment's life, and a retirement older than the materialised window has no
-     * occurrence set left to land on. An ending on {@code endedAt} itself still counts (§6.11).
+     * is outside the commitment's life. Life is purely the date bound — the span no longer plays a
+     * part, so an old retirement still binds its historical facts. An ending on {@code endedAt}
+     * itself still counts (§6.11).
      */
-    private static boolean afterLife(Commitment commitment, CurrentFact fact, LocalDate spanStart) {
-        if (commitment.endedAt() == null) {
-            return false;
-        }
-        return fact.fact().date().isAfter(commitment.endedAt()) || spanStart == null;
+    private static boolean afterLife(Commitment commitment, CurrentFact fact) {
+        return commitment.endedAt() != null && fact.fact().date().isAfter(commitment.endedAt());
     }
 
     // ---- generation ---------------------------------------------------------------------------
