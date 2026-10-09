@@ -4,7 +4,7 @@
 > the build order for five quality-of-life changes. Each stage's PR updates `V2-SPEC.md` where it
 > changes behaviour.
 >
-> **Status:** in progress (2026-10-09): Q6 is built (§1); Q2–Q5 are proposed.
+> **Status:** in progress (2026-10-09): Q6 and Q4 are built (§1, §2); Q2, Q3 and Q5 are proposed.
 > **Goal:** the daily-use goal (`docs/reviews/CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
 > routine with a finish line, no trips to the terminal. Each item removes friction that actually
 > happened while the review fixes were rolled out on the dev stack.
@@ -130,6 +130,37 @@ should open Jobs.
 - `ConfigLoaderTest.fetchEveryDaysDefaultsByBalanceSource`.
 - Manual: on the dev stack (frontiers early September) the strip shows the stale accounts; after
   ingesting a fresh statement for one, it drops off the list on the next delta.
+
+**As built (2026-10-09).** `Account` gained a nullable `fetchEveryDays` and the loader resolves the
+default — explicit value wins, including `0`; absent is `31` for a statement account and null for
+declared/clearing — so the record holds only resolved values and the existing convenience
+constructors pass null. The canonical constructor refuses a negative value. `HubService.status()`
+now reads the per-account frontiers once and computes both `through` (its old rule: the oldest
+frontier among budget statement accounts, now from that map) and `stale`; `HubQueries` exposes the
+map and its through-only wrapper is gone (`headroom` still has its private read). Stale is strict
+(`days > cadence`), null and `0` cadences never nudge, an account with no frontier is skipped, and
+the list is oldest first with ties by ref. The plan's three fields could not express the amber rule,
+so each entry also carries the effective `fetchEveryDays` — the wire shape is
+`{account, frontier, days, fetchEveryDays}` (`StatusResponse.Stale`) — and the UI decides
+`days > 2 × fetchEveryDays` for amber. The strip places the nudge after the all-clear or the review
+count, muted until amber, its tooltip one line per account; the click sets `#jobs?frontier`, which
+the existing shell router hands to jobs as `ctx.modeQuery`, and the Jobs heading (now
+`id="fetch-frontier"`) scrolls into view once its load has rendered the sections above it.
+Expected's `load` fetches `/api/status` in its existing `Promise.all`; that read fails open — a
+status error leaves the stale list empty rather than blanking the view — and a module-level load
+generation discards a superseded load's results and error bar when a mount races an SSE refresh.
+The `awaiting` tooltip names an account only when the commitment's rules resolve to exactly one
+distinct account (repeated refs are one account) and that account is stale; the matcher escalates
+on the newest frontier over several accounts, so naming one of them would be a guess, and an
+unscoped rule, an unknown commitment or no stale account also keeps the generic hint. In
+`deploy/config/accounts.yaml` only the header comment
+documents the field: every closed account there is `balanceSource: clearing`, which already
+defaults to no cadence, so none needed the explicit `0`. Pinned by
+`HubStatusApiTest.staleListsAccountsPastTheirCadence` (one account inside its default 31, two past
+their explicit 10 and 5 in age order, one `0`, one declared, one with no frontier; `through`
+unchanged) and `ConfigLoaderTest.fetchEveryDaysDefaultsByBalanceSource` plus
+`negativeFetchEveryDaysIsALoadError`. The UI was not checked in a browser; the manual acceptance
+above is still to run on the dev stack.
 
 ---
 

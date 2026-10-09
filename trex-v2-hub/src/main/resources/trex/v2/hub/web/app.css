@@ -142,6 +142,7 @@ nav a.active { color: var(--accent-fg); background: var(--accent); }
 .status b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .status .bad { color: var(--bad); }
 .status .good { color: var(--good); }
+.status .warn { color: var(--warn); }
 .status select { min-height: 1.75rem; padding: 0.1rem 0.35rem; font-size: 12px; }
 
 /* ---- layout ------------------------------------------------------------- */

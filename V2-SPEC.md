@@ -394,7 +394,7 @@ unauthenticated and binds loopback by default.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through` (§9.1) |
+| GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through` and `stale` (§9.1) |
 | GET | `/api/refdata` | accounts, users, declared categories, revisions |
 | GET | `/api/ledger` | the blotter rows; filters include `role`, `leg`, account, category, dates |
 | GET | `/api/review` | the derived queue (§6.6); filters `kind`, `account` |
@@ -420,6 +420,15 @@ unauthenticated and binds loopback by default.
 Open review count (a link to Review), or **✓ all clear — through <date>** once nothing is open; the
 date is the oldest statement frontier of the `budget` accounts, so an all-clear never claims more
 than the statements say.
+
+**The statement-age nudge** (`QOL_Improvements.md` §2). `/api/status` also returns `stale`: every
+account whose frontier — the newest non-synthetic statement row at or before today — is older than
+its effective fetch cadence (`fetchEveryDays`; §12), oldest first, as
+`{account, frontier, days, fetchEveryDays}` with `days = today − frontier` and `days > fetchEveryDays`
+strictly. An account with no frontier has nothing to fetch yet and is absent; a null or `0` cadence
+never nudges. The strip shows `⧗ N statements to fetch` after the all-clear or the review count —
+muted, amber once any account is more than twice its cadence — with a tooltip naming each account,
+its age and its frontier; a click opens Jobs at the fetch-frontier table.
 
 ### 9.2 Headroom ("left this month")
 
@@ -483,7 +492,9 @@ Eight modes; each one's detail lives in the plan that built it.
 ## 12. Configuration (`deploy/config`)
 
 `sequencer.yaml` (bind host/port, journal source/target), `accounts.yaml` (ref, currency,
-`balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, `chip_color` — the hub
+`balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, `fetchEveryDays`
+(the statement-age nudge, §9.1 — presentation only: default 31 for a statement account, none for
+declared/clearing, `0` off), `chip_color` — the hub
 chip colour, presentation only — `budget` (default true, never for a clearing account: whether the
 account is in Expected's "left this month"; presentation only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),

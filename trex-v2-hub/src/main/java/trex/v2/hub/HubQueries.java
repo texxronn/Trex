@@ -871,9 +871,24 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
-    /** The oldest statement frontier among {@code accounts}, at or before {@code today}; null if none. */
-    public LocalDate oldestFrontier(LocalDate today, java.util.Set<String> accounts) {
-        return read(conn -> oldestFrontier(conn, today, accounts));
+    /**
+     * Every account's frontier — its newest non-synthetic transaction date at or before
+     * {@code today} (QOL_Improvements.md §2); an account with no such row is absent (nothing to
+     * fetch yet).
+     */
+    public Map<String, LocalDate> frontiers(LocalDate today) {
+        return read(conn -> {
+            Map<String, LocalDate> out = new LinkedHashMap<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.ACCOUNT_FRONTIERS)) {
+                ps.setString(1, today.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.put(rs.getString(1), LocalDate.parse(rs.getString(2)));
+                    }
+                }
+            }
+            return out;
+        });
     }
 
     private static LocalDate oldestFrontier(Connection conn, LocalDate today, java.util.Set<String> accounts)

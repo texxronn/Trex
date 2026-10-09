@@ -22,6 +22,8 @@ let ctx;
 let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
+let stale = [];        // /api/status stale accounts, oldest first (QOL_Improvements.md §2)
+let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
 
 // The four foldable sections (§4); the open state is a device preference, like the window.
@@ -47,12 +49,18 @@ export function mount(container, context) {
 }
 
 async function load() {
+  const generation = ++loadGeneration;
   try {
-    const [expected, commitments] = await Promise.all([api.expected(win), api.commitments()]);
+    // The status read fails open: the nudge is a nicety, not a reason to blank the whole view.
+    const [expected, commitments, status] = await Promise.all([
+      api.expected(win), api.commitments(), api.status().catch(() => null)]);
+    if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     data = expected;
     registry = commitments;
+    stale = (status && status.stale) || [];
     errorBar.hidden = true;
   } catch (error) {
+    if (generation !== loadGeneration) return;
     errorBar.textContent = error.message || 'failed to load the expected view';
     errorBar.hidden = false;
     return;
@@ -152,13 +160,13 @@ function occurrenceRow(o) {
     el('td', { class: 'amount' }, o.amount != null
       ? money(o.amount)
       : (current != null ? el('span', { class: 'muted', title: 'current price' }, money(current)) : '')),
-    statusCell(o.status),
+    statusCell(o),
     matchedCell(o));
 }
 
 /** The six occurrence states, each rendered as what it is: a fact, a conclusion, or a gap. */
-function statusCell(status) {
-  switch (status) {
+function statusCell(o) {
+  switch (o.status) {
     case 'occurred':
       return el('td', {}, el('span', { class: 'tick', title: 'a fact landed' }, '\u2713 occurred'));
     case 'settled':
@@ -173,12 +181,29 @@ function statusCell(status) {
       return el('td', {}, el('span', { class: 'occ-missed',
         title: 'window closed with no match' }, '\u2717 missed'));
     case 'awaiting':
-      return el('td', {}, el('span', { class: 'muted',
-        title: 'window closed, but the statement has not reached it yet — fetch it (Jobs)' },
+      return el('td', {}, el('span', { class: 'muted', title: awaitingTitle(o) },
         '\u29d7 awaiting statement'));
     default:
-      return el('td', {}, el('span', { class: 'muted' }, status || ''));
+      return el('td', {}, el('span', { class: 'muted' }, o.status || ''));
   }
+}
+
+/**
+ * The awaiting tooltip (QOL_Improvements.md §2): the matcher escalates to awaiting on the newest
+ * frontier over the commitment's rule accounts, so one account can be named honestly only when the
+ * rules resolve to exactly one distinct account — repeated refs are one account. With several,
+ * which statement closed the window is a guess, so the tooltip keeps the generic fetch-it hint, as
+ * it does for unscoped rules, an unknown commitment, or a single account that is not stale.
+ */
+function awaitingTitle(o) {
+  const commitment = registry.find((c) => c.commitmentId === o.commitmentId);
+  const accounts = new Set(((commitment && commitment.rules) || []).map((r) => r.account));
+  if (accounts.size === 1 && !accounts.has(null)) {
+    const [account] = accounts;
+    const hit = stale.find((s) => s.account === account);
+    if (hit) return `waiting for the ${account} statement — ${hit.days} days old`;
+  }
+  return 'window closed, but the statement has not reached it yet — fetch it (Jobs)';
 }
 
 function matchedCell(o) {
