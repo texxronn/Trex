@@ -29,6 +29,8 @@ final class FakeFirefly implements AutoCloseable {
     private final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     private final Map<String, Group> byId = new ConcurrentHashMap<>();
     private final Map<String, String> idByExternal = new ConcurrentHashMap<>();
+    /** Firefly's counterparty ids: a name echoes back with an id beside it (Stage 0 A5). */
+    private final Map<String, String> counterpartyIds = new ConcurrentHashMap<>();
     private final AtomicInteger nextId = new AtomicInteger(1);
 
     /** Accounts the instance already has, keyed by name; and the bodies used to create new ones. */
@@ -181,7 +183,7 @@ final class FakeFirefly implements AutoCloseable {
             return;
         }
         String id = String.valueOf(nextId.getAndIncrement());
-        byId.put(id, new Group(id, null, List.of(split)));
+        byId.put(id, new Group(id, null, List.of(echo(split))));
         idByExternal.put(external, id);
         respond(exchange, 200, "{\"data\":{\"id\":\"" + id + "\"}}");
     }
@@ -219,8 +221,62 @@ final class FakeFirefly implements AutoCloseable {
             return;
         }
         List<Map<String, Object>> splits = (List<Map<String, Object>>) body.get("transactions");
-        byId.put(id, new Group(id, (String) body.get("group_title"), new ArrayList<>(splits)));
+        // A re-key (Stage 5) changes external_id on a PUT: drop the group's old ids before adding the
+        // new ones, or a later duplicate check sees the stale id.
+        group.splits().forEach(s -> {
+            Object old = s.get("external_id");
+            if (old != null) {
+                idByExternal.remove(old);
+            }
+        });
+        List<Map<String, Object>> echoed = new ArrayList<>();
+        for (Map<String, Object> split : splits) {
+            echoed.add(echo(split));
+        }
+        byId.put(id, new Group(id, (String) body.get("group_title"), echoed));
+        echoed.forEach(s -> {
+            Object external = s.get("external_id");
+            if (external != null) {
+                idByExternal.put((String) external, id);
+            }
+        });
         respond(exchange, 200, "{\"data\":{\"id\":\"" + id + "\"}}");
+    }
+
+    /**
+     * What Firefly gives back for what it was given (measured, Stage 0 A5/A4): a date-time, a long
+     * decimal, an id beside every name. An id that is present wins over a name, as Firefly resolves
+     * it first — echoing a stale id is the failure that looks like success.
+     */
+    private Map<String, Object> echo(Map<String, Object> in) {
+        Map<String, Object> out = new LinkedHashMap<>(in);
+        Object date = in.get("date");
+        if (date instanceof String d && d.length() == 10) {
+            out.put("date", d + "T00:00:00+10:00");
+        }
+        Object amount = in.get("amount");
+        if (amount instanceof String a) {
+            out.put("amount", new java.math.BigDecimal(a).setScale(12).toPlainString());
+        }
+        for (String side : List.of("source", "destination")) {
+            Object id = in.get(side + "_id");
+            Object name = in.get(side + "_name");
+            if (id == null && name != null) {
+                out.put(side + "_id", counterpartyIds.computeIfAbsent(String.valueOf(name),
+                    n -> String.valueOf(900 + counterpartyIds.size())));
+            } else if (id != null) {
+                out.put(side + "_name", accountName(String.valueOf(id), name));
+            }
+        }
+        return out;
+    }
+
+    /** An id that names a counterparty keeps that counterparty: the id wins over a new name. */
+    private String accountName(String id, Object fallback) {
+        return counterpartyIds.entrySet().stream().filter(e -> e.getValue().equals(id))
+            .map(Map.Entry::getKey).findFirst()
+            .orElseGet(() -> accounts.entrySet().stream().filter(e -> id.equals(e.getValue().get("id")))
+                .map(Map.Entry::getKey).findFirst().orElse(fallback == null ? "" : String.valueOf(fallback)));
     }
 
     @SuppressWarnings("unchecked")
