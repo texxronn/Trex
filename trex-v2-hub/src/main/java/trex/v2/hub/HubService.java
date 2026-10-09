@@ -597,10 +597,10 @@ public final class HubService implements HubApi, AutoCloseable {
         return reads.ingestedEvidenceIds();
     }
 
-    /** The ingest history (§12.6). */
+    /** The ingest history (§12.6); {@code sinceN} keeps only batches completed after it. */
     @Override
-    public trex.v2.hub.api.IngestsResponse ingests() {
-        return new trex.v2.hub.api.IngestsResponse(reads.ingests(50));
+    public trex.v2.hub.api.IngestsResponse ingests(Long sinceN) {
+        return new trex.v2.hub.api.IngestsResponse(reads.ingests(50, sinceN));
     }
 
     // ---- accounts overview (V2-PROPOSAL.md §10.1, §10.5) -------------------------------------

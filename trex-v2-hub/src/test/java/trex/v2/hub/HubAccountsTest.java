@@ -140,8 +140,8 @@ class HubAccountsTest {
         Path index = dir.resolve("trex.sqlite");
         try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {
             await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 2L
-                && !hub.ingests().rows().isEmpty());
-            List<trex.v2.hub.api.IngestsResponse.IngestRow> rows = hub.ingests().rows();
+                && !hub.ingests(null).rows().isEmpty());
+            List<trex.v2.hub.api.IngestsResponse.IngestRow> rows = hub.ingests(null).rows();
             assertEquals(1, rows.size());
             assertEquals("ing-savings", rows.getFirst().accountRef());
             assertEquals(old, rows.getFirst().latestTxnDate(),
