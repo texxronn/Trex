@@ -412,6 +412,7 @@ unauthenticated and binds loopback by default.
 | POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer |
 | POST | `/api/reflow/preview`, `/api/reflow/preview/transfers` | blast radius of a category or transfer-pattern edit, before it is saved |
 | GET/PUT | `/api/config/categories`, `/api/config/transfers` | the rule files the Rules mode edits |
+| GET | `/api/config/drift` | shipped vs base vs current for every seeded config file (§12): `[{file, state}]`, `state` ∈ `same`, `repo-newer`, `edited-here`, `both-changed`, `unknown` |
 | * | `/api/jobs…` | proxied to the runner (§16) |
 | GET | `/api/events` | SSE: a snapshot, then deltas |
 
@@ -453,7 +454,7 @@ Eight modes; each one's detail lives in the plan that built it.
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
-| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history and fetch frontier, the ops strip | §16, `V2-INGEST-FRONTIER-PLAN.md` |
+| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
 
 ---
 
@@ -505,6 +506,17 @@ per-account ordered `transferPatterns` with a `default` list — match, `rail`, 
 optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a
 rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
 location is `--archive` on the sequencer and runner.
+
+**Config drift** (`QOL_Improvements.md` §3). The compose `init` service never overwrites a live
+config file, but on every `up` it rewrites `/etc/trex/.shipped/<file>` with the image's copy, and
+when it installs a missing live file it also records that copy as `/etc/trex/.base/<file>`. The hub
+compares the three per file — current vs shipped, current vs base, shipped vs base — and serves
+`GET /api/config/drift`; the Jobs strip names every file that is not `same`. A `repo-newer` file
+(`C == B`, `S != B`) is safe for `deploy/v2/dev.sh sync-config`, which backs the live file up under
+`/etc/trex/.backup/` and installs the shipped one; `--adopt FILE` records the live file as the base
+for an `unknown` first run, refused when `.shipped` has no copy of the file (one `up` seeds it).
+The same container script is documented for the host in `docs/DEPLOYMENTS.md`. A sync needs no
+restart.
 
 ---
 

@@ -796,6 +796,16 @@ public final class HubService implements HubApi, AutoCloseable {
         return new DecisionOutcome(200, Map.of("saved", true));
     }
 
+    /** Config drift (QOL_Improvements.md §3): pure reads of the three versions under the volume. */
+    @Override
+    public List<ConfigDrift.Row> configDrift() {
+        try {
+            return ConfigDrift.scan(config.configDir());
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read the config drift under " + config.configDir(), e);
+        }
+    }
+
     // ---- transfer-pattern preview (V2-PROPOSAL.md §9.3, §9.9.C) -----------------------------
 
     /** Run {@code derive()} against a candidate {@code transfers.yaml}; writes nothing. */

@@ -64,6 +64,7 @@ export const api = {
   transfersPreview: (transfers) => request('POST', '/api/reflow/preview/transfers', { transfers }),
   transfersYaml: () => request('GET', '/api/config/transfers'),
   saveTransfers: (transfers) => request('PUT', '/api/config/transfers', { transfers }),
+  configDrift: () => request('GET', '/api/config/drift'),
   workbook: () => request('GET', '/api/workbook'),
   ingests: (sinceN) => request('GET', '/api/ingests'
     + (sinceN === null || sinceN === undefined ? '' : '?' + new URLSearchParams({ sinceN }))),

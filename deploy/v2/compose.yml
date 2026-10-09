@@ -59,7 +59,10 @@ volumes:
 
 services:
   # Seed a writable config volume and the state directories, then hand them to uid 1000.
-  # Existing rule files are kept on restart, so UI edits survive a container rebuild.
+  # Existing rule files are kept (a UI edit survives a container rebuild): init never overwrites
+  # /etc/trex/<file>. It does refresh /etc/trex/.shipped/<file> with the image's copy on every up,
+  # and records /etc/trex/.base/<file> when it installs a missing file — the hub's config-drift
+  # read (QOL_Improvements.md §3) compares the three.
   init:
     <<: *hardening
     image: ${TREX_IMAGE_PREFIX:-trex}/trex-v2:${TREX_IMAGE_TAG:-0.1.0-SNAPSHOT}
@@ -67,12 +70,16 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     # A list of one, on purpose: Compose shell-splits a string command, so `sh -ec` would
     # receive only the first word as its script. One list item keeps the whole script an
-    # argument. cp -n would also do, but this also creates the state directories.
+    # argument. The missing-file check, not cp -n, because the same copy records the base.
     command:
       - >-
-        mkdir -p /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
+        mkdir -p /etc/trex /etc/trex/.shipped /etc/trex/.base /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
         for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml; do
-          if [ ! -e "/etc/trex/$$f" ]; then cp "/bootstrap/$$f" "/etc/trex/$$f"; fi;
+          cp "/bootstrap/$$f" "/etc/trex/.shipped/$$f";
+          if [ ! -e "/etc/trex/$$f" ]; then
+            cp "/bootstrap/$$f" "/etc/trex/$$f";
+            cp "/bootstrap/$$f" "/etc/trex/.base/$$f";
+          fi;
         done;
         chown -R 1000:1000 /etc/trex /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging
     cap_drop: [ALL]

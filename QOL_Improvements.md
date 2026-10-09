@@ -4,7 +4,7 @@
 > the build order for five quality-of-life changes. Each stage's PR updates `V2-SPEC.md` where it
 > changes behaviour.
 >
-> **Status:** in progress (2026-10-09): Q6 and Q4 are built (§1, §2); Q2, Q3 and Q5 are proposed.
+> **Status:** in progress (2026-10-09): Q6, Q4 and Q3 are built (§1, §2, §3); Q2 and Q5 are proposed.
 > **Goal:** the daily-use goal (`docs/reviews/CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
 > routine with a finish line, no trips to the terminal. Each item removes friction that actually
 > happened while the review fixes were rolled out on the dev stack.
@@ -218,6 +218,38 @@ Three versions of each config file exist:
 ### 3.5 Risk
 The first deploy has no `.base/`, so every differing file reads `unknown` once. That is deliberate:
 the tool must not guess whether a past edit was yours. One `--adopt` per file after a look settles it.
+
+**As built (2026-10-09).** `ConfigDrift` in `trex-v2-hub` holds the canonical file list — the
+eleven `init` seeds, declaration order is the wire order — and the table as one strict chain:
+`C == S` is `same` before anything else (so B is irrelevant and an unedited file reads `same` on
+the first run with no `.base/`); then absent `S` or absent `B` is `unknown`; then `C == B` is
+`repo-newer` (`S != B` follows); `S == B` is `edited-here`; else `both-changed`. A `null` array is
+an absent file and an absent C is a difference, so a deleted file classifies as an edit whenever S
+and B allow it. `scan` reads `.shipped/<file>`, `.base/<file>` and `<file>` per request — an
+unreadable file fails the read rather than guessing (the route answers 500) — and
+`GET /api/config/drift` serves `[{file, state}]` for all eleven in that order, the bare-list shape
+`/api/review` already uses. `refdata.yaml` stays out: it is optional and compose does not seed it,
+so the three-way read has nothing to compare. The `init` script keeps "never overwrite": it
+`mkdir`s `.shipped/` and `.base/`, overwrites `.shipped/<file>` from `/bootstrap/<file>` on every
+`up`, and writes `.base/<file>` only when it installs a missing live file. `compose.server.yml` is
+the documented `sed` of the repo file and its diff is only that init hunk. `deploy/v2/sync-config.sh`
+is the container-side POSIX-sh twin of the pure function (`cmp`, no `md5sum`): it prints every
+verdict, backs a `repo-newer` file up to `.backup/<file>.<ts>`, copies S over C and B, and leaves
+`edited-here`, `both-changed` and `unknown` alone; a path that exists but is not a regular file
+stops the run, and `ADOPT=<file>` copies the live file over `.base/<file>` (refused when there is no
+`.shipped/<file>` — one `up` seeds it, and adopting cannot settle that case). The script lives in
+its own file so `dev.sh sync-config [--adopt FILE]` (which runs it in a throwaway `alpine` against
+`trex-v2_config`) and the host's documented `docker run` execute the same bytes;
+`docs/DEPLOYMENTS.md` carries the host invocation — with all eleven configs in the scp list — and
+says a sync needs no restart. The Jobs strip renders one line above the staging inbox, naming every
+non-`same` file — "is newer in the repo (safe to update)", "edited here", `both-changed` as "merge
+by hand", `unknown` as "no base recorded — look, then sync-config --adopt; up first if .shipped is
+missing" — tolerates a payload that is not an array of well-formed rows (and a failed drift read)
+by rendering nothing rather than throwing. Pinned by
+`ConfigDriftTest` (the table's rows, absent S/B, a deleted C, the wire spellings, the file order)
+and `HubConfigDriftApiTest` (a temp config dir with `.shipped/`, `.base/` and live files; all
+eleven states and their declaration order over HTTP). The UI was not checked in a browser; the
+manual acceptance above — including the first-run `--adopt` — is still to run on the dev stack.
 
 ---
 

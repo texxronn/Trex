@@ -14,12 +14,14 @@ let jobs = [];
 let runs = [];
 let ingests = [];
 let drift = null;
+let configDrift = null;
 let lastPlan = null; // in-session plan counts; Apply stays locked until one exists
 
 const selected = new Set();
 let stream = null;
 let outputHost;
 let opsHost;
+let configDriftHost;
 let stagingHost;
 let jobsHost;
 let ingestHost;
@@ -45,6 +47,7 @@ export function mount(container, context) {
 function render() {
   clear(host);
   opsHost = el('div', { class: 'ops' });
+  configDriftHost = el('div');
   stagingHost = el('div');
   jobsHost = el('div');
   ingestHost = el('div');
@@ -54,6 +57,7 @@ function render() {
   statusLine = el('div', { class: 'muted', hidden: true });
   host.append(
     opsHost,
+    configDriftHost,
     el('h3', {}, 'Staging inbox'),
     uploadBar(),
     statusLine,
@@ -115,6 +119,12 @@ async function load() {
   } catch {
     ingests = [];
   }
+  try {
+    configDrift = (await api.configDrift()) || [];
+  } catch {
+    configDrift = [];
+  }
+  renderConfigDrift();
   renderIngests();
   renderFrontier();
   renderOps();
@@ -191,6 +201,32 @@ function relFuture(ms) {
   if (s < 5400) return `in ${Math.round(s / 60)}m`;
   if (s < 172800) return `in ${Math.round(s / 3600)}h`;
   return `in ${Math.round(s / 86400)}d`;
+}
+
+// ---- config drift (QOL_Improvements.md §3) --------------------------------------------------
+
+/**
+ * The config the stack runs can lag the repo: init never overwrites a live file, so a repo change
+ * to a file you never edited stays in the image. One line names every file that is not `same`;
+ * `repo-newer` files are safe for `sync-config`, the rest are for a person.
+ */
+function renderConfigDrift() {
+  clear(configDriftHost);
+  if (!Array.isArray(configDrift)) return;
+  const rows = configDrift.filter((row) => row && row.file && row.state && row.state !== 'same');
+  if (!rows.length) return;
+  configDriftHost.append(el('div', { class: 'drift-strip' },
+    'config: ' + rows.map(configDriftText).join(' \u00b7 ')));
+}
+
+function configDriftText(row) {
+  switch (row.state) {
+    case 'repo-newer': return `${row.file} is newer in the repo (safe to update)`;
+    case 'edited-here': return `${row.file} edited here`;
+    case 'both-changed': return `${row.file} changed here and in the repo \u2014 merge by hand`;
+    case 'unknown': return `${row.file} unknown (no base recorded \u2014 look, then sync-config --adopt; up first if .shipped is missing)`;
+    default: return `${row.file} ${row.state}`;
+  }
 }
 
 // ---- staging ------------------------------------------------------------------------------

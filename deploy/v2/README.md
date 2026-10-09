@@ -82,6 +82,7 @@ The same stack, on your own Docker daemon, with the UI served from the working t
 deploy/v2/dev.sh build      # build the image locally (after a Java change)
 deploy/v2/dev.sh up         # start; UI at http://localhost:8090
 deploy/v2/dev.sh ingest     # the standard statements (~/Downloads/Statements/Statements_CSV)
+deploy/v2/dev.sh sync-config  # update the volume's repo-newer config files (QOL §3)
 deploy/v2/dev.sh reset      # stop and delete the volumes — day 0 again
 deploy/v2/dev.sh ps|logs hub
 ```
