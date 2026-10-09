@@ -35,6 +35,10 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **An ingest's counts no longer hide a re-observation.** The writer answered `Appended` for a second
+  observation of an id first minted earlier in the same batch, so the `trex.ingest complete` event
+  said `flagged: 0` over the 58 merged receipt groups. It now answers `Flagged`, like a
+  re-observation of an id already in the log.
 - **The sequencer picks up config edits without a restart** (`V2-REVIEW-FIXES-PLAN.md` §8). It read
   accounts, users, categories and sources once at startup, so a category added in the Rules editor
   passed the hub's precheck and was then refused by the writer until a restart. It now re-checks the

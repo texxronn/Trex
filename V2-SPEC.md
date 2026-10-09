@@ -71,7 +71,7 @@ migrated from.
   |---|---|---|
   | new `externalId` | `Appended` | one fact |
   | known id, identical observation (any source) | `Duplicate` | nothing |
-  | known id, new observation (balance, amount, text or pending → posted) | `Flagged` | one fact, once; review is **derived** (§6.6), never written |
+  | known id — in the log **or earlier in the same batch** — new observation (balance, amount, text or pending → posted) | `Flagged` | one fact, once; review is **derived** (§6.6), never written |
   | two identical content-hash rows in one batch | `Appended` ×2 (`occ` 0, 1) | two facts |
   | two identical rows sharing a receipt in one batch | `Appended`, `Duplicate` | one fact |
   | a row failing structure or references | `Rejected` | nothing (`allOrNone` rejects the batch) |

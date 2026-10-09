@@ -367,6 +367,11 @@ public final class Sequencer implements AutoCloseable {
         }
         java.util.Iterator<Ids.Minted> minted = Ids.mint(mintRows).iterator();
         Set<ObsKey> batchSeen = new HashSet<>();
+        // Ids minted earlier in this batch. The state learns the batch only after the write, so
+        // without this a second observation of an id first seen in the same batch was reported
+        // Appended — how 58 merged receipt groups landed as "appended 2438, flagged 0"
+        // (V2-REVIEW-FIXES-PLAN.md §4). An ingest's counts must never hide a re-observation.
+        Set<String> batchIds = new HashSet<>();
         List<Fact> toAppend = new ArrayList<>();
         long next = state.headN;
         boolean wroteAny = false;
@@ -387,7 +392,7 @@ public final class Sequencer implements AutoCloseable {
                 results.add(new RowResult(ref(i, d), RowResult.DUPLICATE, id, null, null));
                 continue;
             }
-            boolean known = state.latestById.containsKey(id);
+            boolean known = state.latestById.containsKey(id) || !batchIds.add(id);
             long atMs = d.ingestedAt() == null ? clock.millis() : d.ingestedAt().toEpochMilli();
             Fact fact = new Fact(
                 new Envelope(next + 1, Fact.KIND, Envelope.VERSION, atMs, env, source, target),
