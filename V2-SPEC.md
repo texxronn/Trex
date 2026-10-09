@@ -149,7 +149,7 @@ replay → effective decisions → supersession / chain resolution → current t
 (`note_current`) → clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/9"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/12"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
@@ -234,6 +234,7 @@ SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `
 derived `role`, rail, and a `synthetic` flag — true only for a derived clearing leg, §6.10), `transfer` (carrying the payer `method` and, for a clearing pair, the
 `clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
 `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note`,
+`commitment_exclusion`, `commitment_fact` (the fact → commitment reverse map, §6.11),
 `ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
 `ingest_batch` view (the markers paired). A derived column's shape change drops and recreates its
 table and clears the derived meta, so the next apply re-derives. Every table can be dropped;

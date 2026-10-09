@@ -1376,6 +1376,12 @@ date — tracked by observation, never predicted, never missed, never in arrears
 A pin never re-anchors; a pinned fact with no window is an `off_schedule` occurrence at its own
 date — "charged twice this month" is a true statement, never a silent match.
 
+**The fact → commitment map** (`commitment_fact`, §7.1) records every claimed fact — by rule or
+pin — as the reverse index the Hub reads for a ledger chip and a commitment's transaction list and
+price chart. It is **unbounded over history**: a fact older than the materialised window is still
+bound to its commitment, though it has no occurrence to attach to. The window bounds display, not
+association.
+
 **Arrears and catch-up are manual.** An occurrence is in arrears while it is `missed` — a window
 that closed with no fact, a hole; an `irregular` commitment has no due dates and therefore none.
 Nothing is allocated across occurrences and nothing pre-pays: a payment attaches to its own
@@ -1391,7 +1397,7 @@ question. A commitment that has never matched is not dormant: it is in arrears.
 
 **Nothing here is a property of a transaction.** Candidates, rules, assignments, occurrences,
 prices, arrears and the dormancy question are all derived from `(facts, decisions, config,
-asOf)`; the five tables (§7.1) are materialised like every other derived table, and
+asOf)`; the commitment tables (§7.1) are materialised like every other derived table, and
 `trex index --rebuild` reproduces them. `occurred` (evidence) is never conflated with `settled`
 (a conclusion); no `externalId` is ever rewritten and no journal line is ever edited.
 
@@ -1405,7 +1411,8 @@ asOf)`; the five tables (§7.1) are materialised like every other derived table,
    offset. No derived columns; rebuildable from the log alone.
 2. **Derived tables/views** — `supersession`, `txn_current`, `pending`, `transfer`,
    `review_item`, `category_current`, `pin_current`, `commitment`, `commitment_rule`,
-   `commitment_occurrence`, `commitment_note`, `projection_state`, `user_ack`,
+   `commitment_occurrence`, `commitment_note`, `commitment_exclusion`, `commitment_fact`,
+   `projection_state`, `user_ack`,
    `source_cursor`, `evidence`. Rebuildable from level 1 + config + `asOf`.
 
 Splitting the two means the indexer is an ordinary follower: apply new lines and the
@@ -1419,7 +1426,7 @@ time-relative statuses (stale badges, ages), and those never enter a `stateHash`
 The level-1 mirrors, the derived tables and the fold are **as built**: the normative DDL is
 `trex-v2-index/src/main/resources/trex/v2/index/schema.sql`, summarised in `V2-SPEC.md` §7 and
 §2. The commitment tables (`commitment`, `commitment_rule`, `commitment_occurrence`,
-`commitment_note`, §6.11) are derived like the rest: candidates and declared rows, the effective
+`commitment_note`, `commitment_exclusion`, `commitment_fact`, §6.11) are derived like the rest: candidates and declared rows, the effective
 rule set, the materialised occurrences and the note thread. The point is not the columns:
 
 > **Every table here can be dropped.** The UI never queries the log, the log is never written
@@ -1921,7 +1928,7 @@ are the whole of `trex verify`'s rebuild.
 | P7 | **Transfer shape and pairing.** §9.9.C. | leg states, `transfer` |
 | P8 | **Pending settlement and staleness.** §9.9.D. | `pending`, `AMBIGUOUS_SETTLEMENT` |
 | P9 | **Category.** §9.9.E. | `category_current`, `pin_current` |
-| P10 | **Commitments and occurrences.** §6.11: fold the commitment curation, detect candidates and match declared commitments over the current facts. A sibling of category (§9.9.E): it reads neither its output nor writes into it, so their order is incidental. | `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note` |
+| P10 | **Commitments and occurrences.** §6.11: fold the commitment curation, detect candidates and match declared commitments over the current facts. A sibling of category (§9.9.E): it reads neither its output nor writes into it, so their order is incidental. | `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note`, `commitment_exclusion`, `commitment_fact` |
 | P11 | **Review items.** §9.9.F — derived causes, minus effective `DISMISS`es. | `review_item` |
 | P12 | **Projection units and state hashes.** §9.9.G. | projectable units, `stateHash` inputs |
 
