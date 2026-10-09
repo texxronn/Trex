@@ -1,0 +1,113 @@
+// The ingest toast (QOL_Improvements.md §1): when an SSE delta reports that the index moved past
+// batches which completed after the one we last saw, fetch just those batches and say what the
+// sweep did — in any mode. The filter is /api/ingests?sinceN=, so a delta never pulls the whole
+// history. No framework, no build step.
+
+import { api } from './api.js';
+import { total } from './format.js';
+import { toast } from './toast.js';
+
+let lastN = null;      // the newest n whose batches have been reported
+let latestN = null;    // the newest delta seen while a fetch is in flight
+let lastReview = null; // the review total at the previous delta, once a baseline exists
+let running = false;
+
+/**
+ * One SSE delta. The first delta of a page load only establishes the baseline: there is no
+ * previous review total to diff against, so no "new review item" is claimed for it.
+ */
+export async function onDelta(change) {
+  const n = change.n;
+  if (lastN === null || n < lastN) {
+    lastN = n; // a first delta, or a rebuilt journal whose n line numbers restarted
+    lastReview = await reviewTotal();
+    return;
+  }
+  if (n === lastN) {
+    return;
+  }
+  latestN = n;
+  if (running) {
+    return; // the loop below picks the newer n up
+  }
+  running = true;
+  try {
+    while (lastN < latestN) {
+      const since = lastN;
+      const target = latestN;
+      const [ingests, status] = await Promise.all([api.ingests(since), api.status()]);
+      const rows = (ingests && ingests.rows) || [];
+      // Everything up to a reported batch's n_end is now told; a delta that arrived mid-fetch
+      // only narrows the next range.
+      lastN = rows.reduce((max, row) => Math.max(max, row.nEnd || 0), target);
+      const review = total(status && status.reviewByKind);
+      const reviewDelta = lastReview === null ? 0 : review - lastReview;
+      lastReview = review;
+      if (rows.length) {
+        toast(summary(rows, reviewDelta), failed(rows).length ? 'bad' : '', openJobs);
+      }
+    }
+  } catch {
+    // transient; lastN is unchanged, so the next delta retries the range
+  } finally {
+    running = false;
+  }
+}
+
+/** The mode switch the app already uses: the nav's hashes, routed by app.js's hashchange. */
+function openJobs() {
+  location.hash = 'jobs';
+}
+
+async function reviewTotal() {
+  try {
+    return total((await api.status()).reviewByKind);
+  } catch {
+    return null;
+  }
+}
+
+function failed(rows) {
+  return rows.filter((row) => row.status && row.status !== 'ok');
+}
+
+/**
+ * "2 statements ingested · 47 new rows · 1 flagged · 1 new review item — a.csv, b.csv". Flagged
+ * only when there is one; duplicates only when every appended row was a duplicate, so a no-op
+ * sweep is still confirmed; a batch that failed names its file and the runner's word for it
+ * ("rejected", "bad rows") and makes the toast an error one.
+ */
+function summary(rows, reviewDelta) {
+  const appended = sum(rows, 'appended');
+  const duplicate = sum(rows, 'duplicate');
+  const flagged = sum(rows, 'flagged');
+  const bad = failed(rows);
+  const ok = rows.length - bad.length;
+
+  const parts = [];
+  if (bad.length) {
+    parts.push(bad.map((row) => `${row.file || '(unknown)'} ${row.status.replace(/_/g, ' ')}`).join(', '));
+    if (ok > 0) {
+      parts.push(`${ok} statement${ok === 1 ? '' : 's'} ingested`);
+    }
+  } else {
+    parts.push(`${rows.length} statement${rows.length === 1 ? '' : 's'} ingested`);
+  }
+  parts.push(`${appended} new row${appended === 1 ? '' : 's'}`);
+  if (flagged > 0) {
+    parts.push(`${flagged} flagged`);
+  }
+  if (appended === 0 && duplicate > 0) {
+    parts.push(`${duplicate} duplicate${duplicate === 1 ? '' : 's'}`);
+  }
+  if (reviewDelta > 0) {
+    parts.push(`${reviewDelta} new review item${reviewDelta === 1 ? '' : 's'}`);
+  }
+  // A failed file is already named above; the dash lists the statements that did land.
+  const files = rows.filter((row) => !bad.includes(row)).map((row) => row.file).filter(Boolean);
+  return parts.join(' · ') + (files.length ? ' — ' + files.join(', ') : '');
+}
+
+function sum(rows, field) {
+  return rows.reduce((running, row) => running + (row[field] || 0), 0);
+}
