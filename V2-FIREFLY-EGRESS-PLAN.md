@@ -12,6 +12,8 @@
 > **Status:** proposed — waiting on Stage 0 (live measurements) and the operator decisions in §2.
 > **Review (2026-10-09):** `docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md` — R1–R8 resolved; the second
 > pass on those resolutions (V1–V7) is folded into Tasks 4.1, 4.4, 5.3, D8 and Stage 6.
+> **Execution (2026-10-09):** `V2-FIREFLY-EGRESS-EXECUTION.md` — the dispatch map, worker protocol
+> and reviewer gates. Read it before starting a stage; this plan is the *what*.
 > **Authority:** `V2-SPEC.md` §4 (identity), §6.3 (transfers, clearing), §6.7, §11 (egress);
 > `V2-PROPOSAL.md` §11 (the rationale and the v1 lessons — read for *why*); `AGENTS.md`.
 
@@ -1681,7 +1683,10 @@ on ordinary days — the noise the daily-use goal rules out. Two consequences:
     `TAMPERED`, exit 1.
 - [ ] **Step 2: Run them to see them fail.** Expected: compile error — `Validate` does not exist.
 - [ ] **Step 3: Implement** per the interfaces above. `inventory()` is `allTransactions` with the
-  `isOurs` filter removed (the tags are kept, so an untagged group can be named).
+  `isOurs` filter removed (the tags are kept, so an untagged group can be named). Before anything
+  else, run the same unmapped-ref refusal `preflight` uses (`accounts.missing(refs)` over
+  `units.units()`): `BEHIND`/`DRIFT` call `Projection.of`, which throws on an unmapped ref, and a
+  read-only checker must stop with the named refusal, never a stack trace.
 - [ ] **Step 4: Run all tests.** Run: `mvn -q test`. Expected: PASS.
 - [ ] **Step 5: Update §11.1 (drop "validation" from the not-yet-built sentence); commit; open the PR (Tasks 4.1–4.4)**
 
@@ -2082,6 +2087,10 @@ And in `FireflyEgressTest` (Review Focus 4):
     }
 ```
 
+(the V4 test clears `fake.groups()` directly, which leaves `idByExternal` stale. Harmless there —
+nothing is recreated afterwards — but if a test recreates the same `external_id` later, delete
+through `FireflyClient` or clear both maps, so the fake cannot answer a phantom duplicate.)
+
 One more test (R3): `aSupersededHandSplitTransferRekeysItsIdentity` — project a transfer, split the
 group in the fake into two (30.00 + 20.00), supersede a leg, apply; assert one group, **every**
 split carries the new `external_id`, the split amounts are untouched, the state is `HAND_SPLIT`,
@@ -2229,7 +2238,10 @@ Apply, before the creates (so a re-keyed id never posts):
                 rekeyed++;
             }
         }
-        // the accelerator update for re-keyed, gone and foreign orphans: see the block above
+        // The apply order is: this re-key loop, then the accelerator update shown above (gone,
+        // foreign and re-keyed rows leave `known`, one replace write), then the creates and moves
+        // of `run()`. The update runs after the loop, never before it: a replace first would
+        // persist the orphan rows the loop still has to remove from `known`.
 ```
 
 Give `converge` a `boolean rekey` parameter (the existing calls pass `false`) and make it force the
@@ -2280,12 +2292,13 @@ git commit -m "fix(egress): a superseded unit re-keys its group; a replacement i
 - Modify: `docs/V2-PARITY.md` (the §11.5 delta: recreate only through the explicit recovery)
 - Modify: `CHANGELOG.md`
 - Move: `V2-FIREFLY-EGRESS-PLAN.md` → `docs/plans/V2-FIREFLY-EGRESS-PLAN.md` (status: built, PRs named)
+- Move: `V2-FIREFLY-EGRESS-EXECUTION.md` → `docs/plans/V2-FIREFLY-EGRESS-EXECUTION.md`
 
 - [ ] **Step 1: Add to `docs/DEPLOYMENTS.md`**, under the existing first-apply note:
   - the first run after Stage 4 checks every row once (`CHECK` lines; GETs, no writes where Firefly
     already matches);
   - after mapping the clearing accounts, run `--create-missing-accounts --plan` once, then `--apply`;
-  - a rule change re-plans the units whose category changed (a GET + PUT each) — expected, not a
+  - a rule change walks every unit but only the changed categories get a GET + PUT — expected, not a
     fault; unchanged rows keep their old `rules=` notes value, which `--validate` deliberately ignores;
   - `--remove-orphans` is only for orphans the plan does **not** show as re-keyed; read the
     "replaced by" lines first;
@@ -2295,14 +2308,17 @@ git commit -m "fix(egress): a superseded unit re-keys its group; a replacement i
     piggy-bank links, your tags, hand-splits — is gone after a refeed. Assign budgets with a Firefly
     rule group ("budget from category") and re-run it from "apply rule group to transactions" after
     a refeed and after each sync; never assign budgets by hand;
-  - **a missing group stops the pass (D9):** one transaction deleted in Firefly blocks every later
-    delta until you run `--verify` then `--apply` (or retire the unit in trex). That is the intended
-    forcing function; `--validate` on a timer is how you hear about it first;
+  - **a missing group stops the pass (D9):** a transaction deleted in Firefly stops the next pass
+    that actually touches its unit (a planned retag or update), which then needs `--verify` then
+    `--apply` (or retire the unit in trex); units that have not moved keep converging. That is the
+    intended forcing function, and `--validate` on a timer is how you hear about it before a pass is
+    blocked;
   - **the Do/Don't contract** with its per-violation remedies (the `--validate` classes), and
     schedule `--validate` (read-only) as the detector — not `--verify`, whose rebuild erases the
     "was known" signal.
 - [ ] **Step 2: Add the CHANGELOG entry** naming F1–F11 in one line each.
-- [ ] **Step 3: Move the plan to `docs/plans/`** with its status line set to built and the PRs listed.
+- [ ] **Step 3: Move the plan to `docs/plans/`** with its status line set to built and the PRs
+  listed, and move `V2-FIREFLY-EGRESS-EXECUTION.md` beside it.
 - [ ] **Step 4: Commit; open the PR**
 
 ```bash

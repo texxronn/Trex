@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V2 Firefly egress — specification, plan and review</title>
+<style>
+  :root {
+    --ink: #1c2430; --muted: #5b6675; --line: #dde3ea; --bg: #f6f7f9; --card: #ffffff;
+    --accent: #0f62fe; --code-bg: #f1f3f7;
+    --high-fg: #b42318; --high-bg: #fef3f2; --med-fg: #b54708; --med-bg: #fffaeb;
+    --low-fg: #475467; --low-bg: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; color: var(--ink); background: var(--bg);
+    font: 16px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 36px 24px 96px; }
+  article {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 36px 36px;
+  }
+  h1 { font-size: 30px; line-height: 1.25; letter-spacing: -0.01em; margin: 22px 0 12px; }
+  h2 { font-size: 24px; margin: 34px 0 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 18px; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 24px; }
+  li { margin: 4px 0; }
+  code {
+    font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 5px;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto;
+  }
+  pre code { background: none; border: none; padding: 0; white-space: pre; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; }
+  blockquote {
+    margin: 14px 0; padding: 2px 18px; border-left: 3px solid var(--line); color: var(--muted);
+  }
+  nav.toc {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 24px; margin: 0 0 20px; font-size: 14.5px;
+  }
+  nav.toc::before {
+    content: "Contents"; display: block; margin-bottom: 8px; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700;
+  }
+  nav.toc ul { margin: 0; padding-left: 20px; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 18px; }
+  @media (max-width: 640px) {
+    main { padding: 16px 10px 64px; }
+    article { padding: 4px 16px 24px; border-radius: 8px; }
+    table { font-size: 13px; }
+  }
+  @media print {
+    body { background: #fff; }
+    main { max-width: none; padding: 0; }
+    article { border: none; padding: 0; }
+    nav.toc { display: none; }
+    h2, h3 { page-break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+<article>
+<h1 id="v2-firefly-egress-specification-plan-and-review">V2 Firefly egress — specification, plan and review</h1>
+<nav class="toc"><div class="toc">
+<ul>
+<li><a href="#1-specification-the-firefly-egress">1. Specification: the Firefly egress</a><ul>
+<li><a href="#11-what-it-is">1.1 What it is</a></li>
+<li><a href="#12-what-is-projected">1.2 What is projected</a></li>
+<li><a href="#13-the-posting">1.3 The posting</a></li>
+<li><a href="#14-ownership">1.4 Ownership</a></li>
+<li><a href="#15-convergence-and-state">1.5 Convergence and state</a></li>
+<li><a href="#16-identity-moves">1.6 Identity moves</a></li>
+<li><a href="#17-accounts-and-configuration">1.7 Accounts and configuration</a></li>
+<li><a href="#18-failure-and-cost">1.8 Failure and cost</a></li>
+</ul>
+</li>
+<li><a href="#2-the-plan">2. The plan</a><ul>
+<li><a href="#21-goal">2.1 Goal</a></li>
+<li><a href="#22-findings">2.2 Findings</a></li>
+<li><a href="#23-stages">2.3 Stages</a></li>
+<li><a href="#24-decisions">2.4 Decisions</a></li>
+<li><a href="#25-review-focus-acceptance-scenarios">2.5 Review focus (acceptance scenarios)</a></li>
+</ul>
+</li>
+<li><a href="#3-gaps-after-review">3. Gaps after review</a><ul>
+<li><a href="#r1-closed-by-deployment-strategy-locked-2026-10-09">R1 — closed by deployment strategy (locked 2026-10-09)</a></li>
+<li><a href="#r2-resolved-as-an-operational-contract-locked-2026-10-09">R2 — resolved as an operational contract (locked 2026-10-09)</a></li>
+<li><a href="#r3-resolved-the-identity-branch-is-explicit-locked-2026-10-09">R3 — resolved: the identity branch is explicit (locked 2026-10-09)</a></li>
+<li><a href="#r4r8-resolved-locked-2026-10-09">R4–R8 — resolved (locked 2026-10-09)</a></li>
+<li><a href="#what-the-review-confirmed">What the review confirmed</a></li>
+<li><a href="#31-second-pass-on-the-resolutions-v1v7-2026-10-09">3.1 Second pass on the resolutions — V1–V7 (2026-10-09)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</nav>
+<p><strong>Date:</strong> 2026-10-09 · <strong>Status:</strong> working companion, for review · <strong>R1–R8 locked 2026-10-09; resolutions corrected by the second pass V1–V7 (§3.1)</strong>
+<strong>Authority:</strong> <code>V2-SPEC.md</code> stays authoritative. §1 restates, field by field, the rule set
+<code>V2-FIREFLY-EGRESS-PLAN.md</code> Stage 1 proposes to land as <code>V2-SPEC.md</code> §11.1, marked with what is on
+<code>master</code> today and what each stage adds. §2 is the plan as proposed. §3 is the plan review of
+2026-10-09 and the gaps it leaves open.</p>
+<hr />
+<h2 id="1-specification-the-firefly-egress">1. Specification: the Firefly egress</h2>
+<h3 id="11-what-it-is">1.1 What it is</h3>
+<p><code>trex egress firefly</code> projects trex's <strong>resolved units</strong> into Firefly III, one way, as a batch CLI
+(started from the Jobs runner or the CLI — never a daemon). Firefly is a <em>view</em>: trex's derivation
+is the truth, Firefly receives what trex concluded, and nothing of yours in Firefly is overwritten
+outside the fields trex owns (§1.4).</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--plan</code></td>
+<td>Read the hub's units and the state, print the diff (create / retag / update / check / orphan / re-key), write nothing.</td>
+</tr>
+<tr>
+<td><code>--apply</code></td>
+<td>Execute the diff, recording projection state as each write lands, so a rerun resumes.</td>
+</tr>
+<tr>
+<td><code>--verify</code></td>
+<td>Rebuild projection state from Firefly (fingerprints included), then plan; non-empty means exit 1. Timer-safe.</td>
+</tr>
+<tr>
+<td><code>--validate</code></td>
+<td>Read-only contract check: Firefly's inventory (untagged included) against the hub units and the recorded state. Violations — something <strong>Firefly changed</strong> — exit 1: <code>MISSING</code>, <code>UNTAGGED</code>, <code>TAMPERED</code>, <code>DRIFT</code>. Normal states are informational: <code>BEHIND</code> (trex moved; the next apply updates it), <code>ORPHAN</code>, <code>HAND_SPLIT</code>. Writes nothing. Timer-safe.</td>
+</tr>
+</tbody>
+</table>
+<p>Other flags: <code>--remove-orphans</code> (deletion is never automatic), <code>--seed-categories</code>,
+<code>--create-missing-accounts</code>, <code>--print-accounts</code>, <code>--retries/--retry-base-ms/--retry-max-ms</code>.
+The token comes from <code>FIREFLY_TOKEN</code> only — never a flag.</p>
+<h3 id="12-what-is-projected">1.2 What is projected</h3>
+<p>One <strong>unit</strong> = one resolved transaction or one transfer row, from the hub's <code>/api/units</code>:</p>
+<ul>
+<li>posted EXTERNAL transactions and TRANSFER rows; <strong>[built]</strong></li>
+<li>a clearing pair is one unit, carried by its real leg — the clearing side is an account, never a
+  fact; <strong>[Stage 2]</strong></li>
+<li>never a leg (a transfer and its legs double-count), never <code>HELD</code>/<code>REVIEW</code>, <code>PENDING</code>, an
+  attestation (a $0 declared-balance row) or a retired fact. <strong>[built]</strong></li>
+</ul>
+<p>The Firefly transaction <strong>type comes from the two mapped account kinds</strong>, not from trex's
+classification (Firefly refuses a <code>transfer</code> across the line):</p>
+<table>
+<thead>
+<tr>
+<th>from → to</th>
+<th>type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>asset → asset, liability → liability</td>
+<td><code>transfer</code></td>
+</tr>
+<tr>
+<td>asset → liability (paying a card or loan)</td>
+<td><code>withdrawal</code></td>
+</tr>
+<tr>
+<td>liability → asset (card refund, drawing a loan)</td>
+<td><code>deposit</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="13-the-posting">1.3 The posting</h3>
+<p>Every posting carries:</p>
+<table>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>external_id</code></td>
+<td>the unit id</td>
+</tr>
+<tr>
+<td><code>internal_reference</code></td>
+<td>the unit's <code>accountRef</code></td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td><code>trex</code> and <code>trex-category:&lt;CATEGORY&gt;</code></td>
+</tr>
+<tr>
+<td><code>category_name</code></td>
+<td>always (incl. <code>UNCATEGORIZED</code>)</td>
+</tr>
+<tr>
+<td><code>notes</code></td>
+<td>first line <code>trex n=&lt;n&gt; rules=&lt;configRevision&gt;</code> + <code>legs=&lt;a&gt;,&lt;b&gt;</code> on a transfer <strong>[legs: Stage 5]</strong>; second line the raw description, written once</td>
+</tr>
+<tr>
+<td><code>error_if_duplicate_hash</code></td>
+<td><code>true</code> — a collision 422 names the existing group, so a lost state recovers</td>
+</tr>
+<tr>
+<td><code>apply_rules</code></td>
+<td><code>false</code> — trex is the single classifier; budgets are Firefly's</td>
+</tr>
+</tbody>
+</table>
+<p>Amounts are exact two-decimal strings from cents; the currency is stamped. Counterparties are
+merchant stems (one shop = one Firefly account).</p>
+<h3 id="14-ownership">1.4 Ownership</h3>
+<p><strong>A group is ours iff its first split carries the <code>trex</code> tag.</strong> An <code>external_id</code> alone is never
+ownership — the Data Importer or a hand entry can carry one. <strong>[Stage 3]</strong></p>
+<p>The egress owns, and only owns:</p>
+<ul>
+<li><code>external_id</code>, the <code>trex</code> and <code>trex-category:*</code> tags, the first notes line;</li>
+<li>on a <strong>single-split</strong> group: type, date, amount, currency, source, destination, description;</li>
+<li>the category <strong>only while it still equals the tag we last wrote</strong> — if it differs, a person
+  changed it, and the human wins (the tag still moves).</li>
+</ul>
+<p>Everything else — other tags, budget, bill, piggy bank, splits, the rest of the notes — is returned
+untouched. <strong>A hand-split group's content is never rewritten</strong> (its total, if the bank moved, is
+reported). Every write is a read-modify-write of the whole group: return every split and
+<code>group_title</code>; when a field moves by name, drop its id — Firefly resolves the id first, and echoing
+a stale id is the failure that looks like success.</p>
+<h3 id="15-convergence-and-state">1.5 Convergence and state</h3>
+<p><code>projection_state</code> is an accelerator, rebuildable from Firefly, recording per unit the group id, the
+category last written, and a <strong>content fingerprint</strong> <code>fp1:&lt;sha256&gt;</code> over
+<code>type|date|amount|currency|source|destination|description</code> (the amount exact, never rounded; the date reduced to its local day on both sides), computable both from the posting and from
+Firefly's read-back. Accounts compare by resolved id when ours, by name otherwise. <strong>[Stage 4]</strong></p>
+<ul>
+<li><strong>Plan:</strong> a unit is <em>unchanged</em> when its category and fingerprint match the state; otherwise it
+  plans a retag (category only), an update (content moved), or a check (state written before
+  fingerprints — one read, no write when Firefly already matches).</li>
+<li><strong>Apply:</strong> <code>converge</code> reads the group, writes only what moved, records the fingerprint.</li>
+<li><strong>Verify:</strong> rebuilds state from Firefly (fingerprints included) and plans; non-empty exits 1.
+  A hand-split group records <code>fp1:hand-split</code> and is never rewritten.</li>
+<li>A category move clears a stale <code>category_id</code>; a content move on a single split drops the ids of
+  sides moved by name.</li>
+<li>A hand-split group's total mismatch is reported by <code>--validate</code> on every run (read-only);
+  <code>--verify</code> stays quiet by design (D2).</li>
+</ul>
+<h3 id="16-identity-moves">1.6 Identity moves</h3>
+<p><code>V2-SPEC.md</code> §4 mints a transfer id over its legs' <strong>current</strong> ids, and a <code>SUPERSEDE</code> re-mints the
+superseded row — so identity must be followed, not assumed:</p>
+<ul>
+<li>a superseded unit <strong>of the same kind</strong> is <strong>re-keyed in place</strong>: same Firefly group, new
+  <code>external_id</code>, new content, no delete, no double count. The old id is found through the hub's
+  supersession map (EXTERNAL) or the legs in the notes (TRANSFER). <strong>[Stage 5]</strong></li>
+<li>a unit that <strong>changed kind</strong> (an EXTERNAL row became a transfer leg, or a transfer unpaired) is
+  reported as a pair — orphan → successors — never re-keyed across kinds. <strong>[Stage 5, D5]</strong></li>
+<li>nothing is deleted without <code>--remove-orphans</code>; deleting a group that is already gone (404) is not
+  an error. <strong>[Stage 3]</strong></li>
+<li>an orphan whose group was deleted in Firefly is <strong>gone</strong> (dropped from the state, never an abort);
+  an orphan whose group lost the <code>trex</code> tag is <strong>never re-keyed into</strong> — its successor is created and
+  the group is left as yours. <strong>[Stage 5, V4/V5]</strong></li>
+<li>a group the plan no longer knows is an orphan; it is reported, never deleted automatically.
+  <strong>[built]</strong></li>
+</ul>
+<h3 id="17-accounts-and-configuration">1.7 Accounts and configuration</h3>
+<p><code>firefly.yaml</code> maps each account ref to a Firefly <strong>name and type</strong> (<code>asset|liability</code>), keyed by
+name (a rebuilt instance changes every id).</p>
+<ul>
+<li>Startup stops on an unresolved name; <strong>type and currency disagreements stop too</strong> — the type
+  decides the transaction type, and Firefly converts silently on a currency mismatch. <strong>[Stage 3]</strong></li>
+<li>The whole unit list is checked for unmapped refs before the first write. <strong>[built]</strong></li>
+<li>Creation is opt-in (<code>--create-missing-accounts</code>): the opening is the backward figure, a clearing
+  account's computed opening, a liability seeded negative. <strong>[built]</strong> The clearing accounts and
+  Cash (Ron) are mapped under D1/D7. <strong>[Stage 2]</strong></li>
+<li><code>--seed-categories</code> creates declared categories and fills empty notes only: anything you typed is
+  yours. <strong>[built]</strong></li>
+</ul>
+<h3 id="18-failure-and-cost">1.8 Failure and cost</h3>
+<ul>
+<li>Retry 5xx, 429 and dropped connections with backoff and jitter, honouring <code>Retry-After</code>; a <strong>4xx
+  stops the pass</strong>, naming the unit and Firefly's message; exit non-zero so a scheduled run cannot
+  report success. <strong>[built]</strong></li>
+<li>State is recorded as each write lands; a rerun resumes. A rule change re-plans changed categories
+  only; a first full apply is slow (measured ~0.6 creates/s past a thousand) and safe to interrupt.
+  <strong>[built]</strong></li>
+</ul>
+<hr />
+<h2 id="2-the-plan">2. The plan</h2>
+<h3 id="21-goal">2.1 Goal</h3>
+<p>Make <code>trex egress firefly</code> converge Firefly to the derivation again: every unit lands, every later
+change to a unit reaches Firefly, nothing of yours in Firefly is overwritten, and the lessons are
+written into the spec rather than left in commit messages.</p>
+<h3 id="22-findings">2.2 Findings</h3>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Sev</th>
+<th>Finding</th>
+<th>Stage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1</td>
+<td>High</td>
+<td>Clearing transfers are dropped by the hub; <code>firefly.yaml</code> maps none of the seven clearing accounts. Silent.</td>
+<td>2</td>
+</tr>
+<tr>
+<td>F2</td>
+<td>High</td>
+<td>A content change (amount, date, description) is planned as an update, but <code>retag()</code> rewrites only category and tags.</td>
+<td>4</td>
+</tr>
+<tr>
+<td>F3</td>
+<td>Medium</td>
+<td><code>--verify</code> rebuilds state with a blank <code>stateHash</code>; a blank hash skips the content check, hiding F2 forever.</td>
+<td>4</td>
+</tr>
+<tr>
+<td>F4</td>
+<td>Medium</td>
+<td>A re-tag replaces the whole tag list, deleting tags you added in Firefly.</td>
+<td>3</td>
+</tr>
+<tr>
+<td>F5</td>
+<td>Medium</td>
+<td>Rebuild treats any group with an <code>external_id</code> as ours; <code>--remove-orphans</code> could delete a foreign one.</td>
+<td>3</td>
+</tr>
+<tr>
+<td>F6</td>
+<td>Medium</td>
+<td>Startup never compares account type or currency with Firefly.</td>
+<td>3</td>
+</tr>
+<tr>
+<td>F7</td>
+<td>Low</td>
+<td>A <code>Duplicate</code> create records the current category without reading the group.</td>
+<td>4</td>
+</tr>
+<tr>
+<td>F8</td>
+<td>Low</td>
+<td>Deleting an orphan that is already gone (404) throws.</td>
+<td>3</td>
+</tr>
+<tr>
+<td>F9</td>
+<td>Low</td>
+<td>A replaced unit (orphan + successor) is not reported as a pair.</td>
+<td>5</td>
+</tr>
+<tr>
+<td>F10</td>
+<td>Low</td>
+<td>A content-only move is counted as both a retag and an update.</td>
+<td>4</td>
+</tr>
+<tr>
+<td>F11</td>
+<td>Spec</td>
+<td>A supersede re-mints ids: Firefly gets an orphan plus a create (a double count) until a human removes the orphan.</td>
+<td>5</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23-stages">2.3 Stages</h3>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What</th>
+<th>Findings</th>
+<th>Gates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Live measurements against the dev Firefly (A1–A8: PUT behavior on <code>external_id</code>/content/type, id-vs-name, read-back formats, delete-404, account type).</td>
+<td>—</td>
+<td>blocks 4 and 5</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>V2-SPEC.md</code> §11 rewritten as rules; the egress-impact process rule in <code>AGENTS.md</code>.</td>
+<td>docs</td>
+<td>D6</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Hub publishes clearing transfers as units; <code>firefly.yaml</code> maps the clearing accounts + <code>cash-ron</code>.</td>
+<td>F1</td>
+<td>D1, D7</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Startup type/currency checks; ownership = <code>trex</code> tag; tags preserved on re-tag; 404 delete is gone.</td>
+<td>F4, F5, F6, F8</td>
+<td>D4</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Content fingerprint <code>fp1:</code>; <code>converge</code> replaces <code>retag</code>; verify rebuilds fingerprints; duplicate create converges; <code>--validate</code> (D9).</td>
+<td>F2, F3, F7, F10, R2</td>
+<td>D2, D9, Stage 0</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Hub publishes transfer legs + supersession map; notes carry legs; superseded units re-key; replacements reported.</td>
+<td>F9, F11</td>
+<td>D3, D5, Stage 0 A1</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Ops notes; archive the plan.</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Stages 2 and 3 are independent; 4 needs 3 (ownership helper); 5 needs 4 (<code>converge</code>).</p>
+<h3 id="24-decisions">2.4 Decisions</h3>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Question</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1</td>
+<td>How do clearing transfers land?</td>
+<td>Map each clearing account in <code>firefly.yaml</code> (types below D1 in the plan), created with its computed opening.</td>
+</tr>
+<tr>
+<td>D2</td>
+<td>Who wins on amount / date / description?</td>
+<td>Trex, on a single-split group; a hand-split group is never rewritten.</td>
+</tr>
+<tr>
+<td>D3</td>
+<td>What happens to a superseded unit?</td>
+<td>Re-key the existing group in place (new <code>external_id</code>, new content).</td>
+</tr>
+<tr>
+<td>D4</td>
+<td>Which Firefly groups are ours?</td>
+<td>Those carrying the <code>trex</code> tag; an <code>external_id</code> alone is not ownership.</td>
+</tr>
+<tr>
+<td>D5</td>
+<td>A unit that changed kind?</td>
+<td>Report the pair; never re-key across kinds; <code>--remove-orphans</code> stays the instruction.</td>
+</tr>
+<tr>
+<td>D6</td>
+<td>Add the process rule to <code>AGENTS.md</code>?</td>
+<td>Yes: "A change to derive, identity or units states its effect on the egress in the same spec PR."</td>
+</tr>
+<tr>
+<td>D7</td>
+<td>Map <code>cash-ron</code>?</td>
+<td>Yes, as an asset ("Cash (Ron)").</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Resolved since this review:</strong> D8/D9 and R1–R8 — the plan carries the amendments (Tasks 4.1/4.4/5.1/5.3, §3.1 A5, §11.1) — see §3; the second pass V1–V7 corrected four of those resolutions (§3.1).</p>
+<h3 id="25-review-focus-acceptance-scenarios">2.5 Review focus (acceptance scenarios)</h3>
+<ol>
+<li>A hand-split group whose unit's amount later changes: the splits stay, the plan says so, and
+   verify does not fail forever.</li>
+<li>First run after the upgrade, with old hub hashes: every row is checked once (a GET), nothing is
+   written when Firefly already matches, and the second run is quiet.</li>
+<li>A foreign Firefly group carrying an <code>external_id</code>: never an orphan, never deleted.</li>
+<li>A re-parse that supersedes a leg of a projected transfer: the group is re-keyed in place; no
+   second transfer appears.</li>
+<li>A clearing account missing from <code>firefly.yaml</code>: the pass refuses before the first write and names
+   the ref.</li>
+</ol>
+<hr />
+<h2 id="3-gaps-after-review">3. Gaps after review</h2>
+<p>Method: reviewed 2026-10-09 against <code>V2-SPEC.md</code> §4/§6.3/§6.7/§11, <code>V2-PROPOSAL.md</code> §11 and the
+actual sources (<code>HubQueries.projectionUnits</code>, <code>HubSql</code>, <code>FireflyEgress</code>, <code>FireflyClient</code>,
+<code>Projection</code>, <code>AccountMap</code>, <code>HubClient</code>, <code>EgressCommand</code>, the fakes and the tests). F1–F11 are all
+confirmed; the plan's snippets and interfaces match the real records, so most of it compiles as
+written.</p>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Sev</th>
+<th>Gap</th>
+<th>Where</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1</td>
+<td><strong>High</strong></td>
+<td><code>legs=</code> never reaches transfers projected before Stage 5, so F11/F9 stay open for the existing stock.</td>
+<td>Stage 4 Step 6 + Task 5.2</td>
+<td><strong>Closed — D8</strong> (refeed, no migration); its cost made explicit by V7</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>Medium</td>
+<td>"Deleted in Firefly" (<code>V2-PROPOSAL.md</code> §11.5) is unaddressed; a 404 aborts with an <code>IOException</code>.</td>
+<td>§11.1 rewrite</td>
+<td><strong>Resolved — D9</strong> (contract + <code>--validate</code>); <strong>corrected by V1, V2, V4</strong></td>
+</tr>
+<tr>
+<td>R3</td>
+<td>Medium</td>
+<td>The hand-split re-key has no identity branch: <code>contentMoves</code> is false for multi-split groups, so the new <code>external_id</code> is never written (a PUT, if any, is an accident of the notes refresh).</td>
+<td>Task 5.3</td>
+<td><strong>Resolved</strong> — explicit identity branch + tests; the untagged-group edge closed by V5</td>
+</tr>
+<tr>
+<td>R4</td>
+<td>Low</td>
+<td><code>Content.cents</code> throws on sub-cent / 3-decimal amounts instead of reporting drift.</td>
+<td>Task 4.1</td>
+<td><strong>Resolved, corrected by V6</strong> — the fingerprint compares the exact amount; HALF_UP only sums hand-splits; blank → 0</td>
+</tr>
+<tr>
+<td>R5</td>
+<td>Low</td>
+<td>D2 says hand-splits are "reported"; after the first run they are invisible (verify clean forever).</td>
+<td>D2 + Task 4.3</td>
+<td><strong>Resolved</strong> — <code>--validate</code> <code>HAND_SPLIT</code> (D9)</td>
+</tr>
+<tr>
+<td>R6</td>
+<td>Low</td>
+<td>The spec text promises unit + account + date on a 4xx; <code>converge</code> names unit + group only.</td>
+<td>§1.8 / §11.1 "Failure"</td>
+<td><strong>Resolved</strong> — §11.1 failure text aligned</td>
+</tr>
+<tr>
+<td>R7</td>
+<td>Low</td>
+<td>Date normalization (<code>first 10 characters</code>) has no fallback if A5 shows a UTC-normalized echo.</td>
+<td>Task 4.1 + Stage 0</td>
+<td><strong>Resolved, completed by V3</strong> — §3.1 A5 fallback rule; both sides reduce through <code>Content.day</code></td>
+</tr>
+<tr>
+<td>R8</td>
+<td>Low</td>
+<td>"Ours iff it carries the tag" vs the first-split check in the code.</td>
+<td>§1.4 / §11.1 "Ownership"</td>
+<td><strong>Resolved</strong> — §11.1 says first split</td>
+</tr>
+</tbody>
+</table>
+<h3 id="r1-closed-by-deployment-strategy-locked-2026-10-09">R1 — closed by deployment strategy (locked 2026-10-09)</h3>
+<p>The gap (recap): notes are not in the fingerprint and are refreshed only inside <code>converge</code>, so a
+transfer projected by a Stage-4-only apply never receives <code>legs=</code>; a later supersede then produces
+the F11 orphan + create instead of a re-key.</p>
+<p><strong>Resolution — Firefly is rebuilt, not migrated (D8).</strong></p>
+<ul>
+<li>All stages are built first; the kept instance is <strong>refed from empty</strong> with the final build
+  (<code>--create-missing-accounts</code>, <code>--seed-categories</code>, then the first apply). Transfers are born with
+  <code>legs=</code> written by <code>create</code>, so nothing needs backfilling.</li>
+<li>No apply (manual or scheduled) runs against a kept instance until all stages are merged. The
+  plan's Stage 4 Step 6 live check is a throwaway/dev-instance activity only.</li>
+<li>The legs marker is therefore <strong>not built</strong>; Task 5.2 keeps only the notes refresh (<code>rules=</code> and,
+  after a re-key, the new <code>legs=</code>).</li>
+<li>Repair if an instance ever does carry pre-Stage-5 groups: refeed it from empty with the final
+  build. This assumes the old instance's manual Firefly edits are dispensable; if you ever need to
+  keep them, R1 returns and the reference fix is the legs marker in the recorded state.</li>
+</ul>
+<h3 id="r2-resolved-as-an-operational-contract-locked-2026-10-09">R2 — resolved as an operational contract (locked 2026-10-09)</h3>
+<p><strong>Decision: an operational issue, not BAU auto-repair (D9).</strong> The egress gains detection and a
+named failure; it never silently copes with an edit made in Firefly.</p>
+<ol>
+<li><strong>The contract</strong> (the Firefly section of <code>docs/DEPLOYMENTS.md</code>, with a pointer paragraph in
+   §11.1): allowed are your extra tags, budgets, bills, notes below our first line and hand-splits;
+   violations are deleting a tagged transaction, removing the <code>trex</code> tag, editing <code>external_id</code>,
+   the first notes line (<code>n=</code>/<code>rules=</code>/<code>legs=</code>) or a single-split group's content, or running
+   another importer over a tagged row. Each violation names its sanctioned remedies (restore the
+   tag, revert, fix the source in trex, retire the unit, or recreate via the recovery path).</li>
+<li><strong><code>--validate</code></strong> — a read-only mode: it lists Firefly's inventory (untagged groups included),
+   compares it against the hub units and the recorded state, classifies (<code>MISSING</code>, <code>UNTAGGED</code>,
+   <code>TAMPERED</code>, <code>DRIFT</code>, <code>ORPHAN</code>, <code>HAND_SPLIT</code>), prints, and exits 1 on a violation. It writes
+   nothing — not Firefly, not <code>projection_state</code> — so the "was known" evidence survives repeated
+   runs. Timer-safe; this is the scheduled detector (schedule it, not <code>--verify</code>). Its <code>HAND_SPLIT</code>
+   report is also where R5's hand-split sum check belongs.</li>
+<li><strong>Named failure on encounter</strong>: a planned read that finds its group missing stops the pass with
+   <code>Refused</code> naming unit and group and pointing at <code>--validate</code> — never a raw <code>IOException</code>. Apply
+   does not auto-recreate.</li>
+<li><strong>The recovery is explicit</strong>: <code>--verify</code> rebuilds the state from Firefly (the deleted unit
+   becomes a create; exit 1), then <code>--apply</code> recreates it. If the deletion was deliberate, retire
+   the unit in trex first, then <code>--remove-orphans</code>. Proposal §11.5's automatic "recreate if the
+   unit still exists" is replaced by this explicit path — a delta recorded in §11.1 and
+   <code>docs/V2-PARITY.md</code>.</li>
+</ol>
+<h3 id="r3-resolved-the-identity-branch-is-explicit-locked-2026-10-09">R3 — resolved: the identity branch is explicit (locked 2026-10-09)</h3>
+<p>The defect: <code>converge</code> handles a re-key through <code>contentMoves</code>, which is <code>single &amp;&amp; (rekey || …)</code>.
+A hand-split group is never <code>single</code>, so the new <code>external_id</code> was never written — whether a PUT
+happened (the Task 5.2 notes refresh) or not was incidental. State claimed the new unit, Firefly
+kept the old id, and <code>--verify</code> asked for the same re-key forever (or apply reported a re-key it
+never made).</p>
+<p><strong>Resolution (plan Task 5.3):</strong> an explicit branch after the split loop, before the early return,
+run on every split:</p>
+<pre><code class="language-java">if (rekey &amp;&amp; !single) {
+    for (Map&lt;String, Object&gt; map : splitsOut) {
+        map.put(&quot;external_id&quot;, unit.unitId());
+    }
+    changed = true;               // the identity move must reach Firefly
+}
+</code></pre>
+<p>The fingerprint stays <code>HAND_SPLIT</code>; the notes refresh carries the new <code>legs=</code>. Tests:
+<code>aSupersededHandSplitTransferRekeysItsIdentity</code> (one group, every split's id is the new one, amounts
+and descriptions untouched, verify empty) and a second plan → apply → verify pass that stays empty.</p>
+<h3 id="r4r8-resolved-locked-2026-10-09">R4–R8 — resolved (locked 2026-10-09)</h3>
+<ul>
+<li><strong>R4 — never throws (corrected by V6).</strong> As first resolved, <code>cents</code> rounded HALF_UP and the
+  text claimed a sub-cent remainder "shows as drift" — false below half a cent (<code>10.004</code> rounds to
+  <code>10.00</code> and matches). The fingerprint now carries the exact amount (<code>Content.exact</code>:
+  <code>"10.000000000000"</code> = <code>"10.00"</code>, <code>"10.004"</code> ≠ <code>"10.00"</code>); HALF_UP survives only for summing a
+  hand-split group. Blank is 0. Tests: <code>amountsCompareExactlySoASubCentEditIsDrift</code>,
+  <code>handSplitSumsRoundInsteadOfThrowing</code>.</li>
+<li><strong>R5 — the hand-split report lives in <code>--validate</code>.</strong> Its <code>HAND_SPLIT</code> finding reports a total
+  mismatch on every run, read-only; <code>--verify</code> stays quiet by design (D2). D2 now says "reported by
+  <code>--validate</code> instead".</li>
+<li><strong>R6 — the §11.1 failure sentence matches the code:</strong> a 4xx names the unit and Firefly's message;
+  a create also names the account and date.</li>
+<li><strong>R7 — the date fallback is a Stage 0 decision point.</strong> A5 records the echo; if its first ten
+  characters differ from the date sent, <code>Content.observed</code> compares
+  <code>OffsetDateTime.parse(echo).toLocalDate()</code> and the posting uses <code>&lt;date&gt;T12:00:00</code> so the local day
+  cannot shift (Task 4.1 + §3.1 A5).</li>
+<li><strong>R8 — "ours" is the first split's tag.</strong> §11.1 and D4 say "its first split carries the <code>trex</code>
+  tag", matching <code>allTransactions</code> and <code>converge</code>.</li>
+</ul>
+<p>Implementation nits accepted into the plan: <code>ProjectionTest.java</code> joined Task 5.1's file list; the
+creates rebuild snippet now uses the snapshot order; and a re-key whose group lost the <code>trex</code> tag is
+intentionally left for the next plan (ownership is the tag — D4).</p>
+<h3 id="what-the-review-confirmed">What the review confirmed</h3>
+<ul>
+<li>F1's root cause is exactly as stated (the clearing side is looked up as a fact and <code>continue</code>d);</li>
+<li>the derived tables are written in one transaction, so "a dangling unit is an error" is safe;</li>
+<li>the interfaces match the real records (<code>ProjectionUnit</code> 15 components, <code>Decision.Supersede</code>'s
+  convenient constructor, <code>chain_resolved(id, current_id)</code>, <code>/api/opening</code>'s clearing result,
+  <code>HubClient.currencyByAccount()</code>), so the snippets should compile as written;</li>
+<li>the tests-first structure, stage gates and counter definitions are consistent with <code>AGENTS.md</code>.</li>
+</ul>
+<h3 id="31-second-pass-on-the-resolutions-v1v7-2026-10-09">3.1 Second pass on the resolutions — V1–V7 (2026-10-09)</h3>
+<p>The R1–R8 resolutions were re-checked against the amended plan. All eight point the right way;
+four needed correcting, mostly in <code>--validate</code>, which would otherwise have exited 1 on ordinary
+days. <strong>All seven are now folded into the plan.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Sev</th>
+<th>Defect in the resolution</th>
+<th>Correction (plan location)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V1</td>
+<td><strong>High</strong></td>
+<td><code>TAMPERED</code> compared the first notes line's <strong>values</strong>. <code>rules=</code> goes stale on every unchanged row after any rule edit, and <code>n=</code> moves with a new observation of the same content; notes refresh only when a group converges for another reason. A timer-driven <code>--validate</code> would fail after every rule edit.</td>
+<td>The first line is checked for <strong>shape</strong> only (<code>trex n=&lt;digits&gt; …</code>), plus <code>external_id</code> and, for a transfer, its <code>legs=</code> resolved through the supersession map. Test <code>aRuleEditLeavesStaleNotesButNoViolation</code>. (Task 4.4)</td>
+</tr>
+<tr>
+<td>V2</td>
+<td>Medium</td>
+<td><code>DRIFT</code> ("content differs from expected") also fired for pending trex-side work — a restatement ingested but not yet applied.</td>
+<td>Judge against the <strong>recorded</strong> fingerprint: Firefly ≠ recorded is <code>DRIFT</code> (an edit; exit 1); Firefly = recorded but expected moved is <code>BEHIND</code> (informational). Unverified or hand-split state is never <code>DRIFT</code>. Test <code>aTrexSideRestatementIsBehindNotDrift</code>. (Task 4.4)</td>
+</tr>
+<tr>
+<td>V3</td>
+<td>Medium</td>
+<td>The R7 fallback posts <code>&lt;date&gt;T12:00:00</code>, but <code>Content.expected</code> used the date string verbatim while <code>observed</code> cut it to ten characters: a perpetual update and <code>DRIFT</code> on every row.</td>
+<td>One <code>Content.day</code> used by both sides. Test <code>aNoonPostingAndItsEchoAreTheSameDay</code>. (Task 4.1)</td>
+</tr>
+<tr>
+<td>V4</td>
+<td>Medium</td>
+<td>Task 5.3 read a transfer orphan's legs with <code>group()</code>, which throws on 404 — the exact case of a group deleted in Firefly. <code>--plan</code> itself would abort, contradicting D9.</td>
+<td><code>groupOrNull</code>; a missing orphan group is <strong>gone</strong> — not an orphan, dropped from the state on apply. Test <code>anOrphanDeletedInFireflyIsGoneNotAnAbort</code>. (Task 5.3)</td>
+</tr>
+<tr>
+<td>V5</td>
+<td>Low–Med</td>
+<td>A re-key into a group that lost its <code>trex</code> tag returned <code>NOT_OURS</code> after the successor had been removed from the creates; every later run repeated it, so the new unit <strong>never reached Firefly</strong>, and no <code>--validate</code> class saw it.</td>
+<td>Ownership is checked at match time: an untagged orphan group is <strong>foreign</strong> — the successor is created, the group left as yours. Test <code>aSupersededUnitWhoseGroupLostItsTagIsCreatedNotStuck</code>. (Task 5.3)</td>
+</tr>
+<tr>
+<td>V6</td>
+<td>Low</td>
+<td>R4's "a sub-cent remainder shows as drift" was false below half a cent.</td>
+<td>Exact amount in the fingerprint (<code>Content.exact</code>); HALF_UP only for hand-split sums. (Task 4.1)</td>
+</tr>
+<tr>
+<td>V7</td>
+<td>Note</td>
+<td>D8 makes refeed-from-empty the standing repair, so Firefly-side work (hand-assigned budgets, piggy-bank links, your tags, hand-splits) is disposable — and budgets were left to Firefly.</td>
+<td>Stated in D8 and the operations notes: assign budgets with a re-runnable Firefly rule group, never by hand. The D9 forcing function (a deleted transaction blocks deltas until <code>--verify</code> → <code>--apply</code>) is also written down. (D8, Stage 6)</td>
+</tr>
+</tbody>
+</table>
+<p>Also corrected: §11.1 "Cost" now says a rule change writes only the units whose category changed
+(the first wording said every unit was re-planned <em>and written</em>).</p>
+<p><strong>Next:</strong> all review items are resolved or carried into the plan; run Stage 0.</p>
+</article>
+<footer>V2 Firefly egress — spec, plan and review · rendered from
+<code>docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md</code> · <code>V2-SPEC.md</code> is authoritative.</footer>
+</main>
+</body>
+</html>
