@@ -19,6 +19,15 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **Config drift** (`QOL_Improvements.md` §3). The `init` service now writes the image's copy of
+  every seeded config file to `/etc/trex/.shipped/<file>` on each `up` (and the installed copy to
+  `.base/<file>` when it seeds a missing live file), never overwriting the live file. The hub
+  compares shipped, base and current per file and serves `GET /api/config/drift` (`same`,
+  `repo-newer`, `edited-here`, `both-changed`, `unknown`); the Jobs page shows a one-line strip
+  when anything is not `same`. `deploy/v2/dev.sh sync-config` — and the same throwaway-alpine
+  command documented for the host in `docs/DEPLOYMENTS.md` — backs up and updates only
+  `repo-newer` files; `--adopt FILE` records the live file as the base for the first run. Reads
+  only; nothing is stored.
 - **The statement-age nudge** (`QOL_Improvements.md` §2). The strip now says *which* statement to
   fetch: `/api/status` gains `stale` — every account whose frontier (its newest statement row) is
   older than its fetch cadence, oldest first — and the strip shows **⧗ N statements to fetch**
