@@ -23,6 +23,7 @@ let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
 let stale = [];        // /api/status stale accounts, oldest first (QOL_Improvements.md §2)
+let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
 
 // The four foldable sections (§4); the open state is a device preference, like the window.
@@ -48,14 +49,18 @@ export function mount(container, context) {
 }
 
 async function load() {
+  const generation = ++loadGeneration;
   try {
+    // The status read fails open: the nudge is a nicety, not a reason to blank the whole view.
     const [expected, commitments, status] = await Promise.all([
-      api.expected(win), api.commitments(), api.status()]);
+      api.expected(win), api.commitments(), api.status().catch(() => null)]);
+    if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     data = expected;
     registry = commitments;
-    stale = status.stale || [];
+    stale = (status && status.stale) || [];
     errorBar.hidden = true;
   } catch (error) {
+    if (generation !== loadGeneration) return;
     errorBar.textContent = error.message || 'failed to load the expected view';
     errorBar.hidden = false;
     return;
@@ -184,18 +189,19 @@ function statusCell(o) {
 }
 
 /**
- * The awaiting tooltip (QOL_Improvements.md §2): when every rule of the commitment is scoped to an
- * account and one of those accounts is past its fetch cadence, name the oldest such account and its
- * age. Unscoped rules, an unknown commitment or no stale account keep the generic fetch-it hint.
- * {@code stale} is oldest first, so the first scoped match is the oldest.
+ * The awaiting tooltip (QOL_Improvements.md §2): the matcher escalates to awaiting on the newest
+ * frontier over the commitment's rule accounts, so one account can be named honestly only when the
+ * rules resolve to exactly one distinct account — repeated refs are one account. With several,
+ * which statement closed the window is a guess, so the tooltip keeps the generic fetch-it hint, as
+ * it does for unscoped rules, an unknown commitment, or a single account that is not stale.
  */
 function awaitingTitle(o) {
   const commitment = registry.find((c) => c.commitmentId === o.commitmentId);
-  const accounts = ((commitment && commitment.rules) || []).map((r) => r.account);
-  if (accounts.length && !accounts.some((a) => !a)) {
-    const scoped = new Set(accounts);
-    const hit = stale.find((s) => scoped.has(s.account));
-    if (hit) return `waiting for the ${hit.account} statement — ${hit.days} days old`;
+  const accounts = new Set(((commitment && commitment.rules) || []).map((r) => r.account));
+  if (accounts.size === 1 && !accounts.has(null)) {
+    const [account] = accounts;
+    const hit = stale.find((s) => s.account === account);
+    if (hit) return `waiting for the ${account} statement — ${hit.days} days old`;
   }
   return 'window closed, but the statement has not reached it yet — fetch it (Jobs)';
 }

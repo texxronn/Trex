@@ -145,10 +145,15 @@ so each entry also carries the effective `fetchEveryDays` — the wire shape is
 `days > 2 × fetchEveryDays` for amber. The strip places the nudge after the all-clear or the review
 count, muted until amber, its tooltip one line per account; the click sets `#jobs?frontier`, which
 the existing shell router hands to jobs as `ctx.modeQuery`, and the Jobs heading (now
-`id="fetch-frontier"`) scrolls into view once its load has rendered the sections above it. Expected's `load` fetches `/api/status` in its
-existing `Promise.all` (no shared mutable state); the `awaiting` tooltip names the oldest stale
-account among the commitment's scoped rule accounts, and an unscoped rule, an unknown commitment or
-no stale account keeps the generic hint. In `deploy/config/accounts.yaml` only the header comment
+`id="fetch-frontier"`) scrolls into view once its load has rendered the sections above it.
+Expected's `load` fetches `/api/status` in its existing `Promise.all`; that read fails open — a
+status error leaves the stale list empty rather than blanking the view — and a module-level load
+generation discards a superseded load's results and error bar when a mount races an SSE refresh.
+The `awaiting` tooltip names an account only when the commitment's rules resolve to exactly one
+distinct account (repeated refs are one account) and that account is stale; the matcher escalates
+on the newest frontier over several accounts, so naming one of them would be a guess, and an
+unscoped rule, an unknown commitment or no stale account also keeps the generic hint. In
+`deploy/config/accounts.yaml` only the header comment
 documents the field: every closed account there is `balanceSource: clearing`, which already
 defaults to no cadence, so none needed the explicit `0`. Pinned by
 `HubStatusApiTest.staleListsAccountsPastTheirCadence` (one account inside its default 31, two past
