@@ -9,9 +9,9 @@ derived table is rebuildable.
 **v2 is the active system.** The v1 tree and its documents are archived in the sibling project
 [`../TrexV1`](../TrexV1) — reference only; v2 does not import them.
 
-- **Specification:** [V2-PROPOSAL.md](V2-PROPOSAL.md) — authoritative.
-- **As built:** [V2-SPEC.md](V2-SPEC.md) — what the code does, and every deliberate delta.
-- **Build order and acceptance:** [V2-IMPLEMENTATION-PLAN.md](V2-IMPLEMENTATION-PLAN.md).
+- **Specification:** [V2-SPEC.md](V2-SPEC.md) — authoritative; §18 says what every other document is for.
+- **History of intent:** [V2-PROPOSAL.md](V2-PROPOSAL.md) — frozen 2026-10-09; read it for *why*.
+- **Current plan:** [QOL_Improvements.md](QOL_Improvements.md).
 - **Parity with v1:** [docs/V2-PARITY.md](docs/V2-PARITY.md).
 - **Release, deploy:** [docs/RELEASE.md](docs/RELEASE.md), [docs/DEPLOYMENTS.md](docs/DEPLOYMENTS.md).
 
