@@ -55,6 +55,7 @@ log's history are permanent.
 
 - Build in the stage order of the current plan (`V2-*-PLAN.md`); a change to behaviour updates
   `V2-SPEC.md` in the same PR.
+- A change to derive, identity or units states its effect on the Firefly egress in the same spec PR.
 - Every stage must compile and have its acceptance tests green before moving on.
 - Do not implement future stages early.
 - Do not redesign working parts for hypothetical requirements.

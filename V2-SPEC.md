@@ -500,11 +500,78 @@ Eight modes; each one's detail lives in the plan that built it.
 
 ## 11. Egress and export (`trex-v2-egress`)
 
-- **Firefly** (`V2-PROPOSAL.md` §11): `plan` / `apply` / `verify` over the hub's projectable units. Legs are never
-  projected; an `ATTESTATION` is never projected; `HELD`/`REVIEW`, `PENDING` and retired facts are
-  withheld. The transaction type follows the account kinds; a re-tag preserves splits and
-  `group_title` and clears a stale `category_id`; drift and de-projected units are reported, never
-  deleted automatically. Projection state is an accelerator, rebuilt from Firefly when missing.
+### 11.1 Firefly
+
+A batch (`plan` / `apply` / `verify`), never a daemon; started from Jobs or the CLI.
+
+**What is projected.** Resolved units from `/api/units`: posted EXTERNAL transactions and TRANSFER
+rows (a clearing pair included, carried by its real leg). Never a leg (a transfer and its legs
+double-count), never HELD/REVIEW, PENDING, an ATTESTATION (a $0 transaction forever) or a retired
+fact. Transaction notes and commitments are not projected (Firefly holds money that moved).
+
+**The type comes from the two Firefly account kinds**, not from trex: asset↔asset and
+liability↔liability are `transfer`; asset→liability is `withdrawal`; liability→asset is `deposit`
+(Firefly refuses a `transfer` across the line).
+
+**Every posting carries** `external_id` = unit id (part of Firefly's duplicate hash, so a collision
+can only name the same row); `internal_reference` = account ref; tags `trex` and
+`trex-category:<CATEGORY>`; `category_name` (always, `UNCATEGORIZED` included); notes whose first
+line is `trex n=<n> rules=<configRevision>` (+ ` legs=<a>,<b>` on a transfer) and whose second is the
+raw description; `error_if_duplicate_hash: true` (the 422 names the existing group, which is how a
+lost state recovers); `apply_rules: false` (trex is the single classifier; budgets are Firefly's).
+Counterparties are merchant stems. Amounts are two-decimal strings from cents.
+
+**Ownership.** A group is ours iff its first split carries the `trex` tag. The egress owns `external_id`, its two
+tags, the first notes line, and on a single-split group the type, date, amount, currency, source,
+destination and description. Category moves only while it equals our tag (otherwise you changed it,
+and you win). Everything else — other tags, budget, bill, piggy bank, splits, the rest of the notes —
+is returned untouched. A hand-split group's content is never rewritten.
+
+**Every write is read-modify-write.** A PUT replaces the group: return every split and
+`group_title`. When a field moves by name, drop its id (Firefly resolves the id first — the failure
+that looks exactly like success).
+
+**Convergence.** `projection_state` (an accelerator, rebuildable from Firefly) records per unit the
+group id, the category last written and a content fingerprint `fp1:<sha256>` over
+type|date|amount|currency|source|destination|description (the amount exact, never rounded), computable both from the posting and from
+Firefly's read-back. A unit converges when its category or fingerprint differs; converge reads the
+group, writes only what moved, and records the result. `verify` rebuilds the state from Firefly
+(fingerprints included) and plans; non-empty is exit 1.
+
+**Identity moves.** A superseded unit's group is re-keyed in place (new `external_id`, new content),
+found through the hub's supersession map (EXTERNAL) or the legs in the notes (TRANSFER). A unit that
+changed kind is an orphan reported beside its successors. Nothing is deleted without
+`--remove-orphans`; a missing group on delete is already gone.
+
+**Firefly-side edits.** Firefly is edited only within the operational contract
+(`docs/DEPLOYMENTS.md`): your tags, budgets, bills, notes below our first line and hand-splits are
+yours; deleting a tagged transaction, removing the `trex` tag, editing `external_id`, the first
+notes line (`n=`/`rules=`/`legs=`) or a single-split group's content is outside it. A read-only
+`--validate` reports and classifies every such edit (`MISSING`, `UNTAGGED`, `TAMPERED`, `DRIFT`;
+exit 1) beside the normal states (`BEHIND`, `ORPHAN`, `HAND_SPLIT`; informational); it never writes.
+A violation is something Firefly changed, never something trex moved on from: the first notes line
+is checked for shape, not values, and content against the fingerprint trex last wrote. When a planned read finds its group missing,
+the pass stops with a named refusal — never a stack trace and never an automatic recreate:
+recreation is the explicit recovery (`--verify` rebuilds the state from Firefly, so the unit becomes
+a create; `--apply` recreates it), or retire the unit in trex and clean up with `--remove-orphans`.
+
+**Accounts.** `firefly.yaml` maps each ref to a Firefly name and type, keyed by name (a rebuilt
+instance changes every id). Startup stops on an unknown name, a type that disagrees, or a currency
+that disagrees with `accounts.yaml`. The whole unit list is checked for unmapped refs before the
+first write. Creation is opt-in (`--create-missing-accounts`); the opening is the backward figure
+(a clearing account's computed opening), a liability seeded negative.
+
+**Failure.** Retry 5xx, 429 and dropped connections with backoff and jitter, honouring
+`Retry-After`; a 4xx stops the pass naming the unit and Firefly's message (a create also names the
+account and date); exit non-zero. State is recorded as each write lands, so a rerun resumes.
+
+**Cost.** A rule change re-plans every unit but writes only those whose category changed (a GET +
+PUT each); unchanged rows keep a stale `rules=` in their notes by design. A first full apply on an empty Firefly is slow (measured ~0.6/s past a
+thousand creates) and safe to interrupt.
+
+*Stages 2–5 of V2-FIREFLY-EGRESS-PLAN.md build the clearing, ownership, validation, fingerprint
+and re-key rules; until each lands, the code is behind this text.*
+
 - **Archive**: a byte mirror of the journal plus an evidence copy, verified by hash.
 - **Export**: `csv`, `json`, or a portable `sqlite` file.
 
