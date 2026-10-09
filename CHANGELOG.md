@@ -19,6 +19,15 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **Re-read evidence** (`QOL_Improvements.md` §4). A parser fix is a button with a preview, not a
+  terminal session: the runner gains the `reparse` job — `ingest --reparse <evidence>` with the
+  batch's recorded `sourceType` and `account`, preview by default, apply only under `--allow-apply`
+  and only for an evidence id the store already holds. Every ingest-history row on Jobs gains
+  **Re-read**, which previews that batch's evidence and shows `N matched, M changed` with
+  `SHIFTED`/`NEW`/`MISSING` counts above the run output; Apply stays locked until a preview of the
+  same evidence found changes and no `RETIRE`s (a `MISSING` count is red and unlocks only after an
+  explicit tick), and it locks again after an apply. `GET /api/ingests` rows now carry the start
+  marker's `sourceType`. Applying writes exactly what `trex ingest --reparse --apply` writes.
 - **Config drift** (`QOL_Improvements.md` §3). The `init` service now writes the image's copy of
   every seeded config file to `/etc/trex/.shipped/<file>` on each `up` (and the installed copy to
   `.base/<file>` when it seeds a missing live file), never overwriting the live file. The hub

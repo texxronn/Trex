@@ -454,7 +454,7 @@ Eight modes; each one's detail lives in the plan that built it.
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
-| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
+| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
 
 ---
 
@@ -566,13 +566,20 @@ equivalence ledger; `StatementsE2ETest` is the end-to-end run over real statemen
 ## 16. The runner and its schedule
 
 `trex-v2-runner` is a loopback service the hub proxies. A **job** is an invocation of an existing
-subcommand — `ingest`, `ingest-inbox`, `egress-firefly`, `journal-snapshot`, `stream` (mode
+subcommand — `ingest`, `ingest-inbox`, `reparse`, `egress-firefly`, `journal-snapshot`, `stream` (mode
 `export | ingest`) — never new logic: the runner starts the process, streams its output and records the exit code. One serialized
 worker, a bounded in-memory run history, and a **staging inbox** for uploads. `ingest-inbox` is the
 one allowed composition: the `ingest` subcommand with its items resolved from `statements.yaml`
 over the settled inbox files, each filed by exit code — `0` to `done/`, `1`/`3` to `failed/`,
 otherwise left for the next sweep; an empty or all-unnamed inbox is *nothing to do*, which a
-scheduled run skips quietly. `POST /jobs/{name}/runs`
+scheduled run skips quietly. `reparse` replays one stored evidence id with the adapter and account
+the batch recorded (`sourceType` and `account` are params the Jobs page fills from the ingest
+history), defaulting to a preview; `apply` is gated by `--allow-apply` and by the UI — Apply unlocks
+only after a preview of the same evidence that found changes and no `RETIRE`, or after an explicit
+tick that accepts the retirements (`QOL_Improvements.md` §4). `reparse` is schedulable like
+`egress-firefly`: a schedule entry may carry its params (including `mode: apply`), and a scheduled
+apply is gated only by `--allow-apply` — the fresh-preview/`RETIRE` tick is the manual path's
+safeguard, not a scheduler rule. `POST /jobs/{name}/runs`
 is async (`202 {runId}`) or, with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
 The runner mounts the journal read-only so the `stream` export job can read it.
 

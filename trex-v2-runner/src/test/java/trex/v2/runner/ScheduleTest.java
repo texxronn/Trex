@@ -81,6 +81,29 @@ class ScheduleTest {
     }
 
     @Test
+    void reparseEntryCarriesItsParams(@TempDir Path dir) throws Exception {
+        // Schedulable like egress (QOL_Improvements.md §4, operator decision 2026-10-09): an entry
+        // may carry a full apply request; --allow-apply is the real gate when it fires.
+        String evidence = "sha256:" + "0".repeat(64);
+        Schedule.Entry e = entry(dir, """
+            jobs:
+              - job: reparse
+                every: 24h
+                at: "03:00"
+                params:
+                  evidence: "%s"
+                  sourceType: ing-csv
+                  account: ing-salary
+                  mode: apply
+            """.formatted(evidence));
+        assertEquals("reparse", e.job());
+        assertEquals(evidence, e.params().path("evidence").asText());
+        assertEquals("ing-csv", e.params().path("sourceType").asText());
+        assertEquals("ing-salary", e.params().path("account").asText());
+        assertEquals("apply", e.params().path("mode").asText());
+    }
+
+    @Test
     void rejectsTheGrammarBreakers(@TempDir Path dir) {
         assertThrows(IllegalArgumentException.class, () -> entry(dir, """
             jobs:

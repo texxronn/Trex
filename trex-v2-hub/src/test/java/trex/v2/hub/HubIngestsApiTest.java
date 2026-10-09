@@ -54,6 +54,10 @@ class HubIngestsApiTest {
             assertEquals(2, all.get("rows").size(), all.toPrettyString());
             assertEquals("new.csv", all.get("rows").get(0).get("file").asText(), all.toPrettyString());
             assertEquals("old.csv", all.get("rows").get(1).get("file").asText(), all.toPrettyString());
+            // The start marker's sourceType rides along (QOL_Improvements.md §4): the Jobs page
+            // pairs evidence with the adapter it was ingested with.
+            assertEquals("ing-csv", all.get("rows").get(0).get("sourceType").asText(), all.toPrettyString());
+            assertEquals("ing-csv", all.get("rows").get(1).get("sourceType").asText(), all.toPrettyString());
 
             // sinceN = the first batch's n_end leaves only the second batch.
             JsonNode later = get(client, base.resolve("/api/ingests?sinceN=2"));

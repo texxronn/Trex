@@ -16,6 +16,7 @@ let ingests = [];
 let drift = null;
 let configDrift = null;
 let lastPlan = null; // in-session plan counts; Apply stays locked until one exists
+let lastPreview = null; // in-session reparse preview; Apply stays locked until a fresh one exists
 
 const selected = new Set();
 let stream = null;
@@ -30,6 +31,7 @@ let frontierHeading;
 let historyHost;
 let statusLine;
 let ingestButton;
+let reparseSummaryHost;
 let focusFrontier = false;
 
 export function mount(container, context) {
@@ -53,6 +55,7 @@ function render() {
   ingestHost = el('div');
   frontierHost = el('div');
   historyHost = el('div');
+  reparseSummaryHost = el('div');
   outputHost = el('pre', { class: 'job-output' });
   statusLine = el('div', { class: 'muted', hidden: true });
   host.append(
@@ -65,6 +68,7 @@ function render() {
     el('h3', {}, 'Jobs'),
     jobsHost,
     el('h3', {}, 'Run output'),
+    reparseSummaryHost,
     outputHost,
     frontierHeading = el('h3', { id: 'fetch-frontier' }, 'Fetch frontier'),
     frontierHost,
@@ -367,6 +371,39 @@ function jobCard(job) {
     return nodes;
   }
 
+  if (job.name === 'reparse') {
+    // A preview comes from a Re-read on an ingest-history row, so Apply can only ever post that
+    // same evidence; it stays locked until the preview found something and nothing to RETIRE, and
+    // after a successful apply it locks again (QOL_Improvements.md §4).
+    const canApply = !busy && lastPreview != null && lastPreview.exit === 0
+      && lastPreview.changed > 0
+      && (lastPreview.counts.MISSING === 0 || lastPreview.acked);
+    nodes.push(el('div', { class: 'muted' }, lastPreview
+      ? 'previewed: ' + reparseSummaryText(lastPreview)
+      : 'Apply is locked until you Re-read a batch from the ingest history below.'));
+    const buttons = [
+      el('button', { class: 'warn', disabled: !canApply, onclick: confirmReparse,
+        title: canApply ? '' : applyLockedReason(lastPreview, busy) }, 'Apply'),
+    ];
+    if (busy && job.activeRun) {
+      buttons.push(el('button', { class: 'ghost', onclick: () => cancel(job.activeRun) }, 'Cancel'));
+    }
+    nodes.push(el('div', { class: 'toolbar' }, ...buttons));
+    if (lastPreview && lastPreview.exit === 0 && lastPreview.counts.MISSING > 0) {
+      nodes.push(el('label', {},
+        el('input', {
+          type: 'checkbox',
+          checked: !!lastPreview.acked,
+          onchange: (event) => {
+            lastPreview.acked = event.target.checked;
+            renderJobs();
+          },
+        }),
+        ' I understand ' + lastPreview.counts.MISSING + ' row(s) will be RETIREd'));
+    }
+    return nodes;
+  }
+
   if (job.name === 'journal-snapshot') {
     const next = job.nextRun ? ` · next: ${relFuture(job.nextRun)}` : '';
     nodes.push(el('div', { class: 'muted' },
@@ -410,6 +447,112 @@ async function confirmApply() {
   await startRun('egress-firefly', { mode: 'apply' });
 }
 
+/** The reparse preview's one-line state for the job card. */
+function reparseSummaryText(preview) {
+  const c = preview.counts || {};
+  const counts = `SHIFTED ${c.SHIFTED || 0} \u00b7 NEW ${c.NEW || 0} \u00b7 MISSING ${c.MISSING || 0}`;
+  const head = preview.matched === null || preview.matched === undefined
+    ? `exit ${preview.exit}` : `${preview.matched} matched, ${preview.changed} changed`;
+  return `${head} \u00b7 ${counts}`;
+}
+
+function applyLockedReason(preview, busy) {
+  if (busy) return 'A run is already active';
+  if (!preview) return 'Re-read a batch first';
+  if (preview.exit !== 0) return 'The preview failed';
+  if (!(preview.changed > 0)) return 'The preview found nothing to apply';
+  return 'Tick the retirement box first';
+}
+
+async function confirmReparse() {
+  const preview = lastPreview;
+  if (!preview || preview.exit !== 0 || !(preview.changed > 0)) return;
+  if (preview.counts.MISSING > 0 && !preview.acked) return;
+  const c = preview.counts;
+  const retire = c.MISSING > 0
+    ? `\n\n${c.MISSING} row(s) no longer parse and will be RETIREd.` : '';
+  const message = `Re-read ${shortEvidence(preview.evidence)} as `
+    + `${preview.sourceType}/${preview.account} and post the changes?\n\n`
+    + `${preview.matched} matched, ${preview.changed} changed \u00b7 SHIFTED ${c.SHIFTED} \u00b7 `
+    + `NEW ${c.NEW} \u00b7 MISSING ${c.MISSING}` + retire;
+  if (!window.confirm(message)) return;
+  await startRun('reparse', {
+    evidence: preview.evidence,
+    sourceType: preview.sourceType,
+    account: preview.account,
+    mode: 'apply',
+  });
+}
+
+/** Capture a finished reparse so the card's Apply gate is fresh; null (locked) on a bad read. */
+async function captureReparse(runId, params, run) {
+  const empty = { matched: null, changed: null, counts: { SHIFTED: 0, NEW: 0, MISSING: 0 } };
+  let detail;
+  try {
+    detail = await api.runDetail(runId);
+  } catch (error) {
+    reportError(error);
+    renderReparseSummary(params, run, empty);
+    return null;
+  }
+  const parsed = parseReparseOutput(detail.output);
+  renderReparseSummary(params, detail, parsed);
+  return {
+    evidence: params.evidence,
+    sourceType: params.sourceType,
+    account: params.account,
+    matched: parsed.matched,
+    changed: parsed.changed,
+    counts: parsed.counts,
+    exit: detail.exit,
+    acked: false,
+  };
+}
+
+/**
+ * IngestCommand.reparse prints "re-parse with <parser>: N matched, M changed" and one line per
+ * proposed change: the kind (padded), the external id, the detail.
+ */
+function parseReparseOutput(output) {
+  const lines = output || [];
+  const summary = [...lines].reverse().find((line) => line.startsWith('re-parse with '));
+  const m = /re-parse with .*?: (\d+) matched, (\d+) changed/.exec(summary || '');
+  const counts = { SHIFTED: 0, NEW: 0, MISSING: 0 };
+  for (const line of lines) {
+    const kind = /^\s+(SHIFTED|NEW|MISSING)\s/.exec(line);
+    if (kind) counts[kind[1]] += 1;
+  }
+  return { matched: m ? Number(m[1]) : null, changed: m ? Number(m[2]) : null, counts };
+}
+
+/** The per-evidence summary above the raw output (QOL_Improvements.md §4). */
+function renderReparseSummary(params, detail, parsed) {
+  if (!reparseSummaryHost) return;
+  clear(reparseSummaryHost);
+  const p = params || {};
+  const counts = parsed.counts || {};
+  reparseSummaryHost.append(el('div', { class: 'ops' },
+    chip('re-read', `${p.mode || 'preview'} \u00b7 ${shortEvidence(p.evidence)}`, 'muted'),
+    chip('adapter', `${p.sourceType || '?'} \u00b7 ${p.account || '?'}`, 'muted'),
+    chip('result', parsed.matched === null
+      ? `exit ${detail.exit}`
+      : `${parsed.matched} matched, ${parsed.changed} changed`,
+      detail.exit === 0 ? 'good' : 'bad'),
+    chip('SHIFTED', String(counts.SHIFTED || 0), 'muted'),
+    chip('NEW', String(counts.NEW || 0), 'muted'),
+    chip('MISSING', String(counts.MISSING || 0), counts.MISSING ? 'bad' : 'good'),
+  ));
+  if (counts.MISSING > 0) {
+    reparseSummaryHost.append(el('div', { class: 'ops' },
+      el('span', { class: 'occ-missed' },
+        `${counts.MISSING} row(s) no longer parse and would be RETIREd \u2014 tick on the reparse card to unlock Apply`)));
+  }
+}
+
+function shortEvidence(id) {
+  return id && id.length > 18 ? id.slice(0, 17) + '\u2026' : (id || '');
+}
+
 async function cancel(runId) {
   try {
     await api.cancelRun(runId);
@@ -421,6 +564,11 @@ async function cancel(runId) {
 
 async function startRun(name, params) {
   clear(outputHost);
+  clear(reparseSummaryHost);
+  if (name === 'reparse') {
+    lastPreview = null; // the moment a run starts, Apply locks — and stays locked if it fails
+    renderJobs();
+  }
   appendOutput(`== ${name} ${JSON.stringify(params)}`);
   try {
     const { runId } = await api.runJob(name, params);
@@ -430,6 +578,13 @@ async function startRun(name, params) {
     }
     if (name === 'egress-firefly' && params.mode === 'apply' && run.exit === 0) {
       lastPlan = null; // consumed: Apply locks again until the next plan
+    }
+    if (name === 'reparse') {
+      const preview = await captureReparse(runId, params, run); // renders the summary for either mode
+      // Only a preview unlocks Apply; an apply leaves the gate locked (cleared at start).
+      if (params.mode === 'preview') {
+        lastPreview = preview; // Apply posts exactly this evidence: the same-evidence rule
+      }
     }
   } catch (error) {
     reportError(error);
@@ -486,7 +641,7 @@ function renderIngests() {
   }
   const head = el('tr', {}, el('th', {}, 'File'), el('th', {}, 'Account'), el('th', {}, 'Frontier'),
     el('th', {}, 'n range'),
-    el('th', {}, 'app/dup/flag'), el('th', {}, 'Status'), el('th', {}, 'When'));
+    el('th', {}, 'app/dup/flag'), el('th', {}, 'Status'), el('th', {}, 'When'), el('th', {}));
   const body = ingests.map((i) => el('tr', {},
     el('td', { class: 'desc', title: i.evidenceId || '' }, i.file || '(unknown)'),
     el('td', {}, i.accountRef || ''),
@@ -495,8 +650,39 @@ function renderIngests() {
     el('td', {}, `${num(i.appended)}/${num(i.duplicate)}/${num(i.flagged)}`),
     el('td', {}, el('span', { class: 'badge ' + (i.status === 'ok' ? '' : 'POTENTIAL_DUP') },
       i.status || 'open')),
-    el('td', { class: 'muted' }, rel(i.completedMs || i.startedMs))));
+    el('td', { class: 'muted' }, rel(i.completedMs || i.startedMs)),
+    el('td', {}, reReadButton(i))));
   ingestHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
+/**
+ * The ingest row's action (QOL_Improvements.md §4): preview this batch's evidence with the adapter
+ * and account the start marker recorded, so evidence is never paired with the wrong parser.
+ */
+function reReadButton(row) {
+  const busy = jobRunning('reparse');
+  const ready = !busy && row.evidenceId && row.sourceType && row.accountRef;
+  let title = 'preview this evidence with the parser the batch used';
+  if (busy) title = 'a reparse run is active';
+  else if (!row.evidenceId) title = 'this batch has no evidence id';
+  else if (!row.sourceType) title = 'this batch has no source type';
+  else if (!row.accountRef) title = 'this batch has no account';
+  return el('button', {
+    class: 'ghost',
+    disabled: !ready,
+    title,
+    onclick: () => startRun('reparse', {
+      evidence: row.evidenceId,
+      sourceType: row.sourceType,
+      account: row.accountRef,
+      mode: 'preview',
+    }),
+  }, 'Re-read');
+}
+
+function jobRunning(name) {
+  const job = jobs.find((candidate) => candidate.name === name);
+  return !!(job && job.running);
 }
 
 // ---- fetch frontier -------------------------------------------------------------------------
@@ -558,8 +744,12 @@ async function showRun(runId) {
   try {
     const run = await api.runDetail(runId);
     clear(outputHost);
+    clear(reparseSummaryHost);
     appendOutput(`== ${run.job} (${run.state}, exit ${run.exit})`);
     for (const line of run.output || []) appendOutput(line);
+    if (run.job === 'reparse') {
+      renderReparseSummary(run.params || {}, run, parseReparseOutput(run.output));
+    }
   } catch (error) {
     reportError(error);
   }

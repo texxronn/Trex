@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import trex.v2.log.EvidenceStore;
 import trex.v2.log.Json;
 
 import java.nio.charset.StandardCharsets;
@@ -37,6 +38,53 @@ class JobCatalogueTest {
         RunnerConfig unlocked = config(dir, true);
         JobSpec apply = JobCatalogue.of(unlocked, StatementsMap.load(dir), staging).get("egress-firefly");
         assertTrue(apply.steps().build(mode("apply")).get(0).argv().contains("--apply"));
+    }
+
+    // ---- re-read evidence (QOL_Improvements.md §4) ------------------------------------------
+
+    @Test
+    void reparseArgvPreviewAndApplyGate(@TempDir Path dir) throws Exception {
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        String id = new EvidenceStore(dir.resolve("evidence"))
+            .put("date,amount\n2026-01-02,-10\n".getBytes(StandardCharsets.UTF_8));
+
+        JobSpec locked = JobCatalogue.of(config(dir, false), StatementsMap.load(dir), staging).get("reparse");
+        List<Step> preview = locked.steps().build(reparse(id, "preview"));
+        assertEquals(1, preview.size());
+        assertEquals(List.of("ingest", "--reparse", id,
+            "--source-type", "ing-csv", "--account", "ing-salary",
+            "--evidence", dir.resolve("evidence").toString(),
+            "--journal", dir.resolve("journal.jsonl").toString(),
+            "--sequencer-url", "http://sequencer:8080"), preview.get(0).argv());
+        assertEquals(preview.get(0).argv(), locked.steps().build(reparse(id, null)).get(0).argv(),
+            "the mode defaults to preview");
+
+        assertThrows(IllegalArgumentException.class, () -> locked.steps().build(reparse(id, "bogus")));
+        assertThrows(IllegalArgumentException.class, () -> locked.steps().build(reparse(id, "apply")),
+            "apply is refused without --allow-apply");
+
+        JobSpec unlocked = JobCatalogue.of(config(dir, true), StatementsMap.load(dir), staging).get("reparse");
+        List<String> applied = unlocked.steps().build(reparse(id, "apply")).get(0).argv();
+        assertEquals("--apply", applied.get(applied.size() - 1));
+
+        String unknown = "sha256:" + "0".repeat(64);
+        IllegalArgumentException noEvidence = assertThrows(IllegalArgumentException.class,
+            () -> locked.steps().build(reparse(unknown, "preview")));
+        assertTrue(noEvidence.getMessage().contains("no such evidence"), noEvidence.getMessage());
+
+        assertThrows(IllegalArgumentException.class,
+            () -> locked.steps().build(reparse(id, "preview").put("sourceType", "nope")));
+        assertThrows(IllegalArgumentException.class,
+            () -> locked.steps().build(reparse(id, "preview").put("account", "")));
+    }
+
+    private static ObjectNode reparse(String evidence, String mode) {
+        ObjectNode node = Json.mapper().createObjectNode();
+        node.put("evidence", evidence).put("sourceType", "ing-csv").put("account", "ing-salary");
+        if (mode != null) {
+            node.put("mode", mode);
+        }
+        return node;
     }
 
     // ---- the inbox sweep (V2-REVIEW-FIXES-PLAN.md §9) ---------------------------------------
