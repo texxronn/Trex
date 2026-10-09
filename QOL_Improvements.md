@@ -4,7 +4,7 @@
 > the build order for five quality-of-life changes. Each stage's PR updates `V2-SPEC.md` where it
 > changes behaviour.
 >
-> **Status:** in progress (2026-10-09): Q6, Q4 and Q3 are built (§1, §2, §3); Q2 and Q5 are proposed.
+> **Status:** in progress (2026-10-09): Q6, Q4, Q3 and Q2 are built (§1, §2, §3, §4); Q5 is proposed.
 > **Goal:** the daily-use goal (`docs/reviews/CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
 > routine with a finish line, no trips to the terminal. Each item removes friction that actually
 > happened while the review fixes were rolled out on the dev stack.
@@ -293,6 +293,31 @@ A runner job **`reparse`** over the existing subcommand — no new logic, in the
 - Manual (dev stack): **Re-read** the ING card evidence → preview `2438 matched, 0 changed` (the
   repair is already applied), Apply stays disabled; on a scratch copy of the master-built journal,
   preview shows `SHIFTED 54 · NEW 108 · MISSING 0`, Apply posts them, a second preview shows 0.
+
+**As built (2026-10-09).** `JobCatalogue.reparse(config)` is a validated builder over the existing
+subcommand: `ingest --reparse <evidence> --source-type <t> --account <a> --evidence <dir> --journal
+<journal> --sequencer-url <url>` (+ `--apply`), effect `write`, step label `ingest --reparse
+<mode>`. `mode` is a choice (`preview` default); `apply` without `--allow-apply` refuses with the
+egress wording; blank `evidence`/`account`, an unknown `sourceType` and a missing
+`--journal`/`--sequencer-url` refuse; the evidence id must be one `EvidenceStore.contains` finds —
+the same refusal `IngestCommand --reparse` makes — so an unknown or mistyped id never queues a run.
+The batch's `sourceType` is read per row with a correlated select over the `start` marker in
+`HubQueries.ingests`; the `ingest_batch` view pairs the markers but does not carry that column, and
+the frontier plan's precedent ("no change to `ingest_batch` or any table") kept it that way —
+`IngestsResponse.IngestRow` gained `sourceType` between `accountRef` and `nStart`. The Jobs page
+gains a **Re-read** action on each ingest row (disabled when the batch has no evidence id, source
+type or account) that starts the preview with the row's triple; the reparse card keeps the last
+preview in session (`lastPreview`, the `lastPlan` shape), shows its counts, and enables Apply only
+for a preview with exit 0, `changed > 0` and `MISSING 0` — the manual acceptance's "0 changed"
+case keeps Apply locked. A `MISSING > 0` preview shows a red count (a summary chip and one red
+line) and a tick; Apply unlocks only once it is ticked. A failed preview, a bad-rows run or a
+failed detail read never unlocks, and a successful apply resets the state. The summary above the
+run output is parsed from `IngestCommand.reparse`'s own lines (`re-parse with <parser>: N matched,
+M changed`, then `  KIND  id  detail`) and is also shown when an old reparse run is opened from
+History. Pinned by `JobCatalogueTest.reparseArgvPreviewAndApplyGate` (exact argv, the default
+mode, the apply gate, unknown/mistyped evidence and params) and `HubIngestsApiTest` (both rows
+carry `sourceType`). The UI was not checked in a browser and no reparse ran against the live
+journal; the manual acceptance above is still to run on the dev stack.
 
 ---
 
