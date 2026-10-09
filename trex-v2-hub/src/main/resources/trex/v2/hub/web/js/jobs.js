@@ -565,6 +565,10 @@ async function cancel(runId) {
 async function startRun(name, params) {
   clear(outputHost);
   clear(reparseSummaryHost);
+  if (name === 'reparse') {
+    lastPreview = null; // the moment a run starts, Apply locks — and stays locked if it fails
+    renderJobs();
+  }
   appendOutput(`== ${name} ${JSON.stringify(params)}`);
   try {
     const { runId } = await api.runJob(name, params);
@@ -576,11 +580,10 @@ async function startRun(name, params) {
       lastPlan = null; // consumed: Apply locks again until the next plan
     }
     if (name === 'reparse') {
-      const preview = await captureReparse(runId, params, run);
+      const preview = await captureReparse(runId, params, run); // renders the summary for either mode
+      // Only a preview unlocks Apply; an apply leaves the gate locked (cleared at start).
       if (params.mode === 'preview') {
         lastPreview = preview; // Apply posts exactly this evidence: the same-evidence rule
-      } else if (run.exit === 0) {
-        lastPreview = null; // consumed: Apply locks again until the next preview
       }
     }
   } catch (error) {
