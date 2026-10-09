@@ -9,6 +9,11 @@ import java.time.LocalDate;
  * <p>{@code settlementWindowDays} is how long a pending observation may wait before it is stale
  * (§9.9.D); default 7, applied by the loader.
  *
+ * <p>{@code fetchEveryDays} is the statement-age nudge (QOL_Improvements.md §2): the age beyond
+ * which this account's statements count as old. Presentation only, like {@code chipColor} — the
+ * loader resolves the default (31 for a statement account, none for declared/clearing) and
+ * {@code 0} disables the nudge; null means no cadence. Never identity or logic.
+ *
  * <p>A {@link BalanceSource#CLEARING} account is a declared position, not a statement: it holds no
  * facts, and {@code closingBalance} is the value it closed at (cents). Its opening is computed
  * backwards from the movements that matched it, so the derived balance lands on the declared value
@@ -20,17 +25,20 @@ import java.time.LocalDate;
  * deterministic colour in the UI.
  */
 public record Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
-                      Long closingBalance, LocalDate closedAt, String chipColor, boolean budget) {
+                      Integer fetchEveryDays, Long closingBalance, LocalDate closedAt, String chipColor,
+                      boolean budget) {
 
     /** The common shape: a statement or declared account with no clearing fields and no chip colour. */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays) {
-        this(ref, currency, balanceSource, settlementWindowDays, null, null, null);
+        this(ref, currency, balanceSource, settlementWindowDays, null, null, null, null,
+            balanceSource != BalanceSource.CLEARING);
     }
 
     /** A clearing account; the chip colour is still optional. */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
                    Long closingBalance, LocalDate closedAt) {
-        this(ref, currency, balanceSource, settlementWindowDays, closingBalance, closedAt, null);
+        this(ref, currency, balanceSource, settlementWindowDays, null, closingBalance, closedAt, null,
+            balanceSource != BalanceSource.CLEARING);
     }
 
     /**
@@ -39,7 +47,7 @@ public record Account(String ref, String currency, BalanceSource balanceSource, 
      */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
                    Long closingBalance, LocalDate closedAt, String chipColor) {
-        this(ref, currency, balanceSource, settlementWindowDays, closingBalance, closedAt, chipColor,
+        this(ref, currency, balanceSource, settlementWindowDays, null, closingBalance, closedAt, chipColor,
             balanceSource != BalanceSource.CLEARING);
     }
 
@@ -58,6 +66,9 @@ public record Account(String ref, String currency, BalanceSource balanceSource, 
         }
         if (settlementWindowDays < 0) {
             throw new IllegalArgumentException("account " + ref + ": settlementWindowDays must be >= 0");
+        }
+        if (fetchEveryDays != null && fetchEveryDays < 0) {
+            throw new IllegalArgumentException("account " + ref + ": fetchEveryDays must be >= 0");
         }
         if (balanceSource == BalanceSource.CLEARING) {
             if (closingBalance == null) {

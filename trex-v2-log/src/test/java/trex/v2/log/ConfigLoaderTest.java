@@ -10,6 +10,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -32,6 +33,8 @@ class ConfigLoaderTest {
         assertTrue(registry.findAccount("ing-savings").isPresent());
         assertEquals("AUD", registry.account("ing-savings").currency());
         assertEquals(7, registry.account("ing-savings").settlementWindowDays());
+        assertEquals(Integer.valueOf(31), registry.account("ing-savings").fetchEveryDays(),
+            "a statement account defaults to 31");
         assertEquals("blue", registry.account("ing-savings").chipColor());
         assertEquals("stone", registry.account("westpac-card").chipColor());
 
@@ -47,6 +50,58 @@ class ConfigLoaderTest {
             "Orange Advantage annual fee - Receipt No 900068"));
         assertFalse(config.profiles().isNoop("ing-mortgage-simplifier",
             "Orange Advantage annual fee - Receipt No 900068"));
+    }
+
+    @Test
+    void fetchEveryDaysDefaultsByBalanceSource(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "ing-orange"
+                currency: "AUD"
+                balanceSource: statement
+                fetchEveryDays: 10
+              - ref: "bw-legacy"
+                currency: "AUD"
+                balanceSource: statement
+                fetchEveryDays: 0
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: declared
+              - ref: "nab-fixed"
+                currency: "AUD"
+                balanceSource: clearing
+                closingBalance: 0
+            """);
+        Registry registry = ConfigLoader.load(dir).registry();
+        assertEquals(Integer.valueOf(31), registry.account("ing-savings").fetchEveryDays(),
+            "a statement account defaults to 31");
+        assertEquals(Integer.valueOf(10), registry.account("ing-orange").fetchEveryDays(),
+            "an explicit value wins");
+        assertEquals(Integer.valueOf(0), registry.account("bw-legacy").fetchEveryDays(),
+            "0 turns the nudge off");
+        assertNull(registry.account("cash-ron").fetchEveryDays(),
+            "a declared account has no cadence");
+        assertNull(registry.account("nab-fixed").fetchEveryDays(),
+            "a clearing account has no cadence");
+    }
+
+    @Test
+    void negativeFetchEveryDaysIsALoadError(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+                fetchEveryDays: -1
+            """);
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ConfigLoader.load(dir));
+        assertTrue(error.getMessage().contains("fetchEveryDays"), error.getMessage());
     }
 
     @Test

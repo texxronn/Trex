@@ -43,6 +43,9 @@ public final class ConfigLoader {
 
     private static final int DEFAULT_SETTLEMENT_WINDOW_DAYS = 7;
 
+    /** A statement account's statements count as old after a month (QOL_Improvements.md §2). */
+    private static final int DEFAULT_FETCH_EVERY_DAYS = 31;
+
     private ConfigLoader() {}
 
     public static Loaded load(Path configDir) {
@@ -74,8 +77,14 @@ public final class ConfigLoader {
             }
             // budget: presentation only — which accounts the Expected "left this month" figure reads
             // (V2-REVIEW-FIXES-PLAN.md §10). Absent means in the budget, except a clearing account.
-            Account account = new Account(e.ref(), e.currency(), source, settlement, e.closingBalance(),
-                closedAt, e.chipColor(), e.budget() == null ? source != BalanceSource.CLEARING : e.budget());
+            // fetchEveryDays: presentation only too — the statement-age nudge (QOL_Improvements.md
+            // §2). Absent means 31 days for a statement account and no cadence for the others; an
+            // explicit 0 (a closed account that still has statement rows) turns the nudge off.
+            Integer fetchEveryDays = e.fetchEveryDays() != null ? e.fetchEveryDays()
+                : source == BalanceSource.STATEMENT ? DEFAULT_FETCH_EVERY_DAYS : null;
+            Account account = new Account(e.ref(), e.currency(), source, settlement, fetchEveryDays,
+                e.closingBalance(), closedAt, e.chipColor(),
+                e.budget() == null ? source != BalanceSource.CLEARING : e.budget());
             if (accountMap.putIfAbsent(account.ref(), account) != null) {
                 throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref() + "' is declared twice");
             }
@@ -292,7 +301,7 @@ public final class ConfigLoader {
     public record AccountsFile(List<AccountEntry> accounts) {}
 
     public record AccountEntry(String ref, String currency, String balanceSource, Integer settlementWindowDays,
-                               Long closingBalance, String closedAt,
+                               Integer fetchEveryDays, Long closingBalance, String closedAt,
                                @com.fasterxml.jackson.annotation.JsonProperty("chip_color")
                                @com.fasterxml.jackson.annotation.JsonAlias("chipColor") String chipColor,
                                Boolean budget) {}
