@@ -125,8 +125,15 @@ all 58 merged groups arrived complete in one file. If it happens, the reparse re
 a writer-side guard (reuse a matching natural-key id for the same `(account, date, receipt)`) is the
 known fix. It was considered and not built.
 
-A transfer id is `TRF-<receipt>`, or `TRF-<sha256("tr|<minId>|<maxId>")[0:16]>` when the legs share
-no receipt (order-independent). `occ` follows v1: rows with identical `(account, date, amount, raw)`
+A **transfer id** is minted when a pair forms (§6.3):
+- `TRF-<receipt>` when the two legs share a receipt — for a T1 pair only the first pair carrying that
+  receipt; a later pair with the same receipt takes the hashed form, so two pairs never share an id;
+- otherwise `TRF-` + `sha256("tr|<min>|<max>")[0:16]` over the two legs' **current** `externalId`s,
+  order-independent;
+- a clearing pair hashes the real leg's id with the clearing account ref in the same way.
+
+Because the hash is over current ids, a `SUPERSEDE` of a leg changes its pair's id (the `Ids.java`
+comment that says "chain roots" is wrong on this point). `occ` follows v1: rows with identical `(account, date, amount, raw)`
 in one batch take `0,1,2,…` in batch order; natural-key receipt rows are `0` and do not advance; distinct
 content rows each take `0`.
 
