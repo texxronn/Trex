@@ -306,6 +306,10 @@ list in the same PR.
 
 Docs only otherwise; no version bump.
 
+**As built (2026-10-09).** The test passes on master as is — no derive change was needed. It is
+not vacuous: the fixture's shaped `HELD` leg raises `UNMATCHED_LEG` only at the later `asOf`.
+Spec §6 carries the list; proposal guarantee 17 and the §8 reflow table point at it.
+
 ---
 
 ## 8. Stage 5 — the sequencer picks up config edits (M1)

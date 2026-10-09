@@ -253,6 +253,63 @@ class DeriveTest {
         assertEquals(LegState.EXTERNAL, d.current("b").orElseThrow().leg());
     }
 
+    // ---- the asOf contract (V2-REVIEW-FIXES-PLAN.md §7) --------------------------------------
+
+    /** The review kinds that may move with {@code asOf}; every other kind must not. */
+    private static final java.util.Set<String> TIME_RELATIVE_KINDS = java.util.Set.of(
+        trex.v2.core.derive.ReviewItem.UNMATCHED_LEG, trex.v2.core.derive.ReviewItem.STALE_PENDING,
+        trex.v2.core.derive.ReviewItem.DORMANT_COMMITMENT, trex.v2.core.derive.ReviewItem.COMMITMENT_ARREARS);
+
+    /**
+     * A later {@code asOf} over the same log moves only the time-relative outputs: pending status,
+     * the time-relative review kinds, the commitment faces and their occurrences. A stage that adds
+     * an {@code asOf} dependency must add it here, in the same change, and to the spec's list.
+     */
+    @Test
+    void laterAsOfMovesOnlyTimeRelativeOutputs() {
+        List<Fact> facts = List.of(
+            fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 0),
+            fact(2, "b", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "COLES 1234", null, 1),
+            fact(3, "t1", "ing-savings", LocalDate.of(2026, 9, 5), -5000, "Transfer to Orange", null, 0),
+            fact(4, "t2", "ing-orange", LocalDate.of(2026, 9, 5), 5000, "Transfer from Savings", null, 0),
+            fact(5, "h", "ing-savings", LocalDate.of(2026, 9, 20), -7000, "Internal Transfer out", null, 0),
+            new Fact(6, "p", "ing-savings", LocalDate.of(2026, 9, 28), -300, 0, "AUTHORISATION ONLY BP", null, 0,
+                Observation.PENDING, "test", Provenance.BANK, null, "test/1", Instant.parse("2026-09-30T00:00:00Z")),
+            fact(7, "m7", "ing-savings", LocalDate.of(2026, 7, 15), -10000, "ACME BILL", null, 0),
+            fact(8, "m8", "ing-savings", LocalDate.of(2026, 8, 15), -10000, "ACME BILL", null, 0),
+            fact(9, "m9", "ing-savings", LocalDate.of(2026, 9, 15), -10000, "ACME BILL", null, 0));
+        List<Decision> decisions = List.of(pin(20, "FOO", "a"),
+            declare(21, "acme", "Acme", "out", -10000L, LocalDate.of(2026, 7, 15), "ACME"));
+
+        Derivation now = Derive.derive(facts, decisions, config(), ASOF);
+        Derivation later = Derive.derive(facts, decisions, config(), ASOF.plus(java.time.Duration.ofDays(45)));
+
+        assertEquals(now.chainResolved(), later.chainResolved());
+        assertEquals(now.supersession(), later.supersession());
+        assertEquals(now.current(), later.current());
+        assertEquals(now.transfers(), later.transfers());
+        assertEquals(now.categories(), later.categories());
+        assertEquals(now.pins(), later.pins());
+        assertEquals(now.notes(), later.notes());
+        assertEquals(now.clearingLegs(), later.clearingLegs());
+        assertEquals(now.ineffective(), later.ineffective());
+        assertEquals(now.units(), later.units());
+        assertEquals(now.userAcks(), later.userAcks());
+        assertEquals(now.commitmentRules(), later.commitmentRules());
+        assertEquals(now.commitmentNotes(), later.commitmentNotes());
+        assertEquals(now.commitmentExclusions(), later.commitmentExclusions());
+        assertEquals(now.commitmentFacts(), later.commitmentFacts());
+        assertEquals(steady(now.review()), steady(later.review()), "only the time-relative kinds may move");
+        // The time-relative half really does move here, so the test cannot pass vacuously.
+        assertFalse(now.review().stream().anyMatch(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.UNMATCHED_LEG)));
+        assertTrue(later.review().stream().anyMatch(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.UNMATCHED_LEG)),
+            later.review().toString());
+    }
+
+    private static List<trex.v2.core.derive.ReviewItem> steady(List<trex.v2.core.derive.ReviewItem> items) {
+        return items.stream().filter(r -> !TIME_RELATIVE_KINDS.contains(r.kind())).toList();
+    }
+
     // ---- a second observation of one id (V2-REVIEW-FIXES-PLAN.md §5.1) ----------------------
 
     private static Fact observed(long n, long amount, String raw, long balance, Observation observation) {

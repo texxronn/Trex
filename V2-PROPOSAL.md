@@ -1693,7 +1693,7 @@ that knows what a transfer, a duplicate, a review item or a category is.
 | Registry edit (`accounts.yaml`: `balanceSource`, currency, settlement window) | type semantics, reconciliation scope, stale pending | No |
 | Parser upgrade / re-parse | facts (new + supersede/retire) | Yes — new facts and `SUPERSEDE`/`RETIRE` decisions |
 | New human decision | state | Yes — the decision |
-| Clock advances (`asOf`) | stale/age statuses only — never a fact, never a hash | No |
+| Clock advances (`asOf`) | the time-relative outputs only (guarantee 17) — never a fact, never a hash | No |
 | Code change in `derive` | anything | No (log untouched; see §9.5) |
 
 Every "No" row is applied by the watcher the moment the file lands — rule edits,
@@ -2801,9 +2801,12 @@ v1's tests are good; v2 adds invariants that only exist once derivation is separ
     `PAIR`, `PIN` and `DISMISS` decisions still apply via `fact_resolved`; a chain that
     would close a cycle, or point at a retired fact, is ineffective and surfaced, not
     silently dropped.
-17. **Time is an input, not a side effect.** Rebuilding at a later `asOf` changes only
-    stale/age statuses; every `stateHash` and every review verdict is identical. The
-    same rebuild at the same `asOf` is identical, table for table.
+17. **Time is an input, not a side effect.** Rebuilding at a later `asOf` changes only the
+    listed time-relative outputs (amended 2026-10-09, `V2-SPEC.md` §6 "The `asOf` contract"):
+    pending status, the `UNMATCHED_LEG`/`STALE_PENDING`/`DORMANT_COMMITMENT`/`COMMITMENT_ARREARS`
+    items, and the commitment faces and occurrences. Every other table, every `stateHash` and
+    every other review verdict is identical. The same rebuild at the same `asOf` is identical,
+    table for table. Pinned by `DeriveTest.laterAsOfMovesOnlyTimeRelativeOutputs`.
 18. **The Firefly unit set is exact.** Legs are never projected; an ATTESTATION is never
     projected — it would post a `$0` transaction, forever; HELD/REVIEW, PENDING and
     retired facts are withheld; the unit count is transfers plus posted EXTERNAL
