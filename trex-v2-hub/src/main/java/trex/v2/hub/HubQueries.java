@@ -29,6 +29,7 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -593,59 +594,73 @@ public final class HubQueries implements AutoCloseable {
                     }
                 }
             }
-            List<ActivityJson> out = new ArrayList<>();
-            List<CommitmentRules.CompiledRule> rules = new ArrayList<>();
-            Set<String> excludedIds = new TreeSet<>();
-            if (stem == null) {
-                try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULES_FOR)) {
-                    ps.setString(1, commitmentId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        while (rs.next()) {
-                            rules.add(CommitmentRules.compile(new CommitmentRule(commitmentId,
-                                rs.getString(1), rs.getString(2), 0L)));
+            // A candidate is a proposal, not an association, so it has no reverse-map rows: its
+            // activity is the frozen-stem series (V2-COMMITMENT-FACT-PLAN.md §3.3).
+            if (stem != null) {
+                List<ActivityJson> out = new ArrayList<>();
+                try (Statement st = conn.createStatement();
+                     ResultSet rs = st.executeQuery(HubSql.ACTIVITY_FACTS)) {
+                    while (rs.next()) {
+                        if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
+                            out.add(new ActivityJson(LocalDate.parse(rs.getString(2)),
+                                rs.getString(3), rs.getLong(4), rs.getString(5), rs.getString(1),
+                                null, false));
                         }
                     }
                 }
-                if (rules.isEmpty()) {
-                    return out;
+                return out;
+            }
+
+            // A declared commitment: the reverse map is the exact binding (rule or pin, unbounded),
+            // plus the facts the person excluded that still match the rules, so Include works. A
+            // fact claimed by another commitment, or a stale exclusion that no longer matches a
+            // rule, is not listed here — the winner owns it.
+            List<CommitmentRules.CompiledRule> rules = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULES_FOR)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        rules.add(CommitmentRules.compile(new CommitmentRule(commitmentId,
+                            rs.getString(1), rs.getString(2), 0L)));
+                    }
                 }
-                try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_EXCLUSIONS_FOR)) {
-                    ps.setString(1, commitmentId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        while (rs.next()) {
-                            excludedIds.add(rs.getString(1));
-                        }
+            }
+            List<ActivityFactRow> rows = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACTS_FOR)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        LocalDate date = LocalDate.parse(rs.getString(2));
+                        rows.add(new ActivityFactRow(date, rs.getLong(6), new ActivityJson(date,
+                            rs.getString(3), rs.getLong(4), rs.getString(5), rs.getString(1),
+                            rs.getString(7), false)));
                     }
                 }
             }
             boolean outgoing = !"in".equals(direction);
-            try (Statement st = conn.createStatement();
-                 ResultSet rs = st.executeQuery(HubSql.ACTIVITY_FACTS)) {
-                while (rs.next()) {
-                    long amount = rs.getLong(4);
-                    if (stem != null) {
-                        if (stem.equals(MerchantStem.stem(rs.getString(5)))) {
-                            out.add(new ActivityJson(LocalDate.parse(rs.getString(2)),
-                                rs.getString(3), amount, rs.getString(5), rs.getString(1), null,
-                                false));
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_EXCLUDED_FACTS_FOR)) {
+                ps.setString(1, commitmentId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        long amount = rs.getLong(4);
+                        LocalDate date = LocalDate.parse(rs.getString(2));
+                        if (amount == 0 || outgoing != (amount < 0)) {
+                            continue;
                         }
-                        continue;
-                    }
-                    if (amount == 0 || outgoing != (amount < 0)) {
-                        continue;
-                    }
-                    LocalDate date = LocalDate.parse(rs.getString(2));
-                    if (endedAt != null && date.isAfter(endedAt)) {
-                        continue;
-                    }
-                    if (CommitmentRules.anyMatch(rules, rs.getString(5), rs.getString(3), amount)) {
-                        out.add(new ActivityJson(date, rs.getString(3), amount,
-                            rs.getString(5), rs.getString(1), "rule",
-                            excludedIds.contains(rs.getString(1))));
+                        if (endedAt != null && date.isAfter(endedAt)) {
+                            continue;
+                        }
+                        if (!CommitmentRules.anyMatch(rules, rs.getString(5), rs.getString(3), amount)) {
+                            continue;
+                        }
+                        rows.add(new ActivityFactRow(date, rs.getLong(6), new ActivityJson(date,
+                            rs.getString(3), amount, rs.getString(5), rs.getString(1), "rule", true)));
                     }
                 }
             }
-            return out;
+            rows.sort(Comparator.comparing(ActivityFactRow::date)
+                .thenComparingLong(ActivityFactRow::n));
+            return rows.stream().map(ActivityFactRow::json).toList();
         });
     }
 
@@ -1001,6 +1016,9 @@ public final class HubQueries implements AutoCloseable {
 
     /** One ingest batch as the coverage view needs it. */
     record LastImport(String accountRef, String file, String status, long startedMs) {}
+
+    /** One activity row with its log order, so the map and excluded rows merge chronologically. */
+    private record ActivityFactRow(LocalDate date, long n, ActivityJson json) {}
 
     // ---- helpers ----------------------------------------------------------------------------
 
