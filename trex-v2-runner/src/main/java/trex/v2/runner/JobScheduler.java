@@ -55,6 +55,8 @@ public final class JobScheduler implements AutoCloseable {
                 try {
                     runner.submit(entry.job(), entry.params(), "schedule");
                     log.info("scheduled {} (every {})", entry.job(), entry.every());
+                } catch (NothingToDo e) {
+                    log.debug("scheduled {}: {}", entry.job(), e.getMessage());
                 } catch (RuntimeException e) {
                     log.warn("scheduled {} could not start: {}", entry.job(), e.getMessage());
                 }

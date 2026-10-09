@@ -32,10 +32,12 @@ public final class StagingStore {
 
     private final Path root;
     private final Path done;
+    private final Path failed;
 
     public StagingStore(Path root) {
         this.root = root;
         this.done = root.resolve("done");
+        this.failed = root.resolve("failed");
     }
 
     public synchronized Staged put(byte[] bytes, String original) throws IOException {
@@ -59,13 +61,14 @@ public final class StagingStore {
         List<Staged> out = new ArrayList<>();
         out.addAll(read(root, "staged"));
         out.addAll(read(done, "done"));
+        out.addAll(read(failed, "failed"));
         out.sort(Comparator.comparingLong(Staged::at).reversed());
         return out;
     }
 
     /** The original name a staged file was uploaded under, if known. */
     public String originalOf(String name) {
-        for (Path dir : List.of(root, done)) {
+        for (Path dir : List.of(root, done, failed)) {
             Path meta = dir.resolve(name + META);
             if (Files.isRegularFile(meta)) {
                 try {
@@ -92,15 +95,42 @@ public final class StagingStore {
     }
 
     public synchronized boolean markDone(String name) throws IOException {
+        return moveTo(done, name);
+    }
+
+    /** A file the sweep could not ingest (bad rows, or rejected): kept, out of the next sweep. */
+    public synchronized boolean markFailed(String name) throws IOException {
+        return moveTo(failed, name);
+    }
+
+    /**
+     * The inbox files a sweep may take, by name: top level, settled (unmodified for
+     * {@code settleMs}, so a file still being copied in is left for next time), and never a
+     * dotfile or a partial ({@code .part}, {@code .tmp}) — Syncthing and scp both write those first.
+     */
+    public synchronized List<String> settled(long nowMs, long settleMs) {
+        List<String> out = new ArrayList<>();
+        for (Staged s : read(root, "staged")) {
+            String n = s.name();
+            if (n.startsWith(".") || n.endsWith(".tmp") || nowMs - s.at() < settleMs) {
+                continue;
+            }
+            out.add(n);
+        }
+        out.sort(Comparator.naturalOrder());
+        return out;
+    }
+
+    private boolean moveTo(Path dir, String name) throws IOException {
         Path src = safeResolve(root, name);
         if (!Files.isRegularFile(src)) {
             return false;
         }
-        Files.createDirectories(done);
-        Files.move(src, done.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+        Files.createDirectories(dir);
+        Files.move(src, dir.resolve(name), StandardCopyOption.REPLACE_EXISTING);
         Path meta = root.resolve(name + META);
         if (Files.isRegularFile(meta)) {
-            Files.move(meta, done.resolve(name + META), StandardCopyOption.REPLACE_EXISTING);
+            Files.move(meta, dir.resolve(name + META), StandardCopyOption.REPLACE_EXISTING);
         }
         return true;
     }

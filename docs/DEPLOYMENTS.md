@@ -128,6 +128,27 @@ While prod is still a replica, later deltas — more review, further curation �
 own, the two logs diverge and prod becomes the log of record; from then on, streams are for
 backup and restore, not promotion.
 
+### The drop folder (statements in, no clicks)
+
+The runner's `ingest-inbox` job ingests every settled file in the staging inbox that
+`statements.yaml` names, then files it under `staging/done/` (ingested) or `staging/failed/` (bad
+rows or rejected); a file the map does not name stays put and the Jobs page says it needs a type.
+Re-ingesting is idempotent, so a sweep can never double-post.
+
+To make it a real drop folder:
+
+1. **Expose the inbox.** `staging` is a named volume (`trex-v2_staging`). Swap it for a bind mount
+   on the runner service — e.g. `- /srv/trex/inbox:/var/lib/trex/staging` — owned by uid 1000, and
+   share `/srv/trex/inbox` the way downloads already travel (Syncthing, an SMB share, or `scp`).
+   Partial files (`.part`, `.tmp`, dotfiles) and anything modified in the last 30 s are skipped.
+2. **Name the files.** Check `statements.yaml` matches what the banks download as (globs:
+   `BW_*.csv`, `CBA_SmartAccess_*.pdf`); copy it, and `schedule.yaml`, to `/opt/trex/config`.
+3. **Schedule it.** Uncomment the `ingest-inbox` entry in `schedule.yaml` (hourly at :05). The Jobs
+   page's **Ingest inbox** button runs the same sweep on demand.
+
+Enable the schedule only once the inbox holds nothing you did not mean to ingest: the log is
+permanent (undo is a `RETIRE`).
+
 ### Back up (volume → tarball)
 
 The journal, evidence and config volumes are the only irreplaceable state; the index is rebuilt.
@@ -141,6 +162,11 @@ done
 ```
 
 ### Gotchas already paid for
+
+- **Rebuild the shaded jar from `clean`.** An incremental `mvn package` once kept a stale
+  `trex/v2/core/Ids.class` in `trex-v2-dist/target/trex-v2.jar` while the module jars were current
+  (2026-10-09). The Jib image is built from the module jars and is unaffected; anything run with
+  `java -jar trex-v2.jar` should come from `mvn clean package`.
 
 - **The first full apply can outlast the runner's 30-minute cap.** Firefly's
   `error_if_duplicate_hash` scans existing transactions, so a bulk apply slows as the table grows

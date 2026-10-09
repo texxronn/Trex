@@ -391,6 +391,19 @@ match. Change to globs (`BW_*.csv`, `CBA_SmartAccess_*.pdf`) and check the match
 logic". `ingest-inbox` is the `ingest` subcommand with items resolved from the map and files moved
 afterwards; state that as the one allowed composition.
 
+### 9.2a As built (2026-10-09)
+
+- `Step` gained an optional `after` (exit code → runner bookkeeping); `StagingStore` gained
+  `failed/` and `settled(now, 30 s)`; `NothingToDo` lets a scheduled empty sweep skip quietly.
+- The Jobs page shows `✗ failed` and an **Ingest inbox** button.
+- `statements.yaml` uses globs for the dated BW/CBA names; `schedule.yaml` carries the hourly
+  `ingest-inbox` entry **commented out** — enabling it auto-ingests whatever already sits in the
+  inbox, and the log is permanent, so it is the operator's switch. `docs/DEPLOYMENTS.md` has the
+  bind-mount recipe.
+- **Smoke-tested** with a real sequencer and runner: two ING statements dropped in → one sweep →
+  both `done/`, 421 lines appended; an unknown file stays, and the next sweep answers "1 file(s)
+  need a type and account".
+
 ### 9.3 Tests
 
 - `JobCatalogueTest.inboxSweepIngestsMatchedFilesAndMovesThemToDone`

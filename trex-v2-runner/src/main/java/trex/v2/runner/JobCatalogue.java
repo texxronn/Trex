@@ -24,6 +24,7 @@ public final class JobCatalogue {
         Map<String, JobSpec> jobs = new LinkedHashMap<>();
         jobs.put("egress-firefly", egressFirefly(config));
         jobs.put("ingest", ingest(config, statements, staging));
+        jobs.put("ingest-inbox", ingestInbox(config, statements, staging, System::currentTimeMillis));
         jobs.put("journal-snapshot", journalSnapshot(config));
         jobs.put("stream", stream(config, staging));
         return jobs;
@@ -145,6 +146,56 @@ public final class JobCatalogue {
                 }
                 return steps;
             });
+    }
+
+    /** A file in the inbox must sit unmodified this long before a sweep takes it. */
+    static final long SETTLE_MS = 30_000;
+
+    /**
+     * The drop-folder sweep (V2-REVIEW-FIXES-PLAN.md §9): the {@code ingest} job with its items
+     * resolved from {@code statements.yaml} instead of picked by hand, and each file filed by its
+     * exit code — {@code 0} to {@code done/}, {@code 1} (bad rows) or {@code 3} (rejected) to
+     * {@code failed/}, anything else (transport, usage) left for the next sweep. Re-ingesting a file
+     * appends nothing, so a crash between the ingest and the move is harmless. A file the map does
+     * not name stays in the inbox for a person to type.
+     */
+    static JobSpec ingestInbox(RunnerConfig config, StatementsMap statements, StagingStore staging,
+                               java.util.function.LongSupplier clock) {
+        return new JobSpec("ingest-inbox", "Ingest the inbox",
+            "Ingest every settled staged file that statements.yaml names; file each under done/ or failed/.",
+            "write", List.of(), p -> {
+                require(config.sequencerUrl(), "--sequencer-url is not configured");
+                List<Step> steps = new ArrayList<>();
+                int unnamed = 0;
+                for (String name : staging.settled(clock.getAsLong(), SETTLE_MS)) {
+                    if (statements.resolve(staging.originalOf(name)).isEmpty()) {
+                        unnamed++;
+                        continue;
+                    }
+                    com.fasterxml.jackson.databind.node.ObjectNode item =
+                        com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+                    item.put("file", name);
+                    Step ingest = ingestStep(config, statements, staging, item);
+                    steps.add(new Step(ingest.label(), ingest.argv(), code -> file(staging, name, code)));
+                }
+                if (steps.isEmpty()) {
+                    throw new NothingToDo(unnamed == 0 ? "the inbox is empty"
+                        : unnamed + " file(s) in the inbox need a type and account (statements.yaml)");
+                }
+                return steps;
+            });
+    }
+
+    private static void file(StagingStore staging, String name, int code) {
+        try {
+            if (code == trex.v2.ingest.IngestRunner.OK) {
+                staging.markDone(name);
+            } else if (code == trex.v2.ingest.IngestRunner.BAD_ROWS || code == trex.v2.ingest.IngestRunner.REJECTED) {
+                staging.markFailed(name);
+            }
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     private static Step ingestStep(RunnerConfig config, StatementsMap statements, StagingStore staging,
