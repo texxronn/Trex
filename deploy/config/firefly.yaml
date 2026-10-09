@@ -35,3 +35,14 @@ accounts:
   bw-credit-card:          { name: "BankWest Credit Card",  type: liability }
   ing-mortgage-simplifier: { name: "ING Mortgage Simplifier", type: liability }
   ing-variable-rate:       { name: "ING Variable Rate Loan", type: liability }
+
+  # The clearing accounts of V2-SPEC.md §6.7, plus cash. Which Firefly calls each an asset or a
+  # liability is the egress's business (it decides the transaction type); the ref is permanent.
+  westpac-card:   { name: "Westpac Card (closed)",         type: liability }
+  nab-fixed:      { name: "NAB Fixed Loan (closed)",       type: liability }
+  nab-variable:   { name: "NAB Variable Loan (closed)",    type: liability }
+  nab-offset:     { name: "NAB Offset (closed)",           type: asset }
+  carryover:      { name: "Carryover",                     type: asset }
+  bw-card-legacy: { name: "BankWest Card (pre-2024)",      type: liability }
+  cba-legacy:     { name: "CBA SmartAccess (pre-2024-10)", type: asset }
+  cash-ron:       { name: "Cash (Ron)",                    type: asset }

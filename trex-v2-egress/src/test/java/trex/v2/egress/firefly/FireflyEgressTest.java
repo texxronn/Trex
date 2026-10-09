@@ -165,6 +165,22 @@ class FireflyEgressTest {
     }
 
     @Test
+    void anUnmappedClearingAccountStopsBeforeAnyWrite() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(
+                FakeHub.unit("ext1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01", -1000, "GROCERIES",
+                    "COLES 1234", "h1"),
+                FakeHub.unit("TRF-c", "TRANSFER", 2, "ing-orange", "nab-fixed", "2026-09-01", 3180000,
+                    "TRANSFER", "NAB Fixed Payments", "h2"));
+            FireflyEgress.Refused refused = org.junit.jupiter.api.Assertions.assertThrows(
+                FireflyEgress.Refused.class,
+                () -> egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run());
+            assertTrue(refused.getMessage().contains("nab-fixed"), refused.getMessage());
+            assertEquals(0, fake.posts.get(), "nothing written");
+        }
+    }
+
+    @Test
     void aDeprojectedUnitIsReportedAsAnOrphanNeverDeletedAutomatically() throws Exception {
         try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
             hub.units = List.of(
