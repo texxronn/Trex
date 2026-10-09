@@ -19,6 +19,15 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **The statement-age nudge** (`QOL_Improvements.md` §2). The strip now says *which* statement to
+  fetch: `/api/status` gains `stale` — every account whose frontier (its newest statement row) is
+  older than its fetch cadence, oldest first — and the strip shows **⧗ N statements to fetch**
+  (muted; amber once any account is more than twice its cadence) with a tooltip naming each
+  account's age and frontier and a click that opens Jobs at the fetch-frontier table. An
+  `awaiting` occurrence's tooltip names the oldest stale account its commitment's rules are scoped
+  to ("waiting for the ing-salary statement — 32 days old"). New presentation-only `accounts.yaml`
+  field `fetchEveryDays`: default 31 for a statement account, none for declared/clearing, `0` off.
+  Reads only; nothing is stored.
 - **An ingest toast** (`QOL_Improvements.md` §1). A drop-folder sweep is no longer silent: on an SSE
   delta the UI asks `/api/ingests?sinceN=<previous n>` for just the batches that completed since and
   shows one toast with the sweep's counts ("2 statements ingested · 47 new rows · 1 flagged · 1 new
