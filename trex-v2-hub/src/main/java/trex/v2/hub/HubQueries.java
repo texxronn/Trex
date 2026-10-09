@@ -143,10 +143,12 @@ public final class HubQueries implements AutoCloseable {
     }
 
     /**
-     * The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. When
-     * {@code sinceN} is given, only batches that completed after it ({@code n_end > sinceN}) — the
-     * filter the ingest toast sends on an SSE delta (QOL_Improvements.md §1). Null keeps the whole
-     * history, including a batch whose complete marker has not arrived.
+     * The ingest history, paired from the markers (V2-PROPOSAL.md §12.6), newest first. Null
+     * returns the newest {@code limit} batches, including one whose complete marker has not
+     * arrived — the Jobs page. {@code sinceN} is the catch-up the ingest toast sends on an SSE
+     * delta (QOL_Improvements.md §1): every batch that completed after it ({@code n_end > sinceN}),
+     * never truncated to the page size, because a delta that missed the older half of its range
+     * could never report it again.
      */
     public List<trex.v2.hub.api.IngestsResponse.IngestRow> ingests(int limit, Long sinceN) {
         LocalDate asOf = LocalDate.now();
@@ -157,14 +159,15 @@ public final class HubQueries implements AutoCloseable {
                 + "(SELECT MAX(t.date) FROM txn_current t WHERE t.account_ref = ingest_batch.account_ref "
                 + "AND t.date <= ?) FROM ingest_batch"
                 + (sinceN == null ? "" : " WHERE n_end > ?")
-                + " ORDER BY n_start DESC LIMIT ?";
+                + " ORDER BY n_start DESC"
+                + (sinceN == null ? " LIMIT ?" : "");
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, asOf.toString());
-                int next = 2;
-                if (sinceN != null) {
-                    ps.setLong(next++, sinceN);
+                if (sinceN == null) {
+                    ps.setInt(2, limit);
+                } else {
+                    ps.setLong(2, sinceN);
                 }
-                ps.setInt(next, limit);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         out.add(new trex.v2.hub.api.IngestsResponse.IngestRow(

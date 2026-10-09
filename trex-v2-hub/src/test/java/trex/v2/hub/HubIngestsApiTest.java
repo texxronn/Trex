@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.v2.core.Envelope;
 import trex.v2.core.IngestEvent;
+import trex.v2.core.LogLine;
 import trex.v2.log.Json;
 import trex.v2.log.JsonlJournal;
 
@@ -15,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -67,6 +69,39 @@ class HubIngestsApiTest {
                 .newBuilder(base.resolve("/api/ingests?sinceN=last")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
             assertEquals(422, malformed.statusCode(), malformed.body());
+        }
+    }
+
+    @Test
+    void sinceNReturnsEveryLaterBatchPastTheHistoryLimit(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            List<LogLine> events = new ArrayList<>();
+            for (int i = 1; i <= 55; i++) {
+                events.add(ingest(2L * i - 1, IngestEvent.START, "b" + i, "file-" + i + ".csv"));
+                events.add(ingest(2L * i, IngestEvent.COMPLETE, "b" + i, "file-" + i + ".csv"));
+            }
+            j.appendBatch(events);
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            await(() -> hub.status().counts().getOrDefault("ingest_event", 0L) == 110L);
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+
+            // The Jobs history is a page: the newest 50.
+            JsonNode all = get(client, base.resolve("/api/ingests"));
+            assertEquals(50, all.get("rows").size(), all.toPrettyString());
+
+            // A delta catch-up is not a page: sinceN=0 is a log that was empty when the page
+            // opened, and all 55 batches must be reported or the toast drops the older ones.
+            JsonNode every = get(client, base.resolve("/api/ingests?sinceN=0"));
+            assertEquals(55, every.get("rows").size(), every.toPrettyString());
+            assertEquals("file-55.csv", every.get("rows").get(0).get("file").asText());
+            assertEquals("file-1.csv", every.get("rows").get(54).get("file").asText());
         }
     }
 

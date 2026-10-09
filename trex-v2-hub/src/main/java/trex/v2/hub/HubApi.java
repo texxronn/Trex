@@ -105,8 +105,9 @@ interface HubApi {
     java.util.Set<String> ingestedEvidenceIds();
 
     /**
-     * The ingest history, paired from the log's markers (§12.6). {@code sinceN} keeps only batches
-     * that completed after it ({@code n_end > sinceN}); null keeps the whole history.
+     * The ingest history, paired from the log's markers (§12.6), newest first. {@code sinceN} is
+     * the ingest toast's catch-up: every batch that completed after it ({@code n_end > sinceN}),
+     * untruncated; null returns the newest page for the Jobs view.
      */
     trex.v2.hub.api.IngestsResponse ingests(Long sinceN);
 
