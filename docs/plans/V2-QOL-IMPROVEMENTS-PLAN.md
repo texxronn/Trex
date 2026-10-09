@@ -1,6 +1,6 @@
 # V2-QOL-IMPROVEMENTS-PLAN.md
 
-> **Archived 2026-10-09 — built (PRs #61–#64 and this plan's PR); the outcome lives in `V2-SPEC.md`
+> **Archived 2026-10-09 — built (PRs #61–#65); the outcome lives in `V2-SPEC.md`
 > (the specification); this file is the record of why.**
 
 > **Personal project, single operator, private.** `V2-SPEC.md` is the specification; this file is
