@@ -1,5 +1,8 @@
 # V2-COMMITMENTS-PLAN.md
 
+> **Archived 2026-10-09 — built (PRs #16–#23); its "plan only" status line below is history.** The outcome lives in `V2-SPEC.md` (the specification); this
+> file is the record of why. Its references to `V2-PROPOSAL.md` as authoritative are history.
+
 > **Personal project, single operator, private.** `V2-PROPOSAL.md` is the specification; this file
 > is the build order for one change to it. Where this file and the proposal disagree, the proposal
 > wins; the proposal is amended in the same change (§8). The session data analysis this design is

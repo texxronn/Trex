@@ -1,5 +1,8 @@
 # V2-INGEST-PROVENANCE-PLAN.md
 
+> **Archived 2026-10-09 — built — the envelope, ingest events, source archive and journal snapshot (before the PR workflow).** The outcome lives in `V2-SPEC.md` (the specification); this
+> file is the record of why. Its references to `V2-PROPOSAL.md` as authoritative are history.
+
 > **Personal project, single operator, private.** The proposal is the specification; this file is
 > the build order for one change to it. Where this file and `V2-PROPOSAL.md` disagree, the
 > proposal wins — and for this change the proposal is *deliberately amended* (§3), so read that

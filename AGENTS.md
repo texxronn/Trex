@@ -5,7 +5,8 @@
 `V2-SPEC.md` is the authoritative specification of the system (operator decision, 2026-10-09).
 `V2-PROPOSAL.md` is frozen: the history of intent and the rationale — read it for *why*, never for
 *what*. The `V2-*-PLAN.md` files are build records; where one differs from the spec, the spec wins.
-`V2-IMPLEMENTATION-PLAN.md` is the original build order, the acceptance tests and the fixtures.
+`docs/plans/V2-IMPLEMENTATION-PLAN.md` is the original build order, the acceptance tests and the
+fixtures (archived with the other built plans in `docs/plans/`).
 `AGENTS.md` (this file) carries the invariants that never move.
 The v1 tree and its documents (`SPEC.md`, `DECISIONS.md`, `V1-CLAUDE.md`,
 `SPEC-REVIEW.md`) are archived in the sibling project `../TrexV1` — **reference only**:
@@ -44,7 +45,7 @@ log's history are permanent.
 ## Engineering
 
 - Java 25 at `~/Tools/JDK/jdk-25.0.4.1+1/`
-- Maven multi-module project as laid out in `V2-IMPLEMENTATION-PLAN.md` §2
+- Maven multi-module project as laid out in `docs/plans/V2-IMPLEMENTATION-PLAN.md` §2
 - JDK-only unless the spec or the proposal explicitly permits a dependency
 - No frameworks unless specified; no Lombok, no Spring, no Kafka
 - No database in `trex-core`; keep it pure and deterministic

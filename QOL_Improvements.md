@@ -5,7 +5,7 @@
 > changes behaviour.
 >
 > **Status:** proposed (2026-10-09). Nothing is built.
-> **Goal:** the daily-use goal (`CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
+> **Goal:** the daily-use goal (`docs/reviews/CLAUDE-REVIEW.md`, "The goal: daily use") — a calm screen, a
 > routine with a finish line, no trips to the terminal. Each item removes friction that actually
 > happened while the review fixes were rolled out on the dev stack.
 > **Out of scope:** item 1 of the suggestion list (the review-queue *baseline*: a one-off batch of
