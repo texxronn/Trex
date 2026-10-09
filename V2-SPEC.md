@@ -514,8 +514,9 @@ compares the three per file — current vs shipped, current vs base, shipped vs 
 `GET /api/config/drift`; the Jobs strip names every file that is not `same`. A `repo-newer` file
 (`C == B`, `S != B`) is safe for `deploy/v2/dev.sh sync-config`, which backs the live file up under
 `/etc/trex/.backup/` and installs the shipped one; `--adopt FILE` records the live file as the base
-for an `unknown` first run. The same container script is documented for the host in
-`docs/DEPLOYMENTS.md`. A sync needs no restart.
+for an `unknown` first run, refused when `.shipped` has no copy of the file (one `up` seeds it).
+The same container script is documented for the host in `docs/DEPLOYMENTS.md`. A sync needs no
+restart.
 
 ---
 

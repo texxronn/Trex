@@ -235,13 +235,17 @@ so the three-way read has nothing to compare. The `init` script keeps "never ove
 the documented `sed` of the repo file and its diff is only that init hunk. `deploy/v2/sync-config.sh`
 is the container-side POSIX-sh twin of the pure function (`cmp`, no `md5sum`): it prints every
 verdict, backs a `repo-newer` file up to `.backup/<file>.<ts>`, copies S over C and B, and leaves
-`edited-here`, `both-changed` and `unknown` alone; `ADOPT=<file>` copies the live file over
-`.base/<file>`. The script lives in its own file so `dev.sh sync-config [--adopt FILE]` (which runs
-it in a throwaway `alpine` against `trex-v2_config`) and the host's documented `docker run` execute
-the same bytes; `docs/DEPLOYMENTS.md` carries the host invocation and says a sync needs no restart.
-The Jobs strip renders one line above the staging inbox, naming every non-`same` file — "is newer
-in the repo (safe to update)", "edited here", `both-changed` as "merge by hand", `unknown` with the
-`--adopt` hint — and a failed drift read clears the strip rather than blanking the page. Pinned by
+`edited-here`, `both-changed` and `unknown` alone; a path that exists but is not a regular file
+stops the run, and `ADOPT=<file>` copies the live file over `.base/<file>` (refused when there is no
+`.shipped/<file>` — one `up` seeds it, and adopting cannot settle that case). The script lives in
+its own file so `dev.sh sync-config [--adopt FILE]` (which runs it in a throwaway `alpine` against
+`trex-v2_config`) and the host's documented `docker run` execute the same bytes;
+`docs/DEPLOYMENTS.md` carries the host invocation — with all eleven configs in the scp list — and
+says a sync needs no restart. The Jobs strip renders one line above the staging inbox, naming every
+non-`same` file — "is newer in the repo (safe to update)", "edited here", `both-changed` as "merge
+by hand", `unknown` as "no base recorded — look, then sync-config --adopt; up first if .shipped is
+missing" — tolerates a payload that is not an array of well-formed rows (and a failed drift read)
+by rendering nothing rather than throwing. Pinned by
 `ConfigDriftTest` (the table's rows, absent S/B, a deleted C, the wire spellings, the file order)
 and `HubConfigDriftApiTest` (a temp config dir with `.shipped/`, `.base/` and live files; all
 eleven states and their declaration order over HTTP). The UI was not checked in a browser; the

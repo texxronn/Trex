@@ -26,8 +26,8 @@ everything is under **Unreleased**.
   `repo-newer`, `edited-here`, `both-changed`, `unknown`); the Jobs page shows a one-line strip
   when anything is not `same`. `deploy/v2/dev.sh sync-config` — and the same throwaway-alpine
   command documented for the host in `docs/DEPLOYMENTS.md` — backs up and updates only
-  `repo-newer` files; `--adopt FILE` records the live file as the base for the first run. Reads
-  only; nothing is stored.
+  `repo-newer` files; `--adopt FILE` records the live file as the base for the first run (refused
+  when `.shipped` has no copy of it). Reads only; nothing is stored.
 - **The statement-age nudge** (`QOL_Improvements.md` §2). The strip now says *which* statement to
   fetch: `/api/status` gains `stale` — every account whose frontier (its newest statement row) is
   older than its fetch cadence, oldest first — and the strip shows **⧗ N statements to fetch**
