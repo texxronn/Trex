@@ -111,6 +111,20 @@ rebate — each mints the content hash like a receipt-less row (one shared `occ`
 its `receipt` field. Identical rows sharing a receipt stay one natural key. `Ids.mint` is the one
 implementation, used by the sequencer and the re-parse preview.
 
+**Why this rule (operator decision, 2026-10-09).** Two alternatives were weighed and rejected:
+dropping the natural key, or keying on `receipt + amount` (C). Either re-mints all 4,047 receipt-keyed
+ids on the fixture (every ING row) and needs a full-history repair. Dropping the key also turns a
+bank's amount restatement, or a pending → posted amount change, into a silent second transaction,
+because no cross-id review predicate matches unequal amounts. The hybrid keeps every existing id and
+text stability, and fixes the 58 merges.
+
+**Known risk, accepted.** A row's id depends on its siblings that day. If a purchase is ingested
+alone and the bank later adds a fee or rebate *dated the same day*, re-downloading that day re-mints
+the purchase as a content hash, so it lands as a new fact beside the old one. Not seen in the data:
+all 58 merged groups arrived complete in one file. If it happens, the reparse repair handles it, and
+a writer-side guard (reuse a matching natural-key id for the same `(account, date, receipt)`) is the
+known fix. It was considered and not built.
+
 A transfer id is `TRF-<receipt>`, or `TRF-<sha256("tr|<minId>|<maxId>")[0:16]>` when the legs share
 no receipt (order-independent). `occ` follows v1: rows with identical `(account, date, amount, raw)`
 in one batch take `0,1,2,…` in batch order; natural-key receipt rows are `0` and do not advance; distinct
