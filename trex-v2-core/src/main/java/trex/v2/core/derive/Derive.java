@@ -1646,6 +1646,7 @@ public final class Derive {
             }
             addClusters(items, byId, currentList, dupParent, ReviewItem.POTENTIAL_DUP);
             addClusters(items, byId, currentList, restParent, ReviewItem.RESTATEMENT);
+            addReObservations(items, byId);
 
             // UNMATCHED_LEG: a shaped HELD leg older than holdWindowDays, measured on asOf.
             for (CurrentFact c : byId.values()) {
@@ -1870,6 +1871,50 @@ public final class Derive {
                 if (members.size() >= 2) {
                     addGrouped(items, byId, members.first(), kind, List.copyOf(members));
                 }
+            }
+        }
+
+        /**
+         * A second posted observation of one current id that says something different (§6.5,
+         * V2-REVIEW-FIXES-PLAN.md §5.1). The sequencer answers {@code Flagged} and keeps both; the
+         * newest stays current, and without this nothing says the source changed its story. A new
+         * amount or text is a {@code RESTATEMENT}; a new balance alone is a {@code POTENTIAL_DUP}.
+         * Pending observations are excluded, so pending → posted is never an item. When a cluster
+         * item already names the id for that kind, it carries the review on its own.
+         */
+        private void addReObservations(List<ReviewItem> items, Map<String, CurrentFact> byId) {
+            Set<String> raised = new HashSet<>();
+            for (ReviewItem item : items) {
+                raised.add(item.kind() + "|" + item.subject());
+            }
+            for (String id : new TreeSet<>(byId.keySet())) {
+                List<Fact> posted = factsById.get(id).stream()
+                    .filter(f -> f.observation() == Observation.POSTED).toList();
+                if (posted.size() < 2) {
+                    continue;
+                }
+                Set<String> contents = new HashSet<>();
+                Set<Long> balances = new HashSet<>();
+                for (Fact f : posted) {
+                    contents.add(f.amount() + "\u0000" + f.rawDescription());
+                    balances.add(f.balance());
+                }
+                String kind = contents.size() > 1 ? ReviewItem.RESTATEMENT
+                    : balances.size() > 1 ? ReviewItem.POTENTIAL_DUP : null;
+                if (kind == null || raised.contains(kind + "|" + id)) {
+                    continue;
+                }
+                List<String> seen = new ArrayList<>(posted.size());
+                for (Fact f : posted) {
+                    seen.add("n" + f.n() + " " + f.amount()
+                        + (ReviewItem.RESTATEMENT.equals(kind)
+                            ? " " + trex.v2.core.Clean.clean(f.rawDescription())
+                            : " bal " + f.balance()));
+                }
+                String detail = clip("re-observed: " + String.join("  /  ", seen));
+                Fact latest = posted.getLast();
+                items.add(new ReviewItem(id, kind, detail, Math.abs(latest.amount()), latest.ingestedAt(),
+                    Hashes.sha256(kind + "|" + id + "|" + detail)));
             }
         }
 

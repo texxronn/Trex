@@ -265,6 +265,19 @@ class SequencerTest {
         }
     }
 
+    /** A posted row identical to its pending row settled it: news, not a duplicate (§6.5). */
+    @Test
+    void aPostedRowIdenticalToItsPendingRowIsAppended(@TempDir Path dir) {
+        try (Sequencer s = sequencer(dir)) {
+            FactDraft pending = new FactDraft("ing-savings", LocalDate.of(2026, 9, 1), -1000L, 0L, "COLES 1234",
+                null, Observation.PENDING, "feed", Provenance.BANK, null, "test/1", AT);
+            s.submitFacts(new FactBatch(false, List.of(pending)));
+            assertEquals(RowResult.FLAGGED, s.submitFacts(new FactBatch(false,
+                List.of(draft("ing-savings", -1000, "COLES 1234", null, 0, "feed")))).results().getFirst().outcome());
+            assertEquals(2, s.headN());
+        }
+    }
+
     @Test
     void allOrNoneWritesNothingWhenAnyRowIsBad(@TempDir Path dir) {
         try (Sequencer s = sequencer(dir)) {

@@ -209,6 +209,15 @@ row — same text, date, amount, balance — is a `Duplicate` and the fact stays
 `STALE_PENDING`. Add `observation` to `ObsKey` and to §6.5's key. The state is folded from the log
 on recovery, so no sidecar migrates; old lines simply produce keys with their own observation.
 
+### 5.2a As built (2026-10-09)
+
+- `Derive.addReObservations` after the clusters; `derive/13`.
+- Measured at `asOf` 2026-10-01: a fresh ingest of the private `Final/` statements raises nothing
+  new (`RESTATEMENT` 5, as before). The **unrepaired** master-built journal raises 63 (5 + the 58
+  collided ids of Stage 1), and the repaired one 5 — so a live journal that still needs the Stage 1
+  repair now says so in the review queue.
+- `observation` joins `ObsKey`; `SequencerTest.aPostedRowIdenticalToItsPendingRowIsAppended`.
+
 ### 5.3 Tests
 
 - `DeriveTest.aReObservationWithNewTextRaisesRestatement`

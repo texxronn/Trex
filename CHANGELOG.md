@@ -11,6 +11,14 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **A source changing its story about one id now reaches the review queue** (`derive/13`,
+  `V2-REVIEW-FIXES-PLAN.md` §5). A second posted observation of a current id with a new amount or
+  text raises `RESTATEMENT`, with only a new balance `POTENTIAL_DUP`; the newest observation stays
+  current. Before, the sequencer answered `Flagged` and nothing followed. An unrepaired journal with
+  receipt collisions (Stage 1) shows them here until `--reparse --apply` runs.
+- **A posted row identical to its pending row is no longer a duplicate.** `observation` joins the
+  writer's dedup key, so the settlement lands instead of the fact staying pending until
+  `STALE_PENDING`.
 - **A receipt shared by different rows on one day no longer hides transactions**
   (`V2-REVIEW-FIXES-PLAN.md` §4). ING prints one receipt on a purchase, its international fee and
   the fee rebate; the natural key gave all three one id, so the sequencer flagged two as

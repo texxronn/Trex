@@ -2,6 +2,7 @@ package trex.v2.sequencer;
 
 import trex.v2.core.Decision;
 import trex.v2.core.Fact;
+import trex.v2.core.Observation;
 import trex.v2.core.LogLine;
 
 import java.time.LocalDate;
@@ -31,13 +32,17 @@ final class SequencerState {
     final Set<String> retiredCommitments = new HashSet<>();
     final Map<String, List<Fact>> factsByDay = new HashMap<>();
 
-    /** The dedup key: the whole observation minus source/operational metadata (§6.5). */
+    /**
+     * The dedup key: the whole observation minus source/operational metadata (§6.5). It includes
+     * {@code observation}: a posted row identical to its pending row is news (it settled), not a
+     * duplicate — without it the fact stayed pending until {@code STALE_PENDING}.
+     */
     record ObsKey(String externalId, String accountRef, LocalDate date, long amount,
-                  String rawDescription, String receipt, int occ, long balance) {
+                  String rawDescription, String receipt, int occ, long balance, Observation observation) {
 
         static ObsKey of(Fact f) {
             return new ObsKey(f.externalId(), f.accountRef(), f.date(), f.amount(), f.rawDescription(),
-                f.receipt(), f.occ(), f.balance());
+                f.receipt(), f.occ(), f.balance(), f.observation());
         }
     }
 
