@@ -351,7 +351,7 @@ public final class HubService implements HubApi, AutoCloseable {
     public UnitsResponse units() {
         DeriveConfig c = refresher.config();
         return new UnitsResponse(reads.logHeadN(), c.configRevision(), DeriveConfig.DERIVE_VERSION,
-            DeriveConfig.HASH_VERSION, reads.projectionUnits());
+            DeriveConfig.HASH_VERSION, reads.projectionUnits(), reads.resolvedIds());
     }
 
     @Override

@@ -263,6 +263,10 @@ final class HubSql {
 
     static final String TRANSFER_LEGS = "SELECT transfer_id, from_leg, to_leg, clearing_account FROM transfer";
 
+    /** Superseded ids and where they resolve now, for the egress's re-key (§4, §11.1). */
+    static final String RESOLVED_IDS =
+        "SELECT id, current_id FROM chain_resolved WHERE id <> current_id ORDER BY id";
+
     /** The current posted facts. The chain, the projection and the walk run over transactions only
      * (§6.9); noop rows are read separately for the reconcile result's exclusions. */
     static final String CURRENT_FACTS = """

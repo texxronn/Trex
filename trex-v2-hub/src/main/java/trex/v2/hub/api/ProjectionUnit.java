@@ -1,6 +1,7 @@
 package trex.v2.hub.api;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * One projectable unit as the egress needs it (V2-PROPOSAL.md §11.2, §11.6): a transfer row or a
@@ -10,4 +11,5 @@ import java.time.LocalDate;
 public record ProjectionUnit(String unitId, String unitKind, long n, String accountRef,
                              String toAccountRef, LocalDate date, long amount, String currency,
                              String category, String origin, String pairing, boolean retired,
-                             boolean ineffective, String rawDescription, String unitHash) {}
+                             boolean ineffective, String rawDescription, String unitHash,
+                             List<String> legs) {}

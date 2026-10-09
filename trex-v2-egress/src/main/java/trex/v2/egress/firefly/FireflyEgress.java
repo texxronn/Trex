@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
@@ -107,31 +108,116 @@ public final class FireflyEgress {
             }
         }
 
+        // Where each orphan went (V2-SPEC.md §11.1): a superseded id is re-keyed in place, a
+        // replacement is reported beside it, a group you deleted is dropped, and a group you took
+        // over (the trex tag gone) is foreign — its successor is created, never written into yours.
+        Map<String, HubUnit> createById = new TreeMap<>();
+        creates.forEach(u -> createById.put(u.unitId(), u));
+        List<Map.Entry<ProjectionState, HubUnit>> rekeys = new ArrayList<>();
+        Map<String, String> replacedBy = new TreeMap<>();
+        Map<String, String> foreign = new TreeMap<>();
+        List<ProjectionState> gone = new ArrayList<>();
+        Map<String, String> groupOf = new TreeMap<>();
+        orphans.forEach(o -> groupOf.put(o.unitId(), o.groupId()));
+        Map<String, String> resolved = snapshot.resolved() == null ? Map.of() : snapshot.resolved();
+        for (ProjectionState orphan : List.copyOf(orphans)) {
+            // groupOrNull, never group(): an orphan whose group you deleted in Firefly is the normal
+            // de-projection case, and a 404 here must not abort a plan (review V4, D9).
+            JsonNode group = firefly.groupOrNull(orphan.groupId());
+            if (group == null) {
+                gone.add(orphan);             // nothing to re-key, report or delete: it is gone
+                continue;
+            }
+            JsonNode first = group.path("data").path("attributes").path("transactions").path(0);
+            List<String> legs = orphan.unitId().startsWith("TRF-")
+                ? FireflyClient.legs(first.path("notes").asText(null)) : List.of();
+            Successors.Match m = Successors.of(orphan.unitId(), legs, resolved, snapshot.units());
+            boolean canRekey = m.sameKind() && createById.containsKey(m.successorIds().getFirst());
+            if (canRekey && !FireflyClient.isOurs(first)) {
+                // Not ours any more (D4): never re-key into it. The successor stays a create, so the
+                // new unit still lands; the untagged group is left as yours (review V5).
+                foreign.put(orphan.unitId(), m.successorIds().getFirst());
+            } else if (canRekey) {
+                rekeys.add(Map.entry(orphan, createById.remove(m.successorIds().getFirst())));
+            } else if (!m.successorIds().isEmpty()) {
+                replacedBy.put(orphan.unitId(), String.join(", ", m.successorIds()));
+            }
+        }
+        Set<String> goneIds = new TreeSet<>();
+        gone.forEach(g -> goneIds.add(g.unitId()));
+        Set<String> rekeyedIds = new TreeSet<>();
+        rekeys.forEach(e -> rekeyedIds.add(e.getKey().unitId()));
+        // A rekeyed, gone or foreign orphan is not an orphan to remove: one is re-keyed, one is
+        // already gone, one is not ours (review V5).
+        orphans = orphans.stream()
+            .filter(o -> !rekeyedIds.contains(o.unitId()) && !goneIds.contains(o.unitId())
+                && !foreign.containsKey(o.unitId())).toList();
+        // Rebuilt in snapshot order, so the apply loop keeps posting in date order.
+        creates = snapshot.units().stream().filter(u -> createById.containsKey(u.unitId())).toList();
+
         out.printf("%s: %d create, %d retag, %d update, %d unchanged, %d orphan(s)%n",
             mode, creates.size(), retags, updates, unchanged, orphans.size());
         if (mode != Mode.APPLY) {
             creates.forEach(u -> out.println("  CREATE " + summarise(u)));
             moves.forEach(u -> printMove(u, known.get(u.unitId()), revision));
+            rekeys.forEach(e -> out.println("  REKEY  " + e.getKey().unitId() + " -> " + e.getValue().unitId()));
+            gone.forEach(g -> out.println("  GONE   " + g.unitId() + " (group " + g.groupId()
+                + ") — already deleted in Firefly; dropped from the state on apply"));
+            foreign.forEach((id, successor) -> out.println("  FOREIGN " + id + " (group " + groupOf.get(id)
+                + ") — the trex tag is gone, so it is yours now; " + successor + " is created instead"));
             orphans.forEach(o -> out.println("  ORPHAN " + o.unitId() + " (group " + o.groupId()
-                + ", category " + o.category() + ") — not deleted; rerun with --remove-orphans"));
-            return new Outcome(creates.size(), 0, retags, updates, unchanged, orphans.size(), 0, 0);
+                + ", category " + o.category() + ") — not deleted; rerun with --remove-orphans"
+                + (replacedBy.containsKey(o.unitId()) ? " — replaced by " + replacedBy.get(o.unitId())
+                    + "; a double count until --remove-orphans" : "")));
+            return new Outcome(creates.size(), rekeys.size(), retags, updates, unchanged, orphans.size(), 0, 0);
         }
 
         Tally tally = new Tally();
-        Progress progress = new Progress(creates.size() + moves.size(), out);
+        Progress progress = new Progress(rekeys.size() + creates.size() + moves.size(), out);
+        int rekeyed = 0;
+        for (Map.Entry<ProjectionState, HubUnit> e : rekeys) {
+            progress.tick();
+            // converge writes the new external_id with the content: same group, new identity.
+            Step step = converge(e.getValue(), e.getKey().groupId(), revision, known, true);
+            if (step != Step.NOT_OURS) {
+                known.remove(e.getKey().unitId());
+                rekeyed++;
+            }
+        }
+        // The accelerator update runs after the loop, never before it: a replace first would persist
+        // the orphan rows the loop still has to remove from `known` (gone, foreign and re-keyed).
+        if (rekeyed > 0 || !gone.isEmpty() || !foreign.isEmpty()) {
+            gone.forEach(g -> known.remove(g.unitId()));
+            foreign.keySet().forEach(known::remove);
+            hub.record(true, new ArrayList<>(known.values()));
+        }
         for (HubUnit unit : creates) {
             progress.tick();
             tally.add(create(unit, revision, known));
         }
         for (HubUnit unit : moves) {
             progress.tick();
-            tally.add(converge(unit, known.get(unit.unitId()).groupId(), revision, known));
+            tally.add(converge(unit, known.get(unit.unitId()).groupId(), revision, known, false));
         }
         progress.done();
 
         int removed = 0;
         if (removeOrphans && !orphans.isEmpty()) {
+            // Never delete a group another row still names: a stale alias (two rows on one group) must
+            // not let the old row take the current group down with it (D3). The current rows here are
+            // every known row that is not itself an orphan.
+            Set<String> orphanIds = new TreeSet<>();
+            orphans.forEach(o -> orphanIds.add(o.unitId()));
+            Set<String> inUse = new TreeSet<>();
+            known.values().stream().filter(s -> !orphanIds.contains(s.unitId()))
+                .forEach(s -> inUse.add(s.groupId()));
             for (ProjectionState orphan : orphans) {
+                if (inUse.contains(orphan.groupId())) {
+                    out.println("  KEPT   " + orphan.unitId() + " (group " + orphan.groupId()
+                        + ") — another unit still uses this group; not deleted");
+                    known.remove(orphan.unitId());      // drop the stale alias, keep the group
+                    continue;
+                }
                 firefly.deleteTransaction(orphan.groupId());
                 known.remove(orphan.unitId());
                 removed++;
@@ -140,7 +226,7 @@ public final class FireflyEgress {
             hub.record(true, new ArrayList<>(known.values()));
         }
 
-        return new Outcome(tally.created, 0, tally.retagged, tally.updated,
+        return new Outcome(tally.created, rekeyed, tally.retagged, tally.updated,
             unchanged + tally.unchanged, orphans.size(), removed, tally.preserved);
     }
 
@@ -200,12 +286,12 @@ public final class FireflyEgress {
         FireflyClient.Result result = firefly.post(posting.body());
         return switch (result) {
             case FireflyClient.Result.Created c -> {
-                record(unit, c.groupId(), expected(unit, revision).fingerprint(), revision, known);
+                record(unit, c.groupId(), expected(unit, revision).fingerprint(), revision, known, true);
                 yield Step.CREATED;
             }
             // The state was lost but Firefly kept the group: converge on it rather than record blindly,
             // or a category trex has since moved would stay stale (F7).
-            case FireflyClient.Result.Duplicate d -> converge(unit, d.groupId(), revision, known);
+            case FireflyClient.Result.Duplicate d -> converge(unit, d.groupId(), revision, known, false);
             case FireflyClient.Result.Failed f -> throw new Refused("Firefly refused " + unit.unitId()
                 + " (" + unit.accountRef() + " " + unit.date() + "): " + f.status() + " " + f.message());
         };
@@ -221,7 +307,8 @@ public final class FireflyEgress {
      * content, and only its category (where untouched) and tags move.
      */
     @SuppressWarnings("unchecked")
-    private Step converge(HubUnit unit, String groupId, String revision, Map<String, ProjectionState> known)
+    private Step converge(HubUnit unit, String groupId, String revision, Map<String, ProjectionState> known,
+                          boolean rekey)
             throws IOException, InterruptedException {
         JsonNode found = firefly.groupOrNull(groupId);
         if (found == null) {
@@ -238,7 +325,8 @@ public final class FireflyEgress {
         Map<String, Object> want = Projection.of(unit, revision, accounts).split();
         Content expected = Content.expected(want);
         boolean single = splits.size() == 1;
-        boolean contentMoves = single && !expected.equals(Content.observed(splits.get(0), accounts.ids()));
+        boolean contentMoves = single && (rekey
+            || !expected.equals(Content.observed(splits.get(0), accounts.ids())));
         if (!single) {
             long sum = 0;
             for (JsonNode s : splits) {
@@ -279,14 +367,31 @@ public final class FireflyEgress {
                 changed = true;
             }
             map.put("tags", tags);
+            if (splitsOut.isEmpty()) {
+                // Our first line rides along with a write another change caused: notes are not part of
+                // the fingerprint, so refreshing them must never force a write by itself (a hand-split
+                // group's content is never rewritten, and unchanged rows keep a stale rules= by design).
+                String notes = Projection.notes(split.path("notes").asText(""), unit, revision);
+                if (!notes.equals(split.path("notes").asText(""))) {
+                    map.put("notes", notes);
+                }
+            }
             if (contentMoves) {
                 applyContent(map, want);
             }
             splitsOut.add(map);
         }
+        if (rekey && !single) {
+            // A hand-split group cannot have its content rewritten, so the identity move needs its own
+            // branch and must force the write: nothing else may have changed (R3).
+            for (Map<String, Object> map : splitsOut) {
+                map.put("external_id", unit.unitId());
+            }
+            changed = true;                // the identity move must reach Firefly
+        }
         String fingerprint = single ? expected.fingerprint() : Content.HAND_SPLIT;
         if (!changed) {
-            record(unit, groupId, fingerprint, revision, known);
+            record(unit, groupId, fingerprint, revision, known, !rekey);
             return Step.UNCHANGED;
         }
         body.put("apply_rules", false);
@@ -296,7 +401,7 @@ public final class FireflyEgress {
             throw new Refused("Firefly refused the update of " + unit.unitId()
                 + " (group " + groupId + "): " + f.status() + " " + f.message());
         }
-        record(unit, groupId, fingerprint, revision, known);
+        record(unit, groupId, fingerprint, revision, known, !rekey);
         return contentMoves ? Step.UPDATED : preserved ? Step.PRESERVED : Step.RETAGGED;
     }
 
@@ -322,12 +427,20 @@ public final class FireflyEgress {
         }
     }
 
+    /**
+     * Records the row in memory, and in the hub unless {@code persist} is false. A re-key defers the
+     * hub write to the single replace the re-key phase ends with: writing the new row first and
+     * removing the old one later would leave both naming one group if the pass was interrupted, and a
+     * stale orphan row must never be able to delete a current group (D3).
+     */
     private void record(HubUnit unit, String groupId, String fingerprint, String revision,
-                        Map<String, ProjectionState> known) {
+                        Map<String, ProjectionState> known, boolean persist) {
         ProjectionState state = new ProjectionState(unit.unitId(), unit.unitKind(), groupId,
             unit.category(), fingerprint, revision, deriveVersion, Instant.now().toString());
         known.put(unit.unitId(), state);
-        hub.record(false, List.of(state));
+        if (persist) {
+            hub.record(false, List.of(state));
+        }
     }
 
     private Map<String, ProjectionState> rebuildFromFirefly() throws IOException, InterruptedException {

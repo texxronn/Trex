@@ -68,4 +68,11 @@ class FireflyClientTest {
             assertEquals(1, fake.deletes.get());
         }
     }
+
+    @Test
+    void legsAreReadFromTheFirstNotesLine() {
+        assertEquals(List.of("a", "b"), FireflyClient.legs("trex n=7 rules=cfg legs=a,b\nraw"));
+        assertEquals(List.of(), FireflyClient.legs("trex n=7 rules=cfg\nraw"));
+        assertEquals(List.of(), FireflyClient.legs(null));
+    }
 }

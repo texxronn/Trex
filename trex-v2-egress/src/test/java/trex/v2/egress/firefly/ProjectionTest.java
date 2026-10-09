@@ -1,6 +1,7 @@
 package trex.v2.egress.firefly;
 
 import org.junit.jupiter.api.Test;
+import trex.v2.egress.hub.HubClient;
 import trex.v2.egress.hub.HubClient.HubUnit;
 
 import java.time.LocalDate;
@@ -31,7 +32,7 @@ class ProjectionTest {
     private static HubUnit unit(String kind, String from, String to, long amount) {
         return new HubUnit(kind.equals("TRANSFER") ? "TRF-x" : "ext", kind, 1, from, to,
             LocalDate.of(2026, 9, 1), amount, "AUD", "GROCERIES", "RULE", "EXTERNAL", false, false,
-            "COLES 1234", "h");
+            "COLES 1234", "h", List.of());
     }
 
     @SuppressWarnings("unchecked")
@@ -68,7 +69,7 @@ class ProjectionTest {
     @Test
     void anIncomeIsADepositFromTheMerchantStem() throws Exception {
         HubUnit income = new HubUnit("ext2", "EXTERNAL", 2, "ing-savings", null, LocalDate.of(2026, 9, 2),
-            250000, "AUD", "SALARY", "RULE", "EXTERNAL", false, false, "ACME SALARY", "h2");
+            250000, "AUD", "SALARY", "RULE", "EXTERNAL", false, false, "ACME SALARY", "h2", List.of());
         Map<String, Object> s = split(Projection.of(income, REV, accounts()));
         assertEquals("deposit", s.get("type"));
         assertEquals("2500.00", s.get("amount"));
@@ -81,5 +82,16 @@ class ProjectionTest {
             List.of("holiday", "trex", "trex-category:OLD", "tax-2026"));
         assertEquals(List.of("holiday", "tax-2026", "trex", "trex-category:NEW"),
             Projection.tags(existing, "NEW"));
+    }
+
+    @Test
+    void notesReplaceOnlyOurFirstLine() {
+        HubClient.HubUnit unit = new HubClient.HubUnit("TRF-1", "TRANSFER", 7, "ing-savings", "ing-orange",
+            java.time.LocalDate.of(2026, 9, 1), 500, "AUD", "TRANSFER", "STRUCTURAL", "MATCHED", false, false,
+            "Transfer to Savings", "h", List.of("a", "b"));
+        assertEquals("trex n=7 rules=cfg legs=a,b\nTransfer to Savings\nmy own note",
+            Projection.notes("trex n=3 rules=old\nTransfer to Savings\nmy own note", unit, "cfg"));
+        assertEquals("trex n=7 rules=cfg legs=a,b\nwritten by hand",
+            Projection.notes("written by hand", unit, "cfg"));
     }
 }

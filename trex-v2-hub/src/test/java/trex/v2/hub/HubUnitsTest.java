@@ -101,6 +101,34 @@ class HubUnitsTest {
         }
     }
 
+    @Test
+    void theUnitsCarryTheSupersessionMapAndTransferLegs(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "old", "ing-savings", -1000, "COLES 1234", Observation.POSTED),
+                fact(2, "new", "ing-savings", -1000, "COLES 1234 SYDNEY", Observation.POSTED),
+                new trex.v2.core.Decision.Supersede(3, "old", "new", "reparse",
+                    trex.v2.core.Actor.SYSTEM, null, AT),
+                fact(4, "t1", "ing-savings", -500, "Transfer to Savings 1111", Observation.POSTED),
+                fact(5, "t2", "ing-orange", 500, "Transfer from Savings 1111", Observation.POSTED)));
+        }
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(() -> hub.units().units().size() == 2);
+            UnitsResponse units = hub.units();
+            assertEquals(java.util.Map.of("old", "new"), units.resolved());
+            var transfer = units.units().stream().filter(u -> u.unitKind().equals("TRANSFER")).findFirst().orElseThrow();
+            assertEquals(java.util.Set.of("t1", "t2"), java.util.Set.copyOf(transfer.legs()));
+            var external = units.units().stream().filter(u -> u.unitKind().equals("EXTERNAL")).findFirst().orElseThrow();
+            assertEquals("new", external.unitId());
+            assertTrue(external.legs().isEmpty());
+        }
+    }
+
     private static Fact fact(long n, String id, String account, long amount, String raw, Observation observation) {
         return new Fact(n, id, account, LocalDate.of(2026, 9, 1), amount, 0, raw, null, 0, observation,
             "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
