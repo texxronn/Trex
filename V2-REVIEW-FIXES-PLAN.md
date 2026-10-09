@@ -443,6 +443,25 @@ left = income received (unclaimed + claimed, this month)
 - The figure carries its freshness: "through <oldest frontier of the budget accounts>". With
   Stage 3 this is honest even when a statement is late.
 
+### 10.2a As built (2026-10-09)
+
+- **Always the month.** The headroom is the calendar month of `asOf`, whatever the Expected window,
+  because "am I okay this month?" is the question.
+- **Moved, not spent.** Real data showed transfers to the operator's own offset account counted as
+  spend. A transfer whose other side is one of your own accounts outside the budget is now
+  `movedOut`/`movedIn`: it moves `left`, but it is not spending or income. A transfer between two
+  budget accounts is skipped; a commitment that only ever claims such internal transfers is skipped
+  (no double count of a declared card repayment); a commitment landing only outside the budget is
+  skipped.
+- **`through`** reads only statement accounts in the budget: a cash account has no statement to be
+  late.
+- `deploy/config/accounts.yaml` (operator to review): `budget: false` on `ing-savings`,
+  `ing-loan-offset`, `ing-mortgage-simplifier`, `ing-variable-rate`, `cba-netsaver`.
+- **Measured** on the private `Final/` journal, September 2026: in $14.4k, commitments $0.4k
+  (three declared), other spend $28.0k (a $5.8k flight, $14k of transfers to an external saver),
+  moved out $13.7k / in $18.0k, left −$9.7k. If that saver is a household account, registering it
+  turns those transfers into "moved".
+
 ### 10.3 Changes and tests
 
 - `ExpectedResponse` gains `Headroom(long left, long incomeIn, long incomeDue, long committedPaid,

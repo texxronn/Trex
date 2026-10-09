@@ -1,6 +1,8 @@
 # Account registry — SPEC.md §6. One entry per bank account.
 #   ref              registry key used by trex-ingest (--account) and on every journal line
 #   currency         AUD | USD | INR (stamped onto events; no conversion)
+#   budget           optional; false keeps the account out of Expected's "left this month" (savings,
+#                    offset and loan accounts). Default true; a clearing account is never in it.
 # An unknown accountRef is always rejected; accounts are never auto-created.
 #
 # No Firefly fields here: how a ref maps to a Firefly account lives in firefly.yaml,
@@ -23,6 +25,7 @@ accounts:
   - ref: "ing-savings"
     currency: "AUD"
     balanceSource: statement
+    budget: false        # not in the monthly budget (Expected "left this month")
     chip_color: blue
   # Orange Everyday.
   - ref: "ing-orange"
@@ -50,14 +53,17 @@ accounts:
   - ref: "ing-loan-offset"
     currency: "AUD"
     balanceSource: statement
+    budget: false        # not in the monthly budget (Expected "left this month")
     chip_color: violet
   - ref: "ing-mortgage-simplifier"
     currency: "AUD"
     balanceSource: statement
+    budget: false        # not in the monthly budget (Expected "left this month")
     chip_color: teal
   - ref: "ing-variable-rate"
     currency: "AUD"
     balanceSource: statement
+    budget: false        # not in the monthly budget (Expected "left this month")
     chip_color: fuchsia
 
   # BankWest credit card (bw-csv). Debits are positive in that export and no row carries a
@@ -80,6 +86,7 @@ accounts:
   - ref: "cba-netsaver"
     currency: "AUD"
     balanceSource: statement
+    budget: false        # not in the monthly budget (Expected "left this month")
     chip_color: cyan
 
   # Clearing accounts (V2-PROPOSAL.md §6.10): a closed counterparty whose statements are gone.

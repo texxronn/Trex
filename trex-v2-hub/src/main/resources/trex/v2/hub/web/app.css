@@ -507,3 +507,8 @@ button.warn:hover { background: var(--warn-soft); }
 .fork-value { font-size: 12px; color: var(--warn); margin-bottom: 0.3rem; letter-spacing: 0.03em; }
 .fork-side { display: flex; gap: 0.6rem; align-items: center; padding: 0.15rem 0; }
 .fork-side .mono { font-family: var(--mono); font-size: 12px; }
+
+/* "Left this month" on Expected (V2-REVIEW-FIXES-PLAN.md §10). */
+.headroom { margin: 8px 0 14px; padding: 10px 12px; border: 1px solid var(--line, #ddd); border-radius: 6px; }
+.headroom > div + div { margin-top: 4px; }
+.headroom b.tick, .headroom b.occ-missed { font-size: 22px; }

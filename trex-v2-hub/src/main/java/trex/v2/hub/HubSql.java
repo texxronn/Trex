@@ -141,6 +141,42 @@ final class HubSql {
         WHERE o.due_date >= ? AND o.due_date <= ?
         ORDER BY o.due_date, o.commitment_id""";
 
+    /**
+     * The month's current rows for the headroom figure (V2-REVIEW-FIXES-PLAN.md §10): each with the
+     * commitment that claimed it, if any, and the account of the other side of its transfer — the
+     * other leg, or the derived clearing leg — so a transfer inside the budget can be told from one
+     * that leaves it.
+     */
+    static final String HEADROOM_ROWS = """
+        SELECT t.account_ref, t.amount, t.role, t.leg, t.transfer_id, cf.commitment_id,
+               (SELECT o.account_ref FROM txn_current o
+                 WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
+                 ORDER BY o.external_id LIMIT 1) AS other_account
+        FROM txn_current t
+        LEFT JOIN commitment_fact cf ON cf.external_id = t.external_id
+        WHERE t.synthetic = 0 AND t.date >= ? AND t.date <= ?
+        ORDER BY t.external_id""";
+
+    /**
+     * Every claimed fact with its accounts, per commitment: where a commitment lands, and whether it
+     * only ever moves money between two accounts (a card repayment declared as a commitment).
+     */
+    static final String COMMITMENT_FACT_ACCOUNTS = """
+        SELECT cf.commitment_id, t.account_ref, t.transfer_id,
+               (SELECT o.account_ref FROM txn_current o
+                 WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
+                 ORDER BY o.external_id LIMIT 1) AS other_account
+        FROM commitment_fact cf JOIN txn_current t ON t.external_id = cf.external_id
+        ORDER BY cf.commitment_id, t.external_id""";
+
+    /** Each commitment's rule accounts (null when a rule is unscoped). */
+    static final String COMMITMENT_RULE_ACCOUNTS =
+        "SELECT commitment_id, account_ref FROM commitment_rule ORDER BY commitment_id, match";
+
+    /** The newest transaction date per account, at or before a day: the statements' frontier. */
+    static final String ACCOUNT_FRONTIERS =
+        "SELECT account_ref, MAX(date) FROM txn_current WHERE synthetic = 0 AND date <= ? GROUP BY account_ref";
+
     /** Every hole (a missed occurrence), oldest first, measured against the current price. */
     static final String ARREARS_OCCURRENCES = """
         SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,

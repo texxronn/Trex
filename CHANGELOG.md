@@ -11,6 +11,11 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **"Left this month" on Expected** (`V2-REVIEW-FIXES-PLAN.md` §10). One figure over the `budget`
+  accounts — income in and due, commitments paid and due, other spend, and money moved to or from
+  your own accounts outside the budget — with missed commitments and unpaired transfers shown apart,
+  and the statements' `through` date. A read over the derived tables; nothing is stored. New
+  `accounts.yaml` flag `budget` (default true; never for a clearing account).
 - **The drop folder** (`ingest-inbox`, `V2-REVIEW-FIXES-PLAN.md` §9). A runner job that ingests every
   settled staged file `statements.yaml` names and files it under `done/` or `failed/` by exit code;
   unknown files stay for a person. **Ingest inbox** on the Jobs page, an hourly `schedule.yaml`
