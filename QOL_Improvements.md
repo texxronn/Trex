@@ -314,10 +314,18 @@ line) and a tick; Apply unlocks only once it is ticked. A failed preview, a bad-
 failed detail read never unlocks, and a successful apply resets the state. The summary above the
 run output is parsed from `IngestCommand.reparse`'s own lines (`re-parse with <parser>: N matched,
 M changed`, then `  KIND  id  detail`) and is also shown when an old reparse run is opened from
-History. Pinned by `JobCatalogueTest.reparseArgvPreviewAndApplyGate` (exact argv, the default
-mode, the apply gate, unknown/mistyped evidence and params) and `HubIngestsApiTest` (both rows
-carry `sourceType`). The UI was not checked in a browser and no reparse ran against the live
-journal; the manual acceptance above is still to run on the dev stack.
+History. **Schedulable, like egress** (operator decision, 2026-10-09): a `schedule.yaml` entry may
+run `reparse` with its params, including `mode: apply`; that path is gated only by `--allow-apply`
+and bypasses the preview and the `RETIRE` tick, which are the manual path's safeguards.
+`EvidenceStore` now refuses any id that is not exactly 64 lowercase hex characters after
+`sha256:`, so a traversal or mistyped id cannot escape the store for any caller (the CLI
+included); `JobCatalogue` still catches the refusal. Pinned by
+`JobCatalogueTest.reparseArgvPreviewAndApplyGate` (exact argv, the default mode, the apply gate,
+unknown/mistyped evidence and params), `HubIngestsApiTest` (both rows carry `sourceType`),
+`EvidenceStoreTest` (a traversal, uppercase, short, long or unprefixed id is refused; a stray
+filename is bad evidence, not a crash) and `ScheduleTest.reparseEntryCarriesItsParams` (a
+`reparse` entry with its params loads). The UI was not checked in a browser and no reparse ran
+against the live journal; the manual acceptance above is still to run on the dev stack.
 
 ---
 

@@ -4,9 +4,11 @@
 #
 # Empty or absent means no scheduled jobs: every job is manual (the Jobs page buttons).
 #
-# `job` must be one of the runner's jobs (ingest, ingest-inbox, egress-firefly, journal-snapshot);
-# `params` are validated at load. A daily/weekly entry is a calendar cadence (the local wall time is preserved
-# across a DST change).
+# `job` must be one of the runner's jobs (ingest, ingest-inbox, reparse, egress-firefly,
+# journal-snapshot, stream); an unknown name fails runner startup, and `params` are validated when
+# the entry fires. A scheduled `reparse` (or `egress-firefly`) `mode: apply` needs the runner
+# started with `--allow-apply` and bypasses the Jobs preview: the schedule has no manual gate. A
+# daily/weekly entry is a calendar cadence (the local wall time is preserved across a DST change).
 
 jobs: []
 

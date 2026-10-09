@@ -576,7 +576,10 @@ scheduled run skips quietly. `reparse` replays one stored evidence id with the a
 the batch recorded (`sourceType` and `account` are params the Jobs page fills from the ingest
 history), defaulting to a preview; `apply` is gated by `--allow-apply` and by the UI — Apply unlocks
 only after a preview of the same evidence that found changes and no `RETIRE`, or after an explicit
-tick that accepts the retirements (`QOL_Improvements.md` §4). `POST /jobs/{name}/runs`
+tick that accepts the retirements (`QOL_Improvements.md` §4). `reparse` is schedulable like
+`egress-firefly`: a schedule entry may carry its params (including `mode: apply`), and a scheduled
+apply is gated only by `--allow-apply` — the fresh-preview/`RETIRE` tick is the manual path's
+safeguard, not a scheduler rule. `POST /jobs/{name}/runs`
 is async (`202 {runId}`) or, with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
 The runner mounts the journal read-only so the `stream` export job can read it.
 
