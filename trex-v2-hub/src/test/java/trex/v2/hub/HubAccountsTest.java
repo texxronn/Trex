@@ -123,6 +123,32 @@ class HubAccountsTest {
         }
     }
 
+    @Test
+    void ingestsCarryTheAccountFrontierClampedToToday(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        LocalDate old = LocalDate.of(2020, 1, 2);
+        LocalDate future = LocalDate.now(java.time.ZoneOffset.UTC).plusDays(30);
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "a", "ing-savings", old),
+                fact(2, "b", "ing-savings", future),
+                ingest(3, IngestEvent.START, "b1", "savings.csv"),
+                ingest(4, IngestEvent.COMPLETE, "b1", "savings.csv")));
+        }
+        Path index = dir.resolve("trex.sqlite");
+        try (HubService hub = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 2L
+                && !hub.ingests().rows().isEmpty());
+            List<trex.v2.hub.api.IngestsResponse.IngestRow> rows = hub.ingests().rows();
+            assertEquals(1, rows.size());
+            assertEquals("ing-savings", rows.getFirst().accountRef());
+            assertEquals(old, rows.getFirst().latestTxnDate(),
+                "the frontier is MAX(date) clamped to today: a future fact does not count");
+        }
+    }
+
     // ---- fixtures ---------------------------------------------------------------------------
 
     private static Fact fact(long n, String id, String account, LocalDate date) {

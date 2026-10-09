@@ -23,6 +23,7 @@ let opsHost;
 let stagingHost;
 let jobsHost;
 let ingestHost;
+let frontierHost;
 let historyHost;
 let statusLine;
 let ingestButton;
@@ -41,6 +42,7 @@ function render() {
   stagingHost = el('div');
   jobsHost = el('div');
   ingestHost = el('div');
+  frontierHost = el('div');
   historyHost = el('div');
   outputHost = el('pre', { class: 'job-output' });
   statusLine = el('div', { class: 'muted', hidden: true });
@@ -54,6 +56,8 @@ function render() {
     jobsHost,
     el('h3', {}, 'Run output'),
     outputHost,
+    el('h3', {}, 'Fetch frontier'),
+    frontierHost,
     el('h3', {}, 'Ingests'),
     ingestHost,
     el('h3', {}, 'History'),
@@ -106,6 +110,7 @@ async function load() {
     ingests = [];
   }
   renderIngests();
+  renderFrontier();
   renderOps();
 }
 
@@ -426,17 +431,52 @@ function renderIngests() {
     ingestHost.append(el('p', { class: 'muted' }, 'No ingests recorded yet.'));
     return;
   }
-  const head = el('tr', {}, el('th', {}, 'File'), el('th', {}, 'Account'), el('th', {}, 'n range'),
+  const head = el('tr', {}, el('th', {}, 'File'), el('th', {}, 'Account'), el('th', {}, 'Frontier'),
+    el('th', {}, 'n range'),
     el('th', {}, 'app/dup/flag'), el('th', {}, 'Status'), el('th', {}, 'When'));
   const body = ingests.map((i) => el('tr', {},
     el('td', { class: 'desc', title: i.evidenceId || '' }, i.file || '(unknown)'),
     el('td', {}, i.accountRef || ''),
+    el('td', { class: 'muted' }, i.latestTxnDate || '\u2014'),
     el('td', { class: 'muted' }, `${i.nStart}\u2013${i.nEnd}`),
     el('td', {}, `${num(i.appended)}/${num(i.duplicate)}/${num(i.flagged)}`),
     el('td', {}, el('span', { class: 'badge ' + (i.status === 'ok' ? '' : 'POTENTIAL_DUP') },
       i.status || 'open')),
     el('td', { class: 'muted' }, rel(i.completedMs || i.startedMs))));
   ingestHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
+// ---- fetch frontier -------------------------------------------------------------------------
+
+/**
+ * Per account, the frontier — the newest transaction date already processed — so the next
+ * statement file can be requested with a date range (V2-INGEST-FRONTIER-PLAN.md). Built from the
+ * registry accounts joined to the newest ingest row (which now carries the frontier). The range is
+ * the frontier inclusive through today; an account with no facts shows an em dash.
+ */
+function renderFrontier() {
+  clear(frontierHost);
+  const accounts = (ctx.refdata && ctx.refdata.accounts) || [];
+  if (!accounts.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const newest = new Map();
+  for (const i of ingests) {
+    if (i.accountRef && !newest.has(i.accountRef)) newest.set(i.accountRef, i);
+  }
+  const head = el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Newest file'),
+    el('th', {}, 'Frontier'), el('th', {}, 'Suggested range'));
+  const body = accounts.map((account) => {
+    const imp = newest.get(account.ref);
+    const frontier = imp && imp.latestTxnDate ? imp.latestTxnDate : null;
+    return el('tr', {},
+      el('td', {}, account.ref),
+      el('td', { class: 'desc muted', title: imp ? imp.file || '' : '' },
+        imp ? imp.file || '(unknown)' : '\u2014'),
+      el('td', { class: 'muted' }, frontier || '\u2014'),
+      el('td', { class: 'muted' }, frontier ? `${frontier} \u2192 ${today}` : ''));
+  });
+  frontierHost.append(scroll(el('table', { class: 'frontier-table' },
+    el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 function num(value) {
