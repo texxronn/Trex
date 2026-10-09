@@ -270,8 +270,12 @@ public final class FireflyClient {
             : new Result.Failed(r.statusCode(), message(r.body()));
     }
 
+    /** Gone is the goal: a group already deleted (by you, or by a run that stopped) is not an error. */
     public void deleteTransaction(String groupId) throws IOException, InterruptedException {
         HttpResponse<String> r = send("DELETE", "/api/v1/transactions/" + groupId, null);
+        if (r.statusCode() == 404) {
+            return;
+        }
         if (r.statusCode() / 100 != 2) {
             throw new IOException("deleting group " + groupId + ": " + r.statusCode() + " " + message(r.body()));
         }
