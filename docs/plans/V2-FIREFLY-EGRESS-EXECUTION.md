@@ -1,10 +1,11 @@
 # V2-FIREFLY-EGRESS-EXECUTION.md
 
-**Status:** ready to execute (2026-10-09). Companion to `V2-FIREFLY-EGRESS-PLAN.md` (the build
+**Status:** archived (2026-10-09) — Stage 6 has landed, so this is the dispatch record, not a live
+brief. Companion to `V2-FIREFLY-EGRESS-PLAN.md` (the build
 order — the *what*) and `docs/reviews/V2-FIREFLY-EGRESS-REVIEW.md` (the review — R1–R8, V1–V7).
 This file is the dispatch layer: who runs what, in what order, and how the work is accepted.
 `V2-SPEC.md` remains the specification; `AGENTS.md` binds every worker. It archives alongside the
-plan when Stage 6 lands.
+plan, now that Stage 6 has landed.
 
 ## 1. Start here (new session)
 
