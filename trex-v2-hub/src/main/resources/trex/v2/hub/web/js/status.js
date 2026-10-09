@@ -4,6 +4,7 @@
 import { api } from './api.js';
 import { el, clear } from './dom.js';
 import { total } from './format.js';
+import * as since from './since.js';
 
 let host = null;
 let ctx = null;
@@ -23,6 +24,7 @@ export async function refresh() {
     const status = await api.status();
     clear(host);
     const review = total(status.reviewByKind);
+    if (review === 0) recordClear(status.n);
     host.append(
       item('n', status.n),
       item('lag', status.lagBytes + ' B', status.lagBytes > 0 ? 'bad' : 'good'),
@@ -49,6 +51,18 @@ function allClear(open, through) {
   }
   return el('span', { class: 'tick', title: 'nothing open in review' },
     '\u2713 all clear' + (through ? ` \u2014 through ${through}` : ''));
+}
+
+/**
+ * The finish line is the next visit's starting line (V2-QOL-IMPROVEMENTS-PLAN.md §5): whenever
+ * the strip shows all clear, the browser marker moves to the head, and the last known month left
+ * rides along so the next summary can say "left this month X (was Y)". The marker is captured by
+ * since.js at load before this can overwrite it. Never stored anywhere else.
+ */
+function recordClear(n) {
+  localStorage.setItem('trex.clearedAtN', String(n));
+  const left = since.latestLeft();
+  if (left !== null) localStorage.setItem('trex.clearedLeft', String(left));
 }
 
 /**

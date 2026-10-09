@@ -14,6 +14,7 @@ import { openCommitmentActions, openDeclare, openSettle } from './commitment.js'
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
+import * as since from './since.js';
 
 const WINDOWS = { today: 'Today', week: 'This week', month: 'This month' };
 
@@ -72,6 +73,9 @@ function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
   host.append(errorBar, el('div', { class: 'toolbar' }, tabs(), summary()));
+  // The since-clear line sits above the headroom (QOL §5), from the visit's cached read.
+  const notice = since.line();
+  if (notice) host.append(notice);
   if (!data) {
     host.append(el('p', { class: 'muted' }, 'Loading…'));
     return;

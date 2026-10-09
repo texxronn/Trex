@@ -518,3 +518,9 @@ button.warn:hover { background: var(--warn-soft); }
 .headroom { margin: 8px 0 14px; padding: 10px 12px; border: 1px solid var(--line, #ddd); border-radius: 6px; }
 .headroom > div + div { margin-top: 4px; }
 .headroom b.tick, .headroom b.occ-missed { font-size: 22px; }
+
+/* "Since you last cleared" (V2-QOL-IMPROVEMENTS-PLAN.md §5): one calm line, dismissible. */
+.since { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 14px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 13px; }
+.since-text { flex: 1; }
+.since-dismiss { padding: 0 6px; line-height: 1.2; }

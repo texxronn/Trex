@@ -68,6 +68,10 @@ export const api = {
   workbook: () => request('GET', '/api/workbook'),
   ingests: (sinceN) => request('GET', '/api/ingests'
     + (sinceN === null || sinceN === undefined ? '' : '?' + new URLSearchParams({ sinceN }))),
+  since: (n, user) => request('GET', '/api/since?' + new URLSearchParams({
+    n,
+    ...(user ? { user } : {}),
+  })),
   accounts: (params = {}) => request('GET', '/api/accounts?' + new URLSearchParams(params)),
   jobs: () => request('GET', '/api/jobs'),
   jobAdapters: () => request('GET', '/api/jobs/adapters'),

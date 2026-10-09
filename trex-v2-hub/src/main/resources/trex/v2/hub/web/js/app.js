@@ -5,6 +5,7 @@ import { api } from './api.js';
 import { connect } from './sse.js';
 import { toast } from './toast.js';
 import * as status from './status.js';
+import * as since from './since.js';
 import * as blotter from './blotter.js';
 import * as review from './review.js';
 import * as expected from './expected.js';
@@ -40,6 +41,9 @@ async function boot() {
   ctx.onUserChange = refreshActive;
 
   status.mount(document.getElementById('status'), ctx);
+  // The marker order matters (QOL §5): since.js captured the stored marker at module load, and
+  // this fetch runs before status.refresh() so the all-clear write has a left to store.
+  await since.load(ctx);
   await status.refresh();
 
   window.addEventListener('hashchange', route);

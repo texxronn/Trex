@@ -9,6 +9,7 @@ import { direction } from './direction.js';
 import { openAnnotate } from './annotate.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
+import * as since from './since.js';
 import { reportError, toast } from './toast.js';
 
 let host;
@@ -93,7 +94,11 @@ function render() {
 
   tableHost = el('div');
   pager = el('div', { class: 'pager' });
-  host.append(errorBar, toolbar, actions, tableHost, pager);
+  host.append(errorBar);
+  // The since-clear line leads the Blotter too (QOL §5), from the visit's cached read.
+  const notice = since.line();
+  if (notice) host.append(notice);
+  host.append(toolbar, actions, tableHost, pager);
 }
 
 async function load() {
