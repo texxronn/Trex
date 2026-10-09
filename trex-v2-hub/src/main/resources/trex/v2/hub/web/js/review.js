@@ -135,7 +135,7 @@ function actionCell(row) {
   }
   if (row.kind === 'COMMITMENT_ARREARS') {
     return el('td', {},
-      el('button', { type: 'button', onclick: () => settleArrears(row) }, 'Settle'),
+      el('button', { type: 'button', onclick: () => settleArrears(row) }, 'Mark paid'),
       el('button', { type: 'button', class: 'ghost', onclick: () => snoozeArrears(row) }, 'Snooze'));
   }
   const canDismiss = row.kind !== 'INEFFECTIVE_DECISION';

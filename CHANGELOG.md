@@ -9,6 +9,14 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- **`V2-SPEC.md` is the specification** (`V2-REVIEW-FIXES-PLAN.md` §12). `V2-PROPOSAL.md` is frozen
+  as the history of intent; `AGENTS.md` follows. The spec now states its own contracts — row
+  outcomes, the review table with dismissal rules, the commitment status table, the pending rule, the
+  `stateHash` inputs, the constants — and an endpoint table. The UI calls `SETTLE_OCCURRENCE`
+  **Mark paid** ("paid by hand").
+
 ### Added
 
 - **A daily "all clear"** (`V2-REVIEW-FIXES-PLAN.md` §11). The status strip shows the open review

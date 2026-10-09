@@ -163,7 +163,7 @@ function statusCell(status) {
       return el('td', {}, el('span', { class: 'tick', title: 'a fact landed' }, '\u2713 occurred'));
     case 'settled':
       return el('td', {}, el('span', { class: 'occ-settled',
-        title: 'settled by a person — a conclusion, not a fact' }, '\u25c6 settled'));
+        title: 'marked paid by a person — a conclusion, not a fact (SETTLE_OCCURRENCE)' }, '\u25c6 paid by hand'));
     case 'due':
       return el('td', {}, el('span', { class: 'muted', title: 'window open' }, 'due'));
     case 'partial':
@@ -203,7 +203,7 @@ function catchUp() {
     el('span', { class: 'occ-partial' }, ` · ${arrears.length} behind · ${money(total)}`)];
   return fold('arrears', head, [
     el('p', { class: 'muted hint' },
-      'Oldest first. Settle concludes a hole was paid without a fact; Assign a payment takes you '
+      'Oldest first. Mark paid concludes a hole was paid without a fact; Assign a payment takes you '
       + 'to the Blotter to place the fact itself.'),
     scroll(el('table', {}, el('thead', {}, el('tr', {},
       el('th', {}, 'Due'), el('th', {}, 'Commitment'), el('th', {}, 'Status'),
@@ -224,7 +224,7 @@ function arrearRow(a) {
     el('td', { class: 'amount' }, money(a.runningTotal)),
     el('td', {},
       el('button', { type: 'button', class: 'ghost',
-        onclick: () => settleCommitment(a) }, 'Settle'),
+        onclick: () => settleCommitment(a) }, 'Mark paid'),
       el('button', { type: 'button', class: 'ghost',
         onclick: () => { location.hash = '#blotter'; } }, 'Assign a payment')));
 }
