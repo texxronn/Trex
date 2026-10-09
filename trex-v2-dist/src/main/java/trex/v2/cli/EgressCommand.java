@@ -6,6 +6,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.egress.archive.ArchiveMirror;
+import trex.v2.egress.firefly.AccountChecks;
 import trex.v2.egress.firefly.AccountMap;
 import trex.v2.egress.firefly.AccountProvisioning;
 import trex.v2.egress.firefly.CategorySeeding;
@@ -131,23 +132,42 @@ public final class EgressCommand implements Callable<Integer> {
             HubClient hub = new HubClient(hubUrl);
             AccountMap map = AccountMap.load(accountsFile);
 
+            Map<String, FireflyClient.AccountInfo> instance = firefly.accounts();
             Map<String, String> idsByName = new LinkedHashMap<>();
-            firefly.accounts().forEach((name, info) -> idsByName.put(name, info.id()));
+            instance.forEach((name, info) -> idsByName.put(name, info.id()));
             AccountMap resolved = map.resolved(idsByName);
 
-            if (createMissingAccounts) {
-                resolved = createMissing(firefly, hub, map, idsByName, resolved);
-            }
+            // Inspect only: --print-accounts lists the mapping as resolved, never provisioning,
+            // so a missing ref still shows as "(missing)" and the command writes nothing.
             if (printAccounts) {
                 resolved.byRef().forEach((ref, e) -> System.out.printf("  %-24s %-28s %s%n",
                     ref, e.name(), e.id() == null ? "(missing)" : "id " + e.id()));
                 return 0;
+            }
+
+            // Every account we already resolve is checked before any write, so that
+            // --create-missing-accounts cannot leave Firefly changed when a mapping disagrees.
+            List<String> existingProblems = AccountChecks.problems(resolved, instance, hub.currencyByAccount());
+            if (!existingProblems.isEmpty()) {
+                System.err.println("firefly.yaml disagrees with the instance; nothing has been written:");
+                existingProblems.forEach(p -> System.err.println("  " + p));
+                return 1;
+            }
+
+            if (createMissingAccounts) {
+                resolved = createMissing(firefly, hub, map, idsByName, resolved);
             }
             List<String> unresolved = resolved.unresolved();
             if (!unresolved.isEmpty()) {
                 System.err.println("firefly.yaml names accounts this instance does not have: "
                     + String.join(", ", unresolved)
                     + ". Fix the name, or pass --create-missing-accounts.");
+                return 1;
+            }
+            List<String> problems = AccountChecks.problems(resolved, firefly.accounts(), hub.currencyByAccount());
+            if (!problems.isEmpty()) {
+                System.err.println("firefly.yaml disagrees with the instance; nothing has been written:");
+                problems.forEach(p -> System.err.println("  " + p));
                 return 1;
             }
             if (seedCategories) {

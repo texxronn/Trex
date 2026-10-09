@@ -137,7 +137,7 @@ public final class FireflyClient {
                 }
                 JsonNode first = splits.get(0);
                 String external = first.path("external_id").asText(null);
-                if (external == null) {
+                if (external == null || !isOurs(first)) {
                     continue;                  // not ours
                 }
                 out.add(new Existing(g.path("id").asText(), external,
@@ -154,6 +154,16 @@ public final class FireflyClient {
         List<String> out = new ArrayList<>();
         split.path("tags").forEach(t -> out.add(t.asText()));
         return out;
+    }
+
+    /** Ours is the trex tag, never an external_id alone: an importer or a hand entry can carry one. */
+    public static boolean isOurs(JsonNode split) {
+        for (JsonNode t : split.path("tags")) {
+            if (Projection.TAG.equals(t.asText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** What trex last said, read off our own tag — not Firefly's category, which you may have edited. */
@@ -260,8 +270,12 @@ public final class FireflyClient {
             : new Result.Failed(r.statusCode(), message(r.body()));
     }
 
+    /** Gone is the goal: a group already deleted (by you, or by a run that stopped) is not an error. */
     public void deleteTransaction(String groupId) throws IOException, InterruptedException {
         HttpResponse<String> r = send("DELETE", "/api/v1/transactions/" + groupId, null);
+        if (r.statusCode() == 404) {
+            return;
+        }
         if (r.statusCode() / 100 != 2) {
             throw new IOException("deleting group " + groupId + ": " + r.statusCode() + " " + message(r.body()));
         }

@@ -82,9 +82,11 @@ final class FakeFirefly implements AutoCloseable {
                     case "DELETE" -> {
                         deletes.incrementAndGet();
                         Group removed = byId.remove(id);
-                        if (removed != null) {
-                            removed.splits().forEach(s -> idByExternal.remove(s.get("external_id")));
+                        if (removed == null) {
+                            respond(exchange, 404, "{\"message\":\"Resource not found\"}");
+                            return;
                         }
+                        removed.splits().forEach(s -> idByExternal.remove(s.get("external_id")));
                         respond(exchange, 204, "");
                     }
                     default -> respond(exchange, 405, "{}");

@@ -109,6 +109,20 @@ public final class Projection {
             + "\n" + unit.rawDescription();
     }
 
+    /** Yours stay; ours are replaced. A re-tag that wrote only ours would delete what you added. */
+    public static List<String> tags(com.fasterxml.jackson.databind.JsonNode existing, String category) {
+        List<String> out = new java.util.ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode t : existing) {
+            String v = t.asText();
+            if (!v.equals(TAG) && !v.startsWith(CATEGORY_TAG_PREFIX)) {
+                out.add(v);
+            }
+        }
+        out.add(TAG);
+        out.add(CATEGORY_TAG_PREFIX + category);
+        return out;
+    }
+
     /** Like {@link #amount} but keeps the sign — an opening balance may legitimately be a debt. */
     static String signedAmount(long cents) {
         return (cents < 0 ? "-" : "") + amount(cents);

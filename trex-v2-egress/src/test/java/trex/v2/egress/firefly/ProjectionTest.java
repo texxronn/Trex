@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import trex.v2.egress.hub.HubClient.HubUnit;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -72,5 +73,13 @@ class ProjectionTest {
         assertEquals("deposit", s.get("type"));
         assertEquals("2500.00", s.get("amount"));
         assertEquals("ACME SALARY", s.get("source_name"));
+    }
+
+    @Test
+    void tagsKeepYoursAndReplaceOurs() {
+        com.fasterxml.jackson.databind.JsonNode existing = trex.v2.log.Json.mapper().valueToTree(
+            List.of("holiday", "trex", "trex-category:OLD", "tax-2026"));
+        assertEquals(List.of("holiday", "tax-2026", "trex", "trex-category:NEW"),
+            Projection.tags(existing, "NEW"));
     }
 }

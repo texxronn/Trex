@@ -209,7 +209,7 @@ public final class FireflyEgress {
             } else {
                 preserved = true;
             }
-            map.put("tags", List.of(Projection.TAG, Projection.CATEGORY_TAG_PREFIX + unit.category()));
+            map.put("tags", Projection.tags(split.path("tags"), unit.category()));
             splits.add(map);
         }
         body.put("apply_rules", false);

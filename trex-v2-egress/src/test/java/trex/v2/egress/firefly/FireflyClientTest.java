@@ -60,4 +60,12 @@ class FireflyClientTest {
             assertEquals("1", ((FireflyClient.Result.Duplicate) second).groupId());
         }
     }
+
+    @Test
+    void deletingAGroupThatIsAlreadyGoneIsNotAnError() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly()) {
+            new FireflyClient(fake.url(), "token").deleteTransaction("404404");
+            assertEquals(1, fake.deletes.get());
+        }
+    }
 }
