@@ -43,7 +43,7 @@ public final class ConfigLoader {
 
     private static final int DEFAULT_SETTLEMENT_WINDOW_DAYS = 7;
 
-    /** A statement account's statements count as old after a month (QOL_Improvements.md §2). */
+    /** A statement account's statements count as old after a month (V2-QOL-IMPROVEMENTS-PLAN.md §2). */
     private static final int DEFAULT_FETCH_EVERY_DAYS = 31;
 
     private ConfigLoader() {}
@@ -77,7 +77,7 @@ public final class ConfigLoader {
             }
             // budget: presentation only — which accounts the Expected "left this month" figure reads
             // (V2-REVIEW-FIXES-PLAN.md §10). Absent means in the budget, except a clearing account.
-            // fetchEveryDays: presentation only too — the statement-age nudge (QOL_Improvements.md
+            // fetchEveryDays: presentation only too — the statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md
             // §2). Absent means 31 days for a statement account and no cadence for the others; an
             // explicit 0 (a closed account that still has statement rows) turns the nudge off.
             Integer fetchEveryDays = e.fetchEveryDays() != null ? e.fetchEveryDays()

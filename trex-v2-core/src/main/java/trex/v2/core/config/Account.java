@@ -9,7 +9,7 @@ import java.time.LocalDate;
  * <p>{@code settlementWindowDays} is how long a pending observation may wait before it is stale
  * (§9.9.D); default 7, applied by the loader.
  *
- * <p>{@code fetchEveryDays} is the statement-age nudge (QOL_Improvements.md §2): the age beyond
+ * <p>{@code fetchEveryDays} is the statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): the age beyond
  * which this account's statements count as old. Presentation only, like {@code chipColor} — the
  * loader resolves the default (31 for a statement account, none for declared/clearing) and
  * {@code 0} disables the nudge; null means no cadence. Never identity or logic.

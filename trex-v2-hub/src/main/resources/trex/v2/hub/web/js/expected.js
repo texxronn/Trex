@@ -14,6 +14,7 @@ import { openCommitmentActions, openDeclare, openSettle } from './commitment.js'
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
 import { money, shortId } from './format.js';
+import * as since from './since.js';
 
 const WINDOWS = { today: 'Today', week: 'This week', month: 'This month' };
 
@@ -22,7 +23,7 @@ let ctx;
 let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
-let stale = [];        // /api/status stale accounts, oldest first (QOL_Improvements.md §2)
+let stale = [];        // /api/status stale accounts, oldest first (V2-QOL-IMPROVEMENTS-PLAN.md §2)
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
 
@@ -72,6 +73,9 @@ function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
   host.append(errorBar, el('div', { class: 'toolbar' }, tabs(), summary()));
+  // The since-clear line sits above the headroom (QOL §5), from the visit's cached read.
+  const notice = since.line();
+  if (notice) host.append(notice);
   if (!data) {
     host.append(el('p', { class: 'muted' }, 'Loading…'));
     return;
@@ -189,7 +193,7 @@ function statusCell(o) {
 }
 
 /**
- * The awaiting tooltip (QOL_Improvements.md §2): the matcher escalates to awaiting on the newest
+ * The awaiting tooltip (V2-QOL-IMPROVEMENTS-PLAN.md §2): the matcher escalates to awaiting on the newest
  * frontier over the commitment's rule accounts, so one account can be named honestly only when the
  * rules resolve to exactly one distinct account — repeated refs are one account. With several,
  * which statement closed the window is a guess, so the tooltip keeps the generic fetch-it hint, as

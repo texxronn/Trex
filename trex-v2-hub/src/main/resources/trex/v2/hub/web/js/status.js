@@ -4,6 +4,7 @@
 import { api } from './api.js';
 import { el, clear } from './dom.js';
 import { total } from './format.js';
+import * as since from './since.js';
 
 let host = null;
 let ctx = null;
@@ -23,6 +24,7 @@ export async function refresh() {
     const status = await api.status();
     clear(host);
     const review = total(status.reviewByKind);
+    if (review === 0) recordClear(status.n);
     host.append(
       item('n', status.n),
       item('lag', status.lagBytes + ' B', status.lagBytes > 0 ? 'bad' : 'good'),
@@ -52,7 +54,23 @@ function allClear(open, through) {
 }
 
 /**
- * The statement-age nudge (QOL_Improvements.md §2): how many accounts are past the fetch cadence
+ * The finish line is the next visit's starting line (V2-QOL-IMPROVEMENTS-PLAN.md §5): when the
+ * strip shows all clear, the browser marker may move to the head, with the last known month left
+ * beside it so the next summary can say "left this month X (was Y)". The marker is captured by
+ * since.js at load before this can overwrite it, and it moves only when doing so is safe: a
+ * failed or still-pending summary read leaves it where it was, so an all-clear can never bury
+ * news the read did not show — the next visit retries. Never stored anywhere else.
+ */
+function recordClear(n) {
+  if (!since.mayAdvance()) return;
+  localStorage.setItem('trex.clearedAtN', String(n));
+  // The left only ever comes from a successful read's headroom; a failure must not null it.
+  const left = since.latestLeft();
+  if (left !== null) localStorage.setItem('trex.clearedLeft', String(left));
+}
+
+/**
+ * The statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): how many accounts are past the fetch cadence
  * their frontier implies. Quiet — muted — until one is more than twice its cadence, then amber; the
  * tooltip names each account's age and frontier, and a click opens Jobs at the fetch-frontier
  * table, which already suggests the date range. Nothing to fetch renders an empty span.

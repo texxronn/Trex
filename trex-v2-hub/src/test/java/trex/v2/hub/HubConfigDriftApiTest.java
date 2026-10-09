@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@code GET /api/config/drift} (QOL_Improvements.md §3): every seeded file in declaration order,
+ * {@code GET /api/config/drift} (V2-QOL-IMPROVEMENTS-PLAN.md §3): every seeded file in declaration order,
  * each with the state the pure comparison gives. The temp config dir carries {@code .shipped/} and
  * {@code .base/} beside the live files, with one file per state — repo-newer, edited-here,
  * both-changed, same and unknown (no shipped copy, and no base for a differing file).

@@ -406,6 +406,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
+| GET | `/api/since?n=<n>&user=<id>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line (§9.1) |
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
 | GET/POST | `/api/acks` | per-user `USER_ACK` rows and their validity |
@@ -422,7 +423,7 @@ Open review count (a link to Review), or **✓ all clear — through <date>** on
 date is the oldest statement frontier of the `budget` accounts, so an all-clear never claims more
 than the statements say.
 
-**The statement-age nudge** (`QOL_Improvements.md` §2). `/api/status` also returns `stale`: every
+**The statement-age nudge** (`V2-QOL-IMPROVEMENTS-PLAN.md` §2). `/api/status` also returns `stale`: every
 account whose frontier — the newest non-synthetic statement row at or before today — is older than
 its effective fetch cadence (`fetchEveryDays`; §12), oldest first, as
 `{account, frontier, days, fetchEveryDays}` with `days = today − frontier` and `days > fetchEveryDays`
@@ -430,6 +431,25 @@ strictly. An account with no frontier has nothing to fetch yet and is absent; a 
 never nudges. The strip shows `⧗ N statements to fetch` after the all-clear or the review count —
 muted, amber once any account is more than twice its cadence — with a tooltip naming each account,
 its age and its frontier; a click opens Jobs at the fetch-frontier table.
+
+**The "since you last cleared" line** (`V2-QOL-IMPROVEMENTS-PLAN.md` §5). The marker is per viewer
+and lives in the browser (`localStorage`), never the log and never the index: the strip records the
+head `n` whenever it shows all clear (`trex.clearedAtN`), with the last known month left beside it
+(`trex.clearedLeft`). The client captures the stored marker when the page loads, before the
+all-clear write can move it; an all-clear advances it only when there was no marker to read or
+the visit's read succeeded — a failed or malformed read leaves the marker where it was, so the
+next visit retries news it never showed. `GET /api/since?n=<n>&user=<id>` then reads what the log appended
+after that line: facts (total and per account), completed batches, review items opened after the
+line's time, occurrences that turned `occurred` (the fact the matcher attached is after `n`) or
+`missed` (the window closed after the line's UTC date), and the decisions after `n` that are not
+the viewer's own, plus the month's headroom (§9.2). Expected shows one line **above** its headroom
+and the Blotter one at its top, once per visit until dismissed: **Since Tue 08:40:** 47 new rows
+(ing-salary, bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was
+−$95). The parenthetical comes from `trex.clearedLeft` and is omitted when the marker's month is
+not the current one or nothing is stored; with a marker and no news the line is **Nothing new
+since Tue 08:40.**; a marker whose line is no longer in the log (a rebuilt journal) shows nothing;
+a new device has no marker and no line. Nothing is stored outside the browser; the endpoint is a
+read of the disposable index.
 
 ### 9.2 Headroom ("left this month")
 
@@ -447,9 +467,9 @@ Eight modes; each one's detail lives in the plan that built it.
 
 | Mode | What it is for | Detail |
 |---|---|---|
-| **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, note, assign to a commitment) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
+| **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
-| **Expected** | headroom; the window's occurrences; **Catch up** (arrears, oldest first); the commitment registry with its Actions menu; rule lint | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md` |
+| **Expected** | headroom; the window's occurrences; **Catch up** (arrears, oldest first); the commitment registry with its Actions menu; rule lint; the since-cleared line above the headroom (§9.1) | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md` |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
@@ -507,7 +527,7 @@ optional `refdata.yaml` overriding the declared category names. The rules are th
 rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
 location is `--archive` on the sequencer and runner.
 
-**Config drift** (`QOL_Improvements.md` §3). The compose `init` service never overwrites a live
+**Config drift** (`V2-QOL-IMPROVEMENTS-PLAN.md` §3). The compose `init` service never overwrites a live
 config file, but on every `up` it rewrites `/etc/trex/.shipped/<file>` with the image's copy, and
 when it installs a missing live file it also records that copy as `/etc/trex/.base/<file>`. The hub
 compares the three per file — current vs shipped, current vs base, shipped vs base — and serves
@@ -576,7 +596,7 @@ scheduled run skips quietly. `reparse` replays one stored evidence id with the a
 the batch recorded (`sourceType` and `account` are params the Jobs page fills from the ingest
 history), defaulting to a preview; `apply` is gated by `--allow-apply` and by the UI — Apply unlocks
 only after a preview of the same evidence that found changes and no `RETIRE`, or after an explicit
-tick that accepts the retirements (`QOL_Improvements.md` §4). `reparse` is schedulable like
+tick that accepts the retirements (`V2-QOL-IMPROVEMENTS-PLAN.md` §4). `reparse` is schedulable like
 `egress-firefly`: a schedule entry may carry its params (including `mode: apply`), and a scheduled
 apply is gated only by `--allow-apply` — the fresh-preview/`RETIRE` tick is the manual path's
 safeguard, not a scheduler rule. `POST /jobs/{name}/runs`
@@ -644,9 +664,9 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
 | `V2-SPEC.md` (this) | **the specification.** A change to behaviour changes this file in the same PR. |
 | `AGENTS.md` | the invariants that never move, and how work is done |
 | `README.md`, `CHANGELOG.md` | the entry point; what changed, for a reader who was not there |
-| `QOL_Improvements.md`, `V2-REVIEW-FIXES-PLAN.md` | the **open** plans (root): written before a stage, amended as it lands |
+| `V2-REVIEW-FIXES-PLAN.md` | the **open** plan (root): written before a stage, amended as it lands; Stage 10 waits for the first feed |
 | `V2-PROPOSAL.md` | **frozen** (2026-10-09): the history of intent and the rationale. Read it for *why*, never for *what* — where it differs from this file, this file wins. It stays at the root because code comments cite it. |
-| `docs/plans/V2-*-PLAN.md` | **built** plans, each with a banner naming the PRs that built it: the record of why and of what was measured. Code comments cite them by file name. |
+| `docs/plans/V2-*-PLAN.md` | **built** plans, each with a banner naming the PRs that built it: the record of why and of what was measured. Code comments cite them by file name; `V2-QOL-IMPROVEMENTS-PLAN.md` §6 holds the post-QOL feature freeze. |
 | `docs/reviews/` | design reviews, every finding actioned |
 | `docs/proposals/` | parked ideas, nothing decided (the sequencer kernel) |
 | `docs/archive/` | superseded snapshots (the 2026-10-08 proposal, the 2026-09-30 lifecycle diagram) |

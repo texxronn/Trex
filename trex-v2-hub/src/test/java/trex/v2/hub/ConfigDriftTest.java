@@ -12,7 +12,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * The three-way config comparison (QOL_Improvements.md §3): one case per row of the table plus the
+ * The three-way config comparison (V2-QOL-IMPROVEMENTS-PLAN.md §3): one case per row of the table plus the
  * absent-side rules — absent S cannot compare, absent B with a differing C is unknown, and a
  * deleted C is a difference (a deletion is an edit) whenever S and B allow classification.
  */

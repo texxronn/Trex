@@ -19,7 +19,20 @@ everything is under **Unreleased**.
 
 ### Added
 
-- **Re-read evidence** (`QOL_Improvements.md` §4). A parser fix is a button with a preview, not a
+- **"Since you last cleared"** (`V2-QOL-IMPROVEMENTS-PLAN.md` §5). The all-clear strip now sets the
+  next visit's starting line: a per-viewer marker in the browser (`trex.clearedAtN`, with the last
+  known month left in `trex.clearedLeft`), never the log or the index. `GET /api/since?n=<n>&user=<id>`
+  reads what the log appended after that line — new facts (total and per account), completed
+  batches, review items opened after it, occurrences that turned `occurred` or `missed`, decisions
+  other than the viewer's own — and the month's headroom, so Expected shows one line above its
+  headroom and the Blotter one at its top: "Since Tue 08:40: 47 new rows (ing-salary,
+  bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was −$95)". Zero
+  news says "Nothing new since Tue 08:40."; a dismiss hides the line for the rest of the visit; a
+  rebuilt journal whose marker line is gone shows nothing. A failed or malformed summary read
+  leaves the marker (and the stored left) untouched, so an all-clear cannot bury news the read
+  never showed; a wrong-shaped payload renders nothing rather than throwing. Reads only; nothing
+  is stored.
+- **Re-read evidence** (`V2-QOL-IMPROVEMENTS-PLAN.md` §4). A parser fix is a button with a preview, not a
   terminal session: the runner gains the `reparse` job — `ingest --reparse <evidence>` with the
   batch's recorded `sourceType` and `account`, preview by default, apply only under `--allow-apply`
   and only for an evidence id the store already holds. Every ingest-history row on Jobs gains
@@ -28,7 +41,7 @@ everything is under **Unreleased**.
   same evidence found changes and no `RETIRE`s (a `MISSING` count is red and unlocks only after an
   explicit tick), and it locks again after an apply. `GET /api/ingests` rows now carry the start
   marker's `sourceType`. Applying writes exactly what `trex ingest --reparse --apply` writes.
-- **Config drift** (`QOL_Improvements.md` §3). The `init` service now writes the image's copy of
+- **Config drift** (`V2-QOL-IMPROVEMENTS-PLAN.md` §3). The `init` service now writes the image's copy of
   every seeded config file to `/etc/trex/.shipped/<file>` on each `up` (and the installed copy to
   `.base/<file>` when it seeds a missing live file), never overwriting the live file. The hub
   compares shipped, base and current per file and serves `GET /api/config/drift` (`same`,
@@ -37,7 +50,7 @@ everything is under **Unreleased**.
   command documented for the host in `docs/DEPLOYMENTS.md` — backs up and updates only
   `repo-newer` files; `--adopt FILE` records the live file as the base for the first run (refused
   when `.shipped` has no copy of it). Reads only; nothing is stored.
-- **The statement-age nudge** (`QOL_Improvements.md` §2). The strip now says *which* statement to
+- **The statement-age nudge** (`V2-QOL-IMPROVEMENTS-PLAN.md` §2). The strip now says *which* statement to
   fetch: `/api/status` gains `stale` — every account whose frontier (its newest statement row) is
   older than its fetch cadence, oldest first — and the strip shows **⧗ N statements to fetch**
   (muted; amber once any account is more than twice its cadence) with a tooltip naming each
@@ -47,7 +60,7 @@ everything is under **Unreleased**.
   presentation-only `accounts.yaml`
   field `fetchEveryDays`: default 31 for a statement account, none for declared/clearing, `0` off.
   Reads only; nothing is stored.
-- **An ingest toast** (`QOL_Improvements.md` §1). A drop-folder sweep is no longer silent: on an SSE
+- **An ingest toast** (`V2-QOL-IMPROVEMENTS-PLAN.md` §1). A drop-folder sweep is no longer silent: on an SSE
   delta the UI asks `/api/ingests?sinceN=<previous n>` for just the batches that completed since and
   shows one toast with the sweep's counts ("2 statements ingested · 47 new rows · 1 flagged · 1 new
   review item — ING_Salary_Account.csv, BW_*.csv"). A failed batch names its file ("rejected", "bad

@@ -50,6 +50,7 @@ import trex.v2.hub.api.ProjectionStateResponse;
 import trex.v2.hub.api.ReconcileResponse;
 import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
+import trex.v2.hub.api.SinceResponse;
 import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.TransferPreview;
@@ -220,7 +221,7 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
-     * The statement-age nudge (QOL_Improvements.md §2): every account whose frontier is older than
+     * The statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): every account whose frontier is older than
      * its effective fetch cadence, oldest first (ties by ref). A null or 0 cadence never nudges —
      * declared/clearing accounts unless one is set explicitly, and a closed account silenced with
      * {@code fetchEveryDays: 0} — and an account with no frontier has nothing to fetch yet. The day
@@ -312,16 +313,23 @@ public final class HubService implements HubApi, AutoCloseable {
                 "window must be today, week or month, not '" + win + "'");
         };
         ExpectedResponse base = reads.expected(win, range);
+        return new ExpectedResponse(base.window(), base.from(), base.to(), base.occurrences(), base.arrears(),
+            base.totals(), monthHeadroom(at));
+    }
+
+    /**
+     * The month's headroom (§9.2) measured at {@code at}, over the budget accounts: the read the
+     * Expected view and the since-clear line share, so the two can never drift.
+     */
+    private ExpectedResponse.Headroom monthHeadroom(LocalDate at) {
         java.util.Set<String> budget = new java.util.TreeSet<>();
         for (var account : refresher.config().registry().accounts().values()) {
             if (account.budget()) {
                 budget.add(account.ref());
             }
         }
-        ExpectedResponse.Headroom headroom = reads.headroom(Period.bounds(YearMonth.from(at).toString()), at,
-            budget, statementBudget(refresher.config().registry()));
-        return new ExpectedResponse(base.window(), base.from(), base.to(), base.occurrences(), base.arrears(),
-            base.totals(), headroom);
+        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, budget,
+            statementBudget(refresher.config().registry()));
     }
 
     @Override
@@ -648,6 +656,18 @@ public final class HubService implements HubApi, AutoCloseable {
         return new trex.v2.hub.api.IngestsResponse(reads.ingests(50, sinceN));
     }
 
+    /**
+     * The "since you last cleared" summary (V2-QOL-IMPROVEMENTS-PLAN.md §5): the counts are
+     * {@link HubQueries#since} and the month's headroom rides along, so the browser's one line can
+     * compare with its stored value without a second fetch. A read; nothing is stored.
+     */
+    @Override
+    public SinceResponse since(long n, String user) {
+        HubQueries.Since since = reads.since(n, user);
+        return new SinceResponse(since.at(), since.rows(), since.accounts(), since.batches(),
+            since.items(), since.occurrences(), since.decisions(), monthHeadroom(LocalDate.now()));
+    }
+
     // ---- accounts overview (V2-PROPOSAL.md §10.1, §10.5) -------------------------------------
 
     /**
@@ -796,7 +816,7 @@ public final class HubService implements HubApi, AutoCloseable {
         return new DecisionOutcome(200, Map.of("saved", true));
     }
 
-    /** Config drift (QOL_Improvements.md §3): pure reads of the three versions under the volume. */
+    /** Config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3): pure reads of the three versions under the volume. */
     @Override
     public List<ConfigDrift.Row> configDrift() {
         try {

@@ -1,4 +1,4 @@
-// The ingest toast (QOL_Improvements.md §1): when an SSE delta reports that the index moved past
+// The ingest toast (V2-QOL-IMPROVEMENTS-PLAN.md §1): when an SSE delta reports that the index moved past
 // batches which completed after the one we last saw, fetch just those batches and say what the
 // sweep did — in any mode. The filter is /api/ingests?sinceN=, so a delta never pulls the whole
 // history. No framework, no build step.

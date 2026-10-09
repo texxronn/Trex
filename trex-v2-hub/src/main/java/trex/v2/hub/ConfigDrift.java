@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Config drift (QOL_Improvements.md §3): the hub's read of the three versions of each config file
+ * Config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3): the hub's read of the three versions of each config file
  * the compose {@code init} service seeds into the volume — the <em>shipped</em> file in the image
  * right now ({@code .shipped/<file>}), the shipped version last installed (<em>base</em>,
  * {@code .base/<file>}) and the live <em>current</em> file ({@code <file>}, possibly edited in the
@@ -50,7 +50,7 @@ public final class ConfigDrift {
     private ConfigDrift() {}
 
     /**
-     * The table's three-way comparison (QOL_Improvements.md §3.2). {@code C == S} is {@code same}
+     * The table's three-way comparison (V2-QOL-IMPROVEMENTS-PLAN.md §3.2). {@code C == S} is {@code same}
      * — B is irrelevant. Otherwise a missing S (nothing to compare) or a missing B (no way to say
      * who moved) is {@code unknown}; {@code C == B} is {@code repo-newer} ({@code S != B} follows);
      * {@code S == B} is {@code edited-here}; all three different is {@code both-changed}. A

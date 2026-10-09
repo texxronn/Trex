@@ -1,6 +1,6 @@
 // Transient notifications. A 409 (stale view) is called out specially, because the fix is to
 // refresh rather than to retry. A third argument makes the toast a button that opens somewhere
-// (QOL_Improvements.md §1) — one click target at a time, cleared whenever a toast is shown.
+// (V2-QOL-IMPROVEMENTS-PLAN.md §1) — one click target at a time, cleared whenever a toast is shown.
 
 let timer = null;
 let clickHandler = null;

@@ -9,7 +9,7 @@ public record IngestsResponse(List<IngestRow> rows) {
     /**
      * One ingest batch. {@code sourceType} is the adapter the batch was ingested with, from its
      * {@code trex.ingest start} marker — the Jobs page hands it back with a re-read so evidence can
-     * never be paired with the wrong parser (QOL_Improvements.md §4).
+     * never be paired with the wrong parser (V2-QOL-IMPROVEMENTS-PLAN.md §4).
      *
      * <p>{@code latestTxnDate} is the account's frontier (V2-INGEST-FRONTIER-PLAN.md): the newest
      * transaction date already processed for the account, clamped to today, or null when the

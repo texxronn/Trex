@@ -1,5 +1,5 @@
 #!/bin/sh
-# sync-config — one-shot config drift sync (QOL_Improvements.md §3). Run inside a throwaway
+# sync-config — one-shot config drift sync (V2-QOL-IMPROVEMENTS-PLAN.md §3). Run inside a throwaway
 # container against a compose `config` volume, never against the host filesystem directly:
 #
 #   docker run --rm -i -v trex-v2_config:/etc/trex alpine sh -s < deploy/v2/sync-config.sh

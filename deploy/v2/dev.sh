@@ -47,7 +47,7 @@ build() {
     (cd "$repo" && deploy/bin/trex-v2-docker.sh build)
 }
 
-# Config drift (QOL_Improvements.md §3): compare ., .shipped and .base under the config volume and
+# Config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3): compare ., .shipped and .base under the config volume and
 # update only the files the repo moved while you did not — in a throwaway alpine container, so the
 # host needs no tools and the script itself never runs on this machine's filesystem.
 sync_config() {
