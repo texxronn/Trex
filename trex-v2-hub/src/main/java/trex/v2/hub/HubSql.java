@@ -208,6 +208,54 @@ final class HubSql {
     static final String ACCOUNT_LAST_IMPORTS = """
         SELECT account_ref, file, status, started_ms FROM ingest_batch ORDER BY started_ms""";
 
+    // ---- since you last cleared (V2-QOL-IMPROVEMENTS-PLAN.md §5) -----------------------------
+
+    /** The appended time of log line {@code n}, from whichever level-1 table holds it. */
+    static final String SINCE_MARKER = """
+        SELECT (SELECT at_ms FROM fact WHERE n = ?),
+               (SELECT at_ms FROM ingest_event WHERE n = ?),
+               (SELECT at FROM decision WHERE n = ?)""";
+
+    /** New facts after the marker, per account, deterministic; the total is their sum. */
+    static final String SINCE_FACTS =
+        "SELECT account_ref, COUNT(*) FROM fact WHERE n > ? GROUP BY account_ref ORDER BY account_ref";
+
+    /** Completed batches after the marker; an unpaired start has a null {@code n_end}. */
+    static final String SINCE_BATCHES = "SELECT COUNT(*) FROM ingest_batch WHERE n_end > ?";
+
+    /**
+     * Review items opened after the marker's time. {@code opened_at} is
+     * {@code Instant.toString()} text, whose fractional-second groups do not collate — "
+     * {@code .500Z}" sorts before "{@code Z}" — so the comparison goes through
+     * {@code julianday}, which parses every Instant spelling.
+     */
+    static final String SINCE_ITEMS =
+        "SELECT COUNT(*) FROM review_item WHERE julianday(opened_at) > julianday(?)";
+
+    /**
+     * Occurrences that turned {@code occurred} or {@code missed} since the marker: an
+     * {@code occurred} row counts when the fact the matcher attached was appended after the
+     * marker ({@code txn_current.n > n}), a {@code missed} row when its window closed after the
+     * marker's date.
+     */
+    static final String SINCE_OCCURRENCES = """
+        SELECT o.commitment_id, c.name, c.direction, o.status, o.due_date, o.window_end
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        LEFT JOIN txn_current t ON t.external_id = o.matched_external_id
+        WHERE (o.status = 'occurred' AND t.n > ?)
+           OR (o.status = 'missed' AND o.window_end > ?)
+        ORDER BY o.due_date, o.commitment_id""";
+
+    /**
+     * Decisions after the marker, one row per user, excluding the acting viewer's own; a null
+     * user (a feed or the system) is kept — it is never the viewer's own.
+     */
+    static final String SINCE_DECISIONS = """
+        SELECT user_id, COUNT(*) FROM decision
+        WHERE n > ? AND (? IS NULL OR user_id IS NULL OR user_id <> ?)
+        GROUP BY user_id ORDER BY user_id""";
+
     static final String UNITS_SELECT = """
         SELECT unit_id, unit_kind, account_ref, date, amount, currency, category, origin, pairing,
                retired, ineffective

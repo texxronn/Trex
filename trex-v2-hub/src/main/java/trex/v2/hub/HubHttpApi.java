@@ -95,6 +95,19 @@ final class HubHttpApi {
                 sendError(ex, 422, "sinceN must be a number");
             }
         });
+        route(server, "/api/since", "GET", ex -> {
+            try {
+                String query = ex.getRequestURI().getQuery();
+                String n = param(query, "n");
+                if (n == null) {
+                    sendError(ex, 422, "n is required");
+                    return;
+                }
+                write(ex, 200, api.since(Long.parseLong(n), param(query, "user")));
+            } catch (NumberFormatException e) {
+                sendError(ex, 422, "n must be a number");
+            }
+        });
         route(server, "/api/accounts", "GET", ex -> {
             try {
                 String query = ex.getRequestURI().getQuery();

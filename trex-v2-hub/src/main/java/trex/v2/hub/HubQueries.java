@@ -9,6 +9,7 @@ import trex.v2.hub.api.LedgerRow;
 import trex.v2.hub.api.NoteJson;
 import trex.v2.hub.api.ReviewMember;
 import trex.v2.hub.api.ReviewRow;
+import trex.v2.hub.api.SinceResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
@@ -185,6 +186,110 @@ public final class HubQueries implements AutoCloseable {
             }
             return out;
         });
+    }
+
+    // ---- since you last cleared (V2-QOL-IMPROVEMENTS-PLAN.md §5) -----------------------------
+
+    /** The since-clear read's raw result; the wire shape adds the month's headroom. */
+    public record Since(Instant at, long rows, List<SinceResponse.AccountCount> accounts, long batches,
+                        long items, List<SinceResponse.Occurrence> occurrences,
+                        List<SinceResponse.UserCount> decisions) {}
+
+    /**
+     * What the log appended after line {@code n} (V2-QOL-IMPROVEMENTS-PLAN.md §5): facts (total
+     * and per account), completed ingest batches, review items opened after the line's time,
+     * occurrences that turned {@code occurred}/{@code missed}, and the decisions after {@code n}
+     * that are not {@code user}'s own ({@code user} null keeps every decision). Pure reads; the
+     * marker is a browser thing and never reaches here as state.
+     *
+     * <p>The marker's time is the appended time of line {@code n} — {@code fact.at_ms} or
+     * {@code ingest_event.at_ms} as epoch millis, {@code decision.at} as an instant. A line that
+     * is not in the log ({@code n <= 0}, past the head, or a rebuilt journal that no longer has
+     * it) is not an error: the result has a null {@code at} and zeros. A {@code missed}
+     * occurrence counts when its window closed after the marker's <em>UTC</em> date, the calendar
+     * the derive itself measures windows in.
+     */
+    public Since since(long n, String user) {
+        return read(conn -> {
+            Instant at = markerInstant(conn, n);
+            if (at == null) {
+                return new Since(null, 0, List.of(), 0, 0, List.of(), List.of());
+            }
+            List<SinceResponse.AccountCount> accounts = new ArrayList<>();
+            long rows = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.SINCE_FACTS)) {
+                ps.setLong(1, n);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        long count = rs.getLong(2);
+                        rows += count;
+                        accounts.add(new SinceResponse.AccountCount(rs.getString(1), count));
+                    }
+                }
+            }
+            long batches = count(conn, HubSql.SINCE_BATCHES, n);
+            long items = count(conn, HubSql.SINCE_ITEMS, at.toString());
+            List<SinceResponse.Occurrence> occurrences = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.SINCE_OCCURRENCES)) {
+                ps.setLong(1, n);
+                ps.setString(2, at.atZone(java.time.ZoneOffset.UTC).toLocalDate().toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        occurrences.add(new SinceResponse.Occurrence(rs.getString(1), rs.getString(2),
+                            rs.getString(3), rs.getString(4), LocalDate.parse(rs.getString(5)),
+                            nullableDate(rs.getString(6))));
+                    }
+                }
+            }
+            List<SinceResponse.UserCount> decisions = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.SINCE_DECISIONS)) {
+                ps.setLong(1, n);
+                ps.setString(2, user);
+                ps.setString(3, user);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        decisions.add(new SinceResponse.UserCount(rs.getString(1), rs.getLong(2)));
+                    }
+                }
+            }
+            return new Since(at, rows, accounts, batches, items, occurrences, decisions);
+        });
+    }
+
+    /** The appended time of log line {@code n}, or null when no level-1 table holds that line. */
+    private static Instant markerInstant(Connection conn, long n) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.SINCE_MARKER)) {
+            ps.setLong(1, n);
+            ps.setLong(2, n);
+            ps.setLong(3, n);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                long atMs = rs.getLong(1);
+                if (!rs.wasNull()) {
+                    return Instant.ofEpochMilli(atMs);
+                }
+                atMs = rs.getLong(2);
+                if (!rs.wasNull()) {
+                    return Instant.ofEpochMilli(atMs);
+                }
+                String at = rs.getString(3);
+                return at == null ? null : Instant.parse(at);
+            }
+        }
+    }
+
+    /** One scalar count on an already-open read connection. */
+    private static long count(Connection conn, String sql, Object... params) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                ps.setObject(i + 1, params[i]);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        }
     }
 
     // ---- accounts overview (V2-PROPOSAL.md §10.1, §10.5) ---------------------------------------

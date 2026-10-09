@@ -14,6 +14,7 @@ import trex.v2.hub.api.ProjectionRequest;
 import trex.v2.hub.api.ProjectionStateResponse;
 import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReviewRow;
+import trex.v2.hub.api.SinceResponse;
 import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.UnitsResponse;
@@ -116,6 +117,15 @@ interface HubApi {
      * untruncated; null returns the newest page for the Jobs view.
      */
     trex.v2.hub.api.IngestsResponse ingests(Long sinceN);
+
+    /**
+     * The "since you last cleared" summary (V2-QOL-IMPROVEMENTS-PLAN.md §5): what the log
+     * appended after line {@code n}, plus the month's headroom for the "left this month (was …)"
+     * comparison. {@code user} is the acting viewer, whose own decisions are not news; null keeps
+     * every decision. A marker line that is not in the log answers with a null {@code at} and
+     * zero counts, never an error.
+     */
+    SinceResponse since(long n, String user);
 
     /** The Accounts overview (§10.1, §10.5): per-account first/last and the coverage strip. */
     AccountsResponse accounts(String window, String granularity, java.time.LocalDate asOf);
