@@ -1,5 +1,11 @@
 # trex v2 — a refined v1
 
+> **Frozen 2026-10-09.** This proposal is the history of intent and the rationale behind v2. The
+> specification is now **`V2-SPEC.md`**, which wins wherever the two differ (operator decision D-C,
+> `V2-REVIEW-FIXES-PLAN.md` §2). Several sections here describe plans that were built differently
+> (migration §15.5/§16, the P0–P5 roadmap §17/§18, the four UI modes of §10.1, the pending sign
+> rule of §9.9.D, the high-water egress resume of §11.6); they are left as written, as history.
+
 > **Personal project, single operator, private.** Nothing here is a public contract.
 > The invariants are self-imposed because a ledger that silently loses a row is broken
 > regardless of who is reading — not because anyone else depends on these shapes. A
@@ -1657,7 +1663,7 @@ event, the system must not silently pick one:
 - different `externalId`, matching `(account, date, amount)`, **different merchant stems** and
   similar text → a `RESTATEMENT` review item with both sides shown, resolved by `SUPERSEDE`,
   `RETIRE` or `DISMISS`. The two kinds are disjoint: a same-stem pair is the duplicate case
-  (`POTENTIAL_DUP`), never a restatement — a restatement is a *different reading* of the amount,
+  (`POTENTIAL_DUP`), never a restatement — a restatement is a *different reading* of the description,
   which is what a re-parse or a second source produces. "Similar" is deterministic, never a
   scoring library: compare merchant stems (the first alphabetic token of ≥ 3 characters after
   stripping payment-network noise such as `VISA`, `EFTPOS`, `POS`, `AUTHORISATION`), case-folded,

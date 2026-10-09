@@ -5,7 +5,7 @@
 > `claude-v2-proposal-spec-review.md`). Where this file and the proposal disagree, the proposal
 > wins — until each stage's amendment lands.
 >
-> **Status:** decided — Stage 0 (this plan). Nothing is built.
+> **Status:** built — Stages 1–9 (PRs #47–#55); Stage 10 waits for the first feed.
 > **Decisions (operator, 2026-10-09):** D-A through D-F (§2) are all accepted as recommended.
 > **Authority:** `V2-PROPOSAL.md` §6.1/§6.5 (identity, dedup, row outcomes), §8.3 (identity),
 > §9.1/§9.9 (derive), §12.2 (cursors); `V2-COMMITMENTS-PLAN.md`; `V2-MANUAL-ARREARS-PLAN.md`;
@@ -513,6 +513,23 @@ write each item back into the proposal and keep the spec descriptive.
 | `AGENTS.md` | If D-C: the authority section names `V2-SPEC.md`. Update the stale memory note that still names v1's `SPEC.md`/`DECISIONS.md`. |
 
 ---
+
+### 12a As built (2026-10-09)
+
+- **Authority flipped (D-C).** `V2-SPEC.md` is the specification; `V2-PROPOSAL.md` carries a
+  *frozen* banner and is not edited to catch up — so the prior review's D1 list of stale proposal
+  text (migration, roadmap, four UI modes, pending sign, high-water resume, the `derive/2` example)
+  is resolved by the banner naming it, not by rewriting history. `AGENTS.md` names the spec.
+- **The spec carries its own contracts now:** the per-row outcome table (§3), the pipeline, the
+  current-fact rule and the `asOf` contract (§6.1), the exact pending rule (§6.4), the occurrence
+  status table (§6.5), one review table — predicate, subject, what a `DISMISS` holds until (§6.6),
+  the chain rule (§6.7), the `stateHash` inputs (§6.8) and the constants (§6.9); an endpoint table,
+  the status strip, the headroom rule and a UI-mode table pointing at the plans (§9); and §18, what
+  each document is for. Bare proposal section numbers in the spec now name their document.
+- **N4** fixed in both documents ("a different reading of the description").
+- **D-E:** the UI says **Mark paid** / "paid by hand"; the wire stays `SETTLE_OCCURRENCE`.
+- **Not done:** the built plan docs were not moved to an archive — code comments cite them by path;
+  §18 says what they are instead.
 
 ## 13. Stage 10 — feed cursors in the log (M5; gate D-F; before the first feed)
 

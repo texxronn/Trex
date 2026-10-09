@@ -245,16 +245,16 @@ export function openSettle(ctx, target, onDone) {
   }
   const label = target.name ? `${target.name} (${target.commitmentId})` : target.commitmentId;
   openPrompt({
-    title: 'Settle occurrences',
+    title: 'Mark paid by hand',
     summary: `${label}: ${dates.length} occurrence${dates.length === 1 ? '' : 's'} — ${dates.join(', ')}`,
     label: 'Comment (optional)',
     placeholder: 'paid in cash',
-    confirm: 'Settle',
+    confirm: 'Mark paid',
   }, async (comment) => {
     try {
       await api.decisions(ctx.n, [decisions.settleOccurrence(ctx, target.commitmentId, dates,
         comment || null)]);
-      toast('Settled');
+      toast('Marked paid');
     } catch (error) {
       reportError(error);
     }
@@ -479,7 +479,7 @@ function declaredChoices(ctx, c, onDone, activity) {
   choices.push({ label: 'Note', class: 'ghost',
     onPick: () => openCommitmentNote(ctx, { commitmentId: c.commitmentId, name: c.name }, onDone) });
   if (c.arrearsCount) {
-    choices.push({ label: 'Settle', class: 'primary',
+    choices.push({ label: 'Mark paid', class: 'primary',
       onPick: () => settleBacklog(ctx, c, onDone) });
   }
   return choices;
