@@ -1072,7 +1072,7 @@ public final class HubQueries implements AutoCloseable {
             Map<String, String[]> legs = new java.util.HashMap<>();
             try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.TRANSFER_LEGS)) {
                 while (rs.next()) {
-                    legs.put(rs.getString(1), new String[] { rs.getString(2), rs.getString(3) });
+                    legs.put(rs.getString(1), new String[] { rs.getString(2), rs.getString(3), rs.getString(4) });
                 }
             }
             List<trex.v2.hub.api.ProjectionUnit> out = new ArrayList<>();
@@ -1083,10 +1083,32 @@ public final class HubQueries implements AutoCloseable {
                     String currency = rs.getString(6);
                     if ("TRANSFER".equals(kind)) {
                         String[] pair = legs.get(unitId);
-                        trex.v2.core.Fact from = pair == null ? null : facts.get(pair[0]);
-                        trex.v2.core.Fact to = pair == null ? null : facts.get(pair[1]);
-                        if (from == null || to == null) {
+                        if (pair == null) {
+                            throw new IllegalStateException("unit " + unitId + " has no transfer row");
+                        }
+                        String clearing = pair[2];
+                        if (clearing != null) {
+                            // One real leg and an account side (§6.7): the clearing ref stands in the
+                            // transfer row where a leg id would be, so it is never a fact.
+                            boolean realPays = !clearing.equals(pair[0]);
+                            trex.v2.core.Fact real = facts.get(realPays ? pair[0] : pair[1]);
+                            if (real == null) {
+                                throw new IllegalStateException("clearing unit " + unitId + " has no current real leg");
+                            }
+                            String fromRef = realPays ? real.accountRef() : clearing;
+                            String toRef = realPays ? clearing : real.accountRef();
+                            long amount = Math.abs(real.amount());
+                            out.add(new trex.v2.hub.api.ProjectionUnit(unitId, "TRANSFER", real.n(), fromRef,
+                                toRef, real.date(), amount, currency, "TRANSFER", "STRUCTURAL", "MATCHED",
+                                false, false, real.rawDescription(),
+                                unitHash(unitId, "TRANSFER", fromRef, toRef, real.date(), amount, currency,
+                                    "TRANSFER")));
                             continue;
+                        }
+                        trex.v2.core.Fact from = facts.get(pair[0]);
+                        trex.v2.core.Fact to = facts.get(pair[1]);
+                        if (from == null || to == null) {
+                            throw new IllegalStateException("transfer unit " + unitId + " has a leg that is not current");
                         }
                         out.add(new trex.v2.hub.api.ProjectionUnit(unitId, "TRANSFER",
                             Math.max(from.n(), to.n()), from.accountRef(), to.accountRef(), from.date(),
@@ -1097,7 +1119,7 @@ public final class HubQueries implements AutoCloseable {
                     } else {
                         trex.v2.core.Fact fact = facts.get(unitId);
                         if (fact == null) {
-                            continue;
+                            throw new IllegalStateException("unit " + unitId + " has no current fact");
                         }
                         out.add(new trex.v2.hub.api.ProjectionUnit(unitId, "EXTERNAL", fact.n(),
                             fact.accountRef(), null, fact.date(), fact.amount(), currency, rs.getString(7),

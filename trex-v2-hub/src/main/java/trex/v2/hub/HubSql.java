@@ -261,7 +261,7 @@ final class HubSql {
                retired, ineffective
         FROM unit ORDER BY date, unit_id""";
 
-    static final String TRANSFER_LEGS = "SELECT transfer_id, from_leg, to_leg FROM transfer";
+    static final String TRANSFER_LEGS = "SELECT transfer_id, from_leg, to_leg, clearing_account FROM transfer";
 
     /** The current posted facts. The chain, the projection and the walk run over transactions only
      * (§6.9); noop rows are read separately for the reconcile result's exclusions. */

@@ -55,6 +55,52 @@ class HubUnitsTest {
         }
     }
 
+    @Test
+    void aClearingTransferIsOneUnitBetweenTheRealAccountAndTheClearingAccount(@TempDir Path dir)
+            throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        Files.writeString(configDir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "ing-orange"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: declared
+              - ref: "nab-fixed"
+                currency: "AUD"
+                balanceSource: clearing
+                closingBalance: 0
+            """);
+        Files.writeString(configDir.resolve("transfers.yaml"), """
+            windowDays: 4
+            transferPatterns:
+              ing-orange:
+                - { match: 'NAB Fixed Payments', rail: BANK_TRANSFER, clearing: nab-fixed }
+              default: []
+            """);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(fact(1, "pay", "ing-orange", -3180000, "NAB Fixed Payments",
+                Observation.POSTED)));
+        }
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(() -> hub.units().units().size() == 1);
+            var unit = hub.units().units().getFirst();
+            assertEquals("TRANSFER", unit.unitKind());
+            assertEquals("ing-orange", unit.accountRef(), "the paying side");
+            assertEquals("nab-fixed", unit.toAccountRef(), "the clearing side");
+            assertEquals(3180000, unit.amount());
+            assertEquals(LocalDate.of(2026, 9, 1), unit.date());
+        }
+    }
+
     private static Fact fact(long n, String id, String account, long amount, String raw, Observation observation) {
         return new Fact(n, id, account, LocalDate.of(2026, 9, 1), amount, 0, raw, null, 0, observation,
             "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
