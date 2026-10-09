@@ -7,20 +7,35 @@ import { api } from './api.js';
 import { total } from './format.js';
 import { toast } from './toast.js';
 
-let lastN = null;      // the newest n whose batches have been reported
-let latestN = null;    // the newest delta seen while a fetch is in flight
-let lastReview = null; // the review total at the previous delta, once a baseline exists
+let lastN = null;           // the newest n whose batches have been reported
+let latestN = null;         // the newest delta seen while a fetch is in flight
+let lastReview = null;      // the review total at the previous delta
+let snapshotReview = null;  // the review total at the snapshot, consumed by the first delta
 let running = false;
 
 /**
- * One SSE delta. The first delta of a page load only establishes the baseline: there is no
- * previous review total to diff against, so no "new review item" is claimed for it.
+ * The SSE snapshot: seed the baseline so the first delta toasts the batches that completed since
+ * the page loaded (or reconnected) instead of treating that delta as the baseline. The review
+ * total is fetched now, so the first delta can diff against the total the snapshot saw; if that
+ * fetch fails, the promise resolves null and the first delta claims no review delta at all —
+ * never a guess.
+ */
+export function onSnapshot(n) {
+  lastN = n;
+  snapshotReview = reviewTotal();
+}
+
+/**
+ * One SSE delta. The first processed delta after a snapshot fetches the batches completed since
+ * it; only a stream that never saw a snapshot falls back to treating its first delta as the
+ * baseline.
  */
 export async function onDelta(change) {
   const n = change.n;
   if (lastN === null || n < lastN) {
-    lastN = n; // a first delta, or a rebuilt journal whose n line numbers restarted
-    lastReview = await reviewTotal();
+    // no snapshot yet, or a rebuilt journal whose n line numbers restarted
+    lastN = n;
+    snapshotReview = reviewTotal();
     return;
   }
   if (n === lastN) {
@@ -40,6 +55,10 @@ export async function onDelta(change) {
       // Everything up to a reported batch's n_end is now told; a delta that arrived mid-fetch
       // only narrows the next range.
       lastN = rows.reduce((max, row) => Math.max(max, row.nEnd || 0), target);
+      if (snapshotReview !== null) {
+        lastReview = await snapshotReview;
+        snapshotReview = null;
+      }
       const review = total(status && status.reviewByKind);
       const reviewDelta = lastReview === null ? 0 : review - lastReview;
       lastReview = review;
@@ -73,9 +92,10 @@ function failed(rows) {
 
 /**
  * "2 statements ingested · 47 new rows · 1 flagged · 1 new review item — a.csv, b.csv". Flagged
- * only when there is one; duplicates only when every appended row was a duplicate, so a no-op
- * sweep is still confirmed; a batch that failed names its file and the runner's word for it
- * ("rejected", "bad rows") and makes the toast an error one.
+ * only when there is one; duplicates only when every row was a duplicate — nothing appended,
+ * nothing flagged, no failed batch — so a clean no-op sweep is still confirmed; a batch that
+ * failed names its file and the runner's word for it ("rejected", "bad rows") and makes the
+ * toast an error one.
  */
 function summary(rows, reviewDelta) {
   const appended = sum(rows, 'appended');
@@ -97,7 +117,7 @@ function summary(rows, reviewDelta) {
   if (flagged > 0) {
     parts.push(`${flagged} flagged`);
   }
-  if (appended === 0 && duplicate > 0) {
+  if (appended === 0 && duplicate > 0 && flagged === 0 && bad.length === 0) {
     parts.push(`${duplicate} duplicate${duplicate === 1 ? '' : 's'}`);
   }
   if (reviewDelta > 0) {

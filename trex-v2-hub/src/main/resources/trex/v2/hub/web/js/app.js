@@ -48,6 +48,7 @@ async function boot() {
   connect({
     onSnapshot: (head) => {
       ctx.n = head.n;
+      ingestToast.onSnapshot(head.n);
       status.refresh();
       refreshActive();
     },
