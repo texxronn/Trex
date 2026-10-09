@@ -11,6 +11,9 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A daily "all clear"** (`V2-REVIEW-FIXES-PLAN.md` §11). The status strip shows the open review
+  count, or **✓ all clear — through <date>** when nothing is open; an empty Review says so.
+  `/api/status` gains `through`, the oldest statement frontier of the budget accounts.
 - **"Left this month" on Expected** (`V2-REVIEW-FIXES-PLAN.md` §10). One figure over the `budget`
   accounts — income in and due, commitments paid and due, other spend, and money moved to or from
   your own accounts outside the budget — with missed commitments and unpaired transfers shown apart,

@@ -91,7 +91,11 @@ async function load() {
 function renderRows(rows) {
   clear(listHost);
   if (!rows.length) {
-    listHost.append(el('p', { class: 'muted' }, 'Nothing open.'));
+    // Filtered to a kind or an account, empty means only that slice is clear.
+    listHost.append(kind || account
+      ? el('p', { class: 'muted' }, 'Nothing open here.')
+      : el('p', { class: 'tick', style: 'font-size: 16px' },
+        '\u2713 All clear \u2014 nothing to review. Done for today.'));
     return;
   }
   const head = el('tr', {}, el('th', {}, 'Kind'), el('th', {}, 'Account'), el('th', {}, 'Date'),
