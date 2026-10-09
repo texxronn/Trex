@@ -436,7 +436,9 @@ its age and its frontier; a click opens Jobs at the fetch-frontier table.
 and lives in the browser (`localStorage`), never the log and never the index: the strip records the
 head `n` whenever it shows all clear (`trex.clearedAtN`), with the last known month left beside it
 (`trex.clearedLeft`). The client captures the stored marker when the page loads, before the
-all-clear write can move it. `GET /api/since?n=<n>&user=<id>` then reads what the log appended
+all-clear write can move it; an all-clear advances it only when there was no marker to read or
+the visit's read succeeded — a failed or malformed read leaves the marker where it was, so the
+next visit retries news it never showed. `GET /api/since?n=<n>&user=<id>` then reads what the log appended
 after that line: facts (total and per account), completed batches, review items opened after the
 line's time, occurrences that turned `occurred` (the fact the matcher attached is after `n`) or
 `missed` (the window closed after the line's UTC date), and the decisions after `n` that are not

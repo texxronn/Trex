@@ -4,7 +4,9 @@
 //
 // The marker is captured at module load — before boot() can call status.refresh(), which rewrites
 // it whenever the strip shows all clear — so the line always speaks about the marker the visit
-// opened with. One /api/since fetch per visit, cached; Expected and Blotter render from it.
+// opened with. One /api/since fetch per visit, cached; Expected and Blotter render from it. A
+// failed or malformed read never advances the marker (mayAdvance), so news it could not show
+// stays unread and the next visit retries.
 
 import { api } from './api.js';
 import { el } from './dom.js';
@@ -17,33 +19,57 @@ const markerN = localStorage.getItem(AT_KEY);
 const markerLeft = localStorage.getItem(LEFT_KEY);
 
 let ctx = null;
-let data = null;       // the one cached /api/since response for this visit
+let data = null;       // the visit's validated /api/since response, when the read succeeded
 let dismissed = false; // module state only: a reload shows the line again
+// The visit's read outcome: 'none' (no marker to read), 'pending', 'ok', 'failed'. Only a
+// success — or a marker set for the first time — may advance the stored marker: a failed read
+// that advanced it would erase news it never showed.
+let read = markerN === null ? 'none' : 'pending';
 
 /**
  * Fetch the visit's one summary. Boot calls this before status.refresh(), so the all-clear write
  * of the marker has a fresh left value to store. No marker (a new device) means no fetch and no
- * line; a failed read means no line this visit, never a crash.
+ * line; a failed or malformed read means no line this visit, never a crash.
  */
 export async function load(context) {
   ctx = context;
-  if (data || markerN === null) return;
+  if (read !== 'pending') return;
   try {
-    data = await api.since(markerN, context.user);
+    const response = await api.since(markerN, context.user);
+    if (wellFormed(response)) {
+      data = response;
+      read = 'ok';
+    } else {
+      read = 'failed';
+    }
   } catch {
-    data = null;
+    read = 'failed';
   }
 }
 
-/** The last known month left, for status.js's all-clear marker write; null until the read answers. */
+/**
+ * Whether an all-clear may move the stored marker without erasing unread news: there was no
+ * marker to read (setting one for the first time loses nothing), or this visit's read succeeded
+ * — even with zero news. A pending or failed read leaves the marker where it was, so the next
+ * visit retries.
+ */
+export function mayAdvance() {
+  return read === 'none' || read === 'ok';
+}
+
+/** The successful read's month left, for status.js's marker write; null when there is none to trust. */
 export function latestLeft() {
-  return data && data.headroom ? data.headroom.left : null;
+  if (read !== 'ok') return null;
+  const headroom = headroomOf(data);
+  return headroom ? headroom.left : null;
 }
 
 /**
- * The summary line, or null when there is no marker, no cached answer, the marker line is gone
- * from the journal, or the person has dismissed it. Expected renders it above the headroom,
- * Blotter above its toolbar; both read the same cached response.
+ * The summary line, or null when there is no marker, no validated answer, the marker line is
+ * gone from the journal, or the person has dismissed it. Expected renders it above the headroom,
+ * Blotter above its toolbar; both read the same cached response. Every collection is normalised
+ * below, so a payload with wrong-shaped rows renders nothing (or the calm line) instead of
+ * throwing in either view.
  */
 export function line() {
   if (!markerN || !data || !data.at || dismissed) return null;
@@ -62,15 +88,17 @@ export function line() {
 /** The one line: the example in the plan, in order, and the calm answer when nothing happened. */
 function summary(s) {
   const parts = [];
-  if (s.rows > 0) {
-    parts.push(`${s.rows} new row${s.rows === 1 ? '' : 's'}${accountsText(s.accounts)}`);
+  const rows = countOf(s.rows);
+  const items = countOf(s.items);
+  if (rows > 0) {
+    parts.push(`${rows} new row${rows === 1 ? '' : 's'}${accountsText(s.accounts)}`);
   }
-  if (s.items > 0) {
-    parts.push(`${s.items} new item${s.items === 1 ? '' : 's'}`);
+  if (items > 0) {
+    parts.push(`${items} new item${items === 1 ? '' : 's'}`);
   }
-  const occurrences = occurrencesText(s.occurrences || []);
+  const occurrences = occurrencesText(s.occurrences);
   if (occurrences) parts.push(occurrences);
-  const decisions = decisionsText(s.decisions || []);
+  const decisions = decisionsText(s.decisions);
   if (decisions) parts.push(decisions);
   if (!parts.length) return `Nothing new since ${when(s.at)}.`;
   const left = leftText(s);
@@ -79,7 +107,9 @@ function summary(s) {
 }
 
 function accountsText(accounts) {
-  const names = (accounts || []).map((a) => a.account).filter(Boolean);
+  const names = arrayOf(accounts)
+    .map((row) => (row && typeof row === 'object' ? row.account : null))
+    .filter((name) => typeof name === 'string' && name);
   return names.length ? ` (${names.join(', ')})` : '';
 }
 
@@ -94,23 +124,28 @@ function occurrencesText(rows) {
 }
 
 function namesOf(rows, status) {
-  const names = rows.filter((r) => r.status === status)
-    .map((r) => r.commitmentName || r.commitmentId);
+  const names = arrayOf(rows)
+    .filter((row) => row && typeof row === 'object' && row.status === status)
+    .map((row) => row.commitmentName || row.commitmentId)
+    .filter((name) => typeof name === 'string' && name);
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
   return names.join(', ');
 }
 
 function decisionsText(rows) {
-  const count = rows.reduce((sum, r) => sum + (r.count || 0), 0);
+  const list = arrayOf(rows).filter((row) => row && typeof row === 'object'
+    && countOf(row.count) > 0);
+  const count = list.reduce((sum, row) => sum + row.count, 0);
   if (!count) return '';
-  const users = rows.map((r) => nameOfUser(r.user)).filter(Boolean);
+  const users = list
+    .map((row) => (typeof row.user === 'string' && row.user ? nameOfUser(row.user) : ''))
+    .filter(Boolean);
   return `${count} decision${count === 1 ? '' : 's'}${users.length ? ` by ${users.join(', ')}` : ''}`;
 }
 
 function nameOfUser(id) {
-  if (!id) return '';
-  const user = ((ctx && ctx.refdata && ctx.refdata.users) || []).find((u) => u.id === id);
-  return user ? user.name : id;
+  const user = ((ctx && ctx.refdata && ctx.refdata.users) || []).find((u) => u && u.id === id);
+  return user && typeof user.name === 'string' ? user.name : id;
 }
 
 /**
@@ -119,11 +154,11 @@ function nameOfUser(id) {
  * a month rollover) or when no left was stored.
  */
 function leftText(s) {
-  const h = s.headroom;
-  if (!h) return '';
-  let text = `left this month ${money(h.left)}`;
+  const headroom = headroomOf(s);
+  if (!headroom) return '';
+  let text = `left this month ${money(headroom.left)}`;
   const was = markerLeft === null ? NaN : Number(markerLeft);
-  if (Number.isFinite(was) && monthOf(s.at) === String(h.month || '').slice(0, 7)) {
+  if (Number.isFinite(was) && monthOf(s.at) === String(headroom.month || '').slice(0, 7)) {
     text += ` (was ${money(was)})`;
   }
   return text;
@@ -141,4 +176,39 @@ function when(iso) {
 function monthOf(iso) {
   const date = new Date(iso);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ---- shape guards: nothing below is trusted until it fits what the line uses ------------------
+
+/** The endpoint's answer, as much as a client may trust before calling anything "news". */
+function wellFormed(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && markerTime(value.at) !== undefined
+    && typeof value.rows === 'number' && typeof value.items === 'number'
+    && Array.isArray(value.accounts) && Array.isArray(value.occurrences)
+    && Array.isArray(value.decisions);
+}
+
+/** A marker time: null (the line is gone — a valid answer), a parsed date, or undefined (malformed). */
+function markerTime(value) {
+  if (value === null) return null;
+  if (typeof value !== 'string') return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/** The headroom object only when it carries the number the line uses. */
+function headroomOf(s) {
+  const headroom = s && s.headroom;
+  return headroom && typeof headroom === 'object' && !Array.isArray(headroom)
+    && typeof headroom.left === 'number' && Number.isFinite(headroom.left) ? headroom : null;
+}
+
+/** A positive finite count, or 0 — a wrong-shaped count is no news, never NaN in the line. */
+function countOf(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function arrayOf(value) {
+  return Array.isArray(value) ? value : [];
 }

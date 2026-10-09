@@ -28,7 +28,10 @@ everything is under **Unreleased**.
   headroom and the Blotter one at its top: "Since Tue 08:40: 47 new rows (ing-salary,
   bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was −$95)". Zero
   news says "Nothing new since Tue 08:40."; a dismiss hides the line for the rest of the visit; a
-  rebuilt journal whose marker line is gone shows nothing. Reads only; nothing is stored.
+  rebuilt journal whose marker line is gone shows nothing. A failed or malformed summary read
+  leaves the marker (and the stored left) untouched, so an all-clear cannot bury news the read
+  never showed; a wrong-shaped payload renders nothing rather than throwing. Reads only; nothing
+  is stored.
 - **Re-read evidence** (`V2-QOL-IMPROVEMENTS-PLAN.md` §4). A parser fix is a button with a preview, not a
   terminal session: the runner gains the `reparse` job — `ingest --reparse <evidence>` with the
   batch's recorded `sourceType` and `account`, preview by default, apply only under `--allow-apply`

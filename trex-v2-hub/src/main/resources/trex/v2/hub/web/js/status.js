@@ -54,13 +54,17 @@ function allClear(open, through) {
 }
 
 /**
- * The finish line is the next visit's starting line (V2-QOL-IMPROVEMENTS-PLAN.md §5): whenever
- * the strip shows all clear, the browser marker moves to the head, and the last known month left
- * rides along so the next summary can say "left this month X (was Y)". The marker is captured by
- * since.js at load before this can overwrite it. Never stored anywhere else.
+ * The finish line is the next visit's starting line (V2-QOL-IMPROVEMENTS-PLAN.md §5): when the
+ * strip shows all clear, the browser marker may move to the head, with the last known month left
+ * beside it so the next summary can say "left this month X (was Y)". The marker is captured by
+ * since.js at load before this can overwrite it, and it moves only when doing so is safe: a
+ * failed or still-pending summary read leaves it where it was, so an all-clear can never bury
+ * news the read did not show — the next visit retries. Never stored anywhere else.
  */
 function recordClear(n) {
+  if (!since.mayAdvance()) return;
   localStorage.setItem('trex.clearedAtN', String(n));
+  // The left only ever comes from a successful read's headroom; a failure must not null it.
   const left = since.latestLeft();
   if (left !== null) localStorage.setItem('trex.clearedLeft', String(left));
 }

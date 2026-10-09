@@ -384,8 +384,13 @@ Expected view's own read, factored into one `monthHeadroom` so the two can never
 On the client, `since.js` captures `trex.clearedAtN`/`trex.clearedLeft` at **module load** —
 before `boot()` runs, so before `status.refresh()` can rewrite them — and `boot()` fetches once
 per visit (`since.load(ctx)`) *before* `status.refresh()`, so the all-clear write of
-`trex.clearedLeft` has the fetched left to store; `status.js` moves `trex.clearedAtN` to the
-head on every all-clear and records the last known left beside it. The cached read renders one
+`trex.clearedLeft` has the fetched left to store. `status.js` moves `trex.clearedAtN` to the head
+on an all-clear only when advancing is safe (`since.mayAdvance()`: no marker existed at load, or
+this visit's read succeeded — even with zero news); a failed or malformed read leaves the marker
+where it was so the next visit retries the news it never showed, and `trex.clearedLeft` is
+updated only from a successful read's headroom, never nulled on failure. Every collection and the
+headroom are normalised before rendering, so a wrong-shaped payload shows nothing (or the calm
+line) instead of throwing in either view. The cached read renders one
 line above the Expected headroom and at the top of the Blotter: "Since Tue 08:40: 47 new rows
 (ing-salary, bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was
 −$95)". The parenthetical comes from the stored `trex.clearedLeft` and is omitted when the
