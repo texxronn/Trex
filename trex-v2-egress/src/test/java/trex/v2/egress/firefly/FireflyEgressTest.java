@@ -358,4 +358,120 @@ class FireflyEgressTest {
             assertTrue(refused.getMessage().contains(gid), refused.getMessage());
         }
     }
+
+    @Test
+    void aSupersededTransferLegRekeysTheGroup() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.transfer("TRF-old", 1, "ing-savings", "ing-orange", "2026-09-01", 500, "a", "b"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            // A re-parse supersedes leg a: the pair's id moves (V2-SPEC.md §4 hashes current ids).
+            hub.resolved = Map.of("a", "a2");
+            hub.units = List.of(FakeHub.transfer("TRF-new", 2, "ing-savings", "ing-orange", "2026-09-01", 500, "a2", "b"));
+            FireflyEgress.Outcome out = egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals(1, out.rekeys());
+            assertEquals(0, out.creates(), "no second transfer");
+            assertEquals(0, out.orphans());
+            assertEquals(1, fake.groups().size());
+            assertEquals("TRF-new", splitOf(fake, "TRF-new").get("external_id"));
+            assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.VERIFY, false).run().empty());
+        }
+    }
+
+    @Test
+    void anUnpairIsReportedAsAReplacementNotRekeyed() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.transfer("TRF-1", 1, "ing-savings", "ing-orange", "2026-09-01", 500, "a", "b"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            hub.units = List.of(
+                FakeHub.unit("a", "EXTERNAL", 1, "ing-savings", null, "2026-09-01", -500, "OTHER", "Transfer", "h"),
+                FakeHub.unit("b", "EXTERNAL", 2, "ing-orange", null, "2026-09-01", 500, "OTHER", "Transfer", "h"));
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            new FireflyEgress(new HubClient(hub.url()), new FireflyClient(fake.url(), "token"), accounts(),
+                FireflyEgress.Mode.PLAN, false, new PrintStream(bytes), "derive/1").run();
+            String plan = bytes.toString();
+            assertTrue(plan.contains("ORPHAN TRF-1") && plan.contains("replaced by a, b"), plan);
+        }
+    }
+
+    @Test
+    void anOrphanDeletedInFireflyIsGoneNotAnAbort() throws Exception {            // review V4
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.transfer("TRF-1", 1, "ing-savings", "ing-orange", "2026-09-01", 500, "a", "b"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            // You deleted it in Firefly. Delete through the client so the fake's external-id index is
+            // dropped too: a direct map clear would leave a phantom duplicate answer behind (V4 note).
+            String gid = (String) hub.projection.get("TRF-1").get("groupId");
+            new FireflyClient(fake.url(), "token").deleteTransaction(gid);
+            hub.units = List.of();                                   // and trex no longer has the unit
+            FireflyEgress.Outcome plan = egress(hub, fake, accounts(), FireflyEgress.Mode.PLAN, false).run();
+            assertEquals(0, plan.orphans(), "a gone group is not an orphan to remove");
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertTrue(hub.projection.isEmpty(), "and it leaves the accelerator");
+        }
+    }
+
+    @Test
+    void aSupersededUnitWhoseGroupLostItsTagIsCreatedNotStuck() throws Exception {   // review V5
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.unit("old", "EXTERNAL", 1, "ing-savings", null, "2026-09-01", -1000,
+                "GROCERIES", "COLES 1234", "h1"));
+            egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            splitOf(fake, "old").put("tags", List.of("mine"));      // you took it over in Firefly
+            hub.resolved = Map.of("old", "new");
+            hub.units = List.of(FakeHub.unit("new", "EXTERNAL", 2, "ing-savings", null, "2026-09-01", -1000,
+                "GROCERIES", "COLES 1234", "h2"));
+            FireflyEgress.Outcome out = egress(hub, fake, accounts(), FireflyEgress.Mode.APPLY, false).run();
+            assertEquals(0, out.rekeys());
+            assertEquals(1, out.creates(), "the new unit lands");
+            assertEquals(2, fake.groups().size(), "your group is left alone");
+            assertTrue(egress(hub, fake, accounts(), FireflyEgress.Mode.PLAN, false).run().empty(),
+                "and the next plan is quiet, not stuck");
+        }
+    }
+
+    @Test
+    void aSupersededHandSplitTransferRekeysItsIdentity() throws Exception {         // review R3
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.transfer("TRF-old", 1, "ing-savings", "ing-orange", "2026-09-01", 500, "a", "b"));
+            AccountMap accounts = accounts();
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, false).run();
+            String gid = (String) hub.projection.get("TRF-old").get("groupId");
+
+            // You split the group by hand into 30.00 + 20.00.
+            Map<String, Object> first = new java.util.LinkedHashMap<>(fake.groups().get(gid).splits().get(0));
+            Map<String, Object> second = new java.util.LinkedHashMap<>(first);
+            first.put("amount", "30.00");
+            second.put("amount", "20.00");
+            fake.groups().put(gid, new FakeFirefly.Group(gid, null, List.of(first, second)));
+
+            // A re-parse supersedes leg a: the pair's id moves (V2-SPEC.md §4 hashes current ids).
+            hub.resolved = Map.of("a", "a2");
+            hub.units = List.of(FakeHub.transfer("TRF-new", 2, "ing-savings", "ing-orange", "2026-09-01", 500, "a2", "b"));
+            FireflyEgress.Outcome out = egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, false).run();
+
+            assertEquals(1, out.rekeys());
+            assertEquals(0, out.creates(), "no second transfer");
+            assertEquals(0, out.orphans());
+            assertEquals(1, fake.groups().size(), "one group, re-keyed in place");
+            List<Map<String, Object>> splits = fake.groups().get(gid).splits();
+            assertEquals(2, splits.size(), "your hand-split survives");
+            for (Map<String, Object> split : splits) {
+                assertEquals("TRF-new", split.get("external_id"), "every split carries the new id");
+            }
+            assertEquals(0, new java.math.BigDecimal("30.00").compareTo(
+                new java.math.BigDecimal((String) splits.get(0).get("amount"))), "your amounts are untouched");
+            assertEquals(0, new java.math.BigDecimal("20.00").compareTo(
+                new java.math.BigDecimal((String) splits.get(1).get("amount"))));
+            assertEquals(Content.HAND_SPLIT, hub.projection.get("TRF-new").get("stateHash"));
+
+            assertTrue(egress(hub, fake, accounts, FireflyEgress.Mode.VERIFY, false).run().empty(),
+                "verify is empty after the re-key");
+
+            // And a second plan -> apply -> verify pass stays empty.
+            assertTrue(egress(hub, fake, accounts, FireflyEgress.Mode.PLAN, false).run().empty());
+            egress(hub, fake, accounts, FireflyEgress.Mode.APPLY, false).run();
+            assertTrue(egress(hub, fake, accounts, FireflyEgress.Mode.VERIFY, false).run().empty(),
+                "and it stays empty a second pass");
+        }
+    }
 }
