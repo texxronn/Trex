@@ -202,4 +202,16 @@ class FireflyEgressTest {
             assertFalse(hub.projection.containsKey("ext2"), "the accelerator matches reality again");
         }
     }
+
+    @Test
+    void aForeignGroupWithAnExternalIdIsNeverOurs() throws Exception {
+        try (FakeFirefly fake = new FakeFirefly(); FakeHub hub = new FakeHub()) {
+            fake.seedGroup("importer-77", null, List.of(new java.util.HashMap<>(Map.of(
+                "external_id", "importer-77", "description", "Imported by hand",
+                "tags", List.of("imported"), "category_name", "FOOD"))));
+            FireflyEgress.Outcome verified = egress(hub, fake, accounts(), FireflyEgress.Mode.VERIFY, true).run();
+            assertEquals(0, verified.orphans(), "not ours, so not an orphan");
+            assertEquals(1, fake.groups().size(), "and never deleted, even with --remove-orphans");
+        }
+    }
 }
