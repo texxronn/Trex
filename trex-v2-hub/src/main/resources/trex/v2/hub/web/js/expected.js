@@ -22,6 +22,7 @@ let ctx;
 let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
+let stale = [];        // /api/status stale accounts, oldest first (QOL_Improvements.md §2)
 let errorBar;
 
 // The four foldable sections (§4); the open state is a device preference, like the window.
@@ -48,9 +49,11 @@ export function mount(container, context) {
 
 async function load() {
   try {
-    const [expected, commitments] = await Promise.all([api.expected(win), api.commitments()]);
+    const [expected, commitments, status] = await Promise.all([
+      api.expected(win), api.commitments(), api.status()]);
     data = expected;
     registry = commitments;
+    stale = status.stale || [];
     errorBar.hidden = true;
   } catch (error) {
     errorBar.textContent = error.message || 'failed to load the expected view';
@@ -152,13 +155,13 @@ function occurrenceRow(o) {
     el('td', { class: 'amount' }, o.amount != null
       ? money(o.amount)
       : (current != null ? el('span', { class: 'muted', title: 'current price' }, money(current)) : '')),
-    statusCell(o.status),
+    statusCell(o),
     matchedCell(o));
 }
 
 /** The six occurrence states, each rendered as what it is: a fact, a conclusion, or a gap. */
-function statusCell(status) {
-  switch (status) {
+function statusCell(o) {
+  switch (o.status) {
     case 'occurred':
       return el('td', {}, el('span', { class: 'tick', title: 'a fact landed' }, '\u2713 occurred'));
     case 'settled':
@@ -173,12 +176,28 @@ function statusCell(status) {
       return el('td', {}, el('span', { class: 'occ-missed',
         title: 'window closed with no match' }, '\u2717 missed'));
     case 'awaiting':
-      return el('td', {}, el('span', { class: 'muted',
-        title: 'window closed, but the statement has not reached it yet — fetch it (Jobs)' },
+      return el('td', {}, el('span', { class: 'muted', title: awaitingTitle(o) },
         '\u29d7 awaiting statement'));
     default:
-      return el('td', {}, el('span', { class: 'muted' }, status || ''));
+      return el('td', {}, el('span', { class: 'muted' }, o.status || ''));
   }
+}
+
+/**
+ * The awaiting tooltip (QOL_Improvements.md §2): when every rule of the commitment is scoped to an
+ * account and one of those accounts is past its fetch cadence, name the oldest such account and its
+ * age. Unscoped rules, an unknown commitment or no stale account keep the generic fetch-it hint.
+ * {@code stale} is oldest first, so the first scoped match is the oldest.
+ */
+function awaitingTitle(o) {
+  const commitment = registry.find((c) => c.commitmentId === o.commitmentId);
+  const accounts = ((commitment && commitment.rules) || []).map((r) => r.account);
+  if (accounts.length && !accounts.some((a) => !a)) {
+    const scoped = new Set(accounts);
+    const hit = stale.find((s) => scoped.has(s.account));
+    if (hit) return `waiting for the ${hit.account} statement — ${hit.days} days old`;
+  }
+  return 'window closed, but the statement has not reached it yet — fetch it (Jobs)';
 }
 
 function matchedCell(o) {

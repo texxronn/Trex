@@ -29,6 +29,7 @@ export async function refresh() {
       item('txn', status.counts.txn_current ?? 0),
       item('transfers', status.counts.transfer ?? 0),
       allClear(review, status.through),
+      stale(status.stale),
       item('pending', status.counts.pending ?? 0),
       revisions(status),
       userSelect(),
@@ -48,6 +49,22 @@ function allClear(open, through) {
   }
   return el('span', { class: 'tick', title: 'nothing open in review' },
     '\u2713 all clear' + (through ? ` \u2014 through ${through}` : ''));
+}
+
+/**
+ * The statement-age nudge (QOL_Improvements.md §2): how many accounts are past the fetch cadence
+ * their frontier implies. Quiet — muted — until one is more than twice its cadence, then amber; the
+ * tooltip names each account's age and frontier, and a click opens Jobs at the fetch-frontier
+ * table, which already suggests the date range. Nothing to fetch renders an empty span.
+ */
+function stale(rows) {
+  if (!rows || !rows.length) return el('span');
+  const amber = rows.some((s) => s.days > 2 * s.fetchEveryDays);
+  const title = rows
+    .map((s) => `${s.account} \u00b7 ${s.days} days (through ${s.frontier})`)
+    .join('\n');
+  return el('a', { href: '#jobs?frontier', class: amber ? 'warn' : 'muted', title },
+    `\u29d7 ${rows.length} statement${rows.length === 1 ? '' : 's'} to fetch`);
 }
 
 function revisions(status) {

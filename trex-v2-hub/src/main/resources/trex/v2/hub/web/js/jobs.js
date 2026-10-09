@@ -24,13 +24,19 @@ let stagingHost;
 let jobsHost;
 let ingestHost;
 let frontierHost;
+let frontierHeading;
 let historyHost;
 let statusLine;
 let ingestButton;
+let focusFrontier = false;
 
 export function mount(container, context) {
   host = container;
   ctx = context;
+  // The status strip's "N statements to fetch" opens Jobs at this table (#jobs?frontier), so the
+  // nudge lands where the date range is already suggested (QOL_Improvements.md §2). The scroll
+  // waits for load() to render the sections above, which would otherwise move the heading.
+  focusFrontier = !!(ctx.modeQuery && ctx.modeQuery.has('frontier'));
   render();
   load();
   return { refresh: load };
@@ -56,7 +62,7 @@ function render() {
     jobsHost,
     el('h3', {}, 'Run output'),
     outputHost,
-    el('h3', {}, 'Fetch frontier'),
+    frontierHeading = el('h3', { id: 'fetch-frontier' }, 'Fetch frontier'),
     frontierHost,
     el('h3', {}, 'Ingests'),
     ingestHost,
@@ -112,6 +118,10 @@ async function load() {
   renderIngests();
   renderFrontier();
   renderOps();
+  if (focusFrontier) {
+    focusFrontier = false;
+    frontierHeading.scrollIntoView({ block: 'start' });
+  }
 }
 
 // ---- staleness ----------------------------------------------------------------------------
