@@ -146,6 +146,61 @@ class SequencerServiceTest {
         }
     }
 
+    // ---- the config follows the directory (V2-REVIEW-FIXES-PLAN.md §8) ----------------------
+
+    private static FactDraft rowOn(String account) {
+        return new FactDraft(account, LocalDate.of(2026, 9, 3), -700L, 0L, "COLES 9", null,
+            Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", null);
+    }
+
+    private static final String TWO_ACCOUNTS = """
+        accounts:
+          - ref: "ing-savings"
+            currency: "AUD"
+            balanceSource: statement
+          - ref: "ing-orange"
+            currency: "AUD"
+            balanceSource: statement
+        """;
+
+    @Test
+    void aNewAccountOnDiskIsAcceptedWithoutRestart(@TempDir Path dir) throws Exception {
+        Path configDir = Files.createDirectories(dir.resolve("config"));
+        config(configDir);
+        Path journal = Files.createDirectories(dir.resolve("journal")).resolve("trex.jsonl");
+        try (SequencerService service = SequencerService.start(journal, configDir, "127.0.0.1", 0,
+                Clock.fixed(Instant.parse("2026-09-29T08:00:00Z"), ZoneOffset.UTC))) {
+            assertEquals(RowResult.REJECTED, service.sequencer().submitFacts(
+                new FactBatch(false, List.of(rowOn("ing-orange")))).results().getFirst().outcome());
+
+            Files.writeString(configDir.resolve("accounts.yaml"), TWO_ACCOUNTS);
+
+            assertEquals(RowResult.APPENDED, service.sequencer().submitFacts(
+                new FactBatch(false, List.of(rowOn("ing-orange")))).results().getFirst().outcome(),
+                "the edit is picked up by the next write, no restart");
+        }
+    }
+
+    @Test
+    void aBrokenConfigKeepsTheLastGood(@TempDir Path dir) throws Exception {
+        Path configDir = Files.createDirectories(dir.resolve("config"));
+        config(configDir);
+        Path journal = Files.createDirectories(dir.resolve("journal")).resolve("trex.jsonl");
+        try (SequencerService service = SequencerService.start(journal, configDir, "127.0.0.1", 0,
+                Clock.fixed(Instant.parse("2026-09-29T08:00:00Z"), ZoneOffset.UTC))) {
+            Files.writeString(configDir.resolve("accounts.yaml"), "accounts: [ this is: not valid");
+
+            assertEquals(RowResult.APPENDED, service.sequencer().submitFacts(
+                new FactBatch(false, List.of(rowOn("ing-savings")))).results().getFirst().outcome(),
+                "a typo must not take the writer down");
+
+            Files.writeString(configDir.resolve("accounts.yaml"), TWO_ACCOUNTS);
+            assertEquals(RowResult.APPENDED, service.sequencer().submitFacts(
+                new FactBatch(false, List.of(rowOn("ing-orange")))).results().getFirst().outcome(),
+                "and the fix is picked up");
+        }
+    }
+
     @Test
     void aSecondSequencerCannotTakeTheLock(@TempDir Path dir) throws Exception {
         Path configDir = dir.resolve("config");

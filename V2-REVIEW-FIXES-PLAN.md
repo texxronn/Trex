@@ -332,6 +332,16 @@ user behaves the same.
 - `GET /head` reports the sequencer's `configRevision`; `/api/status` shows a warning when it differs
   from the hub's.
 
+### 8.2a As built (2026-10-09)
+
+- `ConfigWatch` (sequencer module): a fingerprint of the directory's `*.yaml` (name, size, mtime),
+  checked at the start of `submitFacts`/`submitDecisions`/`submitIngest`/`submitStream` inside the
+  writer's lock; registry, categories and sources swap together.
+- **Not built:** the `/api/status` mismatch warning. The hub never calls the sequencer's `/head`, so
+  it would add a cross-service call for a condition the reload now removes.
+- Proposal: category names have one home (`categories.yaml`'s `categories:`; `refdata.yaml` an
+  optional override). The §5.3 `transfers.yaml` mention was already gone from the as-built §5.2–5.4.
+
 ### 8.3 Tests
 
 - `SequencerTest.aCategoryAddedOnDiskIsAcceptedWithoutRestart`

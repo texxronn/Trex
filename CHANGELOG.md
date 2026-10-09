@@ -11,6 +11,10 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **The sequencer picks up config edits without a restart** (`V2-REVIEW-FIXES-PLAN.md` §8). It read
+  accounts, users, categories and sources once at startup, so a category added in the Rules editor
+  passed the hub's precheck and was then refused by the writer until a restart. It now re-checks the
+  config directory before each write; a config that does not load keeps the last good one.
 - **A late statement no longer shows a paid bill as missed** (`derive/14`,
   `V2-REVIEW-FIXES-PLAN.md` §6). An occurrence whose window closed by `asOf` but which the
   statements have not reached yet is `awaiting` (grey on Expected), never a hole, never arrears and

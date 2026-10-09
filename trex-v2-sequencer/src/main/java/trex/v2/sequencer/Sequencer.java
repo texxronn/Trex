@@ -58,12 +58,13 @@ public final class Sequencer implements AutoCloseable {
         ReviewItem.SUSPECTED_RECURRING, ReviewItem.DORMANT_COMMITMENT, ReviewItem.COMMITMENT_ARREARS);
 
     private final Journal journal;
-    private final Registry registry;
-    private final RuleSet categories;
+    private Registry registry;
+    private RuleSet categories;
     private final Clock clock;
     private final SequencerState state;
     private final String env;
-    private final Set<String> allowedSources;   // null = allow any well-formed source
+    private Set<String> allowedSources;   // null = allow any well-formed source
+    private ConfigWatch configWatch;      // null = the config given at construction, for good
 
     private static final String NONE_TARGET = "        ";
 
@@ -81,6 +82,23 @@ public final class Sequencer implements AutoCloseable {
         this.allowedSources = allowedSources;
         this.state = SequencerState.fold(journal.replayFrom(0));
         this.state.headOffset = journal.headOffset();
+    }
+
+    /** Follow the config directory: before each write, an edited config is picked up (§8). */
+    synchronized void watch(ConfigWatch watch) {
+        this.configWatch = watch;
+    }
+
+    private void refreshConfig() {
+        if (configWatch == null) {
+            return;
+        }
+        ConfigWatch.Validation next = configWatch.changed();
+        if (next != null) {
+            registry = next.registry();
+            categories = next.categories();
+            allowedSources = next.sources();
+        }
     }
 
     /** The writing process instance (§6): exactly 8 chars of {@code [A-Za-z0-9_]} and registered. */
@@ -118,6 +136,7 @@ public final class Sequencer implements AutoCloseable {
 
     /** Append one ingest event (V2-PROPOSAL.md §12.6): the writer stamps the envelope and assigns n. */
     public synchronized HeadResponse submitIngest(trex.v2.sequencer.api.IngestBatch batch) {
+        refreshConfig();
         String source = source(batch.source());
         String target = target(batch.target());
         if (batch.batch() == null || batch.batch().isBlank()) {
@@ -147,6 +166,7 @@ public final class Sequencer implements AutoCloseable {
      * A bad line stops the ingest at that line; the prefix already landed and is reported.
      */
     public synchronized StreamResponse submitStream(List<String> rawLines) {
+        refreshConfig();
         long expected = state.headN + 1;
         Set<String> knownFacts = new HashSet<>(state.latestById.keySet());
         Set<Long> knownDecisions = new HashSet<>(state.decisionNs);
@@ -314,6 +334,7 @@ public final class Sequencer implements AutoCloseable {
     // ---- facts ------------------------------------------------------------------------------
 
     public synchronized BatchResponse submitFacts(FactBatch batch) {
+        refreshConfig();
         String source = source(batch.source());
         String target = target(batch.target());
         List<FactDraft> drafts = batch.facts() == null ? List.of() : batch.facts();
@@ -424,6 +445,7 @@ public final class Sequencer implements AutoCloseable {
     // ---- decisions --------------------------------------------------------------------------
 
     public synchronized BatchResponse submitDecisions(DecisionBatch batch) {
+        refreshConfig();
         String source = source(batch.source());
         String target = target(batch.target());
         List<DecisionDraft> drafts = batch.decisions() == null ? List.of() : batch.decisions();

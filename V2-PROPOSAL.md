@@ -1122,8 +1122,9 @@ Two rules make this a lifecycle system rather than a pile of states:
 
 **The sequencer is event-based, not lifecycle-based, on purpose.** It validates
 references and structure — the `user` exists, the referenced `externalId`s exist, a
-`REVOKE` names an existing decision `n`, the category named by a `PIN` is declared in
-`refdata.yaml`, the payload is well-formed —
+`REVOKE` names an existing decision `n`, the category named by a `PIN` is declared (in
+`categories.yaml`'s `categories:` list, optionally overridden by `refdata.yaml`), the payload is
+well-formed —
 because a dangling reference corrupts the log's meaning. It
 does **not** enforce semantics — equal-and-opposite legs, same currency, legal state
 transitions — because those are rules that must stay tunable and reflowable. The hub
@@ -1749,7 +1750,8 @@ A pin is what you reach for when the rules cannot be right about one row — and
 *immune to rule churn by construction*, exactly as `PAIR` is immune to a `transfers.yaml`
 edit. The three homes are now clean:
 
-- **Names** — `refdata.yaml`, declared and frozen once used; additive only.
+- **Names** — the `categories:` list in `categories.yaml` (amended 2026-10-09: one home;
+  `refdata.yaml` is an optional override), declared and frozen once used; additive only.
 - **Rules** — `categories.yaml`, hand-written, ordered, git-audited, retroactive.
 - **Pins** — `PIN`/`UNPIN` decisions, attributed, revocable, per row.
 

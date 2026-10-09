@@ -283,7 +283,10 @@ statement file can be requested by date range (`V2-INGEST-FRONTIER-PLAN.md`).
 | `POST` | `/maintenance/snapshot` | write a dated gzip copy of the journal prefix to the archive; `?sync=false` runs it in the background. |
 
 Every batch carries `source` (exactly 8 chars, declared in `sources.yaml`); an unknown source is a
-`400`. The sequencer stamps `env` from `TREX_ENV`. Single-writer `FileLock`; the API is
+`400`. The writer validates against the config directory **as it is now**: before each write it
+checks a fingerprint of the YAML files and reloads accounts, users, categories and sources on a
+change, so an edit (a new category from the Rules editor, a new account) needs no restart; a config
+that does not load keeps the last good one and is logged. The sequencer stamps `env` from `TREX_ENV`. Single-writer `FileLock`; the API is
 unauthenticated and binds loopback by default.
 
 ---
