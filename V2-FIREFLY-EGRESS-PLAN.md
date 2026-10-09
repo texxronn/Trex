@@ -165,7 +165,7 @@ written into §3.2. **The operator runs this, or explicitly hands an agent the t
 - Create (scratch, not committed): `$SCRATCH/firefly-spike.sh`
 - Modify: `V2-FIREFLY-EGRESS-PLAN.md` §3.2 (the answers)
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 ```bash
 #!/usr/bin/env bash
@@ -215,12 +215,12 @@ echo "== A6 delete a group that is gone"; api DELETE "transactions/$G" | tail -1
 echo "Delete accounts trex-spike and trex-spike-card by hand in the Firefly UI."
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `set -a; . ~/.config/trex/firefly.env; set +a; bash $SCRATCH/firefly-spike.sh | tee $SCRATCH/spike.out`
 Expected: every section prints; HTTP statuses are the last line of each PUT/DELETE.
 
-- [ ] **Step 3: Record the answers in §3.2**, one line each, quoting the observed values.
+- [x] **Step 3: Record the answers in §3.2**, one line each, quoting the observed values.
 
 ### 3.1 What each answer decides
 
@@ -237,7 +237,31 @@ Expected: every section prints; HTTP statuses are the last line of each PUT/DELE
 
 ### 3.2 As measured
 
-*(filled in by Task 0.1)*
+Measured against the dev Firefly **6.7.3** (SQLite, AUD) on 2026-10-09, script in the session scratch
+(`firefly-spike.sh`); the throwaway `trex-spike`/`trex-spike-card` accounts were deleted afterwards.
+
+- **A1 — does a PUT change `external_id`?** **Yes.** `PUT … {"external_id":"spike-1b"}` returned
+  `200`; the read-back showed `"external_id": "spike-1b"`. → Stage 5 re-keys in place.
+- **A2 — does a PUT change amount/date/description on a single split?** **Yes.** The PUT returned
+  `200`; the read-back showed `"amount": "12.340000000000"`, `"date": "2026-01-06T00:00:00+11:00"`,
+  `"description": "Spike Shop"`. → Stage 4 as written.
+- **A3 — does a PUT change the type?** **Yes.** A withdrawal rewritten as a deposit returned `200`;
+  the read-back `type` was `deposit`. Note only: D5 stays conservative.
+- **A4 — with a stale `destination_id`, does the new `destination_name` win?** **No.** Sending
+  `destination_name:"OTHER SHOP"` while leaving the old `destination_id` read back
+  `"destination_name": "SPIKE SHOP"` — the id won. → `applyContent` removes `*_id` when it sets
+  `*_name` (the plan's default).
+- **A5 — date and amount formats read back.** Date `"2026-01-05T00:00:00+11:00"` (its first ten
+  characters, `2026-01-05`, equal the date sent); amount `"10.000000000000"` (twelve decimals);
+  `currency_code` `"AUD"` present; tags echo verbatim. The noon fallback is not needed on this
+  instance, but `Content.day` is used by both sides regardless (review V3).
+- **A6 — status of deleting a missing group.** `404` (body `{"message":"Resource not found"}`).
+  → Task 3.4 treats it as gone.
+- **A7 — `attributes.type` for a liability; `currency_code` present.** `liabilities` (plural) and
+  `AUD`. → Task 3.1's `isLiability()` prefix matches `liabilit…`; the currency check can compare.
+- **A8 — read-back of an asset→liability withdrawal.** `type` `withdrawal`,
+  `destination_id` `"507"`, `destination_name` `"trex-spike-card"`. → `Content.observed` uses the
+  destination id.
 
 ---
 
