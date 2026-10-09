@@ -12,7 +12,7 @@ public record DeriveConfig(Registry registry, RuleSet categories, TransferRules 
                            Profiles profiles, String configRevision) {
 
     /** Stamps the derivation; bump when derive's semantics change (a silent reflow, §9.5). */
-    public static final String DERIVE_VERSION = "derive/12";
+    public static final String DERIVE_VERSION = "derive/13";
 
     /** Stamps the state-hash algorithm; old hashes are incomparable across a bump (§9.4). */
     public static final String HASH_VERSION = "statehash/4";

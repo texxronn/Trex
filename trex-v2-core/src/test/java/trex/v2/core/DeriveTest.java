@@ -253,6 +253,59 @@ class DeriveTest {
         assertEquals(LegState.EXTERNAL, d.current("b").orElseThrow().leg());
     }
 
+    // ---- a second observation of one id (V2-REVIEW-FIXES-PLAN.md §5.1) ----------------------
+
+    private static Fact observed(long n, long amount, String raw, long balance, Observation observation) {
+        return new Fact(n, "x", "ing-savings", LocalDate.of(2026, 9, 1), amount, balance, raw, "R1", 0,
+            observation, "test", Provenance.BANK, null, "test/1", Instant.parse("2026-09-30T00:00:00Z"));
+    }
+
+    private static List<trex.v2.core.derive.ReviewItem> itemsOn(Derivation d, String subject) {
+        return d.review().stream().filter(r -> r.subject().equals(subject)).toList();
+    }
+
+    @Test
+    void aReObservationWithNewTextRaisesRestatement() {
+        Derivation d = Derive.derive(List.of(
+            observed(1, -1000, "MARKET STALL", 0, Observation.POSTED),
+            observed(2, -1200, "MARKET STALL SYDNEY", 0, Observation.POSTED)), List.of(), config(), ASOF);
+        List<trex.v2.core.derive.ReviewItem> items = itemsOn(d, "x");
+        assertEquals(1, items.size(), d.review().toString());
+        assertEquals(trex.v2.core.derive.ReviewItem.RESTATEMENT, items.getFirst().kind());
+        assertEquals(-1200, d.current("x").orElseThrow().fact().amount(), "the newest observation stays current");
+    }
+
+    @Test
+    void aReObservationWithOnlyANewBalanceRaisesPotentialDup() {
+        Derivation d = Derive.derive(List.of(
+            observed(1, -1000, "MARKET STALL", 500, Observation.POSTED),
+            observed(2, -1000, "MARKET STALL", 900, Observation.POSTED)), List.of(), config(), ASOF);
+        List<trex.v2.core.derive.ReviewItem> items = itemsOn(d, "x");
+        assertEquals(1, items.size(), d.review().toString());
+        assertEquals(trex.v2.core.derive.ReviewItem.POTENTIAL_DUP, items.getFirst().kind());
+    }
+
+    @Test
+    void pendingThenPostedOfOneIdRaisesNothing() {
+        Derivation d = Derive.derive(List.of(
+            observed(1, -1000, "MARKET STALL", 0, Observation.PENDING),
+            observed(2, -1000, "MARKET STALL", 0, Observation.POSTED)), List.of(), config(), ASOF);
+        assertTrue(itemsOn(d, "x").isEmpty(), d.review().toString());
+        assertTrue(d.pending().isEmpty(), "the posted observation settles it");
+    }
+
+    @Test
+    void aDismissedReObservationStaysQuietUntilTheNextOne() {
+        List<Fact> facts = new java.util.ArrayList<>(List.of(
+            observed(1, -1000, "MARKET STALL", 0, Observation.POSTED),
+            observed(2, -1200, "MARKET STALL SYDNEY", 0, Observation.POSTED)));
+        Decision dismiss = new Decision.Dismiss(3, trex.v2.core.derive.ReviewItem.RESTATEMENT, List.of("x"),
+            "the bank corrected it", Actor.USER, "ron", ASOF);
+        assertTrue(itemsOn(Derive.derive(facts, List.of(dismiss), config(), ASOF), "x").isEmpty());
+        facts.add(observed(4, -1300, "MARKET STALL SYD", 0, Observation.POSTED));
+        assertEquals(1, itemsOn(Derive.derive(facts, List.of(dismiss), config(), ASOF), "x").size());
+    }
+
     @Test
     void twoSameDayCandidatesAreAmbiguousNotPaired() {
         List<Fact> facts = List.of(

@@ -64,6 +64,9 @@ migrated from.
   and refused if unknown; `target` is `none` (eight spaces). A record is complete iff it ends in
   '`\n`' and parses; a partial tail is left unread and a torn tail is truncated. One batch = one
   write + one fsync.
+- **Dedup** (writer): the observation key is `externalId, accountRef, date, amount, rawDescription,
+  receipt, occ, balance, observation`; an identical key is `Duplicate`, a new key on a known id
+  `Flagged` (appended once), a new id `Appended`.
 - **Facts** (`Fact`): `externalId`, `accountRef`, `date`, `amount` (cents, signed), `balance`
   (provenance only), `rawDescription` (verbatim), `receipt` (nullable), `occ`, `observation`
   (`posted | pending`), `sourceType`, `provenance` (`BANK | AUTHORED`), `evidenceId` (nullable),
@@ -155,7 +158,7 @@ replay → effective decisions → supersession / chain resolution → current t
 (`note_current`) → clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/12"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/13"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state.
 
 **Roles.** Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is
@@ -216,6 +219,9 @@ statement account whose chain does not close; subject the account ref, so a `DIS
 account). Duplicate and restatement rows are grouped into clusters, so one item lists every member.
 The two are **disjoint**: a same-stem pair is `POTENTIAL_DUP`; `RESTATEMENT` requires *different*
 stems (a different reading of the amount), so identical or same-stem rows are never double-labelled.
+A **re-observation** raises the same two kinds on one id: a current id whose posted observations
+differ in `amount` or text is a `RESTATEMENT`, in `balance` only a `POTENTIAL_DUP` (the newest stays
+current; pending observations never count).
 The commitment kinds are `SUSPECTED_RECURRING` (one item per non-ended candidate; subject the
 grouping stem, so a `DISMISS` names the series and ages on its newest fact) and `DORMANT_COMMITMENT`
 and `COMMITMENT_ARREARS` (subject the commitment id, aging on the facts the commitment matched);

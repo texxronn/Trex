@@ -552,7 +552,8 @@ exact. The rule in one line:
 
 Concretely, the key is the fact's stored content minus the operational metadata:
 `externalId`, `accountRef`, `date`, `amount`, `rawDescription`, `receipt`, `occ`,
-`balance`. `sourceType`, `provenance`, `evidenceId`, `parser`, `atMs` and `n` are
+`balance`, `observation` (amended 2026-10-09: a posted row identical to its pending row is the
+settlement, not a duplicate). `sourceType`, `provenance`, `evidenceId`, `parser`, `atMs` and `n` are
 excluded — otherwise a PDF import of a row already seen via CSV would look new, and a
 re-import would never match.
 
@@ -2112,6 +2113,7 @@ commitment matched.
 |---|---|
 | `POTENTIAL_DUP` | Two current facts on one account, same `date`, same `sign`, matching `merchantStem`, absolute amount within `transfers.yaml dupTolerance` (default 0), neither retired nor paired. |
 | `RESTATEMENT` | A current fact whose `(account, date, amount)` matches another current fact's, with the text similarity threshold (§8.4) satisfied and different ids. |
+| `RESTATEMENT` / `POTENTIAL_DUP` (re-observation, amended 2026-10-09) | One current id with two or more **posted** observations: different `amount` or `rawDescription` → `RESTATEMENT`; different `balance` only → `POTENTIAL_DUP`. Subject the id; the newest observation stays current; pending observations never count. Skipped when a cluster item of that kind already names the id. |
 | `AMBIGUOUS_TRANSFER` | From P7: more than one candidate at the winning tier. |
 | `AMBIGUOUS_SETTLEMENT` | From P8: more than one settlement candidate. |
 | `UNMATCHED_LEG` | A shaped leg that has been `HELD` past `transfers.yaml holdWindowDays` (default 30) measured on `asOf`. HELD itself never ages; only the *item* does. |

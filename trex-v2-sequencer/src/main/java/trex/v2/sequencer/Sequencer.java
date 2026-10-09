@@ -361,7 +361,7 @@ public final class Sequencer implements AutoCloseable {
             String receipt = normalized(d.receipt());
             String id = m.id();
             ObsKey key = new ObsKey(id, d.accountRef(), d.date(), d.amount(), d.rawDescription(), receipt, occ,
-                d.balance());
+                d.balance(), d.observation() == null ? Observation.POSTED : d.observation());
             if (state.observations.contains(key) || !batchSeen.add(key)) {
                 results.add(new RowResult(ref(i, d), RowResult.DUPLICATE, id, null, null));
                 continue;
