@@ -110,6 +110,17 @@ final class CommitmentMatcher {
         }
         facts.sort(BY_DATE_N);
 
+        // The posted frontier of each account at asOf: the newest date a statement has shown. A
+        // window that closed after it has not been seen yet, so it is awaited, never missed —
+        // statements arrive weeks late (V2-REVIEW-FIXES-PLAN.md §6). Every current row counts
+        // (noop included): it proves the statement reached that date.
+        Map<String, LocalDate> frontier = new TreeMap<>();
+        for (CurrentFact c : current) {
+            if (!c.fact().date().isAfter(asOfDate)) {
+                frontier.merge(c.fact().accountRef(), c.fact().date(), (a, b) -> a.isAfter(b) ? a : b);
+            }
+        }
+
         // Pins: one fact to one commitment. The pairs are sorted before folding, so a duplicate
         // (which the Stage 3 resolution prevents) cannot make the answer depend on list order.
         Map<String, String> pinByFact = new TreeMap<>();
@@ -145,12 +156,14 @@ final class CommitmentMatcher {
         // Compile each tracked commitment's rules once, with the categories.yaml convention: a
         // case-insensitive find over Clean.clean(rawDescription), optional account scope (§2.2).
         Map<String, List<CommitmentRules.CompiledRule>> rulesByCommitment = new TreeMap<>();
+        Map<String, List<String>> ruleAccounts = new TreeMap<>();
         for (CommitmentRule rule : rules) {
             if (!committedById.containsKey(rule.commitmentId())) {
                 continue;
             }
             rulesByCommitment.computeIfAbsent(rule.commitmentId(), k -> new ArrayList<>())
                 .add(CommitmentRules.compile(rule));
+            ruleAccounts.computeIfAbsent(rule.commitmentId(), k -> new ArrayList<>()).add(rule.accountRef());
         }
 
         // Materialise every regular schedule before assignment: its first window starts the span
@@ -223,6 +236,7 @@ final class CommitmentMatcher {
                     .filter(a -> span != null && !beforeSpan(span, a.fact())).toList(), slots);
                 slots.sort(Comparator.comparing((Slot s) -> s.dueDate)
                     .thenComparing(s -> s.offSchedule));
+                await(slots, commitmentFrontier(ruleAccounts.get(commitment.commitmentId()), assigned, frontier));
             }
             for (Slot slot : slots) {
                 occurrences.add(slot.toOccurrence(commitment.commitmentId()));
@@ -438,6 +452,44 @@ final class CommitmentMatcher {
      * with no fact — a hole — is counted, and {@code lapsed} mirrors the most recent closed-window
      * occurrence, the current red state, never the older backlog.
      */
+    /**
+     * The newest frontier over the accounts a commitment lands on: its rules' accounts when every
+     * rule names one, else the accounts of the facts it has claimed. Null when neither is known —
+     * then {@code asOf} alone decides, as before. The newest, not the oldest: a commitment that
+     * moved from a closed card to a new one must not wait on the closed card forever.
+     */
+    private static LocalDate commitmentFrontier(List<String> accounts, List<Assigned> assigned,
+                                                Map<String, LocalDate> frontier) {
+        Set<String> refs = new TreeSet<>();
+        if (accounts != null && !accounts.isEmpty() && accounts.stream().allMatch(a -> a != null && !a.isBlank())) {
+            refs.addAll(accounts);
+        } else {
+            for (Assigned a : assigned) {
+                refs.add(a.fact().fact().accountRef());
+            }
+        }
+        LocalDate newest = null;
+        for (String ref : refs) {
+            LocalDate date = frontier.get(ref);
+            if (date != null && (newest == null || date.isAfter(newest))) {
+                newest = date;
+            }
+        }
+        return newest;
+    }
+
+    /** A window closed by {@code asOf} but not yet reached by the statements is awaited, not missed. */
+    private static void await(List<Slot> slots, LocalDate commitmentFrontier) {
+        if (commitmentFrontier == null) {
+            return;
+        }
+        for (Slot slot : slots) {
+            if (slot.status == OccurrenceStatus.MISSED && !slot.windowEnd.isBefore(commitmentFrontier)) {
+                slot.status = OccurrenceStatus.AWAITING;
+            }
+        }
+    }
+
     private static CommitmentArrears arrears(Commitment commitment, List<Slot> slots,
                                              LocalDate asOfDate) {
         int count = 0;

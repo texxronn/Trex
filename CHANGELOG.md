@@ -11,6 +11,11 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **A late statement no longer shows a paid bill as missed** (`derive/14`,
+  `V2-REVIEW-FIXES-PLAN.md` §6). An occurrence whose window closed by `asOf` but which the
+  statements have not reached yet is `awaiting` (grey on Expected), never a hole, never arrears and
+  never `COMMITMENT_ARREARS`. It becomes `occurred` or `missed` once the statement lands. On real
+  data a month past the statements, three paid bills were in arrears; now none are.
 - **A source changing its story about one id now reaches the review queue** (`derive/13`,
   `V2-REVIEW-FIXES-PLAN.md` §5). A second posted observation of a current id with a new amount or
   text raises `RESTATEMENT`, with only a new balance `POTENTIAL_DUP`; the newest observation stays

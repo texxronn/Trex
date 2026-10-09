@@ -256,6 +256,21 @@ were paid.
 - **UI.** Expected shows `awaiting` grey with "waiting for <account> statement (through <frontier>)",
   linking to the Jobs frontier strip. This is the honest message the goal needs.
 
+### 6.2a As built (2026-10-09)
+
+- `CommitmentMatcher.await` runs after attachment, before arrears: an unmatched `MISSED` slot whose
+  window ends on or after the commitment frontier becomes `AWAITING`. Arrears, `lapsed` and
+  `COMMITMENT_ARREARS` read only `MISSED`, so they follow without change. Every current row (noop
+  included) moves an account's frontier. `derive/14`.
+- The newest of a commitment's accounts decides (`theNewestOfACommitmentsAccountsDecides`), so a
+  bill that moved off a closed card is not held awaiting forever.
+- Three older matcher tests assumed `missed` from `asOf` alone; each now carries a row showing the
+  statement reached the window, which is the premise they meant.
+- **Measured** on the private `Final/` journal with Netflix, AWS and NIB declared, at `asOf`
+  2026-10-31 (statements through ~2026-10-01): the three October occurrences are `awaiting`; on
+  master they were `missed`, with 3 false `COMMITMENT_ARREARS` items.
+- The Expected UI shows `⧗ awaiting statement` (muted) with a hint to fetch it from Jobs.
+
 ### 6.3 Tests
 
 - `CommitmentMatchTest.aWindowClosedBeyondTheFrontierIsAwaitingNotMissed`

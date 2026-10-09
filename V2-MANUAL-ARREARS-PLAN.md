@@ -59,7 +59,8 @@ lump maps onto holes is a conclusion, not a derivation.
 ### 3.2 Statuses
 
 - `occurred` (≥ 1 attached fact, any amount), `settled` (a person concluded it), `due` (window
-  open), `missed` (window closed, no fact). `partial` is **retired from automatic output** — the
+  open), `missed` (window closed, no fact — once the statements have passed it; before that it is
+  `awaiting`, amended 2026-10-09 by `V2-REVIEW-FIXES-PLAN.md` §6). `partial` is **retired from automatic output** — the
   value stays in the vocabulary and the UI renders it, but nothing derives it.
 - `lapsed` overlays the most recent closed-window occurrence when it is `missed` (older misses are
   the backlog), unchanged in spirit.

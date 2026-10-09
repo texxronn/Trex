@@ -122,7 +122,7 @@ function occurrenceRow(o) {
     matchedCell(o));
 }
 
-/** The five occurrence states, each rendered as what it is: a fact, a conclusion, or a gap. */
+/** The six occurrence states, each rendered as what it is: a fact, a conclusion, or a gap. */
 function statusCell(status) {
   switch (status) {
     case 'occurred':
@@ -138,6 +138,10 @@ function statusCell(status) {
     case 'missed':
       return el('td', {}, el('span', { class: 'occ-missed',
         title: 'window closed with no match' }, '\u2717 missed'));
+    case 'awaiting':
+      return el('td', {}, el('span', { class: 'muted',
+        title: 'window closed, but the statement has not reached it yet — fetch it (Jobs)' },
+        '\u29d7 awaiting statement'));
     default:
       return el('td', {}, el('span', { class: 'muted' }, status || ''));
   }
