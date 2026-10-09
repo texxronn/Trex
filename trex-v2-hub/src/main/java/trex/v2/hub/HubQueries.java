@@ -1053,6 +1053,19 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /** Superseded ids and where they resolve now: how the egress re-keys a group instead of orphaning it. */
+    public Map<String, String> resolvedIds() {
+        return read(conn -> {
+            Map<String, String> out = new java.util.TreeMap<>();
+            try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(HubSql.RESOLVED_IDS)) {
+                while (rs.next()) {
+                    out.put(rs.getString(1), rs.getString(2));
+                }
+            }
+            return out;
+        });
+    }
+
     /** Projectable units, enriched for the egress (V2-PROPOSAL.md §11.2, §11.6). */
     public List<trex.v2.hub.api.ProjectionUnit> projectionUnits() {
         return read(conn -> {
@@ -1102,7 +1115,7 @@ public final class HubQueries implements AutoCloseable {
                                 toRef, real.date(), amount, currency, "TRANSFER", "STRUCTURAL", "MATCHED",
                                 false, false, real.rawDescription(),
                                 unitHash(unitId, "TRANSFER", fromRef, toRef, real.date(), amount, currency,
-                                    "TRANSFER")));
+                                    "TRANSFER"), List.of(pair[0], pair[1])));
                             continue;
                         }
                         trex.v2.core.Fact from = facts.get(pair[0]);
@@ -1115,7 +1128,7 @@ public final class HubQueries implements AutoCloseable {
                             Math.abs(from.amount()), currency, "TRANSFER", "STRUCTURAL", "MATCHED",
                             false, false, from.rawDescription(),
                             unitHash(unitId, "TRANSFER", from.accountRef(), to.accountRef(), from.date(),
-                                Math.abs(from.amount()), currency, "TRANSFER")));
+                                Math.abs(from.amount()), currency, "TRANSFER"), List.of(pair[0], pair[1])));
                     } else {
                         trex.v2.core.Fact fact = facts.get(unitId);
                         if (fact == null) {
@@ -1126,7 +1139,7 @@ public final class HubQueries implements AutoCloseable {
                             rs.getString(8), rs.getString(9), rs.getInt(10) != 0, rs.getInt(11) != 0,
                             fact.rawDescription(),
                             unitHash(unitId, "EXTERNAL", fact.accountRef(), null, fact.date(), fact.amount(),
-                                currency, rs.getString(7))));
+                                currency, rs.getString(7)), List.of()));
                     }
                 }
             }

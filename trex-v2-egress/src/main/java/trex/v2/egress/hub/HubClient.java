@@ -22,10 +22,10 @@ public final class HubClient {
     public record HubUnit(String unitId, String unitKind, long n, String accountRef, String toAccountRef,
                           LocalDate date, long amount, String currency, String category, String origin,
                           String pairing, boolean retired, boolean ineffective, String rawDescription,
-                          String unitHash) {}
+                          String unitHash, List<String> legs) {}
 
     public record Units(long asOfN, String configRevision, String deriveVersion, String hashVersion,
-                        List<HubUnit> units) {}
+                        List<HubUnit> units, Map<String, String> resolved) {}
 
     /** One projection-state row, matching the hub's shape. */
     public record ProjectionState(String unitId, String unitKind, String groupId, String category,

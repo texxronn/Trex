@@ -19,11 +19,12 @@ public final class FakeHub implements AutoCloseable {
     public final Map<String, Map<String, Object>> projection = new ConcurrentHashMap<>();
     public volatile String configRevision = "sha256:cfg1";
     public volatile List<Map<String, Object>> units = new ArrayList<>();
+    public volatile Map<String, String> resolved = new java.util.HashMap<>();
 
     public FakeHub() throws Exception {
         server.createContext("/api/units", exchange -> respond(exchange, 200, Json.mapper().writeValueAsString(
             map("asOfN", 1, "configRevision", configRevision, "deriveVersion", "derive/1",
-                "hashVersion", "statehash/1", "units", units))));
+                "hashVersion", "statehash/1", "units", units, "resolved", resolved))));
         server.createContext("/api/projection", exchange -> {
             if (exchange.getRequestMethod().equals("POST")) {
                 Map<String, Object> body = Json.mapper().readValue(
@@ -53,7 +54,15 @@ public final class FakeHub implements AutoCloseable {
         return map("unitId", unitId, "unitKind", kind, "n", n, "accountRef", accountRef,
             "toAccountRef", toAccountRef, "date", date, "amount", amount, "currency", "AUD",
             "category", category, "origin", "RULE", "pairing", "EXTERNAL", "retired", false,
-            "ineffective", false, "rawDescription", raw, "unitHash", hash);
+            "ineffective", false, "rawDescription", raw, "unitHash", hash, "legs", List.of());
+    }
+
+    public static Map<String, Object> transfer(String unitId, long n, String from, String to, String date,
+                                               long amount, String fromLeg, String toLeg) {
+        Map<String, Object> u = unit(unitId, "TRANSFER", n, from, to, date, amount, "TRANSFER",
+            "Transfer", "h-" + unitId);
+        u.put("legs", List.of(fromLeg, toLeg));
+        return u;
     }
 
     private static Map<String, Object> map(Object... kv) {
