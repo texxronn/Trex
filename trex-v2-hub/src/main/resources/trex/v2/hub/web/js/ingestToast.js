@@ -7,22 +7,40 @@ import { api } from './api.js';
 import { total } from './format.js';
 import { toast } from './toast.js';
 
-let lastN = null;           // the newest n whose batches have been reported
-let latestN = null;         // the newest delta seen while a fetch is in flight
-let lastReview = null;      // the review total at the previous delta
-let snapshotReview = null;  // the review total at the snapshot, consumed by the first delta
+let lastN = null;            // the newest n whose batches have been reported
+let latestN = null;          // the newest delta seen while a fetch is in flight
+let latestSettled = false;   // whether the baseline had settled when that delta arrived
+let lastReview = null;       // the review total at the previous delta
+let baseline = null;         // the last reset's review total: { ready, total }, for the next delta
+let generation = 0;          // bumped by every baseline reset; an older fetch's result is void
 let running = false;
 
 /**
  * The SSE snapshot: seed the baseline so the first delta toasts the batches that completed since
  * the page loaded (or reconnected) instead of treating that delta as the baseline. The review
- * total is fetched now, so the first delta can diff against the total the snapshot saw; if that
- * fetch fails, the promise resolves null and the first delta claims no review delta at all —
- * never a guess.
+ * total is fetched now; whether a delta may trust it is decided when that delta arrives.
  */
 export function onSnapshot(n) {
+  rebaseline(n);
+}
+
+/** A baseline reset: line numbers restart at n, and the review total is refetched. */
+function rebaseline(n) {
+  generation += 1;
   lastN = n;
-  snapshotReview = reviewTotal();
+  latestN = n;
+  latestSettled = false;
+  baseline = reviewBaseline();
+}
+
+/** The review total at this reset, boxed so a delta can check whether it had settled. */
+function reviewBaseline() {
+  const box = { ready: false, total: null };
+  box.total = reviewTotal().then((value) => {
+    box.ready = true;
+    return value;
+  });
+  return box;
 }
 
 /**
@@ -33,31 +51,37 @@ export function onSnapshot(n) {
 export async function onDelta(change) {
   const n = change.n;
   if (lastN === null || n < lastN) {
-    // no snapshot yet, or a rebuilt journal whose n line numbers restarted
-    lastN = n;
-    snapshotReview = reviewTotal();
+    rebaseline(n); // no snapshot yet, or a rebuilt journal whose n line numbers restarted
     return;
   }
   if (n === lastN) {
     return;
   }
   latestN = n;
+  // /api/status reads the current index, so a baseline still in flight when this delta arrived
+  // may already include the delta's own items: only one that had settled before it may be trusted.
+  latestSettled = baseline !== null && baseline.ready;
   if (running) {
     return; // the loop below picks the newer n up
   }
   running = true;
   try {
     while (lastN < latestN) {
+      const epoch = generation;
       const since = lastN;
       const target = latestN;
+      const settled = latestSettled;
       const [ingests, status] = await Promise.all([api.ingests(since), api.status()]);
+      if (epoch !== generation) {
+        continue; // a snapshot or rollback rebaselined mid-fetch; its baseline supersedes this
+      }
       const rows = (ingests && ingests.rows) || [];
       // Everything up to a reported batch's n_end is now told; a delta that arrived mid-fetch
       // only narrows the next range.
       lastN = rows.reduce((max, row) => Math.max(max, row.nEnd || 0), target);
-      if (snapshotReview !== null) {
-        lastReview = await snapshotReview;
-        snapshotReview = null;
+      if (baseline !== null) {
+        lastReview = settled ? await baseline.total : null;
+        baseline = null;
       }
       const review = total(status && status.reviewByKind);
       const reviewDelta = lastReview === null ? 0 : review - lastReview;

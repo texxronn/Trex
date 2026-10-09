@@ -77,9 +77,11 @@ batches still reports them all (no filter is the old read; a non-numeric filter 
 stayed inline in `HubQueries.ingests`, so `HubSql` was not touched. A new `web/js/ingestToast.js`
 hangs off `app.js`: `onSnapshot` seeds the baseline and fetches the review total the page loaded
 with, so the first delta after load/reconnect fetches (and toasts) the batches completed since the
-snapshot and diffs its review delta against that total — a snapshot whose status read failed shows
-no review delta rather than a guess; only a stream that never saw a snapshot treats its first delta
-as the baseline. Duplicates are named only when every row was a duplicate — nothing appended,
+snapshot and diffs its review delta against that total when it had already settled — a status read
+that failed, or was still in flight when the delta arrived, shows no review delta rather than a
+guess; only a stream that never saw a snapshot treats its first delta as the baseline. An in-flight
+fetch is void if a snapshot or rollback rebaselines the journal mid-fetch, so no stale cursor or
+toast survives a rebuild. Duplicates are named only when every row was a duplicate — nothing appended,
 nothing flagged, no failed batch — and any batch whose status is not `ok` makes the toast
 error-styled and names the file with the runner's word (`bad_rows` → "bad rows"). `toast()` gained
 an optional click target (a `clickable` class); a click sets `#jobs`, the mode switch the nav
