@@ -44,6 +44,7 @@ final class HubHttpApi {
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         server.createContext("/api/events", ex -> streamEvents(ex, api, events));
         server.createContext("/api/jobs", ex -> jobs(ex, api, runner));
+        server.createContext("/mcp", ex -> McpHttp.handle(ex, api, McpConfig.fromEnv()));
         route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
         route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
         route(server, "/api/refdata", "GET", ex -> write(ex, 200, api.refdata()));
