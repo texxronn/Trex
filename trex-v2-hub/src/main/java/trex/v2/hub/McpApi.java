@@ -46,7 +46,11 @@ public final class McpApi {
         }
         JsonNode request;
         try {
-            request = Json.mapper().readTree(body);
+            // One message per body: a trailing value or garbage must fail, not be ignored. The
+            // shared mapper is left lenient for the journal; this reader is strict for the wire.
+            request = Json.mapper().reader()
+                .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .readTree(body);
         } catch (com.fasterxml.jackson.core.JacksonException e) {
             return error(null, -32700, "Parse error");
         }
@@ -66,7 +70,7 @@ public final class McpApi {
             return error(null, -32600, "Invalid Request");
         }
         JsonNode version = request.get("jsonrpc");
-        if (version == null || !"2.0".equals(version.asText())) {
+        if (version == null || !version.isTextual() || !"2.0".equals(version.asText())) {
             return error(request.get("id"), -32600, "Invalid Request");
         }
         JsonNode id = request.get("id");

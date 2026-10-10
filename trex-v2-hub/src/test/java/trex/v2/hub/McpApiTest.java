@@ -143,6 +143,20 @@ class McpApiTest {
     }
 
     @Test
+    void trailingJsonIsAParseError() {
+        JsonNode response = api().dispatch(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"} garbage", READ_ONLY);
+        assertEquals(-32700, response.get("error").get("code").asInt(), response.toString());
+    }
+
+    @Test
+    void aNonStringJsonRpcVersionIsInvalid() {
+        JsonNode response = api().dispatch(
+            "{\"jsonrpc\":2.0,\"id\":1,\"method\":\"ping\"}", READ_ONLY);
+        assertEquals(-32600, response.get("error").get("code").asInt(), response.toString());
+    }
+
+    @Test
     void explicitNullArgumentsIsAToolError() {
         JsonNode nullArgs = api().dispatch(request("tools/call",
             "{\"name\":\"trex_status\",\"arguments\":null}"), READ_ONLY);
