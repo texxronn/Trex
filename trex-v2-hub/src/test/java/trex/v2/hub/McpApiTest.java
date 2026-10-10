@@ -169,9 +169,17 @@ class McpApiTest {
 
     @Test
     void aScalarParamsIsInvalidParams() {
-        JsonNode response = api().dispatch(
+        JsonNode scalar = api().dispatch(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":5}", READ_ONLY);
-        assertEquals(-32602, response.get("error").get("code").asInt(), response.toString());
+        assertEquals(-32602, scalar.get("error").get("code").asInt(), scalar.toString());
+
+        JsonNode nullParams = api().dispatch(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":null}", READ_ONLY);
+        assertEquals(-32602, nullParams.get("error").get("code").asInt(), nullParams.toString());
+
+        // Omitted params is fine.
+        assertTrue(api().dispatch("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}", READ_ONLY)
+            .has("result"));
     }
 
     @Test
