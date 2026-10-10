@@ -224,15 +224,24 @@ final class McpWriteTools {
     }
 
     /**
-     * Resolve the acting user (A2): an absent or blank {@code actingUser} is the configured agent;
-     * otherwise it must be a declared active user or the agent, and anything else is a tool error.
-     * The declared users are read fresh from {@link HubApi#refdata()} on every call — never cached —
-     * so a user disabled in config stops being accepted immediately.
+     * Resolve the acting user (A2): an absent/omitted {@code actingUser} is the configured agent;
+     * otherwise it must be a declared active user or the agent. An explicit blank is rejected, never
+     * silently defaulted — that would record a conclusion under a different identity. The declared
+     * users are read fresh from {@link HubApi#refdata()} on every call — never cached — so a user
+     * disabled in config stops being accepted immediately.
      */
     private static String resolveActingUser(HubApi api, JsonNode args, McpConfig config) {
-        String requested = McpArgs.optionalText(args, "actingUser");
-        if (requested == null) {
+        JsonNode raw = args.get("actingUser");
+        if (raw == null || raw.isNull()) {
             return config.agentUser();
+        }
+        if (!raw.isTextual()) {
+            throw new McpArgs.BadArgs("actingUser must be a string");
+        }
+        String requested = raw.asText();
+        if (requested.isBlank()) {
+            throw new McpArgs.BadArgs("actingUser must not be blank; omit it to act as '"
+                + config.agentUser() + "'");
         }
         Set<String> allowed = new TreeSet<>();
         allowed.add(config.agentUser());

@@ -166,6 +166,23 @@ class McpWriteToolsTest {
     }
 
     @Test
+    void aBlankActingUserIsRejected() {
+        Stub stub = new Stub();
+        JsonNode blank = callResult(stub.mcp(), WRITES, "trex_submit_decisions",
+            "{\"asOfN\":42,\"actingUser\":\"  \","
+                + "\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"id1\"}]}");
+        assertTrue(blank.get("isError").asBoolean(), blank.toString());
+        assertFalse(stub.submitted(), "a blank acting user must not be silently defaulted");
+
+        // Omitted is fine, and means the agent.
+        Stub omitted = new Stub();
+        assertFalse(callResult(omitted.mcp(), WRITES, "trex_submit_decisions",
+            "{\"asOfN\":42,\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"id1\"}]}")
+            .get("isError").asBoolean());
+        assertEquals("agent", omitted.lastRequest().decisions().get(0).user());
+    }
+
+    @Test
     void actingUserIsStamped() {
         Stub stub = new Stub();
         JsonNode result = callResult(stub.mcp(), WRITES, "trex_submit_decisions",
