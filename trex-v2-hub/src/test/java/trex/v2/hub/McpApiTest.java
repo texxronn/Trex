@@ -95,9 +95,14 @@ class McpApiTest {
     void toolsListIsStable() {
         JsonNode tools = api().dispatch(request("tools/list", null), READ_ONLY)
             .get("result").get("tools");
-        assertEquals(1, tools.size(), tools.toString());
-        JsonNode tool = tools.get(0);
-        assertEquals("trex_status", tool.get("name").asText());
+        assertEquals(McpTools.tools().size(), tools.size(), tools.toString());
+        JsonNode tool = null;
+        for (JsonNode candidate : tools) {
+            if ("trex_status".equals(candidate.get("name").asText())) {
+                tool = candidate;
+            }
+        }
+        assertTrue(tool != null, tools.toString());
         assertEquals("Trex hub status and head (asOfN, deriveVersion, counts)",
             tool.get("description").asText());
         JsonNode schema = tool.get("inputSchema");

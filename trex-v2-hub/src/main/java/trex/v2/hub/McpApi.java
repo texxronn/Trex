@@ -31,8 +31,6 @@ public final class McpApi {
     /** Mirrors the reactor version (pom {@code 0.1.1-SNAPSHOT}); {@code serverInfo.version} is informational. */
     static final String SERVER_VERSION = "0.1.1";
 
-    private static final String STATUS_TOOL = "trex_status";
-
     private final HubApi api;
 
     public McpApi(HubApi api) {
@@ -136,26 +134,22 @@ public final class McpApi {
     private ObjectNode toolsList() {
         ObjectNode result = Json.mapper().createObjectNode();
         ArrayNode tools = result.putArray("tools");
-        tools.add(statusTool());
+        for (McpTools.Tool tool : McpTools.tools().values()) {
+            ObjectNode node = Json.mapper().createObjectNode();
+            node.put("name", tool.name());
+            node.put("description", tool.description());
+            node.set("inputSchema", tool.inputSchema());
+            tools.add(node);
+        }
         return result;
-    }
-
-    /** The one Stage-1 tool: {@code status()} + {@code head()}, no arguments. */
-    private static ObjectNode statusTool() {
-        ObjectNode tool = Json.mapper().createObjectNode();
-        tool.put("name", STATUS_TOOL);
-        tool.put("description", "Trex hub status and head (asOfN, deriveVersion, counts)");
-        ObjectNode schema = tool.putObject("inputSchema");
-        schema.put("type", "object");
-        schema.set("properties", Json.mapper().createObjectNode());
-        schema.put("additionalProperties", false);
-        return tool;
     }
 
     /**
      * A {@code tools/call}: an unknown tool name is a JSON-RPC {@code -32602}, but a known tool with
      * bad arguments is a successful result carrying {@code isError:true} — a tool error is data for
-     * the model, not a transport failure (plan §1). Stage 1 exposes {@code trex_status} only.
+     * the model, not a transport failure (plan §1). The name is looked up in {@link McpTools}; the
+     * handler receives an arguments object and any {@link RuntimeException} it raises (a missing
+     * required field, a wrong type, a rejected filter) becomes that tool error.
      */
     private JsonNode toolCall(JsonNode id, JsonNode params) {
         if (params == null || !params.isObject()) {
@@ -165,22 +159,24 @@ public final class McpApi {
         if (nameNode == null || !nameNode.isTextual()) {
             return error(id, -32602, "Invalid params");
         }
-        if (!STATUS_TOOL.equals(nameNode.asText())) {
+        McpTools.Tool tool = McpTools.find(nameNode.asText());
+        if (tool == null) {
             return error(id, -32602, "Unknown tool: " + nameNode.asText());
         }
         JsonNode arguments = params.get("arguments");
-        // The schema is an object: an explicit non-object (including null) is a tool error, and so is
-        // any member on a tool that takes none. An omitted arguments node is fine.
-        if (arguments != null && (!arguments.isObject() || !arguments.isEmpty())) {
-            return ok(id, toolError("The tool '" + STATUS_TOOL + "' takes no arguments"));
+        // The schema is an object: an explicit non-object (including null) is a tool error. An
+        // omitted arguments node is an empty object, so a no-argument tool is callable either way.
+        if (arguments == null) {
+            arguments = Json.mapper().createObjectNode();
+        } else if (!arguments.isObject()) {
+            return ok(id, toolError("The tool '" + tool.name() + "' takes an object of arguments"));
         }
         try {
-            ObjectNode data = Json.mapper().createObjectNode();
-            data.set("status", Json.mapper().valueToTree(api.status()));
-            data.set("head", Json.mapper().valueToTree(api.head()));
-            return ok(id, toolResult(data));
+            McpArgs.rejectUnknown(arguments, tool.args());
+            return ok(id, toolResult(tool.handler().handle(api, arguments)));
         } catch (RuntimeException e) {
-            return ok(id, toolError(STATUS_TOOL + " failed: " + e.getMessage()));
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            return ok(id, toolError(tool.name() + ": " + message));
         }
     }
 
