@@ -1,6 +1,7 @@
 # V2-ASSISTANT-PLAN.md
 
-**Status:** proposed (2026-10-10) — the family-assistant increment over the MCP server. Follow-on to
+**Status:** built (2026-10-10) — the family-assistant increment over the MCP server (Stages A–C, this
+PR), and the plan is archived as the record of why. Follow-on to
 `docs/plans/V2-MCP-SERVER-PLAN.md`; `V2-SPEC.md` remains the specification and `AGENTS.md` binds.
 
 **Why.** The MCP server now exposes Trex's read surface and one low-level write tool attributed to
