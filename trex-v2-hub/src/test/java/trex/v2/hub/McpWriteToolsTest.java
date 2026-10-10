@@ -174,6 +174,13 @@ class McpWriteToolsTest {
         assertTrue(blank.get("isError").asBoolean(), blank.toString());
         assertFalse(stub.submitted(), "a blank acting user must not be silently defaulted");
 
+        // An explicit null is malformed, not an omission.
+        JsonNode nullUser = callResult(stub.mcp(), WRITES, "trex_submit_decisions",
+            "{\"asOfN\":42,\"actingUser\":null,"
+                + "\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"id1\"}]}");
+        assertTrue(nullUser.get("isError").asBoolean(), nullUser.toString());
+        assertFalse(stub.submitted(), "an explicit null acting user must be rejected");
+
         // Omitted is fine, and means the agent.
         Stub omitted = new Stub();
         assertFalse(callResult(omitted.mcp(), WRITES, "trex_submit_decisions",

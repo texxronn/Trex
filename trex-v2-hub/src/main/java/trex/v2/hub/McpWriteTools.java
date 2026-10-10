@@ -231,10 +231,11 @@ final class McpWriteTools {
      * disabled in config stops being accepted immediately.
      */
     private static String resolveActingUser(HubApi api, JsonNode args, McpConfig config) {
-        JsonNode raw = args.get("actingUser");
-        if (raw == null || raw.isNull()) {
+        // Only an omitted field defaults to the agent; an explicit null is malformed, not "default".
+        if (!args.has("actingUser")) {
             return config.agentUser();
         }
+        JsonNode raw = args.get("actingUser");
         if (!raw.isTextual()) {
             throw new McpArgs.BadArgs("actingUser must be a string");
         }

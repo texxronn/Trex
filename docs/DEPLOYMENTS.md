@@ -51,7 +51,8 @@ the client at:
 
 The surface is read tools (one per hub read) plus resources (the config files, the status snapshot,
 reference data) and prompts, and a compact read (`trex_brief`, `GET /api/brief`). Nothing an MCP
-client does writes to the journal unless the hub runs with **`TREX_MCP_ALLOW_WRITES=1`**; then the
+client does writes to the journal unless the hub runs with **`TREX_MCP_ALLOW_WRITES=1`** (or `true`);
+then the
 low-level write tool (`trex_submit_decisions`) and the three intent-shaped action tools
 (`trex_categorize`, `trex_note`, `trex_mark_paid`) each name an **`actingUser`** — a declared active
 user (`ron`/`mel`) or `agent`, never anything else. The contract the family bot and an MCP host both

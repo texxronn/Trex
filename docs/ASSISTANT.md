@@ -54,9 +54,10 @@ tool.
 ## 2. The three actions
 
 Three intent-shaped actions cover almost every write the assistant needs. Each builds **one** draft
-for the existing decision path; the semantics are exactly the UI's (`decisions.js`). Every action
-requires `asOfN` — the log line the caller's view was built at — so a stale write is the hub's `409`,
-never a silent mis-post.
+for the existing decision path; the semantics are exactly the UI's (`decisions.js`). Every MCP action
+requires `asOfN` — the log line the caller's view was built at. When the bot posts to
+`/api/decisions` directly it **must** send `asOfN` too: the hub checks staleness whenever it is
+present, so omitting it skips the guard, and a stale write is no longer a `409`.
 
 ### 2.1 Categorise — `PIN` / `trex_categorize`
 
@@ -154,13 +155,15 @@ separate call — every action is a draft in the same `POST /api/decisions` body
   reused. There is no auth on the API: the hub trusts the caller to say who is acting.
 
 An MCP host that cannot know the chat identity should **omit** `actingUser` (the write is recorded
-under `agent`), never guess a person. A blank `actingUser` is rejected, never defaulted.
+under `agent`), never guess a person. Only omitting the field defaults to `agent`: a blank or explicit
+`null` `actingUser` is rejected, never defaulted.
 
 ---
 
 ## 4. Safety
 
-- **Read-only by default.** MCP writes exist only when the hub runs with `TREX_MCP_ALLOW_WRITES=1`;
+- **Read-only by default.** MCP writes exist only when the hub runs with `TREX_MCP_ALLOW_WRITES=1`
+  (or `true`);
   without it the write tools are unknown (`-32602`). The bot's default posture is reads only.
 - **Identify the person before a write.** Confirm who is asking, map it to a declared user id, and
   pass that as `actingUser`/`user`. When in doubt, do not write — ask.
