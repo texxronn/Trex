@@ -86,6 +86,10 @@ public final class McpApi {
             return null;
         }
         JsonNode params = request.get("params");
+        // MCP params are an object (or absent); a scalar is invalid, not silently ignored.
+        if (params != null && !params.isNull() && !params.isObject()) {
+            return error(id, -32602, "Invalid params");
+        }
         return switch (methodNode.asText()) {
             case "initialize" -> ok(id, initializeResult(params));
             case "server/discover" -> ok(id, initializeResult(params));

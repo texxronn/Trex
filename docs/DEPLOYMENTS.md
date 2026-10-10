@@ -53,7 +53,8 @@ The surface is read tools (one per hub read) plus resources (the config files, t
 reference data) and prompts. Nothing an MCP client does writes to the journal unless the hub runs
 with **`TREX_MCP_ALLOW_WRITES=1`**; then the one write tool (`trex_submit_decisions`) is attributed
 to the **`agent`** user — never to a person. `egress-firefly` is never exposed; job orchestration
-stays in the Jobs UI.
+stays in the Jobs UI. **`/mcp` has no authentication of its own** — it inherits the hub's listener —
+so keep the hub loopback-only (or behind the perimeter) whenever writes are enabled.
 
 ### Why `/opt/trex/compose.yml` differs from `deploy/v2/compose.yml`
 

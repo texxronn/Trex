@@ -64,8 +64,28 @@ final class McpWriteTools {
         properties.putObject("asOfN").put("type", "integer");
         ObjectNode decisions = properties.putObject("decisions");
         decisions.put("type", "array");
-        decisions.putObject("items").put("type", "object");
         decisions.put("minItems", 1);
+        ObjectNode items = decisions.putObject("items");
+        items.put("type", "object");
+        // A DecisionDraft is one flat shape carrying every action's fields; the common ones are named
+        // and the rest pass through, so the model sees the field names without a 40-field fence.
+        ObjectNode itemProps = items.putObject("properties");
+        itemProps.putObject("action").put("type", "string")
+            .put("description", "the decision action, e.g. PIN, NOTE, SETTLE, PAIR, USER_ACK");
+        itemProps.putObject("externalId").put("type", "string");
+        itemProps.putObject("category").put("type", "string");
+        itemProps.putObject("text").put("type", "string");
+        itemProps.putObject("comment").put("type", "string");
+        itemProps.putObject("commitmentId").put("type", "string");
+        itemProps.putObject("pendingId").put("type", "string");
+        itemProps.putObject("postedId").put("type", "string");
+        itemProps.putObject("fromId").put("type", "string");
+        itemProps.putObject("toId").put("type", "string");
+        itemProps.putObject("reason").put("type", "string");
+        itemProps.putObject("externalIds").put("type", "array").putObject("items").put("type", "string");
+        itemProps.putObject("dueDates").put("type", "array").putObject("items").put("type", "string");
+        items.put("additionalProperties", true);
+        items.putArray("required").add("action");
         ArrayNode required = schema.putArray("required");
         required.add("asOfN");
         required.add("decisions");

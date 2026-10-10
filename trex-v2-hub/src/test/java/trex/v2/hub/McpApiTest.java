@@ -168,6 +168,13 @@ class McpApiTest {
     }
 
     @Test
+    void aScalarParamsIsInvalidParams() {
+        JsonNode response = api().dispatch(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":5}", READ_ONLY);
+        assertEquals(-32602, response.get("error").get("code").asInt(), response.toString());
+    }
+
+    @Test
     void explicitNullArgumentsIsAToolError() {
         JsonNode nullArgs = api().dispatch(request("tools/call",
             "{\"name\":\"trex_status\",\"arguments\":null}"), READ_ONLY);

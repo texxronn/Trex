@@ -8,7 +8,7 @@ package trex.v2.hub;
  */
 public record McpConfig(boolean allowWrites, String agentUser) {
 
-    /** The default identity an agent writes as; {@code TREX_MCP_AGENT_USER} overrides it. */
+    /** The identity an agent writes as. Fixed: it must never name a person (D4), so no env override. */
     public static final String DEFAULT_AGENT_USER = "agent";
 
     /** Opt out of writes, attributed to the default agent (used by the read-only callers/tests). */
@@ -20,10 +20,6 @@ public record McpConfig(boolean allowWrites, String agentUser) {
     public static McpConfig fromEnv() {
         String raw = System.getenv("TREX_MCP_ALLOW_WRITES");
         boolean allow = raw != null && ("1".equals(raw.trim()) || "true".equalsIgnoreCase(raw.trim()));
-        String agent = System.getenv("TREX_MCP_AGENT_USER");
-        if (agent == null || agent.isBlank()) {
-            agent = DEFAULT_AGENT_USER;
-        }
-        return new McpConfig(allow, agent);
+        return new McpConfig(allow, DEFAULT_AGENT_USER);
     }
 }

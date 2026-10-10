@@ -64,8 +64,19 @@ final class McpPrompts {
         message.put("role", "user");
         ObjectNode content = message.putObject("content");
         content.put("type", "text");
-        content.put("text", prompt.text());
+        content.put("text", withArguments(prompt.text(), arguments));
         return result;
+    }
+
+    /** Append the caller's argument values to the recipe, so a declared argument is never dropped. */
+    private static String withArguments(String text, JsonNode arguments) {
+        if (arguments == null || !arguments.isObject() || arguments.isEmpty()) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text).append("\n\nArguments:");
+        arguments.fields().forEachRemaining(e ->
+            sb.append("\n- ").append(e.getKey()).append(": ").append(e.getValue().asText()));
+        return sb.toString();
     }
 
     private static Map<String, Prompt> prompts() {

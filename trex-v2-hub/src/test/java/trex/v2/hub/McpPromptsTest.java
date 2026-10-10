@@ -61,6 +61,15 @@ class McpPromptsTest {
     }
 
     @Test
+    void aPromptEchoesItsArguments() {
+        // A declared argument is never dropped: its value reaches the returned message text.
+        JsonNode result = dispatch("prompts/get",
+            "{\"name\":\"classify_transaction\",\"arguments\":{\"externalId\":\"abc123\"}}").get("result");
+        String text = result.get("messages").get(0).get("content").get("text").asText();
+        assertTrue(text.contains("abc123"), text);
+    }
+
+    @Test
     void anUnknownPromptIsInvalidParams() {
         JsonNode response = dispatch("prompts/get", "{\"name\":\"nope\",\"arguments\":{}}");
         assertTrue(response.has("error"), response.toString());

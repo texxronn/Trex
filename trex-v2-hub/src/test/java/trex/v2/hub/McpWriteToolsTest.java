@@ -111,6 +111,20 @@ class McpWriteToolsTest {
     }
 
     @Test
+    void aSuppliedActorIsForcedToUser() {
+        // The sequencer nulls the user for any actor other than "user"; the tool must force it, or a
+        // client could erase the attribution this gate exists to keep.
+        Stub stub = new Stub();
+        JsonNode result = callResult(stub.mcp(), WRITES,
+            "{\"asOfN\":42,\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"actor\":\"system\","
+                + "\"externalId\":\"id1\"}]}");
+        assertFalse(result.get("isError").asBoolean(), result.toString());
+        DecisionDraft draft = stub.lastRequest().decisions().get(0);
+        assertEquals("user", draft.actor(), "a client-supplied actor must be forced to user");
+        assertEquals("agent", draft.user(), "and the agent user must survive the write");
+    }
+
+    @Test
     void aDraftNamingAnotherUserIsRejected() {
         Stub stub = new Stub();
         JsonNode result = callResult(stub.mcp(), WRITES,

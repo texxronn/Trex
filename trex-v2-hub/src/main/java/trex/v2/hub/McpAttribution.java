@@ -39,9 +39,9 @@ final class McpAttribution {
                 throw new McpArgs.BadArgs("decisions may only be attributed to " + agentUser);
             }
             copy.put("user", agentUser);
-            if (!copy.hasNonNull("actor")) {
-                copy.put("actor", "user");
-            }
+            // Force the actor, never default it: any other actor makes the sequencer null the user
+            // (Sequencer.buildDecision), which would erase the attribution this gate exists to keep.
+            copy.put("actor", "user");
             attributed.add(copy);
         }
         return Json.mapper().convertValue(attributed,
