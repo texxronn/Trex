@@ -44,7 +44,6 @@ class McpToolsTest {
             new Case("trex_ingests", "{}", "ingests"),
             new Case("trex_config_drift", "{}", "configDrift"),
             new Case("trex_projection", "{}", "projection"),
-            new Case("trex_refdata", "{}", "refdata"),
             new Case("trex_get", "{\"path\":\"/api/units\"}", "units"),
         };
         for (Case c : cases) {
@@ -86,7 +85,7 @@ class McpToolsTest {
     }
 
     @Test
-    void aLedgerLimitIsClampedLikeTheHub() {
+    void limitsAreClampedLikeTheHub() {
         assertEquals(BlotterQuery.DEFAULT_LIMIT, ledgerLimit("{}"));
         assertEquals(1, ledgerLimit("{\"limit\":0}"));
         assertEquals(BlotterQuery.MAX_LIMIT, ledgerLimit("{\"limit\":5000}"));
@@ -100,6 +99,10 @@ class McpToolsTest {
         // A present field with the wrong type is the same tool error, never a crash.
         assertToolError("trex_notes", "{\"externalId\":5}");
         assertToolError("trex_since", "{\"n\":\"not-a-number\"}");
+        // The schema types are strict: an integer is not a numeric string, a boolean is not "true".
+        assertToolError("trex_since", "{\"n\":\"5\"}");
+        assertToolError("trex_ledger", "{\"limit\":\"50\"}");
+        assertToolError("trex_ledger", "{\"hasReview\":\"true\"}");
     }
 
     @Test

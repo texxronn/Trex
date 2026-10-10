@@ -57,7 +57,7 @@ final class McpArgs {
         return value;
     }
 
-    /** A number field (an integral JSON number, or a string that parses); anything else is an error. */
+    /** An integral JSON number; a string, a fraction or anything else is a type error (schema: integer). */
     static Long optionalLong(JsonNode args, String name) {
         JsonNode value = args.get(name);
         if (value == null || value.isNull()) {
@@ -66,14 +66,7 @@ final class McpArgs {
         if (value.isIntegralNumber()) {
             return value.asLong();
         }
-        if (value.isTextual()) {
-            try {
-                return Long.parseLong(value.asText().trim());
-            } catch (NumberFormatException e) {
-                throw new BadArgs(name + " must be a number");
-            }
-        }
-        throw new BadArgs(name + " must be a number");
+        throw new BadArgs(name + " must be an integer");
     }
 
     static long requiredLong(JsonNode args, String name) {
@@ -95,7 +88,7 @@ final class McpArgs {
         return value.intValue();
     }
 
-    /** A boolean field: a JSON boolean or the strings {@code true}/{@code false}. */
+    /** A JSON boolean; a string or anything else is a type error (schema: boolean). */
     static Boolean optionalBool(JsonNode args, String name) {
         JsonNode value = args.get(name);
         if (value == null || value.isNull()) {
@@ -103,15 +96,6 @@ final class McpArgs {
         }
         if (value.isBoolean()) {
             return value.asBoolean();
-        }
-        if (value.isTextual()) {
-            String text = value.asText().trim();
-            if (text.equalsIgnoreCase("true")) {
-                return Boolean.TRUE;
-            }
-            if (text.equalsIgnoreCase("false")) {
-                return Boolean.FALSE;
-            }
         }
         throw new BadArgs(name + " must be true or false");
     }

@@ -77,7 +77,6 @@ final class McpTools {
         add(map, "/api/ingests", Set.of("sinceN"), McpTools::ingests);
         add(map, "/api/config/drift", Set.of(), McpTools::configDrift);
         add(map, "/api/projection", Set.of(), McpTools::projection);
-        add(map, "/api/refdata", Set.of(), McpTools::refdata);
         return Map.copyOf(map);
     }
 
@@ -143,9 +142,6 @@ final class McpTools {
         tools.put("trex_projection", tool("trex_projection",
             "The projection-state accelerator rows",
             noProps(), Set.of(), new String[0], McpTools::projection));
-        tools.put("trex_refdata", tool("trex_refdata",
-            "The reference data: accounts, users, categories and revision stamps",
-            noProps(), Set.of(), new String[0], McpTools::refdata));
         tools.put("trex_get", tool("trex_get",
             "A read-only GET passthrough to an allow-listed hub path, with its query params",
             getProps(), getArgs(), new String[] {"path"}, McpTools::get));
@@ -234,9 +230,7 @@ final class McpTools {
         return Json.mapper().valueToTree(api.projection());
     }
 
-    static JsonNode refdata(HubApi api, JsonNode args) {
-        return Json.mapper().valueToTree(api.refdata());
-    }
+
 
     /** The allow-listed passthrough: only a known read path, only that path's query params. */
     static JsonNode get(HubApi api, JsonNode args) {
