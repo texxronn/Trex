@@ -8,6 +8,7 @@ import trex.v2.cli.HubCommand;
 import trex.v2.cli.ImportCommand;
 import trex.v2.cli.IndexCommand;
 import trex.v2.cli.IngestCommand;
+import trex.v2.cli.McpCommand;
 import trex.v2.cli.ReflowCommand;
 import trex.v2.cli.RunnerCommand;
 import trex.v2.cli.SequencerCommand;
@@ -41,6 +42,7 @@ import java.util.concurrent.Callable;
         ExportCommand.class,
         ImportCommand.class,
         StreamCommand.class,
+        McpCommand.class,
     })
 public final class Main implements Callable<Integer> {
 
