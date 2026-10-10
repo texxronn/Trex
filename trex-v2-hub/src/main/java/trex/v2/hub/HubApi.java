@@ -96,6 +96,13 @@ interface HubApi {
      */
     List<ConfigDrift.Row> configDrift();
 
+    /**
+     * The current text of one seeded config file under the config dir (V2-MCP-SERVER-PLAN.md §3.3),
+     * for the MCP {@code trex://config/*} resources. Only the exposed seeded names are readable; an
+     * unknown name or an absent file is {@link java.util.Optional#empty()}, never an exception.
+     */
+    java.util.Optional<String> configFile(String name);
+
     Workbook.Report workbook();
 
     ProjectionStateResponse projection();

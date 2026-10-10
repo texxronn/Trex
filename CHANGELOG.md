@@ -19,6 +19,15 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **The MCP server** (`V2-MCP-SERVER-PLAN.md`, built into the hub). The hub serves a Model Context
+  Protocol endpoint at `POST /mcp` (sessionless Streamable HTTP), and `trex mcp` bridges stdio-only
+  clients to it. The surface is read tools — one per hub read (`trex_status`, `trex_ledger`,
+  `trex_review`, `trex_commitments`, `trex_expected`, `trex_accounts`, …) — plus resources (the
+  config files, the status snapshot, reference data) and prompts (`monthly_review`,
+  `classify_transaction`, `reconcile_account`, `mark_paid`). One write tool, `trex_submit_decisions`,
+  is opt-in (`TREX_MCP_ALLOW_WRITES=1`): it posts through the hub's decision path, so prechecks, the
+  staleness `409` and the one-writer rule hold, and it is attributed to the new `agent` user.
+  `egress-firefly` is never a tool; job orchestration stays in the Jobs UI.
 - **"Since you last cleared"** (`V2-QOL-IMPROVEMENTS-PLAN.md` §5). The all-clear strip now sets the
   next visit's starting line: a per-viewer marker in the browser (`trex.clearedAtN`, with the last
   known month left in `trex.clearedLeft`), never the log or the index. `GET /api/since?n=<n>&user=<id>`
