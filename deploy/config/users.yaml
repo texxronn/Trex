@@ -18,3 +18,9 @@ users:
     name: "Mel"
     active: true
     cadence: "weekly"
+  # The MCP write tool's attribution (V2-MCP-SERVER-PLAN.md §4, D4): an agent acting for the person
+  # is a distinct, permanent identity, never silently "ron". It has no cadence — it never owns work.
+  - id: "agent"
+    name: "Agent"
+    active: true
+    cadence: null

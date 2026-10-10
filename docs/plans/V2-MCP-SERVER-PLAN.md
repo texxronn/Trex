@@ -1,8 +1,8 @@
 # V2-MCP-SERVER-PLAN.md
 
-**Status:** revised (2026-10-10) — **built into the hub** (operator direction; supersedes the earlier
-"new module + stdio-only" draft in this file's git history). Waiting on the operator's review of the
-reversal, then Stages 1–5.
+**Status:** built (2026-10-10) — the MCP server is in the hub (Stages 1–4), and the `trex mcp` stdio
+bridge plus these docs are Stage 5 (this PR). The plan is archived as the record of why. Job tools
+stay parked out of v1 (§8): job orchestration remains in the Jobs UI.
 
 **Authority.** `V2-SPEC.md` is the specification; `AGENTS.md` binds every worker. This is a follow-on
 plan, not a change to the spine: it adds no derivation, no truth and no invariant. It implements the
@@ -61,7 +61,7 @@ MCP client ── Streamable HTTP POST /mcp ──▶ hub :8090 ──▶ HubApi
 | **D2** | Protocol implementation? | **JDK + Jackson**, hand-rolled JSON-RPC. No new dependency. | AGENTS.md "JDK-only … no frameworks"; the recorded intent says the same. |
 | **D3** | Write shape? | **One `submit_decisions` tool** posting `DecisionRequest`; no per-intent wrappers in v1. | Keeps prechecks, `409` staleness and attribution in one path (recorded intent). |
 | **D4** | Attribution? | A dedicated **`agent`** user in `users.yaml`; the tool forces it and rejects another. | Attribution is permanent; an agent is not the person. |
-| **D5** | Job control? | **Read-only** jobs view in v1; job starts opt-in in Stage 5; **`egress-firefly` is never a tool**. | A job start is a side effect; egress apply is destructive (D8). |
+| **D5** | Job control? | **Parked out of v1** — no job tool; orchestration stays in the Jobs UI. **`egress-firefly` is never a tool**. | A job start is a side effect; egress apply is destructive (D8). |
 | **D6** | Tool surface? | **Typed tools per domain** + an allow-listed read-only `trex_get` passthrough. | An LLM picks typed tools more reliably. |
 | **D7** | Placement? | **Inside `trex-v2-hub`**, served by the hub; no new module. (`HubApi`'s package-private visibility forces the same package.) | Operator: "into the hub". |
 | **D8** | Process model? | **In-process `HubApi`**; no separate MCP process, no index access from outside the hub. | The hub already owns the index and the writer proxy. |
@@ -100,10 +100,9 @@ existing query parameters.
 | Tool | `HubApi` call | Note |
 |---|---|---|
 | `trex_submit_decisions` | `submitDecisions(DecisionRequest)` | Body `{ allOrNone?, asOfN, decisions: [DecisionDraft…] }`. The tool **requires `asOfN`** (from the read the draft was based on), so a stale write is a `409`, never a silent mis-post. `user` is forced to the agent; any other `user` is rejected. |
-| `trex_ack` | `postAck(AckRequest)` | Stage 5, same gate. |
-| `trex_start_job` | hub `/api/jobs/*` proxy | Stage 5, same gate; **`egress-firefly` excluded**. |
 
-With writes off, these tools are absent from `tools/list` and `tools/call` returns an error.
+This is the only write tool in v1 (D3); `trex_ack`, the job tools and per-intent write tools are
+parked (§8). With writes off, this tool is absent from `tools/list` and `tools/call` returns an error.
 
 ### 3.3 Resources
 
@@ -146,43 +145,59 @@ context), `McpConfig.java` (the write gate); modify `HubHttpApi.java` (mount `/m
   otherwise; `Content-Type: application/json`.
 - `HubHttpApi.start(...)` gains the MCP context (reads `TREX_MCP_ALLOW_WRITES`).
 
-**Acceptance:** `initializeNegotiatesAProtocolVersion`, `aStatelessRequestIsAnsweredWithoutInitialize`,
-`anUnknownMethodIsMethodNotFound`, `malformedJsonIsParseError`, `toolsListIsStable`,
-`aToolErrorBecomesAToolResultNotACrash`, `getAndDeleteAreNotAllowed`.
+**Acceptance (all green):**
+- [x] `initializeNegotiatesAProtocolVersion`
+- [x] `aStatelessRequestIsAnsweredWithoutInitialize`
+- [x] `anUnknownMethodIsMethodNotFound`
+- [x] `malformedJsonIsParseError`
+- [x] `toolsListIsStable`
+- [x] `aToolErrorBecomesAToolResultNotACrash`
+- [x] `getAndDeleteAreNotAllowed`
 
 ### Stage 2 — the read tools
 
 **Files:** `trex-v2-hub/.../McpTools.java` (one method per `HubApi` call + schema), tests
 `McpToolsTest.java` (a `HubApi` stub).
 
-**Acceptance:** `everyReadToolCallsTheHubApi` (one per table row), `aLedgerQueryKeepsItsFilters`,
-`theGetPassthroughIsAllowListed`, `limitsAreClampedLikeTheHub`.
+**Acceptance (all green):**
+- [x] `everyReadToolCallsTheHubApi` (one per table row)
+- [x] `aLedgerQueryKeepsItsFilters`
+- [x] `theGetPassthroughIsAllowListed`
+- [x] `limitsAreClampedLikeTheHub`
 
 ### Stage 3 — resources and prompts
 
 **Files:** `McpResources.java`, `McpPrompts.java`; tests `McpResourcesTest.java`.
 
-**Acceptance:** `configResourcesAreReadFromTheConfigDir`, `aMissingConfigFileIsNotAnError`,
-`promptsListIsStable`, `aPromptReturnsItsMessages`.
+**Acceptance (all green):**
+- [x] `configResourcesAreReadFromTheConfigDir`
+- [x] `aMissingConfigFileIsNotAnError`
+- [x] `promptsListIsStable`
+- [x] `aPromptReturnsItsMessages`
 
 ### Stage 4 — the write tool (opt-in, attributed)
 
 **Files:** `McpWriteTools.java`, `McpAttribution.java`; tests `McpWriteToolsTest.java`. The
 `DECISION` schema mirrors `DecisionDraft`.
 
-**Acceptance:** `writeToolsAreHiddenUnlessOptedIn`, `submitDecisionsRequiresAnAsOfToken`,
-`aStaleAsOfSurfacesTheHubs409`, `attributionForcesTheAgentUser`,
-`aDraftNamingAnotherUserIsRejected`, `egressIsNotATool`.
+**Acceptance (all green):**
+- [x] `writeToolsAreHiddenUnlessOptedIn`
+- [x] `submitDecisionsRequiresAnAsOfToken`
+- [x] `aStaleAsOfSurfacesTheHubs409`
+- [x] `attributionForcesTheAgentUser`
+- [x] `aDraftNamingAnotherUserIsRejected`
+- [x] `egressIsNotATool`
 
-### Stage 5 — the stdio bridge, jobs, docs, archive
+### Stage 5 — the stdio bridge, docs, archive
 
-**Files:** `trex-v2-dist/.../cli/McpCommand.java` (+ register in `Main`); `McpJobTools.java`;
-`docs/DEPLOYMENTS.md` (the `/mcp` URL, the `trex mcp` command, the client config JSON, the
-`TREX_MCP_ALLOW_WRITES` gate, the agent user); `CHANGELOG.md`; add `agent` to
-`deploy/config/users.yaml`; move this plan to `docs/plans/`.
+**Files:** `trex-v2-dist/.../cli/McpCommand.java` (+ register in `Main`); `docs/DEPLOYMENTS.md` (the
+`/mcp` URL, the `trex mcp` command, the client config JSON, the `TREX_MCP_ALLOW_WRITES` gate, the
+agent user); `CHANGELOG.md`; add `agent` to `deploy/config/users.yaml`; move this plan to
+`docs/plans/`. Job tools are parked (§8), so `McpJobTools.java` is not built.
 
-**Acceptance:** `theStdioBridgeForwardsJsonRpcToTheHub`, `jobsAreListed`, `startingAJobIsHiddenUnlessOptedIn`,
-`egressApplyIsNeverExposed`, `theAgentUserIsDeclared`.
+**Acceptance (all green):**
+- [x] `theStdioBridgeForwardsJsonRpcToTheHub`
+- [x] `theAgentUserIsDeclared`
 
 ## 6. Global constraints
 
@@ -212,4 +227,6 @@ context), `McpConfig.java` (the write gate); modify `HubHttpApi.java` (mount `/m
 
 - SSE streams, resource subscriptions, sampling, elicitation; multi-round-trip requests.
 - Auth tokens (the hub is loopback-only); a hosted/hypertext MCP endpoint.
-- Per-intent ergonomic write tools; job automation; Firefly/egress control.
+- **Job tools:** a read-only jobs view and `trex_start_job` (a hub `/api/jobs/*` proxy). Job
+  orchestration stays in the Jobs UI; `egress-firefly` is never a tool.
+- **`trex_ack`** and per-intent ergonomic write tools; Firefly/egress control.

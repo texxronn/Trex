@@ -33,6 +33,28 @@ TREX_SEQ_BIND=127.0.0.1   # the writer stays private
 so it is LAN-only for now; front it with Caddy (TLS, optional auth) and/or Tailscale before it goes
 anywhere wider.
 
+### MCP server
+
+The hub serves a Model Context Protocol endpoint at **`http://127.0.0.1:8090/mcp`** (LAN:
+`http://10.10.10.142:8090/mcp`). It rides the hub's existing listener — no new port — as sessionless
+Streamable HTTP: one JSON-RPC `POST` per request.
+
+A stdio-only client (Claude Desktop) reaches it through the `trex mcp` bridge, which reads
+newline-delimited JSON-RPC on stdin, forwards each line to the hub, and relays the response. Point
+the client at:
+
+```json
+{"command":"trex","args":["mcp","--hub-url","http://127.0.0.1:8090"]}
+```
+
+`--hub-url` defaults to `$TREX_HUB_URL`, else `http://127.0.0.1:8090`.
+
+The surface is read tools (one per hub read) plus resources (the config files, the status snapshot,
+reference data) and prompts. Nothing an MCP client does writes to the journal unless the hub runs
+with **`TREX_MCP_ALLOW_WRITES=1`**; then the one write tool (`trex_submit_decisions`) is attributed
+to the **`agent`** user — never to a person. `egress-firefly` is never exposed; job orchestration
+stays in the Jobs UI.
+
 ### Why `/opt/trex/compose.yml` differs from `deploy/v2/compose.yml`
 
 Only the config paths: the project directory on the server is `/opt/trex`, so the tuned rules are

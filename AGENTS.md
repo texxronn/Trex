@@ -61,6 +61,7 @@ log's history are permanent.
 - Do not redesign working parts for hypothetical requirements.
 - Prefer simple code over abstractions.
 - Comments carry the *why* — the measured facts belong in the code that depends on them.
+- A new MCP tool states which hub method it wraps and whether it writes.
 
 ## Git
 
