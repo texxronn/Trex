@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
+import trex.v2.hub.api.RefdataResponse;
 import trex.v2.log.Json;
 import trex.v2.sequencer.api.DecisionDraft;
 
 import java.lang.reflect.Proxy;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
@@ -37,6 +40,10 @@ class McpWriteToolsTest {
             .get("result").get("tools");
         assertFalse(names(offList).contains("trex_submit_decisions"),
             "the write tool is absent from a read-only tools/list");
+        assertFalse(names(offList).contains("trex_categorize"),
+            "the action tools are absent from a read-only tools/list");
+        assertFalse(names(offList).contains("trex_note"), "no action tool with writes off");
+        assertFalse(names(offList).contains("trex_mark_paid"), "no action tool with writes off");
 
         JsonNode refused = off.mcp().dispatch(
             request("tools/call", call("trex_submit_decisions", ONE_DECISION)), READ_ONLY);
@@ -49,6 +56,8 @@ class McpWriteToolsTest {
             .get("result").get("tools");
         assertTrue(names(onList).contains("trex_submit_decisions"),
             "the write tool is present when writes are opted in");
+        assertTrue(names(onList).containsAll(List.of("trex_categorize", "trex_note", "trex_mark_paid")),
+            "the three action tools are present when writes are opted in");
         // The read tools are still all there, so the merge is additive.
         assertTrue(names(onList).containsAll(names(
             off.mcp().dispatch(request("tools/list", null), READ_ONLY).get("result").get("tools"))));
@@ -137,6 +146,106 @@ class McpWriteToolsTest {
     }
 
     @Test
+    void anActingUserMustBeDeclared() {
+        Stub stub = new Stub();
+        JsonNode unknown = callResult(stub.mcp(), WRITES, "trex_submit_decisions",
+            "{\"asOfN\":42,\"actingUser\":\"mallory\","
+                + "\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"id1\"}]}");
+        assertTrue(unknown.get("isError").asBoolean(), unknown.toString());
+        String text = unknown.get("content").get(0).get("text").asText();
+        assertTrue(text.contains("agent") && text.contains("ron") && text.contains("mel"),
+            "the tool error names the allowed set: " + text);
+        assertFalse(stub.submitted(), "an undeclared acting user must not be posted");
+
+        // A declared-but-inactive user is not a valid acting user either.
+        JsonNode inactive = callResult(stub.mcp(), WRITES, "trex_submit_decisions",
+            "{\"asOfN\":42,\"actingUser\":\"former\","
+                + "\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"id1\"}]}");
+        assertTrue(inactive.get("isError").asBoolean(), inactive.toString());
+        assertFalse(stub.submitted(), "an inactive user must not be posted");
+    }
+
+    @Test
+    void actingUserIsStamped() {
+        Stub stub = new Stub();
+        JsonNode result = callResult(stub.mcp(), WRITES, "trex_submit_decisions",
+            "{\"asOfN\":42,\"actingUser\":\"ron\","
+                + "\"decisions\":[{\"action\":\"MARK_EXTERNAL\",\"externalId\":\"id1\"}]}");
+        assertFalse(result.get("isError").asBoolean(), result.toString());
+        DecisionDraft draft = only(stub);
+        assertEquals("ron", draft.user(), "the declared acting user is stamped on the draft");
+        assertEquals("user", draft.actor(), "the actor is still forced to user");
+    }
+
+    @Test
+    void agentIsTheDefaultActingUser() {
+        Stub stub = new Stub();
+        JsonNode result = callResult(stub.mcp(), WRITES, ONE_DECISION);
+        assertFalse(result.get("isError").asBoolean(), result.toString());
+        assertEquals("agent", only(stub).user(), "an absent actingUser defaults to the agent");
+    }
+
+    @Test
+    void everyActionToolBuildsItsDraft() {
+        Stub pin = new Stub();
+        JsonNode pinResult = callResult(pin.mcp(), WRITES, "trex_categorize",
+            "{\"asOfN\":42,\"externalIds\":[\"id1\",\"id2\"],\"category\":\"Groceries\"}");
+        assertFalse(pinResult.get("isError").asBoolean(), pinResult.toString());
+        DecisionDraft pinDraft = only(pin);
+        assertEquals("PIN", pinDraft.action());
+        assertEquals(List.of("id1", "id2"), pinDraft.externalIds());
+        assertEquals("Groceries", pinDraft.category());
+        assertEquals("user", pinDraft.actor());
+        assertEquals("agent", pinDraft.user());
+
+        Stub note = new Stub();
+        JsonNode noteResult = callResult(note.mcp(), WRITES, "trex_note",
+            "{\"asOfN\":42,\"externalId\":\"id1\",\"text\":\"split this\"}");
+        assertFalse(noteResult.get("isError").asBoolean(), noteResult.toString());
+        DecisionDraft noteDraft = only(note);
+        assertEquals("NOTE", noteDraft.action());
+        assertEquals("id1", noteDraft.externalId());
+        assertEquals("split this", noteDraft.text());
+
+        Stub paid = new Stub();
+        JsonNode paidResult = callResult(paid.mcp(), WRITES, "trex_mark_paid",
+            "{\"asOfN\":42,\"commitmentId\":\"c1\",\"dueDates\":[\"2026-10-01\",\"2026-11-01\"]}");
+        assertFalse(paidResult.get("isError").asBoolean(), paidResult.toString());
+        DecisionDraft paidDraft = only(paid);
+        assertEquals("SETTLE_OCCURRENCE", paidDraft.action());
+        assertEquals("c1", paidDraft.commitmentId());
+        assertEquals(List.of(LocalDate.parse("2026-10-01"), LocalDate.parse("2026-11-01")),
+            paidDraft.dueDates());
+    }
+
+    @Test
+    void anActionToolRequiresAsOfN() {
+        Stub stub = new Stub();
+        String[][] calls = {
+            {"trex_categorize", "{\"externalIds\":[\"id1\"],\"category\":\"Groceries\"}"},
+            {"trex_note", "{\"externalId\":\"id1\",\"text\":\"hi\"}"},
+            {"trex_mark_paid", "{\"commitmentId\":\"c1\",\"dueDates\":[\"2026-10-01\"]}"},
+        };
+        for (String[] call : calls) {
+            JsonNode result = callResult(stub.mcp(), WRITES, call[0], call[1]);
+            assertTrue(result.get("isError").asBoolean(), call[0] + ": " + result);
+        }
+        assertFalse(stub.submitted(), "a call without asOfN must not be posted");
+
+        // A bad argument is a tool error, never a crash or a hub write.
+        assertTrue(callResult(stub.mcp(), WRITES, "trex_categorize",
+            "{\"asOfN\":42,\"externalIds\":[],\"category\":\"Groceries\"}")
+            .get("isError").asBoolean(), "an empty externalIds is a tool error");
+        assertTrue(callResult(stub.mcp(), WRITES, "trex_note",
+            "{\"asOfN\":42,\"externalId\":\"id1\"}").get("isError").asBoolean(),
+            "a missing text is a tool error");
+        assertTrue(callResult(stub.mcp(), WRITES, "trex_mark_paid",
+            "{\"asOfN\":42,\"commitmentId\":\"c1\",\"dueDates\":[\"not-a-date\"]}")
+            .get("isError").asBoolean(), "a bad date is a tool error");
+        assertFalse(stub.submitted(), "no invalid action may reach the hub");
+    }
+
+    @Test
     void egressIsNotATool() {
         Stub stub = new Stub();
         JsonNode tools = stub.mcp().dispatch(request("tools/list", null), WRITES)
@@ -156,8 +265,18 @@ class McpWriteToolsTest {
     // ---- helpers -----------------------------------------------------------------------------
 
     private static JsonNode callResult(McpApi api, McpConfig config, String argsJson) {
-        return api.dispatch(request("tools/call", call("trex_submit_decisions", argsJson)), config)
-            .get("result");
+        return callResult(api, config, "trex_submit_decisions", argsJson);
+    }
+
+    private static JsonNode callResult(McpApi api, McpConfig config, String name, String argsJson) {
+        return api.dispatch(request("tools/call", call(name, argsJson)), config).get("result");
+    }
+
+    /** The single draft the stub recorded; fails when nothing or more than one was posted. */
+    private static DecisionDraft only(Stub stub) {
+        assertNotNull(stub.lastRequest(), "a draft must have reached the hub");
+        assertEquals(1, stub.lastRequest().decisions().size());
+        return stub.lastRequest().decisions().get(0);
     }
 
     private static String call(String name, String argsJson) {
@@ -177,8 +296,16 @@ class McpWriteToolsTest {
         return names;
     }
 
-    /** A {@link HubApi} that answers {@code submitDecisions} and records the request. */
+    /** A {@link HubApi} that answers {@code submitDecisions}, {@code refdata} and records the request. */
     private static final class Stub {
+        private static final RefdataResponse REFDATA = new RefdataResponse(
+            List.of(),
+            List.of(new RefdataResponse.UserJson("ron", "Ron", true, "daily"),
+                new RefdataResponse.UserJson("mel", "Mel", true, "daily"),
+                new RefdataResponse.UserJson("agent", "Agent", true, "daily"),
+                new RefdataResponse.UserJson("former", "Former", false, "daily")),
+            List.of(), "config@1", "derive@1", "hash@1");
+
         private final DecisionOutcome outcome;
         private DecisionRequest lastRequest;
         private boolean submitted;
@@ -200,6 +327,7 @@ class McpWriteToolsTest {
                         lastRequest = (DecisionRequest) args[0];
                         yield outcome;
                     }
+                    case "refdata" -> REFDATA;
                     case "toString" -> "HubApiStub";
                     case "hashCode" -> System.identityHashCode(proxy);
                     case "equals" -> proxy == args[0];
