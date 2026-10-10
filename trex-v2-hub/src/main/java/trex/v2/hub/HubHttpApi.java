@@ -47,6 +47,7 @@ final class HubHttpApi {
         server.createContext("/mcp", ex -> McpHttp.handle(ex, api, McpConfig.fromEnv()));
         route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
         route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
+        route(server, "/api/brief", "GET", ex -> write(ex, 200, api.brief()));
         route(server, "/api/refdata", "GET", ex -> write(ex, 200, api.refdata()));
         route(server, "/api/ledger", "GET", ex -> {
             try {

@@ -97,11 +97,11 @@ class McpApiTest {
             .get("result").get("tools");
         java.util.Set<String> names = new java.util.TreeSet<>();
         tools.forEach(t -> names.add(t.get("name").asText()));
-        assertEquals(java.util.Set.of("trex_accounts", "trex_chains", "trex_commitment_activity",
-            "trex_commitments", "trex_config_drift", "trex_expected", "trex_get", "trex_ingests",
-            "trex_ledger", "trex_notes", "trex_opening", "trex_projection", "trex_reconcile",
-            "trex_review", "trex_since", "trex_status", "trex_transfers", "trex_units",
-            "trex_workbook"), names, tools.toString());
+        assertEquals(java.util.Set.of("trex_accounts", "trex_brief", "trex_chains",
+            "trex_commitment_activity", "trex_commitments", "trex_config_drift", "trex_expected",
+            "trex_get", "trex_ingests", "trex_ledger", "trex_notes", "trex_opening",
+            "trex_projection", "trex_reconcile", "trex_review", "trex_since", "trex_status",
+            "trex_transfers", "trex_units", "trex_workbook"), names, tools.toString());
         JsonNode tool = null;
         for (JsonNode candidate : tools) {
             if ("trex_status".equals(candidate.get("name").asText())) {

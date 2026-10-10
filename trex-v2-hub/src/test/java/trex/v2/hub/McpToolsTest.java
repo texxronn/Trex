@@ -27,6 +27,7 @@ class McpToolsTest {
         record Case(String tool, String args, String method) {}
         Case[] cases = {
             new Case("trex_status", "{}", "status"),
+            new Case("trex_brief", "{}", "brief"),
             new Case("trex_units", "{}", "units"),
             new Case("trex_ledger", "{}", "ledger"),
             new Case("trex_review", "{}", "review"),
@@ -123,6 +124,21 @@ class McpToolsTest {
         JsonNode extra = callResult(stray.mcp(), "trex_get",
             "{\"path\":\"/api/units\",\"account\":\"acct:1\"}");
         assertTrue(extra.get("isError").asBoolean(), extra.toString());
+    }
+
+    @Test
+    void trexBriefIsAReadTool() {
+        // The typed tool is a read, always present, and nothing more than a view over the hub.
+        Recorder recorder = new Recorder();
+        JsonNode result = callResult(recorder.mcp(), "trex_brief", "{}");
+        assertFalse(result.get("isError").asBoolean(), result.toString());
+        assertTrue(recorder.called("brief"), "trex_brief must call the hub's brief() read");
+
+        // The same view is on the trex_get allow-list.
+        Recorder viaGet = new Recorder();
+        JsonNode allowed = callResult(viaGet.mcp(), "trex_get", "{\"path\":\"/api/brief\"}");
+        assertFalse(allowed.get("isError").asBoolean(), allowed.toString());
+        assertTrue(viaGet.called("brief"), "trex_get must accept /api/brief");
     }
 
     @Test

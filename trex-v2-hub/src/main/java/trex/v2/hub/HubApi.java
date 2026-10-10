@@ -3,6 +3,7 @@ package trex.v2.hub;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
+import trex.v2.hub.api.BriefResponse;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
@@ -136,4 +137,12 @@ interface HubApi {
 
     /** The Accounts overview (§10.1, §10.5): per-account first/last and the coverage strip. */
     AccountsResponse accounts(String window, String granularity, java.time.LocalDate asOf);
+
+    /**
+     * A compact snapshot for the assistant (V2-ASSISTANT-PLAN.md §1 A4, §3 Stage B): the head, the
+     * review counts by kind, the accounts reconciliation could not balance, the current month's
+     * committed totals and arrears count, and the newest ingest. Composed from the other reads; it
+     * stores nothing.
+     */
+    BriefResponse brief();
 }

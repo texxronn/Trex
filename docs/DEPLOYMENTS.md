@@ -50,11 +50,16 @@ the client at:
 `--hub-url` defaults to `$TREX_HUB_URL`, else `http://127.0.0.1:8090`.
 
 The surface is read tools (one per hub read) plus resources (the config files, the status snapshot,
-reference data) and prompts. Nothing an MCP client does writes to the journal unless the hub runs
-with **`TREX_MCP_ALLOW_WRITES=1`**; then the one write tool (`trex_submit_decisions`) is attributed
-to the **`agent`** user — never to a person. `egress-firefly` is never exposed; job orchestration
-stays in the Jobs UI. **`/mcp` has no authentication of its own** — it inherits the hub's listener —
-so keep the hub loopback-only (or behind the perimeter) whenever writes are enabled.
+reference data) and prompts, and a compact read (`trex_brief`, `GET /api/brief`). Nothing an MCP
+client does writes to the journal unless the hub runs with **`TREX_MCP_ALLOW_WRITES=1`** (or `true`);
+then the
+low-level write tool (`trex_submit_decisions`) and the three intent-shaped action tools
+(`trex_categorize`, `trex_note`, `trex_mark_paid`) each name an **`actingUser`** — a declared active
+user (`ron`/`mel`) or `agent`, never anything else. The contract the family bot and an MCP host both
+follow — the reads to prefer, the action payloads, the attribution rule and the safety posture — is
+`docs/ASSISTANT.md`. `egress-firefly` is never exposed; job orchestration stays in the Jobs UI.
+**`/mcp` has no authentication of its own** — it inherits the hub's listener — so keep the hub
+loopback-only (or behind the perimeter) whenever writes are enabled.
 
 ### Why `/opt/trex/compose.yml` differs from `deploy/v2/compose.yml`
 

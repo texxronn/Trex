@@ -19,6 +19,15 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **The family assistant** (`V2-ASSISTANT-PLAN.md`, built). The MCP surface gains **per-person
+  attribution** and three intent-shaped action tools — `trex_categorize` (`PIN`), `trex_note`
+  (`NOTE`) and `trex_mark_paid` (`SETTLE_OCCURRENCE`) — each carrying an `actingUser`: a declared
+  active user (`ron`/`mel`) or `agent`, with anything else rejected and `actor` forced to `user`.
+  The same contract serves the family bot calling the hub directly, documented in
+  `docs/ASSISTANT.md`. A **compact read** — MCP `trex_brief` / `GET /api/brief` — summarises the head,
+  review counts, reconciliation gaps, the month's committed totals and arrears, and the newest
+  ingest, so a chat turn asks a small question instead of dumping the ledger. Writes stay opt-in
+  (`TREX_MCP_ALLOW_WRITES=1`) and go through the one decision path; `egress-firefly` stays unexposed.
 - **The MCP server** (`V2-MCP-SERVER-PLAN.md`, built into the hub). The hub serves a Model Context
   Protocol endpoint at `POST /mcp` (sessionless Streamable HTTP), and `trex mcp` bridges stdio-only
   clients to it. The surface is read tools — one per hub read (`trex_status`, `trex_ledger`,
