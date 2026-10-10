@@ -92,6 +92,10 @@ public final class McpApi {
             case "ping" -> ok(id, Json.mapper().createObjectNode());
             case "tools/list" -> ok(id, toolsList());
             case "tools/call" -> toolCall(id, params);
+            case "resources/list" -> ok(id, McpResources.list());
+            case "resources/read" -> resourceRead(id, params);
+            case "prompts/list" -> ok(id, McpPrompts.list());
+            case "prompts/get" -> promptGet(id, params);
             default -> error(id, -32601, "Method not found");
         };
     }
@@ -201,6 +205,51 @@ public final class McpApi {
         text.put("text", message);
         result.put("isError", true);
         return result;
+    }
+
+    // ---- resources and prompts (plan §3.3, §3.4, Stage 3) ------------------------------------
+
+    /**
+     * A {@code resources/read}: the URI is required and must be a string. An unknown URI is MCP's
+     * {@code -32002} (resource not found), not a crash; a known resource always answers.
+     */
+    private JsonNode resourceRead(JsonNode id, JsonNode params) {
+        if (params == null || !params.isObject()) {
+            return error(id, -32602, "Invalid params");
+        }
+        JsonNode uri = params.get("uri");
+        if (uri == null || !uri.isTextual()) {
+            return error(id, -32602, "Invalid params");
+        }
+        try {
+            return ok(id, McpResources.read(api, uri.asText()));
+        } catch (McpResources.NotFound e) {
+            return error(id, -32002, "Resource not found");
+        }
+    }
+
+    /**
+     * A {@code prompts/get}: the name is required and must be a string; an unknown name is a
+     * {@code -32602}. The arguments are optional — the prompt text is static — but a present
+     * non-object is malformed.
+     */
+    private JsonNode promptGet(JsonNode id, JsonNode params) {
+        if (params == null || !params.isObject()) {
+            return error(id, -32602, "Invalid params");
+        }
+        JsonNode name = params.get("name");
+        if (name == null || !name.isTextual()) {
+            return error(id, -32602, "Invalid params");
+        }
+        JsonNode arguments = params.get("arguments");
+        if (arguments != null && !arguments.isObject() && !arguments.isNull()) {
+            return error(id, -32602, "Invalid params");
+        }
+        try {
+            return ok(id, McpPrompts.get(name.asText(), arguments));
+        } catch (McpPrompts.UnknownPrompt e) {
+            return error(id, -32602, e.getMessage());
+        }
     }
 
     // ---- JSON-RPC envelopes ------------------------------------------------------------------

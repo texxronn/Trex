@@ -104,6 +104,14 @@ public final class HubService implements HubApi, AutoCloseable {
     /** The commitment id slug (V2-COMMITMENTS-PLAN.md §2.1): lowercase, hyphenated, frozen. */
     private static final Pattern COMMITMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]*");
 
+    /**
+     * The seeded config files the MCP resources expose (V2-MCP-SERVER-PLAN.md §3.3): a subset of
+     * {@link ConfigDrift#FILES}. {@link #configFile} refuses any other name, so the resource surface
+     * can never read an arbitrary path out of the volume.
+     */
+    private static final Set<String> MCP_CONFIG_FILES = Set.of(
+        "accounts.yaml", "categories.yaml", "transfers.yaml", "firefly.yaml", "profiles.yaml");
+
     private final HubConfig config;
     private final IndexLock lock;
     private final Indexer indexer;
@@ -823,6 +831,25 @@ public final class HubService implements HubApi, AutoCloseable {
             return ConfigDrift.scan(config.configDir());
         } catch (IOException e) {
             throw new UncheckedIOException("cannot read the config drift under " + config.configDir(), e);
+        }
+    }
+
+    /**
+     * The current text of one exposed config file (V2-MCP-SERVER-PLAN.md §3.3). Only the seeded names
+     * in {@link #MCP_CONFIG_FILES} are readable and only under the config dir; anything else, or a
+     * file that is absent or unreadable, is {@link Optional#empty()} — the MCP resource is empty, not
+     * an error. Read as UTF-8.
+     */
+    @Override
+    public Optional<String> configFile(String name) {
+        if (name == null || !MCP_CONFIG_FILES.contains(name)) {
+            return Optional.empty();
+        }
+        Path file = config.configDir().resolve(name);
+        try {
+            return Files.isRegularFile(file) ? Optional.of(Files.readString(file)) : Optional.empty();
+        } catch (IOException e) {
+            return Optional.empty();
         }
     }
 
