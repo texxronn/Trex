@@ -90,8 +90,8 @@ public final class McpApi {
             case "initialize" -> ok(id, initializeResult(params));
             case "server/discover" -> ok(id, initializeResult(params));
             case "ping" -> ok(id, Json.mapper().createObjectNode());
-            case "tools/list" -> ok(id, toolsList());
-            case "tools/call" -> toolCall(id, params);
+            case "tools/list" -> ok(id, toolsList(config));
+            case "tools/call" -> toolCall(id, params, config);
             case "resources/list" -> ok(id, McpResources.list());
             case "resources/read" -> resourceRead(id, params);
             case "prompts/list" -> ok(id, McpPrompts.list());
@@ -135,27 +135,41 @@ public final class McpApi {
 
     // ---- tools (plan §3.1) -------------------------------------------------------------------
 
-    private ObjectNode toolsList() {
+    /**
+     * The {@code tools/list} result: the read tools always, plus the write tools only when the
+     * operator opted in (plan §3.2). With writes off {@code trex_submit_decisions} is absent.
+     */
+    private ObjectNode toolsList(McpConfig config) {
         ObjectNode result = Json.mapper().createObjectNode();
         ArrayNode tools = result.putArray("tools");
         for (McpTools.Tool tool : McpTools.tools().values()) {
-            ObjectNode node = Json.mapper().createObjectNode();
-            node.put("name", tool.name());
-            node.put("description", tool.description());
-            node.set("inputSchema", tool.inputSchema());
-            tools.add(node);
+            addTool(tools, tool.name(), tool.description(), tool.inputSchema());
+        }
+        if (config.allowWrites()) {
+            for (McpWriteTools.Tool tool : McpWriteTools.tools().values()) {
+                addTool(tools, tool.name(), tool.description(), tool.inputSchema());
+            }
         }
         return result;
+    }
+
+    private static void addTool(ArrayNode tools, String name, String description, JsonNode schema) {
+        ObjectNode node = Json.mapper().createObjectNode();
+        node.put("name", name);
+        node.put("description", description);
+        node.set("inputSchema", schema);
+        tools.add(node);
     }
 
     /**
      * A {@code tools/call}: an unknown tool name is a JSON-RPC {@code -32602}, but a known tool with
      * bad arguments is a successful result carrying {@code isError:true} — a tool error is data for
-     * the model, not a transport failure (plan §1). The name is looked up in {@link McpTools}; the
-     * handler receives an arguments object and any {@link RuntimeException} it raises (a missing
-     * required field, a wrong type, a rejected filter) becomes that tool error.
+     * the model, not a transport failure (plan §1). The name is looked up in {@link McpTools}, and
+     * in {@link McpWriteTools} only when writes are enabled, so with the gate off a write tool is
+     * simply unknown. The handler receives an arguments object and any {@link RuntimeException} it
+     * raises (a missing required field, a wrong type, a rejected filter) becomes that tool error.
      */
-    private JsonNode toolCall(JsonNode id, JsonNode params) {
+    private JsonNode toolCall(JsonNode id, JsonNode params, McpConfig config) {
         if (params == null || !params.isObject()) {
             return error(id, -32602, "Invalid params");
         }
@@ -163,29 +177,46 @@ public final class McpApi {
         if (nameNode == null || !nameNode.isTextual()) {
             return error(id, -32602, "Invalid params");
         }
-        McpTools.Tool tool = McpTools.find(nameNode.asText());
-        if (tool == null) {
-            return error(id, -32602, "Unknown tool: " + nameNode.asText());
-        }
+        String name = nameNode.asText();
         JsonNode arguments = params.get("arguments");
         // The schema is an object: an explicit non-object (including null) is a tool error. An
         // omitted arguments node is an empty object, so a no-argument tool is callable either way.
         if (arguments == null) {
             arguments = Json.mapper().createObjectNode();
         } else if (!arguments.isObject()) {
-            return ok(id, toolError("The tool '" + tool.name() + "' takes an object of arguments"));
+            return ok(id, toolError("The tool '" + name + "' takes an object of arguments"));
         }
-        try {
-            McpArgs.rejectUnknown(arguments, tool.args());
-            return ok(id, toolResult(tool.handler().handle(api, arguments)));
-        } catch (RuntimeException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            return ok(id, toolError(tool.name() + ": " + message));
+        McpTools.Tool read = McpTools.find(name);
+        if (read != null) {
+            try {
+                McpArgs.rejectUnknown(arguments, read.args());
+                return ok(id, toolResult(read.handler().handle(api, arguments)));
+            } catch (RuntimeException e) {
+                return ok(id, toolError(name + ": " + message(e)));
+            }
         }
+        if (config.allowWrites()) {
+            McpWriteTools.Tool write = McpWriteTools.find(name);
+            if (write != null) {
+                try {
+                    McpArgs.rejectUnknown(arguments, write.args());
+                    // A write handler returns the complete tool result: a hub 409 is a tool error,
+                    // so it cannot be wrapped as a success the way a read always is.
+                    return ok(id, write.handler().handle(api, arguments, config));
+                } catch (RuntimeException e) {
+                    return ok(id, toolError(name + ": " + message(e)));
+                }
+            }
+        }
+        return error(id, -32602, "Unknown tool: " + name);
+    }
+
+    private static String message(RuntimeException e) {
+        return e.getMessage() == null ? e.toString() : e.getMessage();
     }
 
     /** The {@code tools/call} success result: compact text plus the same data as structured content. */
-    private static ObjectNode toolResult(JsonNode data) {
+    static ObjectNode toolResult(JsonNode data) {
         ObjectNode result = Json.mapper().createObjectNode();
         ArrayNode content = result.putArray("content");
         ObjectNode text = content.addObject();
@@ -197,13 +228,25 @@ public final class McpApi {
     }
 
     /** The {@code tools/call} error result: {@code isError:true} and a human-readable explanation. */
-    private static ObjectNode toolError(String message) {
+    static ObjectNode toolError(String message) {
         ObjectNode result = Json.mapper().createObjectNode();
         ArrayNode content = result.putArray("content");
         ObjectNode text = content.addObject();
         text.put("type", "text");
         text.put("text", message);
         result.put("isError", true);
+        return result;
+    }
+
+    /**
+     * The {@code tools/call} error result with the hub's body attached as structured content; the
+     * hub's {@code 409}/{@code 422} explanation is then data the model can act on, not just prose.
+     */
+    static ObjectNode toolError(String message, JsonNode structuredContent) {
+        ObjectNode result = toolError(message);
+        if (structuredContent != null) {
+            result.set("structuredContent", structuredContent);
+        }
         return result;
     }
 
