@@ -32,6 +32,7 @@ import trex.v2.core.Hashes;
 import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
+import trex.v2.hub.api.BriefResponse;
 import trex.v2.hub.api.ChainsResponse;
 import trex.v2.hub.api.CursorRequest;
 import trex.v2.hub.api.CursorResponse;
@@ -662,6 +663,46 @@ public final class HubService implements HubApi, AutoCloseable {
     @Override
     public trex.v2.hub.api.IngestsResponse ingests(Long sinceN) {
         return new trex.v2.hub.api.IngestsResponse(reads.ingests(50, sinceN));
+    }
+
+    /**
+     * The compact snapshot (V2-ASSISTANT-PLAN.md §1 A4, §3 Stage B): one small view over the reads a
+     * chat turn would otherwise pull one by one. Every field is composed from an existing read —
+     * {@link #head()}, the review queue, {@link #reconcile()}, {@link #expected} over the current
+     * month and {@link #ingests} — so it stores nothing and adds no semantics.
+     */
+    @Override
+    public BriefResponse brief() {
+        List<BriefResponse.ReviewCount> review = new ArrayList<>();
+        Map<String, Long> byKind = new TreeMap<>();
+        for (ReviewRow row : review(null, null)) {
+            byKind.merge(row.kind(), 1L, Long::sum);
+        }
+        byKind.forEach((kind, count) -> review.add(new BriefResponse.ReviewCount(kind, count)));
+
+        ReconcileResponse reconciliation = reconcile();
+        List<BriefResponse.Gap> gaps = new ArrayList<>();
+        for (ReconcileResponse.AccountJson account : reconciliation.accounts()) {
+            if (account.gap() != 0) {
+                gaps.add(new BriefResponse.Gap(account.accountRef(), account.gap()));
+            }
+        }
+        BriefResponse.ReconcileSummary reconcile = new BriefResponse.ReconcileSummary(
+            reconciliation.ok(), gaps);
+
+        ExpectedResponse month = expected("month", null);
+        BriefResponse.ExpectedSummary expected = new BriefResponse.ExpectedSummary(
+            month.from() == null ? null : YearMonth.from(month.from()).toString(),
+            month.totals().out(), month.totals().in(), month.arrears().size());
+
+        BriefResponse.IngestSummary lastIngest = null;
+        List<trex.v2.hub.api.IngestsResponse.IngestRow> ingests = ingests(null).rows();
+        if (!ingests.isEmpty()) {
+            trex.v2.hub.api.IngestsResponse.IngestRow newest = ingests.getFirst();
+            lastIngest = new BriefResponse.IngestSummary(newest.batch(), newest.completedMs(),
+                newest.appended(), newest.duplicate(), newest.flagged());
+        }
+        return new BriefResponse(head().n(), review, reconcile, expected, lastIngest);
     }
 
     /**

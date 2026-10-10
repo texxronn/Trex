@@ -60,6 +60,7 @@ final class McpTools {
     private static Map<String, Route> routes() {
         Map<String, Route> map = new LinkedHashMap<>();
         add(map, "/api/status", Set.of(), McpTools::status);
+        add(map, "/api/brief", Set.of(), McpTools::brief);
         add(map, "/api/units", Set.of(), McpTools::units);
         add(map, "/api/ledger", LEDGER_ARGS, McpTools::ledger);
         add(map, "/api/review", Set.of("kind", "account"), McpTools::review);
@@ -91,6 +92,10 @@ final class McpTools {
         tools.put("trex_status", tool("trex_status",
             "Trex hub status and head (asOfN, deriveVersion, counts)",
             noProps(), Set.of(), new String[0], McpTools::status));
+        tools.put("trex_brief", tool("trex_brief",
+            "A compact snapshot: head, review counts, reconciliation gaps, the month's committed "
+                + "totals, the arrears count and the newest ingest",
+            noProps(), Set.of(), new String[0], McpTools::brief));
         tools.put("trex_units", tool("trex_units",
             "The projectable egress units and the asOfN they are current at",
             noProps(), Set.of(), new String[0], McpTools::units));
@@ -155,6 +160,10 @@ final class McpTools {
         data.set("status", Json.mapper().valueToTree(api.status()));
         data.set("head", Json.mapper().valueToTree(api.head()));
         return data;
+    }
+
+    static JsonNode brief(HubApi api, JsonNode args) {
+        return Json.mapper().valueToTree(api.brief());
     }
 
     static JsonNode units(HubApi api, JsonNode args) {
