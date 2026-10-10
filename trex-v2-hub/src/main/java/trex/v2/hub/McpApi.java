@@ -41,10 +41,17 @@ public final class McpApi {
 
     /** Parse one JSON-RPC message and dispatch it; a body that is not JSON is a {@code -32700}. */
     public JsonNode dispatch(String body, McpConfig config) {
+        if (body == null || body.isBlank()) {
+            return error(null, -32700, "Parse error");
+        }
         JsonNode request;
         try {
             request = Json.mapper().readTree(body);
         } catch (com.fasterxml.jackson.core.JacksonException e) {
+            return error(null, -32700, "Parse error");
+        }
+        if (request == null) {
+            // Jackson parses a body with no JSON value (only whitespace) as null: still a syntax error.
             return error(null, -32700, "Parse error");
         }
         return dispatch(request, config);
@@ -58,15 +65,24 @@ public final class McpApi {
         if (request == null || !request.isObject()) {
             return error(null, -32600, "Invalid Request");
         }
+        JsonNode version = request.get("jsonrpc");
+        if (version == null || !"2.0".equals(version.asText())) {
+            return error(request.get("id"), -32600, "Invalid Request");
+        }
+        JsonNode id = request.get("id");
+        // An id, when present, is a string, a number or null (JSON-RPC 2.0); anything else is a
+        // malformed request, never a notification, so it is validated before the notification check.
+        if (id != null && !id.isNull() && !id.isTextual() && !id.isNumber()) {
+            return error(null, -32600, "Invalid Request");
+        }
         JsonNode methodNode = request.get("method");
         if (methodNode == null || !methodNode.isTextual()) {
-            return error(request.get("id"), -32600, "Invalid Request");
+            return error(id, -32600, "Invalid Request");
         }
         if (!request.has("id")) {
             // A notification: no response, whatever the method. notifications/initialized lands here.
             return null;
         }
-        JsonNode id = request.get("id");
         JsonNode params = request.get("params");
         return switch (methodNode.asText()) {
             case "initialize" -> ok(id, initializeResult(params));
@@ -149,8 +165,9 @@ public final class McpApi {
             return error(id, -32602, "Unknown tool: " + nameNode.asText());
         }
         JsonNode arguments = params.get("arguments");
-        if (arguments != null && !arguments.isNull()
-            && (!arguments.isObject() || !arguments.isEmpty())) {
+        // The schema is an object: an explicit non-object (including null) is a tool error, and so is
+        // any member on a tool that takes none. An omitted arguments node is fine.
+        if (arguments != null && (!arguments.isObject() || !arguments.isEmpty())) {
             return ok(id, toolError("The tool '" + STATUS_TOOL + "' takes no arguments"));
         }
         try {

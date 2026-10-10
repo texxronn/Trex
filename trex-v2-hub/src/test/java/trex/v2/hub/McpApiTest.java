@@ -124,6 +124,32 @@ class McpApiTest {
         assertEquals(-32602, unknown.get("error").get("code").asInt());
     }
 
+    @Test
+    void aRequestWithoutJsonRpcIsInvalid() {
+        // No jsonrpc version and no id: a malformed request, never a silent notification.
+        JsonNode response = api().dispatch("{\"method\":\"tools/list\"}", READ_ONLY);
+        assertTrue(response != null && response.has("error"), String.valueOf(response));
+        assertEquals(-32600, response.get("error").get("code").asInt());
+
+        JsonNode wrongVersion = api().dispatch(
+            "{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"tools/list\"}", READ_ONLY);
+        assertEquals(-32600, wrongVersion.get("error").get("code").asInt());
+    }
+
+    @Test
+    void anEmptyBodyIsAParseError() {
+        assertEquals(-32700, api().dispatch("", READ_ONLY).get("error").get("code").asInt());
+        assertEquals(-32700, api().dispatch("   ", READ_ONLY).get("error").get("code").asInt());
+    }
+
+    @Test
+    void explicitNullArgumentsIsAToolError() {
+        JsonNode nullArgs = api().dispatch(request("tools/call",
+            "{\"name\":\"trex_status\",\"arguments\":null}"), READ_ONLY);
+        assertTrue(nullArgs.has("result") && !nullArgs.has("error"), nullArgs.toString());
+        assertTrue(nullArgs.get("result").get("isError").asBoolean(), nullArgs.toString());
+    }
+
     // ---- helpers -----------------------------------------------------------------------------
 
     private static JsonNode request(String method, String paramsJson) {
