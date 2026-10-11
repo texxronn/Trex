@@ -255,6 +255,20 @@ tests:
     amount: -3000
     category: HOME_IMPROVEMENT
 
+  # --- HOUSE_WORKS ---------------------------------------------------------------
+  - description: "Solar 23 Oriole Pl - Transfer to ADS Solar - Receipt 499779 To 012370 263587333"
+    amount: -130000
+    category: HOUSE_WORKS
+  - description: "POOLWERX CAMPBELLTOWN - Visa Refund - Receipt 100435 In LEUMEAH"
+    amount: 17521
+    category: HOUSE_WORKS   # blind: a trade's refund nets in its category
+  - description: "AB TB Plumbing Plumber payment - Osko Payment to 112879 467733726"
+    amount: -30000
+    category: HOUSE_WORKS
+  - description: "Rohan Ingleburn Pa - Transfer to Modern Roof Restoration NSW - Receipt 4764"
+    amount: -251200
+    category: HOUSE_WORKS
+
   # --- SHOPPING ------------------------------------------------------------------
   - description: "KMART 123"
     amount: -2000

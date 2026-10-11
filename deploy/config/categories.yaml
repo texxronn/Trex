@@ -31,8 +31,8 @@
 
 categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
-             CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, SHOPPING, BILLS,
-             TAXES, SAVINGS, DISCRETIONARY]
+             CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
+             SHOPPING, BILLS, TAXES, SAVINGS, DISCRETIONARY]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -211,6 +211,21 @@ rules:
     comment: "hardware and the house — tracked apart from SHOPPING on purpose"
     when:
       match: "bunnings|mitre ?10"
+
+  # Trades on the property: installations, repairs, servicing, refurbishment — the labour side, as
+  # against HOME_IMPROVEMENT (the hardware you bought) and BILLS (running the house). Blind, so a
+  # trade's refund nets here. Word-bounded on purpose: "Liverpool" is not a pool and "electricity"
+  # is not an electrician.
+  - category: HOUSE_WORKS
+    comment: "trades on the property: solar, roof, plumbing, electrical, garage doors, landscaping"
+    when:
+      match: "solar|modern roof restoration|\\broof restor|\\bplumb|\\belectric(al|ian)\\b|sparky|garage door|\\bhandyman|\\bgutter|\\bfence|irrigation|paving|\\bturf|landscap"
+
+  # Pool service, parts and repairs; the refund claims here too (blind).
+  - category: HOUSE_WORKS
+    comment: "pool service, parts and repairs"
+    when:
+      match: "poolwerx|splash.{0,8}pool|\\bmf pool|\\bpool (service|repair|fix|clean)"
 
   # Retail, including the op shops.
   - category: "SHOPPING"
