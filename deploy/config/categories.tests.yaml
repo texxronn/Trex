@@ -398,18 +398,20 @@ tests:
     amount: -12000
     category: SCHOOL_FEES
 
-  # --- SPORT_AND_LEISURE ---------------------------------------------------------
+  # --- FLIGHTS and TRAVEL, split out of SPORT_AND_LEISURE (2026-10-11) -------------------
   - description: "BOOKING.COM"
     amount: -20000
-    category: SPORT_AND_LEISURE
+    category: TRAVEL
   - description: "JETSTAR"
     amount: -15000
-    category: SPORT_AND_LEISURE
-  - description: "TARONGA ZOO"
-    amount: -8000
-    category: SPORT_AND_LEISURE
+    category: FLIGHTS
   - description: "HOLIDAY PARK"
     amount: -5000
+    category: TRAVEL
+
+  # --- SPORT_AND_LEISURE ---------------------------------------------------------
+  - description: "TARONGA ZOO"
+    amount: -8000
     category: SPORT_AND_LEISURE
 
   # --- SHOPPING ------------------------------------------------------------------
@@ -504,7 +506,7 @@ tests:
     category: FOOD
   - description: "FLYSCOOT.Z68WNY          Singapore    SG"
     amount: -5400
-    category: SPORT_AND_LEISURE
+    category: FLIGHTS
 
   # --- refunds: a merchant-identity rule is direction-blind and claims the credit -----------
   - description: "PAYPAL *MYERPTYLTD       0136937      AU"
@@ -524,4 +526,4 @@ tests:
     category: CHILDCARE
   - description: "THE WAGGA CLUB MOTEL     WAGGA WAGGA"
     amount: 10000
-    category: SPORT_AND_LEISURE
+    category: TRAVEL
