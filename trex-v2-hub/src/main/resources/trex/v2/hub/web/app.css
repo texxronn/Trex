@@ -151,7 +151,7 @@ nav a.active { color: var(--accent-fg); background: var(--accent); }
 
 /* ---- layout ------------------------------------------------------------- */
 
-main { padding: 0.9rem; max-width: 1500px; margin: 0 auto; }
+main { padding: 0.4rem 0.6rem; max-width: none; margin: 0 auto; }
 
 .toolbar {
   display: flex;
@@ -203,7 +203,7 @@ textarea {
   background: var(--surface);
 }
 table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; padding: 0.3rem 0.55rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th, td { text-align: left; padding: 0.3rem 0.45rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: var(--surface-2); }
 th {
@@ -214,7 +214,7 @@ th {
   background: var(--surface-2);
 }
 td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }
-td.desc { white-space: normal; max-width: 30rem; }
+td.desc { white-space: normal; max-width: 24rem; }
 /* A review cluster: a collapsible header, then each member as a colored chip so it stands out
    against the dense table. Tints are mixed against the theme surface (light | grey | dark). */
 td.members { white-space: normal; max-width: 46rem; }
