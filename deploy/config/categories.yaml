@@ -37,7 +37,8 @@
 categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
              CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
-             SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES]
+             SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES,
+             CHARITY]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -231,6 +232,13 @@ rules:
     comment: "pool service, parts and repairs"
     when:
       match: "poolwerx|splash.{0,8}pool|\\bmf pool|\\bpool (service|repair|fix|clean)"
+
+  # Gifts and giving: charities, appeals and crowdfunding. Before the op-shop SHOPPING rule, so
+  # "SALVOS STORES ... Donation" reads as a donation while "SALVOS STORES" alone stays retail.
+  - category: CHARITY
+    comment: "gifts to charities, appeals and crowdfunding"
+    when:
+      match: "charity|donation|\\bappeal|gofundme|red cross|unicef|oxfam|world vision|\\brspca\\b|leukemia|cancer council|bushfire|\\buniting\\b"
 
   # Retail, including the op shops.
   - category: "SHOPPING"

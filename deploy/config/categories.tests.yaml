@@ -269,6 +269,20 @@ tests:
     amount: -251200
     category: HOUSE_WORKS
 
+  # --- CHARITY -------------------------------------------------------------------
+  - description: "FAUSTINA CHARITY FOUNDATI - Visa Purchase - Receipt 197484 In INGLEBURN"
+    amount: -6000
+    category: CHARITY
+  - description: "Vinay Lopes Snowils Donation Appeal - Osko Payment to 342080 276041118"
+    amount: -50000
+    category: CHARITY
+  - description: "GoFundMe Support Briston - Visa Purchase - Receipt 113923"
+    amount: -19943
+    category: CHARITY
+  - description: "SALVOS STORES - Visa Purchase - Receipt 119505In INGLEBURN"
+    amount: -3000
+    category: SHOPPING   # the op shop is retail; a donation descriptor is what CHARITY claims
+
   # --- SHOPPING ------------------------------------------------------------------
   - description: "KMART 123"
     amount: -2000
