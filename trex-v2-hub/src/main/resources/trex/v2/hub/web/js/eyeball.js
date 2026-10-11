@@ -1,7 +1,8 @@
 // Eyeball mode (V2-PROPOSAL.md §10.3): the Blotter list, scoped to a period, with a per-row read
 // state. The nested tabs pick the period grain (Daily / Weekly / Monthly) — a period is only a
 // bucketing view, never something to clear. A row the acting user has read (a USER_ACK) renders
-// faded; the rest are unread and bright. Each row carries its own Ack/Unack and Categorize.
+// faded; the rest are unread and bright. Each row's actions live in a right-click menu, one
+// deliberate dialog per action, the same shape as the Blotter's.
 //
 // Open items and anomalies (the walk's other sections) are parked for now; the API still returns
 // them, and the UI will bring them back.
@@ -11,6 +12,8 @@ import { accountChip } from './account.js';
 import { openCategorize } from './categorize.js';
 import { commitmentChip, openAssignCommitment } from './commitment.js';
 import { openAnnotate } from './annotate.js';
+import { openConfirm } from './dialog.js';
+import { openContextMenu } from './menu.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
 import { date, money, shortId } from './format.js';
@@ -70,7 +73,7 @@ function render() {
       button('\u203a', () => step(1)),
       stateChip),
     el('p', { class: 'muted hint' },
-      'Bright rows are unread; Ack fades one row for you. Categorize pins a row.'),
+      'Bright rows are unread. Right-click a row for Ack/Unack, Categorize, Note and Assign.'),
     tableHost);
 }
 
@@ -130,16 +133,16 @@ function renderTable() {
     tableHost.append(el('p', { class: 'muted' }, 'No transactions in this period.'));
     return;
   }
-  // Exactly the Blotter's columns, plus per-row read/unread and categorise; no batch bar.
+  // Exactly the Blotter's columns; the per-row actions open from a right-click menu, no batch bar.
   const head = el('tr', {},
     el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', {}, 'Direction'),
     el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'),
     el('th', {}, 'Category'), el('th', {}, 'Commitment'), el('th', {}, 'Leg'), el('th', {}, 'n'),
-    el('th', {}, 'id'), el('th', {}, ''), el('th', {}, ''));
+    el('th', {}, 'id'));
   const body = rows.map((row) => {
     const isRead = read.has(row.externalId);
-    return el('tr', { class: isRead ? 'read' : 'unread' },
+    return el('tr', { class: isRead ? 'read' : 'unread', oncontextmenu: rowMenu(row) },
       el('td', {}, date(row.date)),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
       el('td', {}, direction(row.amount)),
@@ -151,13 +154,38 @@ function renderTable() {
       el('td', {}, commitmentChip(row)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.n),
-      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
-      el('td', {}, button(isRead ? 'Unack' : 'Ack', () => toggleAck(row))),
-      el('td', {}, button('Categorize', () => openCategorize(ctx, row, categories, load)),
-        button('Note', () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load)),
-        button(row.commitmentId ? 'Unassign' : 'Assign', () => openAssignCommitment(ctx, row, load))));
+      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
+/**
+ * The row's deliberate actions, scoped to the one row (the Eyeball has no batch selection): the
+ * same right-click menu shape as the Blotter. Ack/Unack confirms first; Categorize, Note and
+ * Assign open their shared dialogs.
+ */
+function rowMenu(row) {
+  const isRead = read.has(row.externalId);
+  const summary = `${date(row.date)} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`;
+  return (e) => {
+    e.preventDefault();
+    openContextMenu(e.clientX, e.clientY, [
+      {
+        label: isRead ? 'Unack' : 'Ack',
+        onPick: () => openConfirm({
+          title: isRead ? 'Unack row' : 'Ack row',
+          lines: [summary],
+          confirm: isRead ? 'Unack' : 'Ack',
+        }, () => toggleAck(row)),
+      },
+      { label: 'Categorize\u2026', onPick: () => openCategorize(ctx, row, categories, load) },
+      { label: 'Note\u2026', onPick: () => openAnnotate(ctx, { ids: [row.externalId], summary }, load) },
+      {
+        label: row.commitmentId ? 'Unassign\u2026' : 'Assign\u2026',
+        onPick: () => openAssignCommitment(ctx, row, load),
+      },
+    ]);
+  };
 }
 
 /** Read is per row: the acting user's USER_ACK for this row's id, released by a USER_UNACK. */
