@@ -3,7 +3,7 @@
 
 import { api } from './api.js';
 import { el, clear } from './dom.js';
-import { total } from './format.js';
+import { date, total } from './format.js';
 import * as since from './since.js';
 
 let host = null;
@@ -50,7 +50,7 @@ function allClear(open, through) {
     return el('a', { href: '#review', title: 'open review items' }, item('review', open, 'bad'));
   }
   return el('span', { class: 'tick', title: 'nothing open in review' },
-    '\u2713 all clear' + (through ? ` \u2014 through ${through}` : ''));
+    '\u2713 all clear' + (through ? ` \u2014 through ${date(through)}` : ''));
 }
 
 /**
@@ -79,7 +79,7 @@ function stale(rows) {
   if (!rows || !rows.length) return el('span');
   const amber = rows.some((s) => s.days > 2 * s.fetchEveryDays);
   const title = rows
-    .map((s) => `${s.account} \u00b7 ${s.days} days (through ${s.frontier})`)
+    .map((s) => `${s.account} \u00b7 ${s.days} days (through ${date(s.frontier)})`)
     .join('\n');
   return el('a', { href: '#jobs?frontier', class: amber ? 'warn' : 'muted', title },
     `\u29d7 ${rows.length} statement${rows.length === 1 ? '' : 's'} to fetch`);

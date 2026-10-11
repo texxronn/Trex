@@ -5,7 +5,7 @@
 import { api } from './api.js';
 import { accountChip } from './account.js';
 import { el, clear, scroll } from './dom.js';
-import { money } from './format.js';
+import { date, dow, money } from './format.js';
 import { reportError } from './toast.js';
 
 const WINDOWS = {
@@ -130,8 +130,8 @@ function accountRow(account) {
     ...(showBalance ? [el('td', { class: 'amount' },
       balances.get(account.ref) === undefined || balances.get(account.ref) === null
         ? '\u2014' : money(balances.get(account.ref)))] : []),
-    el('td', { class: 'muted' }, account.first || '\u2014'),
-    el('td', { class: 'muted' }, account.last || '\u2014'),
+    el('td', { class: 'muted' }, date(account.first) || '\u2014'),
+    el('td', { class: 'muted' }, date(account.last) || '\u2014'),
     el('td', { class: 'amount' }, `${account.txnsInWindow}/${account.txns}`),
     el('td', { class: 'muted', title: imp ? imp.file : '' },
       imp ? `${imp.file} · ${rel(imp.startedMs)}` : 'never'),
@@ -150,14 +150,15 @@ function bucket(ref, b) {
   });
 }
 
-/** A human date range: "3 Aug – 9 Aug 2026", with both years when the range crosses one. */
+/** A human date range: "Mo 3 Aug – Su 9 Aug 2026", with both years when the range crosses one. */
 function range(from, to) {
   const a = new Date(from + 'T00:00:00');
   const b = new Date(to + 'T00:00:00');
-  const md = (d) => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+  const md = (d, w) => (w ? w + ' ' : '')
+    + d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
   return a.getFullYear() === b.getFullYear()
-    ? `${md(a)} \u2013 ${md(b)} ${b.getFullYear()}`
-    : `${md(a)} ${a.getFullYear()} \u2013 ${md(b)} ${b.getFullYear()}`;
+    ? `${md(a, dow(from))} \u2013 ${md(b, dow(to))} ${b.getFullYear()}`
+    : `${md(a, dow(from))} ${a.getFullYear()} \u2013 ${md(b, dow(to))} ${b.getFullYear()}`;
 }
 
 function rel(ms) {

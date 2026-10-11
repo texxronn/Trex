@@ -13,7 +13,7 @@ import { commitmentChip, openAssignCommitment } from './commitment.js';
 import { openAnnotate } from './annotate.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
-import { money, shortId } from './format.js';
+import { date, money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
 let host;
@@ -140,7 +140,7 @@ function renderTable() {
   const body = rows.map((row) => {
     const isRead = read.has(row.externalId);
     return el('tr', { class: isRead ? 'read' : 'unread' },
-      el('td', {}, row.date),
+      el('td', {}, date(row.date)),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
       el('td', {}, direction(row.amount)),
       el('td', { class: 'amount' }, money(row.amount)),

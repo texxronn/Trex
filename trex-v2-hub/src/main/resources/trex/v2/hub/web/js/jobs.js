@@ -4,6 +4,7 @@
 
 import { api, uploadStaged } from './api.js';
 import { el, clear, scroll } from './dom.js';
+import { date, dow } from './format.js';
 import { reportError } from './toast.js';
 
 let host;
@@ -645,7 +646,7 @@ function renderIngests() {
   const body = ingests.map((i) => el('tr', {},
     el('td', { class: 'desc', title: i.evidenceId || '' }, i.file || '(unknown)'),
     el('td', {}, i.accountRef || ''),
-    el('td', { class: 'muted' }, i.latestTxnDate || '\u2014'),
+    el('td', { class: 'muted' }, date(i.latestTxnDate) || '\u2014'),
     el('td', { class: 'muted' }, `${i.nStart}\u2013${i.nEnd}`),
     el('td', {}, `${num(i.appended)}/${num(i.duplicate)}/${num(i.flagged)}`),
     el('td', {}, el('span', { class: 'badge ' + (i.status === 'ok' ? '' : 'POTENTIAL_DUP') },
@@ -711,8 +712,8 @@ function renderFrontier() {
       el('td', {}, account.ref),
       el('td', { class: 'desc muted', title: imp ? imp.file || '' : '' },
         imp ? imp.file || '(unknown)' : '\u2014'),
-      el('td', { class: 'muted' }, frontier || '\u2014'),
-      el('td', { class: 'muted' }, frontier ? `${frontier} \u2192 ${today}` : ''));
+      el('td', { class: 'muted' }, date(frontier) || '\u2014'),
+      el('td', { class: 'muted' }, frontier ? `${date(frontier)} \u2192 ${date(today)}` : ''));
   });
   frontierHost.append(scroll(el('table', { class: 'frontier-table' },
     el('thead', {}, head), el('tbody', {}, ...body))));
@@ -730,13 +731,21 @@ function renderHistory() {
   }
   const head = el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Job'), el('th', {}, 'State'),
     el('th', {}, 'Exit'), el('th', {}));
-  const body = runs.slice(0, 20).map((run) => el('tr', {},
-    el('td', { class: 'muted' }, new Date(run.queuedAt).toLocaleString()),
-    el('td', {}, run.job + (run.params && run.params.mode ? ' · ' + run.params.mode : '')),
-    el('td', {}, el('span', { class: 'badge ' + run.state }, run.state)),
-    el('td', {}, String(run.exit)),
-    el('td', {}, el('button', { class: 'ghost', onclick: () => showRun(run.id) }, 'Output')),
-  ));
+  const body = runs.slice(0, 20).map((run) => {
+    // The time renders in the viewer's zone, so the weekday comes from the local calendar date;
+    // queuedAt is epoch milliseconds, and dow() takes an ISO date string.
+    const queued = new Date(run.queuedAt);
+    const day = `${queued.getFullYear()}-${String(queued.getMonth() + 1).padStart(2, '0')}`
+      + `-${String(queued.getDate()).padStart(2, '0')}`;
+    const w = dow(day);
+    return el('tr', {},
+      el('td', { class: 'muted' }, w ? `${w} ${queued.toLocaleString()}` : queued.toLocaleString()),
+      el('td', {}, run.job + (run.params && run.params.mode ? ' · ' + run.params.mode : '')),
+      el('td', {}, el('span', { class: 'badge ' + run.state }, run.state)),
+      el('td', {}, String(run.exit)),
+      el('td', {}, el('button', { class: 'ghost', onclick: () => showRun(run.id) }, 'Output')),
+    );
+  });
   historyHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 

@@ -9,8 +9,29 @@ export function money(cents) {
   return `${sign}$${dollars}.${remainder}`;
 }
 
+// Weekday prefixes are display-only; everything else stays ISO so values remain sortable, copyable
+// and comparable. Derived from the calendar date via UTC so the browser's timezone cannot shift it.
+const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+export function dow(iso) {
+  const day = (iso || '').slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) return '';
+  const y = +m[1], mo = +m[2] - 1, d = +m[3];
+  const utc = new Date(Date.UTC(y, mo, d));
+  // Reject impossible dates (2026-02-30) and Date.UTC's 1900 remap for years 0000-0099:
+  // a shaped-but-invalid string must pass through unchanged, not gain an invented weekday.
+  if (utc.getUTCFullYear() !== y || utc.getUTCMonth() !== mo || utc.getUTCDate() !== d) {
+    return '';
+  }
+  return DOW[utc.getUTCDay()];
+}
+
 export function date(iso) {
-  return iso || '';
+  if (!iso) return iso || '';
+  const day = (iso || '').slice(0, 10);
+  const w = dow(day);
+  return w ? `${w} ${day}` : iso;
 }
 
 export function shortId(id) {
