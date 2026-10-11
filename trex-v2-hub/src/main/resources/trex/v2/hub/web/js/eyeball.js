@@ -13,7 +13,7 @@ import { openCategorize } from './categorize.js';
 import { commitmentChip, openAssignCommitment } from './commitment.js';
 import { openAnnotate } from './annotate.js';
 import { openConfirm } from './dialog.js';
-import { openContextMenu } from './menu.js';
+import { kebabButton, openContextMenu } from './menu.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
 import { date, money, shortId } from './format.js';
@@ -73,7 +73,7 @@ function render() {
       button('\u203a', () => step(1)),
       stateChip),
     el('p', { class: 'muted hint' },
-      'Bright rows are unread. Right-click a row for Ack/Unack, Categorize, Note and Assign.'),
+      'Bright rows are unread. Right-click a row (or use \u22ee) for Ack/Unack, Categorize, Note and Assign.'),
     tableHost);
 }
 
@@ -139,10 +139,16 @@ function renderTable() {
     el('th', { class: 'amount' }, 'Amount'),
     el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'),
     el('th', {}, 'Category'), el('th', {}, 'Commitment'), el('th', {}, 'Leg'), el('th', {}, 'n'),
-    el('th', {}, 'id'));
+    el('th', {}, 'id'), el('th', {}, ''));
   const body = rows.map((row) => {
     const isRead = read.has(row.externalId);
-    return el('tr', { class: isRead ? 'read' : 'unread', oncontextmenu: rowMenu(row) },
+    return el('tr', {
+      class: isRead ? 'read' : 'unread',
+      oncontextmenu: (e) => {
+        e.preventDefault();
+        openContextMenu(e.clientX, e.clientY, rowMenuItems(row));
+      },
+    },
       el('td', {}, date(row.date)),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
       el('td', {}, direction(row.amount)),
@@ -154,38 +160,37 @@ function renderTable() {
       el('td', {}, commitmentChip(row)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.n),
-      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)));
+      el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
+      el('td', {}, kebabButton(() => rowMenuItems(row))));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 /**
  * The row's deliberate actions, scoped to the one row (the Eyeball has no batch selection): the
- * same right-click menu shape as the Blotter. Ack/Unack confirms first; Categorize, Note and
- * Assign open their shared dialogs.
+ * same right-click menu shape as the Blotter, surfaced by right-click or the ⋮ button. Ack/Unack
+ * confirms first; Categorize, Note and Assign open their shared dialogs. A factory, so the read
+ * state and commitment chip are current when the menu opens.
  */
-function rowMenu(row) {
+function rowMenuItems(row) {
   const isRead = read.has(row.externalId);
   const summary = `${date(row.date)} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`;
-  return (e) => {
-    e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, [
-      {
-        label: isRead ? 'Unack' : 'Ack',
-        onPick: () => openConfirm({
-          title: isRead ? 'Unack row' : 'Ack row',
-          lines: [summary],
-          confirm: isRead ? 'Unack' : 'Ack',
-        }, () => toggleAck(row)),
-      },
-      { label: 'Categorize\u2026', onPick: () => openCategorize(ctx, row, categories, load) },
-      { label: 'Note\u2026', onPick: () => openAnnotate(ctx, { ids: [row.externalId], summary }, load) },
-      {
-        label: row.commitmentId ? 'Unassign\u2026' : 'Assign\u2026',
-        onPick: () => openAssignCommitment(ctx, row, load),
-      },
-    ]);
-  };
+  return [
+    {
+      label: isRead ? 'Unack' : 'Ack',
+      onPick: () => openConfirm({
+        title: isRead ? 'Unack row' : 'Ack row',
+        lines: [summary],
+        confirm: isRead ? 'Unack' : 'Ack',
+      }, () => toggleAck(row)),
+    },
+    { label: 'Categorize\u2026', onPick: () => openCategorize(ctx, row, categories, load) },
+    { label: 'Note\u2026', onPick: () => openAnnotate(ctx, { ids: [row.externalId], summary }, load) },
+    {
+      label: row.commitmentId ? 'Unassign\u2026' : 'Assign\u2026',
+      onPick: () => openAssignCommitment(ctx, row, load),
+    },
+  ];
 }
 
 /** Read is per row: the acting user's USER_ACK for this row's id, released by a USER_UNACK. */

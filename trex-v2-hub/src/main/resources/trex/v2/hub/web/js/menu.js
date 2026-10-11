@@ -9,6 +9,9 @@ let openMenu = null;
 
 export function openContextMenu(x, y, items) {
   if (openMenu) openMenu();
+  // Remember who opened this menu: on close, focus returns there so keyboard use (Escape after
+  // Tab-ing through the items) does not drop the caret to the body.
+  const opener = document.activeElement;
   const menu = el('div', { class: 'context-menu', role: 'menu' },
     ...items.map((item) => el('button', {
       type: 'button',
@@ -36,12 +39,14 @@ export function openContextMenu(x, y, items) {
   openMenu = close;
 
   function close() {
+    const hadFocus = menu.contains(document.activeElement);
     menu.remove();
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('pointerdown', onOutside, true);
     window.removeEventListener('scroll', close, true);
     window.removeEventListener('resize', close);
     if (openMenu === close) openMenu = null; // never clear a menu opened after this one
+    if (hadFocus && opener && opener.isConnected) opener.focus();
   }
 
   function onKey(e) {
@@ -51,4 +56,23 @@ export function openContextMenu(x, y, items) {
   function onOutside(e) {
     if (!menu.contains(e.target)) close();
   }
+}
+
+/**
+ * The visible affordance for the same menu: a compact ⋮ button on the row. It takes a factory so
+ * the items are built when opened (the Blotter's depend on the current selection), and anchors the
+ * menu under itself rather than at a cursor.
+ */
+export function kebabButton(items) {
+  return el('button', {
+    type: 'button',
+    class: 'kebab',
+    'aria-haspopup': 'menu',
+    'aria-label': 'Row actions',
+    title: 'Row actions',
+    onclick: (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      openContextMenu(rect.left, rect.bottom, items());
+    },
+  }, '\u22ee');
 }

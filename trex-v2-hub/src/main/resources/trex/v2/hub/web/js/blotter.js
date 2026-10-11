@@ -11,7 +11,7 @@ import { openAnnotate } from './annotate.js';
 import { openConfirm, openPrompt, openSelect } from './dialog.js';
 import { el, clear, field, scroll } from './dom.js';
 import { date, money, shortId } from './format.js';
-import { openContextMenu } from './menu.js';
+import { kebabButton, openContextMenu } from './menu.js';
 import * as since from './since.js';
 import { reportError, toast } from './toast.js';
 
@@ -114,7 +114,13 @@ function renderRows() {
     });
     const classes = [row.hasReview ? 'bad' : '', row.role === 'noop' ? 'noop' : '',
       row.synthetic ? 'synthetic' : ''].filter(Boolean).join(' ');
-    return el('tr', { class: classes, oncontextmenu: (e) => openRowMenu(e, row) },
+    return el('tr', {
+      class: classes,
+      oncontextmenu: (e) => {
+        e.preventDefault();
+        openContextMenu(e.clientX, e.clientY, rowMenuItems(row));
+      },
+    },
       el('td', {}, checkbox),
       el('td', {}, date(row.date)),
       el('td', {}, accountChip(refdata, row.accountRef)),
@@ -131,7 +137,7 @@ function renderRows() {
       el('td', { class: 'muted' }, row.rail ? row.rail + ' \u00b7 ' + (row.amount < 0 ? 'OUT' : 'IN') : ''),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
-      el('td', {}));
+      el('td', {}, kebabButton(() => rowMenuItems(row))));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows))));
 }
@@ -148,19 +154,18 @@ function renderPager() {
 }
 
 /**
- * The Blotter's action surface is a right-click on a row (deliberate friction): every menu item
- * opens a dialog, and nothing is recorded until that dialog is confirmed. The target is the row
- * itself unless it is part of the checked selection; pairing always needs exactly two checked
- * rows, never the ad-hoc row.
+ * The Blotter's action surface is a right-click on a row or the ⋮ button (deliberate friction):
+ * every menu item opens a dialog, and nothing is recorded until that dialog is confirmed. The
+ * target is the row itself unless it is part of the checked selection; pairing always needs exactly
+ * two checked rows, never the ad-hoc row. A factory, because the checked selection moves.
  */
-function openRowMenu(e, row) {
-  e.preventDefault();
+function rowMenuItems(row) {
   const targets = selected.has(row.externalId) ? [...selected] : [row.externalId];
   const checked = [...selected];
   const summary = targetSummary(row, targets);
   const one = targets.length === 1;
   const two = checked.length === 2;
-  openContextMenu(e.clientX, e.clientY, [
+  return [
     { label: 'Note', enabled: targets.length >= 1, hint: 'select at least one row',
       onPick: () => openAnnotate(ctx, { ids: targets, summary }, load) },
     { label: row.commitmentId ? 'Unassign\u2026' : 'Assign\u2026', enabled: one,
@@ -178,7 +183,7 @@ function openRowMenu(e, row) {
       onPick: () => markNoop(row, targets[0]) },
     { label: 'Unmark noop', enabled: one, hint: 'select exactly one row',
       onPick: () => unmarkNoop(row, targets[0]) },
-  ]);
+  ];
 }
 
 // One decision for all targets: the pin applies the chosen category to every id in the batch.
