@@ -456,6 +456,11 @@ tbody tr.noop:hover td { opacity: .8; }
 .context-menu button:disabled { opacity: .45; cursor: default; color: var(--muted); }
 .context-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+/* The visible affordance for the same menu: a quiet ⋮ at the end of the row, bright on hover. */
+button.kebab { min-height: 0; padding: 0.05rem 0.35rem; font-size: 14px; line-height: 1;
+  color: var(--muted); background: transparent; border-color: transparent; }
+button.kebab:hover { color: var(--accent); border-color: var(--line); }
+
 /* The commitment menu (V2-EXPECTED-UX-PLAN.md §7 Stage 2): full-width price chart, then the table. */
 .dialog.xwide { width: min(920px, 100%); }
 .popup-split { display: flex; flex-direction: column; gap: 0.8rem; margin-top: 0.6rem; }
