@@ -13,7 +13,7 @@ import { api } from './api.js';
 import { openCommitmentActions, openDeclare, openSettle } from './commitment.js';
 import { direction } from './direction.js';
 import { el, clear, field, scroll } from './dom.js';
-import { money, shortId } from './format.js';
+import { date, money, shortId } from './format.js';
 import * as since from './since.js';
 
 const WINDOWS = { today: 'Today', week: 'This week', month: 'This month' };
@@ -113,7 +113,7 @@ function headroom() {
     el('div', {}, el('span', { class: 'muted' }, `Left in ${month} `), figure),
     el('div', { class: 'muted' }, parts.join(' · ')),
     el('div', { class: 'muted', title: 'budget accounts: ' + (h.accounts || []).join(', ') },
-      h.through ? `through ${h.through} — the statements say nothing after it` : 'no statements yet'),
+      h.through ? `through ${date(h.through)} — the statements say nothing after it` : 'no statements yet'),
     notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '');
 }
 
@@ -158,7 +158,7 @@ function occurrenceRow(o) {
   const current = currentOf(o.commitmentId);
   const sign = o.amount != null ? o.amount : (o.direction === 'in' ? 1 : -1);
   return el('tr', {},
-    el('td', {}, o.dueDate),
+    el('td', {}, date(o.dueDate)),
     el('td', {}, o.commitmentName || shortId(o.commitmentId)),
     el('td', {}, direction(sign)),
     el('td', { class: 'amount' }, o.amount != null
@@ -216,7 +216,7 @@ function matchedCell(o) {
   }
   const via = o.matchedBy ? ` via ${o.matchedBy}` : '';
   return el('td', { class: 'muted', title: o.matchedExternalId + via },
-    shortId(o.matchedExternalId) + (o.matchedDate ? ` · ${o.matchedDate}` : '')
+    shortId(o.matchedExternalId) + (o.matchedDate ? ` · ${date(o.matchedDate)}` : '')
     + (o.offSchedule ? ' · off schedule' : ''));
 }
 
@@ -244,7 +244,7 @@ function catchUp() {
 
 function arrearRow(a) {
   return el('tr', {},
-    el('td', {}, a.dueDate),
+    el('td', {}, date(a.dueDate)),
     el('td', {}, a.commitmentName || shortId(a.commitmentId)),
     el('td', {}, el('span', { class: a.status === 'missed' ? 'occ-missed' : 'occ-partial' },
       a.status)),
@@ -378,7 +378,7 @@ function registryRow(c) {
       !declared && seriesLine(c) ? el('div', { class: 'muted series' }, seriesLine(c)) : null,
       c.notes && c.notes.length
         ? el('div', {}, ...c.notes.map((n) => el('span', { class: 'note-chip',
-            title: `${n.user} · ${(n.at || '').slice(0, 10)}` }, '\u270e ' + n.text)))
+            title: `${n.user} · ${date(n.at)}` }, '\u270e ' + n.text)))
         : null),
     el('td', {}, el('span', { class: 'tag' }, c.origin)),
     el('td', {}, direction(c.currentAmount != null ? c.currentAmount
@@ -387,8 +387,8 @@ function registryRow(c) {
     el('td', {}, declared ? c.kind : el('span', { class: 'muted' }, '—')),
     el('td', {}, el('span', { class: 'tag ' + c.status }, c.status)),
     el('td', { class: 'amount' }, currentCell(c)),
-    el('td', { class: 'muted' }, c.lastDate || '—'),
-    el('td', { class: 'muted' }, c.nextDue || '—'),
+    el('td', { class: 'muted' }, date(c.lastDate) || '—'),
+    el('td', { class: 'muted' }, date(c.nextDue) || '—'),
     el('td', { class: 'amount' }, arrears),
     el('td', {}, ...actions(c)));
 }
@@ -401,7 +401,9 @@ function labelOf(c) {
 function seriesLine(c) {
   const bits = [];
   if (c.occurrenceCount) bits.push(`${c.occurrenceCount}\u00d7`);
-  if (c.firstDate) bits.push(c.lastDate ? `${c.firstDate} → ${c.lastDate}` : c.firstDate);
+  if (c.firstDate) {
+    bits.push(c.lastDate ? `${date(c.firstDate)} → ${date(c.lastDate)}` : date(c.firstDate));
+  }
   if (c.regularity != null) bits.push(`regularity ${c.regularity.toFixed(2)}`);
   if (c.outliers) bits.push(`+${c.outliers} one-off${c.outliers === 1 ? '' : 's'}`);
   if (c.variable) bits.push('variable');
@@ -419,7 +421,7 @@ function currentCell(c) {
   if (c.changePct != null) {
     const sign = c.changePct > 0 ? '+' : '';
     cell.append(el('span', { class: 'muted' },
-      ` ${sign}${c.changePct.toFixed(1)}%${c.changeDate ? ` since ${c.changeDate}` : ''}`));
+      ` ${sign}${c.changePct.toFixed(1)}%${c.changeDate ? ` since ${date(c.changeDate)}` : ''}`));
   }
   return cell;
 }

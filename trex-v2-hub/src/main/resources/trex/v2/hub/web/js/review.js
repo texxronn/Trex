@@ -8,7 +8,7 @@ import { direction } from './direction.js';
 import { openPrompt, openSelect } from './dialog.js';
 import { confirmCandidate, ignoreCandidate, openRetire, openSettle } from './commitment.js';
 import { el, clear, field, scroll } from './dom.js';
-import { money, shortId } from './format.js';
+import { date, money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
 let host;
@@ -105,12 +105,12 @@ function renderRows(rows) {
     return el('tr', {},
       el('td', {}, el('span', { class: 'badge ' + row.kind }, KIND_LABEL[row.kind] || row.kind)),
       el('td', {}, accountChip(ctx.refdata, row.accountRef)),
-      el('td', {}, row.date || ''),
+      el('td', {}, date(row.date)),
       el('td', {}, direction(row.amount)),
       el('td', { class: 'amount' }, row.amountStake ? money(row.amountStake) : ''),
       el('td', { class: 'desc', title: row.subject }, row.subjectDescription || shortId(row.subject)),
       memberCell(row),
-      el('td', { class: 'muted' }, (row.openedAt || '').slice(0, 10)),
+      el('td', { class: 'muted' }, date(row.openedAt)),
       actionCell(row));
   });
   listHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
@@ -227,7 +227,7 @@ function memberCell(row) {
     const e = row.enrichment;
     const bits = [e.cadence,
       `${e.occurrenceCount} occurrence${e.occurrenceCount === 1 ? '' : 's'}`,
-      `${e.firstDate} → ${e.lastDate}`];
+      `${date(e.firstDate)} → ${date(e.lastDate)}`];
     if (e.currentAmount != null) bits.push(`current ${money(e.currentAmount)}`);
     if (e.regularity != null) bits.push(`regularity ${Math.round(e.regularity * 100)}%`);
     if (e.changePct != null) bits.push(`last step ${e.changePct > 0 ? '+' : ''}${e.changePct.toFixed(1)}%`);

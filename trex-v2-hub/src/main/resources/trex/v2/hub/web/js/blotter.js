@@ -8,7 +8,7 @@ import { decisions } from './decisions.js';
 import { direction } from './direction.js';
 import { openAnnotate } from './annotate.js';
 import { el, clear, field, scroll } from './dom.js';
-import { money, shortId } from './format.js';
+import { date, money, shortId } from './format.js';
 import * as since from './since.js';
 import { reportError, toast } from './toast.js';
 
@@ -136,7 +136,7 @@ function renderRows() {
       row.synthetic ? 'synthetic' : ''].filter(Boolean).join(' ');
     return el('tr', { class: classes },
       el('td', {}, checkbox),
-      el('td', {}, row.date),
+      el('td', {}, date(row.date)),
       el('td', {}, accountChip(refdata, row.accountRef)),
       el('td', {}, direction(row.amount)),
       el('td', { class: 'amount' }, money(row.amount)),

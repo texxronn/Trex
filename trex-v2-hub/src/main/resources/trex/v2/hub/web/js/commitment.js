@@ -7,7 +7,7 @@ import { api } from './api.js';
 import { decisions } from './decisions.js';
 import { openChoice, openPrompt, openSelect } from './dialog.js';
 import { el, clear, svgEl } from './dom.js';
-import { money, shortId } from './format.js';
+import { date, money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
 
 export const CADENCES = ['weekly', 'fortnightly', 'monthly', 'bimonthly', 'quarterly',
@@ -246,7 +246,7 @@ export function openSettle(ctx, target, onDone) {
   const label = target.name ? `${target.name} (${target.commitmentId})` : target.commitmentId;
   openPrompt({
     title: 'Mark paid by hand',
-    summary: `${label}: ${dates.length} occurrence${dates.length === 1 ? '' : 's'} — ${dates.join(', ')}`,
+    summary: `${label}: ${dates.length} occurrence${dates.length === 1 ? '' : 's'} — ${dates.map(date).join(', ')}`,
     label: 'Comment (optional)',
     placeholder: 'paid in cash',
     confirm: 'Mark paid',
@@ -395,7 +395,7 @@ export function openCommitmentActions(ctx, c, onDone) {
 function toggleExclusion(ctx, c, row, refresh, onDone) {
   openChoice({
     title: row.excluded ? 'Include this transaction?' : 'Exclude this transaction?',
-    summary: `${row.date} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`,
+    summary: `${date(row.date)} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`,
   }, [
     { label: row.excluded ? 'Include' : 'Exclude', class: row.excluded ? 'primary' : 'warn',
       onPick: () => applyExclusion(ctx, c, row, refresh, onDone) },
@@ -425,7 +425,7 @@ function rowDetail(c) {
     bits.push(`${c.occurrenceCount}\u00d7`);
   }
   if (c.origin === 'detected' && c.firstDate) {
-    bits.push(c.lastDate ? `${c.firstDate} \u2192 ${c.lastDate}` : c.firstDate);
+    bits.push(c.lastDate ? `${date(c.firstDate)} \u2192 ${date(c.lastDate)}` : date(c.firstDate));
   }
   if (c.currentAmount != null) {
     bits.push(`last ${money(c.currentAmount)}`
@@ -473,7 +473,7 @@ function declaredChoices(ctx, c, onDone, activity) {
       const endedAt = (c.status === 'dormant' || c.arrearsCount)
         ? (lastCharge || c.lastDate || null) : null;
       openRetire(ctx, { commitmentId: c.commitmentId, name: c.name, endedAt,
-        summary: endedAt ? `last charge ${endedAt}` : null }, onDone);
+        summary: endedAt ? `last charge ${date(endedAt)}` : null }, onDone);
     } });
   }
   choices.push({ label: 'Note', class: 'ghost',
@@ -577,7 +577,7 @@ function activityTable(rows, onToggle) {
       el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Description'),
       onToggle ? el('th', {}, '') : null)),
     el('tbody', {}, ...rows.map((r) => el('tr', { class: r.excluded ? 'excluded' : null },
-      el('td', { class: 'tx-date' }, r.date),
+      el('td', { class: 'tx-date' }, date(r.date)),
       el('td', { class: 'tx-account muted', title: r.accountRef || '' }, r.accountRef || '\u2014'),
       el('td', { class: 'amount ' + (r.amount < 0 ? 'tx-out' : 'tx-in') }, money(r.amount)),
       el('td', { class: 'tx-desc muted', title: r.rawDescription || '' }, r.rawDescription),
@@ -633,8 +633,8 @@ function priceChart(rows) {
       ...grid,
       svgEl('line', { class: 'axis', x1: padL, y1: H - padB, x2: W - padR, y2: H - padB }),
       svgEl('line', { class: 'axis', x1: padL, y1: padT, x2: padL, y2: H - padB }),
-      svgEl('text', { class: 'lbl', x: padL, y: H - padB + 14 }, points[0].date),
-      svgEl('text', { class: 'lbl end', x: W - padR, y: H - padB + 14 }, points[points.length - 1].date),
+      svgEl('text', { class: 'lbl', x: padL, y: H - padB + 14 }, date(points[0].date)),
+      svgEl('text', { class: 'lbl end', x: W - padR, y: H - padB + 14 }, date(points[points.length - 1].date)),
       points.length > 1
         ? svgEl('polyline', { class: 'line',
             points: points.map((p) => `${x(p.date).toFixed(1)},${y(Math.abs(p.amount)).toFixed(1)}`)
@@ -642,7 +642,7 @@ function priceChart(rows) {
         : null,
       ...(points.length <= 80 ? points.map((p) =>
         svgEl('circle', { class: 'dot', cx: x(p.date), cy: y(Math.abs(p.amount)), r: 4 },
-          svgEl('title', {}, `${p.date} \u00b7 ${money(p.amount)}`))) : [])),
+          svgEl('title', {}, `${date(p.date)} \u00b7 ${money(p.amount)}`))) : [])),
     el('div', { class: 'muted chart-note' },
       `${points.length} price point${points.length === 1 ? '' : 's'} \u00b7 same-day movements summed`
       + (excluded ? ` \u00b7 ${excluded} excluded` : '')));
