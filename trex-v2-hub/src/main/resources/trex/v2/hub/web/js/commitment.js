@@ -5,7 +5,7 @@
 
 import { api } from './api.js';
 import { decisions } from './decisions.js';
-import { openChoice, openPrompt, openSelect } from './dialog.js';
+import { openChoice, openConfirm, openPrompt, openSelect } from './dialog.js';
 import { el, clear, svgEl } from './dom.js';
 import { date, money, shortId } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -269,14 +269,20 @@ export function openSettle(ctx, target, onDone) {
  */
 export async function openAssignCommitment(ctx, row, onDone) {
   if (row.commitmentId) {
-    try {
-      await api.decisions(ctx.n, [decisions.unpinCommitment(ctx, [row.externalId],
-        'unassigned in the hub')]);
-      toast('Unassigned');
-    } catch (error) {
-      reportError(error);
-    }
-    if (onDone) onDone();
+    openConfirm({
+      title: 'Unassign from commitment',
+      lines: [row.rawDescription || row.externalId],
+      confirm: 'Unassign',
+    }, async () => {
+      try {
+        await api.decisions(ctx.n, [decisions.unpinCommitment(ctx, [row.externalId],
+          'unassigned in the hub')]);
+        toast('Unassigned');
+      } catch (error) {
+        reportError(error);
+      }
+      if (onDone) onDone();
+    });
     return;
   }
   let registry;

@@ -37,11 +37,46 @@ export function openPrompt(options, onSave) {
   }
 }
 
+/**
+ * A confirmation with no input: the deliberate click is the step. Enter and autofocus are
+ * deliberately not wired — a confirmed decision must be a click, not a keystroke.
+ */
+export function openConfirm(options, onConfirm) {
+  const { title, lines, warning, confirm } = options;
+  const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
+  const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': title },
+    el('h3', {}, title),
+    ...(lines || []).map((line) => el('p', { class: 'muted' }, line)),
+    warning ? el('p', { class: 'warn' }, warning) : null,
+    el('div', { class: 'actions' },
+      el('button', { type: 'button', class: 'ghost', onclick: close }, 'Cancel'),
+      el('button', { type: 'button', class: 'primary', onclick: submit }, confirm || 'Confirm')));
+  overlay.append(dialog);
+  document.body.append(overlay);
+  document.addEventListener('keydown', onKey);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+  }
+
+  function submit() {
+    close();
+    onConfirm();
+  }
+}
+
 /** The same dialog, with a picker: used where a decision names one of several (a clearing account). */
 export function openSelect(options, onSave) {
-  const { title, summary, label, choices, confirm } = options;
+  const { title, summary, label, choices, selected, confirm } = options;
   const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
-  const select = el('select', {}, ...choices.map((c) => el('option', { value: c.value }, c.label)));
+  // `selected` preselects the matching choice; when nothing matches, the browser keeps the first.
+  const select = el('select', {},
+    ...choices.map((c) => el('option', { value: c.value, selected: c.value === selected }, c.label)));
   const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': title },
     el('h3', {}, title),
     summary ? el('p', { class: 'muted' }, summary) : null,
