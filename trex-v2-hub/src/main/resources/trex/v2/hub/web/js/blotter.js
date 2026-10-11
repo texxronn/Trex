@@ -21,9 +21,13 @@ let refdata;
 let errorBar;
 let tableHost;
 let pager;
+let minInput;
+let maxInput;
+let amountChips = [];
 
 const filters = {
   account: '', category: '', leg: '', role: '', q: '', hasReview: false,
+  minAmount: '', maxAmount: '',
   sort: 'date', order: 'desc', limit: 100, offset: 0,
 };
 let selected = new Set();
@@ -42,6 +46,8 @@ export function mount(container, context) {
   if (query.has('leg')) filters.leg = query.get('leg');
   if (query.has('role')) filters.role = query.get('role');
   if (query.has('hasReview')) filters.hasReview = query.get('hasReview') === 'true';
+  if (query.has('minAmount')) filters.minAmount = query.get('minAmount');
+  if (query.has('maxAmount')) filters.maxAmount = query.get('maxAmount');
   render();
   load();
   return { refresh: load };
@@ -62,6 +68,9 @@ function render() {
       type: 'search', value: filters.q,
       oninput: debounce((e) => set('q', e.target.value, true), 250),
     })),
+    field('\u2265 $', minInput = amountInput('minAmount', 'min')),
+    field('\u2264 $', maxInput = amountInput('maxAmount', 'max')),
+    ...(amountChips = AMOUNT_CHIPS.map((dollars) => amountChip(dollars))),
     el('label', {}, el('input', {
       type: 'checkbox', checked: filters.hasReview,
       onchange: (e) => set('hasReview', e.target.checked, true),
@@ -71,6 +80,7 @@ function render() {
     field('Order', select('order', ['desc', 'asc'], filters.order, (v) => set('order', v))),
     button('Clear filters', clearFilters),
   );
+  syncAmountControls();
 
   tableHost = el('div');
   pager = el('div', { class: 'pager' });
@@ -284,6 +294,70 @@ function set(key, value, resetOffset = true) {
 }
 
 // Reset every filter field (not the sort/order, which are view controls) and reload.
+// ---- the amount waterfall ----------------------------------------------------------------------
+// Bounds are magnitudes in cents (the API compares ABS(amount)), shown in whole dollars. The chips
+// are the fast path: click a tier to filter by it, click the active one again to clear it.
+const AMOUNT_CHIPS = [50, 100, 500, 1000];
+
+function amountInput(key, placeholder) {
+  const input = el('input', {
+    type: 'text', class: 'amount', inputmode: 'decimal', placeholder,
+    value: amountText(filters[key]),
+  });
+  // change (not input): a partly-typed number must never become a filter on its way to the full one.
+  input.addEventListener('change', () => applyAmount(key, input));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyAmount(key, input);
+    }
+  });
+  return input;
+}
+
+function amountChip(dollars) {
+  const cents = String(dollars * 100);
+  return el('button', {
+    type: 'button', class: 'amt-chip', 'data-cents': cents,
+    title: `at least $${dollars}`,
+    onclick: () => {
+      set('minAmount', filters.minAmount === cents ? '' : cents);
+      syncAmountControls();
+    },
+  }, `\u2265 $${dollars >= 1000 ? (dollars / 1000) + 'k' : dollars}`);
+}
+
+function applyAmount(key, input) {
+  const text = input.value.trim();
+  const cents = text === '' ? '' : parseAmount(text);
+  if (Number.isNaN(cents)) {
+    toast('Amount must be a positive number', 'bad');
+    syncAmountControls();
+    return;
+  }
+  set(key, cents === '' ? '' : String(cents));
+  syncAmountControls();
+}
+
+function parseAmount(text) {
+  const cleaned = text.replace(/[$,\s]/g, '');
+  const value = Number(cleaned);
+  if (!Number.isFinite(value) || value < 0) return NaN;
+  return Math.round(value * 100);
+}
+
+function amountText(cents) {
+  if (cents === '' || cents == null) return '';
+  const value = Number(cents) / 100;
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function syncAmountControls() {
+  if (minInput) minInput.value = amountText(filters.minAmount);
+  if (maxInput) maxInput.value = amountText(filters.maxAmount);
+  amountChips.forEach((b) => b.classList.toggle('active', filters.minAmount === b.dataset.cents));
+}
+
 function clearFilters() {
   filters.account = '';
   filters.category = '';
@@ -291,6 +365,8 @@ function clearFilters() {
   filters.role = '';
   filters.q = '';
   filters.hasReview = false;
+  filters.minAmount = '';
+  filters.maxAmount = '';
   filters.offset = 0;
   render();
   load();
