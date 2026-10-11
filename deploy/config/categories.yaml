@@ -30,9 +30,9 @@
 # happens to name a merchant; measured, that is almost always the refund it is.
 
 categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
-             SUBSCRIPTIONS, TRANSPORT, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES, CHILDCARE,
-             HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, SHOPPING, BILLS, TAXES, SAVINGS,
-             DISCRETIONARY]
+             SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
+             CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, SHOPPING, BILLS,
+             TAXES, SAVINGS, DISCRETIONARY]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -260,10 +260,27 @@ rules:
     when:
       match: "tax store|smart tax advisors"
 
-  - category: "SPORT_AND_LEISURE"
-    comment: "travel, outings and junior sport: flights, accommodation, ticketing, zoos, theme parks and clubs. There is no TRAVEL category, and adding one would recategorise history"
+  # Airfares on their own, so a trip's tickets are visible apart from the rest of it. Before
+  # SPORT_AND_LEISURE, which used to own these merchants; QANTAS CONCOURSE is airport spend,
+  # not a fare, and TRAVEL catches it.
+  - category: "FLIGHTS"
+    comment: "airfares: tickets and airline charges"
     when:
-      match: "booking\\.?com|ticketek|ticketmaste|taronga|carnivalfun|feld entertainment|jetstar|moonshadow|boatshed|holiday park|motel|breeze ap|rovers fc|soccajoey|flyscoot|qantas|duty free|minion"
+      match: "qantas ticket|qantas airways|jetstar|flyscoot|virgin australia|air new zealand|singapore air|emirates|qatar airways|airasia"
+
+  # The rest of the trip: stays, holiday parks, cruises and travel retail. Blind, so a cancelled
+  # booking refunds here.
+  - category: "TRAVEL"
+    comment: "stays, cruises and travel retail, apart from the airfare"
+    when:
+      match: "booking\\.?com|holiday park|breeze ap|club motel|moonshadow|duty free|qantas concourse"
+
+  # Outings and junior sport: ticketing, zoos, theme parks and the kids' clubs. Airfares and
+  # stays are FLIGHTS and TRAVEL now; the old "no TRAVEL category" note is superseded.
+  - category: "SPORT_AND_LEISURE"
+    comment: "outings and junior sport: ticketing, zoos, theme parks and clubs"
+    when:
+      match: "ticketek|ticketmaste|taronga|carnivalfun|feld entertainment|boatshed|rovers fc|soccajoey|minion"
 
   - category: "SHOPPING"
     comment: "general retail: electronics, clothing, stationery, department and online stores, and the sports and homeware chains"
