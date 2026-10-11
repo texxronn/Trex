@@ -214,7 +214,17 @@ public final class HubService implements HubApi, AutoCloseable {
             reads.counts(), reads.reviewByKind(), c.configRevision(),
             DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION,
             oldestFrontier(frontiers, statementBudget(registry)),
-            staleAccounts(registry, frontiers, today));
+            staleAccounts(registry, frontiers, today), env());
+    }
+
+    /**
+     * The deployment's environment label: the same {@code TREX_ENV} the sequencer stamps into the
+     * log envelope, shown in the UI header so Dev and Prod can never be confused. Display only —
+     * the sequencer owns the value and rejects one longer than eight characters.
+     */
+    private static String env() {
+        String raw = System.getenv("TREX_ENV");
+        return raw == null || raw.isBlank() ? "Dev1" : raw.trim();
     }
 
     /** The oldest frontier among {@code accounts}, from an already-read frontiers map; null if none. */

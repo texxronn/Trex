@@ -203,7 +203,7 @@ class McpApiTest {
     private static HubApi stub() {
         StatusResponse status = new StatusResponse(42, 42, 42, 0,
             Map.of("txn_current", 3L), Map.of(), "cfg/1", "derive/2", "hash/1",
-            LocalDate.of(2026, 10, 1), List.of());
+            LocalDate.of(2026, 10, 1), List.of(), "Dev1");
         HeadResponse head = new HeadResponse(42, 42, 42, 0);
         return (HubApi) Proxy.newProxyInstance(
             HubApi.class.getClassLoader(),

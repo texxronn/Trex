@@ -18,10 +18,25 @@ function item(label, value, cls = '') {
   return el('span', {}, `${label} `, el('b', { class: cls }, String(value)));
 }
 
+/**
+ * The header badge: TREX_ENV, the same label the sequencer stamps into the log envelope. Dev stays
+ * muted; anything else is drawn in the warn colour so a Prod screen cannot be mistaken for Dev.
+ */
+function instance(env) {
+  const badge = document.getElementById('instance');
+  if (!badge) return;
+  const value = env || '';
+  badge.textContent = value;
+  badge.hidden = !value;
+  badge.classList.toggle('prod', value !== '' && !/^dev/i.test(value));
+  document.title = value ? `trex \u00b7 ${value}` : 'trex';
+}
+
 export async function refresh() {
   if (!host) return;
   try {
     const status = await api.status();
+    instance(status.env);
     clear(host);
     const review = total(status.reviewByKind);
     if (review === 0) recordClear(status.n);

@@ -24,6 +24,9 @@ x-trex: &trex
   user: "1000:1000"
   environment:
     JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+    # The instance label: stamped into every log line's envelope and shown in the hub header, so a
+    # Dev screen can never be mistaken for Prod. At most 8 characters; set it in .env per stack.
+    TREX_ENV: ${TREX_ENV:-Dev1}
 
 configs:
   sequencer.yaml:
