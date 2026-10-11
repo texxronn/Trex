@@ -1,5 +1,6 @@
 // Blotter mode (V2-PROPOSAL.md §10.2): the current transactions, SQL-backed filters and paging,
-// with inline decisions. Selection drives the batch actions.
+// with inline decisions. Selection drives the batch targets; a right-click opens the action menu,
+// and every action is confirmed in a dialog before anything is recorded.
 
 import { api } from './api.js';
 import { accountChip } from './account.js';
@@ -7,8 +8,10 @@ import { commitmentChip, openAssignCommitment } from './commitment.js';
 import { decisions } from './decisions.js';
 import { direction } from './direction.js';
 import { openAnnotate } from './annotate.js';
+import { openConfirm, openPrompt, openSelect } from './dialog.js';
 import { el, clear, field, scroll } from './dom.js';
 import { date, money, shortId } from './format.js';
+import { openContextMenu } from './menu.js';
 import * as since from './since.js';
 import { reportError, toast } from './toast.js';
 
@@ -18,7 +21,6 @@ let refdata;
 let errorBar;
 let tableHost;
 let pager;
-let pinSelect;
 
 const filters = {
   account: '', category: '', leg: '', role: '', q: '', hasReview: false,
@@ -49,9 +51,6 @@ function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
 
-  pinSelect = el('select', { id: 'pinCategory' },
-    ...refdata.categories.map((c) => el('option', { value: c }, c)));
-
   const toolbar = el('div', { class: 'toolbar' },
     field('Account', select('account', ['', ...refdata.accounts.map((a) => a.ref)], filters.account,
       (v) => set('account', v))),
@@ -73,32 +72,13 @@ function render() {
     button('Clear filters', clearFilters),
   );
 
-  const actions = el('div', { class: 'toolbar' },
-    pinSelect,
-    button('Pin', () => apply((ids) => decisions.pin(ctx, ids, pinSelect.value, 'pinned in blotter'))),
-    button('Mark external', () => apply((ids) => ids.length === 1
-      ? decisions.markExternal(ctx, ids[0], 'marked external in blotter') : null, 1)),
-    button('Pair', () => apply((ids) => ids.length === 2 ? decisions.pair(ctx, ids[0], ids[1], 'paired in blotter') : null, 2)),
-    button('Unpair', () => apply((ids) => ids.length === 2 ? decisions.unpair(ctx, ids[0], ids[1], 'unpaired in blotter') : null, 2)),
-    button('Mark noop', markNoop),
-    button('Unmark noop', unmarkNoop),
-    button('Note', () => {
-      const ids = [...selected];
-      if (!ids.length) {
-        toast('Select at least one row', 'bad');
-        return;
-      }
-      openAnnotate(ctx, { ids, summary: `${ids.length} selected row${ids.length > 1 ? 's' : ''}` }, load);
-    }),
-  );
-
   tableHost = el('div');
   pager = el('div', { class: 'pager' });
   host.append(errorBar);
   // The since-clear line leads the Blotter too (QOL §5), from the visit's cached read.
   const notice = since.line();
   if (notice) host.append(notice);
-  host.append(toolbar, actions, tableHost, pager);
+  host.append(toolbar, tableHost, pager);
 }
 
 async function load() {
@@ -134,7 +114,7 @@ function renderRows() {
     });
     const classes = [row.hasReview ? 'bad' : '', row.role === 'noop' ? 'noop' : '',
       row.synthetic ? 'synthetic' : ''].filter(Boolean).join(' ');
-    return el('tr', { class: classes },
+    return el('tr', { class: classes, oncontextmenu: (e) => openRowMenu(e, row) },
       el('td', {}, checkbox),
       el('td', {}, date(row.date)),
       el('td', {}, accountChip(refdata, row.accountRef)),
@@ -151,15 +131,7 @@ function renderRows() {
       el('td', { class: 'muted' }, row.rail ? row.rail + ' \u00b7 ' + (row.amount < 0 ? 'OUT' : 'IN') : ''),
       el('td', {}, row.n),
       el('td', { class: 'muted', title: row.externalId }, shortId(row.externalId)),
-      el('td', {},
-        el('button', {
-          type: 'button', class: 'ghost',
-          onclick: () => openAnnotate(ctx, { ids: [row.externalId], summary: row.rawDescription }, load),
-        }, 'Note'),
-        el('button', {
-          type: 'button', class: 'ghost', title: 'Assign to commitment',
-          onclick: () => openAssignCommitment(ctx, row, load),
-        }, row.commitmentId ? 'Unassign' : 'Assign')));
+      el('td', {}));
   });
   tableHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows))));
 }
@@ -175,40 +147,117 @@ function renderPager() {
   );
 }
 
-function apply(build, required = 1) {
-  const ids = [...selected];
-  if (ids.length < required) {
-    toast(`Select at least ${required} row${required > 1 ? 's' : ''}`, 'bad');
-    return;
-  }
-  const decision = build(ids);
-  if (!decision) {
-    toast('Select exactly 2 rows', 'bad');
-    return;
-  }
-  submit([decision]);
+/**
+ * The Blotter's action surface is a right-click on a row (deliberate friction): every menu item
+ * opens a dialog, and nothing is recorded until that dialog is confirmed. The target is the row
+ * itself unless it is part of the checked selection; pairing always needs exactly two checked
+ * rows, never the ad-hoc row.
+ */
+function openRowMenu(e, row) {
+  e.preventDefault();
+  const targets = selected.has(row.externalId) ? [...selected] : [row.externalId];
+  const checked = [...selected];
+  const summary = targetSummary(row, targets);
+  const one = targets.length === 1;
+  const two = checked.length === 2;
+  openContextMenu(e.clientX, e.clientY, [
+    { label: 'Note', enabled: targets.length >= 1, hint: 'select at least one row',
+      onPick: () => openAnnotate(ctx, { ids: targets, summary }, load) },
+    { label: row.commitmentId ? 'Unassign\u2026' : 'Assign\u2026', enabled: one,
+      hint: 'select one row to assign',
+      onPick: () => openAssignCommitment(ctx, row, load) },
+    { label: 'Pin category\u2026', enabled: targets.length >= 1, hint: 'select at least one row',
+      onPick: () => pinCategory(row, targets, summary) },
+    { label: 'Mark external', enabled: one, hint: 'select exactly one row',
+      onPick: () => markExternal(row, targets[0]) },
+    { label: 'Pair\u2026', enabled: two, hint: 'select exactly two rows',
+      onPick: () => confirmPair(checked) },
+    { label: 'Unpair\u2026', enabled: two, hint: 'select exactly two rows',
+      onPick: () => confirmUnpair(checked) },
+    { label: 'Mark noop\u2026', enabled: one, hint: 'select exactly one row',
+      onPick: () => markNoop(row, targets[0]) },
+    { label: 'Unmark noop', enabled: one, hint: 'select exactly one row',
+      onPick: () => unmarkNoop(row, targets[0]) },
+  ]);
+}
+
+// One decision for all targets: the pin applies the chosen category to every id in the batch.
+function pinCategory(row, targets, summary) {
+  openSelect({
+    title: 'Pin category',
+    summary,
+    label: 'Category',
+    choices: refdata.categories.map((c) => ({ value: c, label: c })),
+    selected: row.category,
+    confirm: 'Pin',
+  }, (value) => submit([decisions.pin(ctx, targets, value, 'pinned in blotter')]));
+}
+
+function markExternal(row, id) {
+  openConfirm({
+    title: 'Mark external',
+    lines: [rowLine(row)],
+    warning: 'It leaves the transfer matcher and reads as an ordinary transaction.',
+    confirm: 'Mark external',
+  }, () => submit([decisions.markExternal(ctx, id, 'marked external in blotter')]));
+}
+
+function confirmPair(ids) {
+  openConfirm({
+    title: 'Pair',
+    lines: confirmedLines(ids),
+    confirm: 'Pair',
+  }, () => submit([decisions.pair(ctx, ids[0], ids[1], 'paired in blotter')]));
+}
+
+function confirmUnpair(ids) {
+  openConfirm({
+    title: 'Unpair',
+    lines: confirmedLines(ids),
+    confirm: 'Unpair',
+  }, () => submit([decisions.unpair(ctx, ids[0], ids[1], 'unpaired in blotter')]));
 }
 
 // A role is a classification with a reason (§6.9), so marking one asks why.
-function markNoop() {
-  const ids = [...selected];
-  if (ids.length !== 1) {
-    toast('Select exactly 1 row', 'bad');
-    return;
-  }
-  const reason = window.prompt('Why is this row not a posting of its account?',
-    'reference line, not a posting');
-  if (!reason) return;
-  submit([decisions.markNoop(ctx, ids[0], reason)]);
+function markNoop(row, id) {
+  openPrompt({
+    title: 'Mark noop',
+    summary: rowLine(row),
+    label: 'Why is this row not a posting of its account?',
+    placeholder: 'reference line, not a posting',
+    confirm: 'Mark noop',
+  }, (reason) => {
+    if (!reason) {
+      toast('A reason is needed', 'bad');
+      return;
+    }
+    submit([decisions.markNoop(ctx, id, reason)]);
+  });
 }
 
-function unmarkNoop() {
-  const ids = [...selected];
-  if (ids.length !== 1) {
-    toast('Select exactly 1 row', 'bad');
-    return;
-  }
-  submit([decisions.unmarkNoop(ctx, ids[0], 'restored to a posting in blotter')]);
+function unmarkNoop(row, id) {
+  openConfirm({
+    title: 'Unmark noop',
+    lines: [rowLine(row)],
+    confirm: 'Unmark noop',
+  }, () => submit([decisions.unmarkNoop(ctx, id, 'restored to a posting in blotter')]));
+}
+
+// The one-row summary line the menu and its dialogs show: date · amount · description.
+function rowLine(row) {
+  return `${date(row.date)} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`;
+}
+
+function targetSummary(row, targets) {
+  return targets.length === 1 ? rowLine(row) : `${targets.length} selected rows`;
+}
+
+// A two-row confirm shows both lines when they are on the loaded page, else the short id.
+function confirmedLines(ids) {
+  return ids.map((id) => {
+    const row = (status.rows || []).find((r) => r.externalId === id);
+    return row ? rowLine(row) : shortId(id);
+  });
 }
 
 async function submit(list) {
