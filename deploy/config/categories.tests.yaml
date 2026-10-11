@@ -26,6 +26,12 @@ tests:
   - description: "SALARY PAYROLL ACME PTY LTD"
     amount: -1000
     category: UNCATEGORIZED   # direction in; a salary-looking debit is not salary
+  - description: "UBS AG           67313 - Receipt 158959 - From  062000 11368130"
+    amount: 1871900
+    category: SALARY
+  - description: "Funding for UBS re - Transfer to Rohan - InteractiveBrokers - Receipt 26454"
+    amount: -1160000
+    category: UNCATEGORIZED   # the outbound UBS line is an investment transfer, not pay
 
   # --- INTEREST_EARNED / INTEREST_PAID -----------------------------------
   - description: "INTEREST EARNED"

@@ -47,6 +47,16 @@ rules:
         - direction: in
         - match: "salary|payroll|wages?"
 
+  # The employer's payroll bank credits the pay as "UBS AG 67313 - … From 062000 …"; the word
+  # salary never appears. Direction stays in: the one outbound "Funding for UBS re - Interactive
+  # Brokers" line is an investment transfer, not pay.
+  - category: SALARY
+    comment: "the payroll run, credited from UBS AG — the remitter's name, not the word salary"
+    when:
+      all:
+        - direction: in
+        - match: "\\bubs ag\\b"
+
   # Interest EARNED (direction in) as against INTEREST_PAID below.
   - category: INTEREST_EARNED
     comment: "interest and dividends credited to an account"
