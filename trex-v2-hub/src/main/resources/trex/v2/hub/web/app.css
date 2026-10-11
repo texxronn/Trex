@@ -109,6 +109,10 @@ header h1 {
   text-transform: uppercase;
 }
 header h1::before { content: "\25C8"; color: var(--accent); margin-right: 0.4rem; letter-spacing: 0; }
+header .instance { font-size: 11px; color: var(--muted); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 0.05rem 0.35rem; text-transform: uppercase;
+  letter-spacing: 0.04em; vertical-align: 0.15rem; }
+header .instance.prod { color: var(--warn); border-color: var(--warn); }
 
 nav { display: flex; gap: 0.15rem; overflow-x: auto; scrollbar-width: none; }
 nav::-webkit-scrollbar { display: none; }

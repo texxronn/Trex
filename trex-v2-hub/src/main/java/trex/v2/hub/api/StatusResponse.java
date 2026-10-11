@@ -12,11 +12,14 @@ import java.util.Map;
  *
  * <p>{@code stale} is the statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md §2): every account whose
  * frontier is older than its fetch cadence, oldest first. Empty when nothing to fetch.
+ *
+ * <p>{@code env} is the deployment's {@code TREX_ENV} — the same label the sequencer stamps into
+ * the log envelope — so the UI header can say which instance (Dev/Prod) a screen belongs to.
  */
 public record StatusResponse(long n, long offset, long journalHead, long lagBytes,
                              Map<String, Long> counts, Map<String, Long> reviewByKind,
                              String configRevision, String deriveVersion, String hashVersion,
-                             LocalDate through, List<Stale> stale) {
+                             LocalDate through, List<Stale> stale, String env) {
 
     /**
      * One account past its {@code fetchEveryDays} cadence: the frontier it has reached, the age of

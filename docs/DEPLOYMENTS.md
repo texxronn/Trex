@@ -13,6 +13,7 @@ shell history. No secrets here. Add a section per host.
 | Layout | `/opt/trex/compose.yml`, `/opt/trex/config/*.yaml`, `/opt/trex/.env` |
 | Compose source | `deploy/v2/compose.server.yml` (a copy at `/opt/trex/compose.yml`) |
 | Image | `trex/trex-v2:0.1.0-SNAPSHOT` — tag pinned in `/opt/trex/.env` |
+| Environment | `TREX_ENV` in `/opt/trex/.env` — the log envelope's `env` and the header badge (Dev1 / Prod / Prod-IN); at most 8 characters |
 | Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN) |
 | State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive` |
 
