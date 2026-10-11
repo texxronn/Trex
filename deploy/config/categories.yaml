@@ -32,7 +32,7 @@
 categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
              CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
-             SHOPPING, BILLS, TAXES, SAVINGS, DISCRETIONARY]
+             SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -243,15 +243,26 @@ rules:
     when:
       match: "\\bATO\\b|australian taxation|tax office"
 
-  # Money leaving for an external investment or savings provider. Moves between
-  # your own accounts are structurally TRANSFER and never reach this rule. Direction stays
-  # out: a contribution is the thing worth seeing, and a redemption is not a "saving".
-  - category: SAVINGS
-    comment: "money moved deliberately into savings"
+  # Money into market investments: brokers, funds, micro-investing and superannuation. Moves
+  # between your own accounts are structurally TRANSFER and never reach this rule. Direction stays
+  # out — a contribution is the thing worth seeing; an inbound distribution or redemption is not a
+  # contribution and stays for review (INTEREST_EARNED claims the ones that say interest/dividend).
+  - category: INVESTMENTS
+    comment: "money moved deliberately into the market: brokers, funds, super"
     when:
       all:
         - direction: out
-        - match: "vanguard|betashares|raiz|spaceship|superannuation"
+        - match: "interactive ?brokers|vanguard|betashares|raiz|spaceship|superannuation|commsec|selfwealth|superhero|\\bstake\\b|swyftx|coinspot|coinbase|etoro"
+
+  # Cash set aside outside the tracked accounts: term deposits and external savers. Own-account
+  # moves are structurally TRANSFER and never reach this rule; nothing has matched here yet, so it
+  # is the worklist to extend when an external saver appears.
+  - category: SAVINGS
+    comment: "cash set aside outside the tracked accounts (term deposits, external savers)"
+    when:
+      all:
+        - direction: out
+        - match: "term deposit|bonus saver|high interest savings"
 
   # Everyday discretionary spend: restaurants, pubs, clubs, cinemas, and the bottle shop.
   # Last, so every specific rule above wins first.
