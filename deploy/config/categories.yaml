@@ -43,7 +43,7 @@
 # withdrawal is never a deposit. Direction-blind rules may match an inbound description that
 # happens to name a merchant; measured, that is almost always the refund it is.
 
-categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
+categories: [SALARY, BONUS, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
              CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
              SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES,
@@ -71,6 +71,15 @@ rules:
       all:
         - direction: in
         - match: "\\bubs ag\\b"
+
+  # A bonus, not a salary: the employer's referral and incentive disbursements, written by the
+  # admin arm ("J.P. Morgan Admi INVREF-…") rather than the payroll descriptor ("JPMAS PAYROLL …")
+  # the SALARY rules match. Blind like a merchant-identity rule, so a referral clawback nets
+  # against the bonus it reverses instead of sitting in UNCATEGORIZED.
+  - category: BONUS
+    comment: "employer bonuses and referral incentives, by the admin arm's descriptor"
+    when:
+      match: "j\\.p\\. morgan admi"
 
   # Interest EARNED (direction in) as against INTEREST_PAID below.
   - category: INTEREST_EARNED
