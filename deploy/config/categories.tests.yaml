@@ -40,6 +40,9 @@ tests:
   - description: "DIVIDEND CBA 1234"
     amount: 700
     category: INTEREST_EARNED
+  - description: "Miscellaneous Credit - Receipt 100279HL Refi Cashback"
+    amount: 300000
+    category: REBATES
   - description: "INTEREST EARNED"
     amount: -500
     category: INTEREST_PAID    # out, so the bare word is the paid side

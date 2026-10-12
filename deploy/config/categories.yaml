@@ -42,7 +42,7 @@ categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHD
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
              CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
              SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES,
-             CHARITY, GIFTS_GIVEN, HOBBY]
+             CHARITY, GIFTS_GIVEN, HOBBY, REBATES]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -86,6 +86,17 @@ rules:
       all:
         - direction: out
         - match: "interest"
+
+  # Money given back by a bank or provider: refinance cashbacks and similar rebates. Blind, so a
+  # clawback nets against the rebate it reverses. The FX-fee rebates stay FEES — there they net the
+  # fee that caused them, which is the point of that rule (international transaction fee).
+  - category: REBATES
+    comment: "cashbacks and rebates from a bank or provider"
+    when:
+      all:
+        - match: "cashback|rebate"
+        - not:
+            match: "international transaction fee"
 
   # School fees first, so a school's "fees" is never read as a bank charge. The school and the
   # after-school care share a name but are different money — "COM*HolyFamilyCathol" against
