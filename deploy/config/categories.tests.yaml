@@ -218,6 +218,12 @@ tests:
   - description: "FLEXISCHOOLS"
     amount: -5000
     category: CHILDCARE
+  - description: "Papilio Early Le - Direct Debit - Receipt 151015 A004AQ0L1FL"
+    amount: -23100
+    category: CHILDCARE
+  - description: "Direct Debit 613602 QP PEL INGLEBURN DT.3d6iy5 QKP_QP P"
+    amount: -57422
+    category: CHILDCARE
 
   # --- HEALTH_SUPPLIES / HEALTH ----------------------------------------
   - description: "CHEMIST WAREHOUSE"
