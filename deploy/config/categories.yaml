@@ -164,11 +164,13 @@ rules:
     when:
       match: "ampol|speedway|costco gas|mobil|caltex|\\bbp\\b|\\bshell\\b|7-eleven|united petroleum|metro petroleum|puma energy|petrol|\\bfuel\\b|eg group"
 
-  # Keeping the car on the road: servicing, repairs, tyres, rego. Fuel stays separate.
+  # Keeping the car on the road: servicing, repairs, tyres, rego. Fuel stays separate. `mechanic`
+  # not `mechanical`: the bank truncates long names ("J & D JENSEN MECHANICA"), and the local
+  # mechanic is named directly so a truncated descriptor still lands here.
   - category: VEHICLE
     comment: "keeping the car on the road: rego, servicing, parts"
     when:
-      match: "bluegum|autocare|auto care|mechanical|\\btyres?\\b|service centre|\\brego\\b|registration|smash repair"
+      match: "bluegum|autocare|auto care|mechanic|jensen|\\btyres?\\b|service centre|\\brego\\b|registration|smash repair"
 
   - category: GROCERIES
     comment: "supermarkets, grocers and the bulk shops"
