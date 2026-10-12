@@ -128,6 +128,14 @@ rules:
     when:
       match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
 
+  # The kids' piano teacher, paid by CommBank App — tuition, so it sits with SCHOOL_FEES. The memo
+  # varies — "Piano Lessons", "11 Lessons", "Payment", or nothing — so match the payee name, the
+  # one constant.
+  - category: SCHOOL_FEES
+    comment: "the kids' private piano lessons (tuition), billed by the teacher"
+    when:
+      match: "vazhel"
+
   # Adult professional exams and credentials — Pearson VUE test centres and similar. Kept apart
   # from SCHOOL_FEES (the kids' schooling); the descriptor is the payment gateway's, e.g.
   # "WL *VUE* TESTING EXAM    BLOOMINGTON  MN".
@@ -253,13 +261,6 @@ rules:
     comment: "sport, activities and the kids' clubs"
     when:
       match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|eschol park|camden tigers|football|soccer club|leisure cent"
-
-  # The kids' piano teacher, paid by CommBank App. The memo varies — "Piano Lessons",
-  # "11 Lessons", "Payment", or nothing — so match the payee name, the one constant.
-  - category: SPORT_AND_LEISURE
-    comment: "the kids' activities: private piano lessons"
-    when:
-      match: "vazhel"
 
   # Hardware and the house, tracked apart from general retail. Only the chain seen in the
   # data so far; adding another is a config edit, not a code change.

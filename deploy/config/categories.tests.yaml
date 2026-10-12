@@ -241,6 +241,9 @@ tests:
   - description: "TUITION FEE"
     amount: -25000
     category: SCHOOL_FEES
+  - description: "Transfer To Vazhel A John CommBank App Auriel Piano Lessons"
+    amount: -5500
+    category: SCHOOL_FEES
   - description: "DIRECT DEBIT HOLY FAMILY OOSH"
     amount: -8000
     category: CHILDCARE        # the after-school care, not the school
