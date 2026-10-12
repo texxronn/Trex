@@ -26,6 +26,10 @@
 #                          CHARITY.
 #   LEGAL                  government and legal fees judged per instance — a passport at the post
 #                          office, a conveyancer, a filing fee — so it is hand-PINned.
+#   PERSONAL_CARE          hair, barbers, nails, beauty and the spa — judged per visit, and the
+#                          fragments collide with other descriptors ("Splash's Pools" contains
+#                          "lash", "Auto Spares" contains "spa", "Oliver Brown" contains "brow"),
+#                          so a merchant rule misfires; hand-PINned like the others.
 #
 # Rule shape (first match wins, pins before rules):
 #   category: <declared name>
@@ -247,15 +251,6 @@ rules:
     comment: "medical: doctors, dentists, specialists, health funds"
     when:
       match: "healthcare|medical|dental|physio|specsavers|optical|pathology|radiology|hospital"
-
-  # Personal grooming: hair and barbers, nails, and the beauty salon or spa. Word-bounded on
-  # purpose — bare fragments misfire on the real statements: "Splash's Pools" contains "lash",
-  # "Auto Spares" contains "spa", and "Oliver Brown" contains "brow". Blind, so a treatment refund
-  # nets in its category like the other merchant-identity rules.
-  - category: PERSONAL_CARE
-    comment: "hair, barbers, nails, beauty treatments and the spa"
-    when:
-      match: "\\bhair|\\bbarber|\\bsalon|manicure|pedicure|\\bnails?\\b|\\bbeauty\\b|\\bwaxing\\b|browbar|eyebrow|\\bbrows?\\b|\\blash(es)?\\b|eyelash|\\bspa\\b"
 
   # Gyms, pools, leisure centres and the kids' sport clubs.
   - category: SPORT_AND_LEISURE
