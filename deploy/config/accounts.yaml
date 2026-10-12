@@ -105,6 +105,15 @@ accounts:
     chip_color: stone
     closingBalance: 0
     closedAt: "2025-06-30"
+  # The Westpac offset/loan package used before the NAB and ING facilities. Its residual was
+  # disbursed to the new ING variable-rate loan at the 2022-02 refinance (WBC OLP EFT DISBUR);
+  # an ATTACH_ACCOUNT points that credit here. Holds no facts; the computed opening absorbs it.
+  - ref: "westpac-legacy"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: gray
+    closingBalance: 0
+    closedAt: "2022-02-10"
   - ref: "nab-fixed"
     currency: "AUD"
     balanceSource: clearing
