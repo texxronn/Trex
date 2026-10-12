@@ -15,10 +15,10 @@
 #   BIG_TICKET_PURCHASES   a hand-PINned label for large one-offs (a vehicle purchase, a mattress).
 #                          Size is not a kind: a size rule would fight the purpose categories, so
 #                          the operator assigns this one deliberately, row by row.
-#
-# Declared ahead of its rules:
-#   HOBBY   hobby supplies, gear and projects — its own bucket, distinct from DISCRETIONARY
-#           (eating out, shows) and SHOPPING (general retail); rules land as merchants repeat.
+#   HOBBY                  hobby supplies, gear and projects — its own bucket, distinct from
+#                          DISCRETIONARY (eating out, shows) and SHOPPING (general retail). A
+#                          merchant rule would claim every Spotlight/Anaconda buy alike, and hobby
+#                          is judged per purchase, so it is hand-PINned too.
 #
 # Rule shape (first match wins, pins before rules):
 #   category: <declared name>
