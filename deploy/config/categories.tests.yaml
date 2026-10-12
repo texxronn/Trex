@@ -514,6 +514,9 @@ tests:
   - description: "CAMDEN COUNCIL MALC      MOUNT ANNAN"
     amount: -740
     category: BILLS
+  - description: "Campbelltown Cncl RA          440701 - BPAY Bill Payment - Receipt 271531"
+    amount: -117400
+    category: BILLS   # rates: the bank writes Cncl, so the rule carries the abbreviation too
   - description: "CAMPBELLTOWN CITY COUN   CAMPBELLTOWN NS"
     amount: -5850
     category: BILLS
