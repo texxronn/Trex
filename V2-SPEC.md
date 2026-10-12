@@ -467,7 +467,7 @@ Eight modes; each one's detail lives in the plan that built it.
 
 | Mode | What it is for | Detail |
 |---|---|---|
-| **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
+| **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
 | **Expected** | headroom; the window's occurrences; **Catch up** (arrears, oldest first); the commitment registry with its Actions menu; rule lint; the since-cleared line above the headroom (§9.1) | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md` |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
