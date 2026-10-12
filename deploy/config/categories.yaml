@@ -229,12 +229,20 @@ rules:
     when:
       match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph|sushi|mcdonald|hungry jack|\\bkfc\\b|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
 
+  # The school canteen: Flexischools is a school-payments platform (it can also sell uniforms and
+  # trips), but the family's charges are canteen top-ups, so they sit with FOOD — above CHILDCARE,
+  # which no longer claims the name.
+  - category: FOOD
+    comment: "the school canteen (Flexischools)"
+    when:
+      match: "flexischool"
+
   # School fees, before CHILDCARE: the school and the after-school care share a name but are
   # different money. CCS is the Child Care Subsidy, paid to you and netting against the cost.
   - category: CHILDCARE
     comment: "childcare and after-school care, net of the CCS subsidy"
     when:
-      match: "holy family|oosh|childcare|child care|flexischool|\\bccs\\b|papilio|qp ?pel"
+      match: "holy family|oosh|childcare|child care|\\bccs\\b|papilio|qp ?pel"
 
   # Over the counter: pharmacy and the like.
   - category: HEALTH_SUPPLIES
