@@ -31,6 +31,12 @@ transferPatterns:
     # The old RAMS savings account's closure payout to ing-orange (2026-01-12); the descriptor
     # carries its number.
     - { match: 'RAMS\s+13050368', rail: BANK_TRANSFER, clearing: rams-savings }
+    # The kids' transfers: CommBank writes the destination as the mother's name and the product
+    # ("maxi saver"), never the child, and there is one such account per child with no statements
+    # held. So it shapes — it enters the pool, sits HELD (reported apart, never counted as spend),
+    # and is reviewed — but names no clearing account: the per-child landing is a person's
+    # ATTACH_ACCOUNT decision, and a future one attaches from Review.
+    - { match: 'Transfer To Meldina Machado CommBank App maxi saver', rail: BANK_TRANSFER }
     - { match: 'MR ROHAN JOSEPH MACHADO.*Osko Payment', rail: OSKO }
     # The self Osko to our CBA SmartAccess account (BSB 062-948, account 382524). Destination-based,
     # so a memo inserted before "- Osko Payment" cannot hide it; it shapes and pairs with the CBA
