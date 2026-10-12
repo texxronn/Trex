@@ -24,6 +24,10 @@ let pager;
 let minInput;
 let maxInput;
 let amountChips = [];
+// A per-browser view toggle, not a filter: it changes only what the table renders, never the query
+// or the totals. Persisted like the since-marker (localStorage), so it survives a reload.
+const HIDE_BALANCES_KEY = 'trex.hideBalances';
+let hideBalances = false;
 
 const filters = {
   account: '', category: '', leg: '', role: '', q: '', hasReview: false,
@@ -39,6 +43,7 @@ export function mount(container, context) {
   refdata = context.refdata;
   selected = new Set();
   filters.offset = 0;
+  try { hideBalances = localStorage.getItem(HIDE_BALANCES_KEY) === 'true'; } catch { hideBalances = false; }
   const query = context.modeQuery || new URLSearchParams();
   if (query.has('q')) filters.q = query.get('q');
   if (query.has('account')) filters.account = query.get('account');
@@ -79,6 +84,10 @@ function render() {
       type: 'checkbox', checked: filters.hasReview,
       onchange: (e) => set('hasReview', e.target.checked, true),
     }), 'has review'),
+    el('label', {}, el('input', {
+      type: 'checkbox', checked: hideBalances,
+      onchange: (e) => setHideBalances(e.target.checked),
+    }), 'hide balances'),
     field('Sort', select('sort', ['date', 'amount', 'category', 'account', 'n'], filters.sort,
       (v) => set('sort', v))),
     field('Order', select('order', ['desc', 'asc'], filters.order, (v) => set('order', v))),
@@ -115,7 +124,8 @@ function renderRows() {
   const head = el('tr', {},
     el('th', {}), el('th', {}, 'Date'), el('th', {}, 'Account'), el('th', {}, 'Direction'),
     el('th', { class: 'amount' }, 'Amount'),
-    el('th', { class: 'amount' }, 'Balance'), el('th', {}, 'Description'), el('th', {}, 'Category'),
+    ...(hideBalances ? [] : [el('th', { class: 'amount' }, 'Balance')]),
+    el('th', {}, 'Description'), el('th', {}, 'Category'),
     el('th', {}, 'Commitment'), el('th', {}, 'Leg'), el('th', {}, 'Role'), el('th', {}, 'Rail'),
     el('th', {}, 'n'), el('th', {}, 'id'),
     el('th', {}));
@@ -140,7 +150,7 @@ function renderRows() {
       el('td', {}, accountChip(refdata, row.accountRef)),
       el('td', {}, direction(row.amount)),
       el('td', { class: 'amount' }, money(row.amount)),
-      el('td', { class: 'amount' }, money(row.balance)),
+      ...(hideBalances ? [] : [el('td', { class: 'amount' }, money(row.balance))]),
       el('td', { class: 'desc' }, row.rawDescription,
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),
       el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
@@ -295,6 +305,14 @@ function set(key, value, resetOffset = true) {
   filters[key] = value;
   if (resetOffset) filters.offset = 0;
   load();
+}
+
+// A view toggle: persist it and re-render the table only. The query and the fetched data are
+// untouched, so there is no reload and no refetch — the balances are simply not drawn.
+function setHideBalances(value) {
+  hideBalances = value;
+  try { localStorage.setItem(HIDE_BALANCES_KEY, value ? 'true' : 'false'); } catch { /* private mode */ }
+  renderRows();
 }
 
 // Reset every filter field (not the sort/order, which are view controls) and reload.
