@@ -38,7 +38,7 @@ categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHD
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
              CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
              SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES,
-             CHARITY]
+             CHARITY, GIFTS_GIVEN]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -239,6 +239,16 @@ rules:
     comment: "gifts to charities, appeals and crowdfunding"
     when:
       match: "charity|donation|\\bappeal|gofundme|red cross|unicef|oxfam|world vision|\\brspca\\b|leukemia|cancer council|bushfire|\\buniting\\b"
+
+  # Gifts you give: birthdays, weddings, Christmas, coach collections. Out only — money collected
+  # from other parents towards a gift is not a gift given and stays for review. \bpresent\b rather
+  # than bare "present" so "represent" can never claim it.
+  - category: GIFTS_GIVEN
+    comment: "presents and gift money given"
+    when:
+      all:
+        - direction: out
+        - match: "\\bgift|birthday|\\bbday\\b|wedding|christmas|xmas|anniversary|\\bpresent\\b"
 
   # Retail, including the op shops.
   - category: "SHOPPING"

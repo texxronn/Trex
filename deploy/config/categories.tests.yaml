@@ -283,6 +283,20 @@ tests:
     amount: -3000
     category: SHOPPING   # the op shop is retail; a donation descriptor is what CHARITY claims
 
+  # --- GIFTS_GIVEN ---------------------------------------------------------------
+  - description: "Coach Gift Blythe - Transfer to Peter Joannou - Receipt 85614 To 062322"
+    amount: -2000
+    category: GIFTS_GIVEN
+  - description: "Pete Joannou Nick gift card - Osko Payment to 062322 661492 - Receipt 1"
+    amount: -2000
+    category: GIFTS_GIVEN
+  - description: "SQ *GIFT TRADING PTY LTD - Visa Purchase - Receipt 135614In Bossley"
+    amount: -1000
+    category: GIFTS_GIVEN   # a shop whose name contains Gift; unpin if it turns out not to be
+  - description: "Fast Transfer From KHALIL EL-ALI to PayID Phone Dans gift"
+    amount: 5000
+    category: UNCATEGORIZED   # out only: a gift collection received is not a gift given
+
   # --- SHOPPING ------------------------------------------------------------------
   - description: "KMART 123"
     amount: -2000
