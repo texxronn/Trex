@@ -263,7 +263,7 @@ rules:
   - category: BILLS
     comment: "household bills: power, water, phone, internet, council"
     when:
-      match: "electricity|water corp|sydney water|internet|mobile|rent|mortgage|subscription|agl sales|agl retail|telco payment|telstralimi|council|campbelltown city"
+      match: "electricity|water corp|sydney water|internet|mobile|rent|mortgage|subscription|agl sales|agl retail|telco payment|telstralimi|council|campbelltown city|campbelltown cncl"
 
   - category: TAXES
     comment: "tax paid to the ATO or to Revenue NSW"
