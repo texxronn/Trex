@@ -69,6 +69,9 @@ tests:
   - description: "DISHONOUR FEE"
     amount: -900
     category: FEES
+  - description: "International Transaction Fee Rebate - Receipt 171689"
+    amount: 1234
+    category: FEES   # blind: the rebate nets the fee that caused it
   - description: "COFFEE CART, SYDNEY"
     amount: -450
     category: FOOD              # "COFFEE" contains "fee"; \bfees?\b must not fire

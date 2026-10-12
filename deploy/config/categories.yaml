@@ -111,6 +111,14 @@ rules:
     when:
       match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
 
+  # International transaction fees and their rebates. Blind on purpose: the rebate is the fee
+  # reversed and must net against it — the FEES rule below is direction-out and so would never see
+  # the 54 rebates (they sat uncategorised until this rule existed).
+  - category: FEES
+    comment: "international transaction fees, blind so the rebate nets"
+    when:
+      match: "international transaction fee"
+
   # What the bank charges you: account keeping, safe custody, overdraw, late payment, dishonour.
   # \bfees?\b on purpose — "COFFEE" contains "fee" and would otherwise be a bank charge.
   # School fees are claimed above, so a school's "fees" never reaches here.
