@@ -371,6 +371,15 @@ tests:
   - description: "Return 05/12/25 Direct Debit 344508 AUSSIE BROADBAND 15233455CN953851"
     amount: 10350
     category: BILLS             # blind: a returned debit nets against the bill
+  - description: "CBA SAFE CUSTODY              66564120000006230792 - BPAY Bill Payment - Receipt 305192 To CBA SAFE CUSTODY 66564120000006230792"
+    amount: -20900
+    category: BILLS             # the BPAY locker/custody charge, billed by CBA
+  - description: "Locker payment 2021 - BPAY Bill Payment - Receipt 658903 To CBA SAFE CUSTODY 66564120000006230792"
+    amount: -28600
+    category: BILLS
+  - description: "Safe Custody Monthly Fee REDIRECTED FROM 062-400 11168266"
+    amount: -3200
+    category: FEES              # the bank's monthly charge is a fee, not the CBA SAFE CUSTODY bill
 
   # --- TAXES: no direction, \bATO\b bounded --------------------------------------
   - description: "ATO PAYMENT"
