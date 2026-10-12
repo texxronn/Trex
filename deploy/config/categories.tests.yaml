@@ -311,6 +311,9 @@ tests:
   - description: "Fast Transfer From KHALIL EL-ALI to PayID Phone Dans gift"
     amount: 5000
     category: UNCATEGORIZED   # out only: a gift collection received is not a gift given
+  - description: "BIRTHDAY PARTY VENUE"
+    amount: -30000
+    category: UNCATEGORIZED   # an occasion word is not a gift; CELEBRATIONS takes it by pin
 
   # --- SHOPPING ------------------------------------------------------------------
   - description: "KMART 123"
