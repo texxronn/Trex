@@ -19,6 +19,11 @@
 #                          DISCRETIONARY (eating out, shows) and SHOPPING (general retail). A
 #                          merchant rule would claim every Spotlight/Anaconda buy alike, and hobby
 #                          is judged per purchase, so it is hand-PINned too.
+#   CELEBRATIONS           birthday parties, communions, christenings and family functions —
+#                          judged per event (venue, catering, décor, entertainment), so a merchant
+#                          rule would misfire and it is hand-PINned like BIG_TICKET_PURCHASES.
+#                          A present bought for the occasion is GIFTS_GIVEN; a church offering is
+#                          CHARITY.
 #
 # Rule shape (first match wins, pins before rules):
 #   category: <declared name>
@@ -42,7 +47,7 @@ categories: [SALARY, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHD
              SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
              CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
              SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES,
-             CHARITY, GIFTS_GIVEN, HOBBY, REBATES]
+             CHARITY, GIFTS_GIVEN, HOBBY, REBATES, CELEBRATIONS]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
