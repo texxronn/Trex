@@ -276,6 +276,29 @@ tests:
     amount: -1000
     category: HEALTH
 
+  # --- PERSONAL_CARE -------------------------------------------------------------
+  - description: "SMP*Freedom Hair Arti    Macquarie FieAU"
+    amount: -4500
+    category: PERSONAL_CARE
+  - description: "SMP*H & L Salon Ingl - Visa Purchase - Receipt 185979In Ingleburn"
+    amount: -8000
+    category: PERSONAL_CARE
+  - description: "PRETTY NAILS & SPA     INGLEBURN"
+    amount: -5000
+    category: PERSONAL_CARE
+  - description: "BARBER SHOP"
+    amount: -3500
+    category: PERSONAL_CARE
+  - description: "Splashes Pools GPR - 23 Oriole Pl - Osko Payment to 112879 108919300"
+    amount: -30000
+    category: HOUSE_WORKS    # "Splash" contains "lash"; \blash\b must not fire
+  - description: "Pep's Auto Spares Nar - Visa Purchase - Receipt 198558 In Narellan"
+    amount: -5000
+    category: UNCATEGORIZED  # "Spares" contains "spa"; \bspa\b must not fire
+  - description: "SQ *OLIVER BROWN ROUSE   Rouse Hill   NS"
+    amount: -1200
+    category: UNCATEGORIZED  # "Brown" contains "brow"; \bbrows?\b must not fire
+
   # --- SPORT_AND_LEISURE ---------------------------------------------------------
   - description: "YMCA SYDNEY"
     amount: -2000

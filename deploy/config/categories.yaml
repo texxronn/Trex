@@ -48,9 +48,9 @@
 categories: [BIG_TICKET_PURCHASES, BILLS, BONUS, CASH_WITHDRAW, CELEBRATIONS, CHARITY, CHILDCARE,
              DISCRETIONARY, FEES, FLIGHTS, FOOD, FUEL, GIFTS_GIVEN, GROCERIES, HEALTH,
              HEALTH_SUPPLIES, HOBBY, HOME_IMPROVEMENT, HOUSE_WORKS, INSURANCE, INTEREST_EARNED,
-             INTEREST_PAID, INVESTMENTS, LEGAL, PROFESSIONAL_DEVELOPMENT, REBATES, SALARY,
-             SAVINGS, SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES, TRANSPORT,
-             TRAVEL, VEHICLE, VISA_FEES]
+             INTEREST_PAID, INVESTMENTS, LEGAL, PERSONAL_CARE, PROFESSIONAL_DEVELOPMENT, REBATES,
+             SALARY, SAVINGS, SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES,
+             TRANSPORT, TRAVEL, VEHICLE, VISA_FEES]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -247,6 +247,15 @@ rules:
     comment: "medical: doctors, dentists, specialists, health funds"
     when:
       match: "healthcare|medical|dental|physio|specsavers|optical|pathology|radiology|hospital"
+
+  # Personal grooming: hair and barbers, nails, and the beauty salon or spa. Word-bounded on
+  # purpose — bare fragments misfire on the real statements: "Splash's Pools" contains "lash",
+  # "Auto Spares" contains "spa", and "Oliver Brown" contains "brow". Blind, so a treatment refund
+  # nets in its category like the other merchant-identity rules.
+  - category: PERSONAL_CARE
+    comment: "hair, barbers, nails, beauty treatments and the spa"
+    when:
+      match: "\\bhair|\\bbarber|\\bsalon|manicure|pedicure|\\bnails?\\b|\\bbeauty\\b|\\bwaxing\\b|browbar|eyebrow|\\bbrows?\\b|\\blash(es)?\\b|eyelash|\\bspa\\b"
 
   # Gyms, pools, leisure centres and the kids' sport clubs.
   - category: SPORT_AND_LEISURE
