@@ -27,7 +27,7 @@ let amountChips = [];
 
 const filters = {
   account: '', category: '', leg: '', role: '', q: '', hasReview: false,
-  minAmount: '', maxAmount: '',
+  from: '', to: '', minAmount: '', maxAmount: '',
   sort: 'date', order: 'desc', limit: 100, offset: 0,
 };
 let selected = new Set();
@@ -48,6 +48,8 @@ export function mount(container, context) {
   if (query.has('hasReview')) filters.hasReview = query.get('hasReview') === 'true';
   if (query.has('minAmount')) filters.minAmount = query.get('minAmount');
   if (query.has('maxAmount')) filters.maxAmount = query.get('maxAmount');
+  if (query.has('from')) filters.from = query.get('from');
+  if (query.has('to')) filters.to = query.get('to');
   render();
   load();
   return { refresh: load };
@@ -64,6 +66,8 @@ function render() {
       (v) => set('category', v))),
     field('Leg', select('leg', ['', 'MATCHED', 'HELD', 'EXTERNAL'], filters.leg, (v) => set('leg', v))),
     field('Role', select('role', ['', 'transaction', 'noop'], filters.role, (v) => set('role', v))),
+    field('From', dateInput('from')),
+    field('To', dateInput('to')),
     field('Text', el('input', {
       type: 'search', value: filters.q,
       oninput: debounce((e) => set('q', e.target.value, true), 250),
@@ -299,6 +303,14 @@ function set(key, value, resetOffset = true) {
 // are the fast path: click a tier to filter by it, click the active one again to clear it.
 const AMOUNT_CHIPS = [50, 100, 500, 1000];
 
+// A date filter is an inclusive yyyy-mm-dd boundary (the API compares LocalDate); the native
+// picker emits that shape directly, so change is enough — no parse step like the amount inputs.
+function dateInput(key) {
+  const input = el('input', { type: 'date', value: filters[key] || '' });
+  input.addEventListener('change', () => set(key, input.value));
+  return input;
+}
+
 function amountInput(key, placeholder) {
   const input = el('input', {
     type: 'text', class: 'amount', inputmode: 'decimal', placeholder,
@@ -365,6 +377,8 @@ function clearFilters() {
   filters.role = '';
   filters.q = '';
   filters.hasReview = false;
+  filters.from = '';
+  filters.to = '';
   filters.minAmount = '';
   filters.maxAmount = '';
   filters.offset = 0;
