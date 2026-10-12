@@ -306,7 +306,7 @@ rules:
     when:
       all:
         - direction: out
-        - match: "interactive ?brokers|vanguard|betashares|raiz|spaceship|superannuation|commsec|selfwealth|superhero|\\bstake\\b|swyftx|coinspot|coinbase|etoro"
+        - match: "interactive ?brokers|vanguard|betashares|raiz|spaceship|superannuation|australiansuper|commsec|selfwealth|superhero|\\bstake\\b|swyftx|coinspot|coinbase|etoro"
 
   # Cash set aside outside the tracked accounts: term deposits and external savers. Own-account
   # moves are structurally TRANSFER and never reach this rule; nothing has matched here yet, so it
