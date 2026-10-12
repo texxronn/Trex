@@ -4,7 +4,7 @@
 import { el } from './dom.js';
 
 export function openPrompt(options, onSave) {
-  const { title, summary, label, placeholder, multiline, confirm } = options;
+  const { title, summary, warning, label, placeholder, multiline, confirm } = options;
   const overlay = el('div', { class: 'modal', onclick: (e) => { if (e.target === overlay) close(); } });
   const input = multiline
     ? el('textarea', { rows: '3', placeholder: placeholder || '' })
@@ -12,6 +12,7 @@ export function openPrompt(options, onSave) {
   const dialog = el('div', { class: 'dialog', role: 'dialog', 'aria-label': title },
     el('h3', {}, title),
     summary ? el('p', { class: 'muted' }, summary) : null,
+    warning ? el('p', { class: 'warn' }, warning) : null,
     el('label', { class: 'field' }, label || '', input),
     el('div', { class: 'actions' },
       el('button', { type: 'button', onclick: close }, 'Cancel'),

@@ -207,6 +207,8 @@ function rowMenuItems(row) {
       onPick: () => markNoop(row, targets[0]) },
     { label: 'Unmark noop', enabled: one, hint: 'select exactly one row',
       onPick: () => unmarkNoop(row, targets[0]) },
+    { label: 'Retire\u2026', enabled: one, hint: 'select exactly one row',
+      onPick: () => retire(row, targets[0]) },
   ];
 }
 
@@ -270,6 +272,27 @@ function unmarkNoop(row, id) {
     lines: [rowLine(row)],
     confirm: 'Unmark noop',
   }, () => submit([decisions.unmarkNoop(ctx, id, 'restored to a posting in blotter')]));
+}
+
+// A retirement is a conclusion with a reason (Decision.Retire requires one), and unlike mark-noop
+// it is one-way in the UI: the row leaves txn_current, so it is gone from every view and cannot be
+// right-clicked back. Restoring needs a REVOKE by decision id (API/CLI). Say so before recording.
+function retire(row, id) {
+  openPrompt({
+    title: 'Retire',
+    summary: rowLine(row),
+    warning: 'It stops counting and leaves every view. On a statement account the balance chain '
+      + 'will read as broken. Restoring is a REVOKE by decision id (API/CLI), not from here.',
+    label: 'Why does this row no longer count?',
+    placeholder: 'not to be counted or shown',
+    confirm: 'Retire',
+  }, (reason) => {
+    if (!reason) {
+      toast('A reason is needed', 'bad');
+      return;
+    }
+    submit([decisions.retire(ctx, id, reason)]);
+  });
 }
 
 // The one-row summary line the menu and its dialogs show: date · amount · description.

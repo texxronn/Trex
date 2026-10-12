@@ -19,6 +19,12 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A `Retire…` action on the Blotter.** Fact-level `RETIRE` (§5) — "the fact no longer counts and
+  has no replacement" — was reachable only from the reparse card and `POST /api/decisions`; the
+  Blotter's row menu now offers it, one row at a time, behind a reason prompt and a warning. It is
+  one-way in the UI: the row leaves `txn_current`, so restoring is a `REVOKE` by decision id
+  (API/CLI), never a menu click. The economics and the egress are unchanged — a retired unit already
+  de-projects to an orphan for `--remove-orphans`.
 - **The family assistant** (`V2-ASSISTANT-PLAN.md`, built). The MCP surface gains **per-person
   attribution** and three intent-shaped action tools — `trex_categorize` (`PIN`), `trex_note`
   (`NOTE`) and `trex_mark_paid` (`SETTLE_OCCURRENCE`) — each carrying an `actingUser`: a declared

@@ -16,6 +16,8 @@ export const decisions = {
   unpair: (ctx, legA, legB, comment) => ({ ...envelope('UNPAIR', ctx, comment), legA, legB }),
   markNoop: (ctx, id, reason) => ({ ...envelope('MARK_NOOP', ctx, reason), externalId: id, reason }),
   unmarkNoop: (ctx, id, comment) => ({ ...envelope('UNMARK_NOOP', ctx, comment), externalId: id }),
+  // RETIRE carries its reason in `reason`, not `comment` (Decision.Retire has no comment).
+  retire: (ctx, id, reason) => ({ ...envelope('RETIRE', ctx, null), externalId: id, reason }),
   note: (ctx, id, text) => ({ ...envelope('NOTE', ctx, null), externalId: id, text }),
   attachAccount: (ctx, ids, account, comment) => ({ ...envelope('ATTACH_ACCOUNT', ctx, comment),
     externalIds: ids, account }),
