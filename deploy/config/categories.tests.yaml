@@ -182,6 +182,9 @@ tests:
   - description: "Reddy Express 1563 - Visa Purchase - Receipt 115521In Mount Annan Date 28"
     amount: -10685
     category: FUEL
+  - description: "METRO MACQUARIE FIELDS - Visa Purchase - Receipt 179402In MACQUARIE"
+    amount: -15977
+    category: FUEL
 
   # --- VEHICLE -------------------------------------------------------------------
   - description: "BLUEGUM AUTO CARE"

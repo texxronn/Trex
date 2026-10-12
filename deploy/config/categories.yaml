@@ -204,7 +204,7 @@ rules:
   - category: FUEL
     comment: "petrol, kept apart from TRANSPORT because trains are the primary transport"
     when:
-      match: "ampol|speedway|costco gas|mobil|caltex|\\bbp\\b|\\bshell\\b|7-eleven|united petroleum|metro petroleum|puma energy|petrol|\\bfuel\\b|eg group|reddy express"
+      match: "ampol|speedway|costco gas|mobil|caltex|\\bbp\\b|\\bshell\\b|7-eleven|united petroleum|metro petroleum|metro macquarie|puma energy|petrol|\\bfuel\\b|eg group|reddy express"
 
   # Keeping the car on the road: servicing, repairs, tyres, rego. Fuel stays separate. `mechanic`
   # not `mechanical`: the bank truncates long names ("J & D JENSEN MECHANICA"), and the local
