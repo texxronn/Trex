@@ -248,6 +248,14 @@ rules:
     when:
       match: "healthcare|medical|dental|physio|specsavers|optical|pathology|radiology|hospital"
 
+  # Medicare benefits: the rebate the government pays back for a service — inbound cash that nets
+  # against the health spend it partly refunds, because the visit is booked at full cost and the
+  # benefit arrives separately. Blind, like the provider rules.
+  - category: HEALTH
+    comment: "Medicare benefits — the rebate that nets against health spend"
+    when:
+      match: "mcare|medicare"
+
   # Gyms, pools, leisure centres and the kids' sport clubs.
   - category: SPORT_AND_LEISURE
     comment: "sport, activities and the kids' clubs"
