@@ -37,7 +37,14 @@ public final class CbaPdf implements SourceAdapter {
     private static final Pattern TRANSACTION = Pattern.compile(
         "^(\\d{2} [A-Za-z]{3} \\d{4})\\s+(.+?)\\s+(-?\\$[\\d,]+\\.\\d{2})\\s+(-?\\$[\\d,]+\\.\\d{2})$");
 
-    private static final Pattern FOOTER = Pattern.compile("^Created \\d{2}/\\d{2}/\\d{2}");
+    /**
+     * Ends the transaction rows: the {@code Created …} stamp, and the disclaimer block that follows
+     * the table ("Any pending transactions haven't been included…"). Without the disclaimer here it
+     * is read as a continuation of the row above it, which re-mints that row's content-hash id —
+     * CommBank rows carry no receipt, so the description <b>is</b> the identity.
+     */
+    private static final Pattern FOOTER = Pattern.compile(
+        "^(Created \\d{2}/\\d{2}/\\d{2}|Any pending transactions)");
     private static final Pattern TABLE_HEADER = Pattern.compile("^Date\\s+Transaction details");
 
     private static final DateTimeFormatter DATE =

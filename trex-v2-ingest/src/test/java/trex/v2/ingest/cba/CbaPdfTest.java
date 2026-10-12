@@ -30,4 +30,32 @@ class CbaPdfTest {
             "a line inside the table continues the row above it");
         assertEquals(-1000L, parsed.candidates().get(1).amount());
     }
+
+    @Test
+    void theClosingDisclaimerIsFurnitureNotALastRowContinuation() {
+        // The exact shape the October 2026 statements tripped: the disclaimer follows the last row
+        // with blank lines, and its continuation lines must not attach to that row.
+        String text = """
+            Date Transaction details Amount Balance
+            01 Oct 2026  Transfer from xx2435 CommBank app  $750.00  $990.38
+            house expense
+
+            Any pending transactions haven\u2019t been included in this list. Proceeds of cheques aren\u2019t available until
+            cleared.
+
+            If you have questions or need more information, go to commbank.com.au/support.
+
+            Kind regards,
+            The CommBank Team.
+
+            Created 13/10/26 07:36am (Sydney/Melbourne time)
+            While this letter is accurate at the time it\u2019s produced,
+            """;
+        Parsed parsed = CbaPdf.parse(text, "statement.pdf", "cba-smartaccess");
+        assertTrue(parsed.clean(), parsed.bad().toString());
+        assertEquals(1, parsed.candidates().size());
+        assertEquals("Transfer from xx2435 CommBank app house expense",
+            parsed.candidates().get(0).rawDescription(),
+            "the disclaimer is furniture, never a continuation of the row above it");
+    }
 }
