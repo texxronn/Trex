@@ -129,6 +129,16 @@ accounts:
     closingBalance: 0
     closedAt: "2023-02-28"
 
+  # The old RAMS account (13050368), closed. Its statements were never ingested; its remaining
+  # balance came across to ing-orange on 2026-01-12, so the payout pairs directly with this
+  # account. Closing 0: it emptied itself into the payout, and no movement is known after it.
+  - ref: "rams-account"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: rose
+    closingBalance: 0
+    closedAt: "2026-01-12"
+
   # The carryover book (§6.10): a holding account for genuinely one-sided movements — a transfer
   # whose contra cannot be identified, or a knowingly-unbalanced entry (hidden/cash) with no
   # statement. It holds no facts and is never chained; the derived opening absorbs the position.

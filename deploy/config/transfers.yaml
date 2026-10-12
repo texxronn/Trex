@@ -28,6 +28,9 @@ transferPatterns:
     - { match: 'Nab Offset',         rail: BANK_TRANSFER, clearing: nab-variable }
     - { match: 'WestPac Auto Payment|Monthly payment .* To WESTPAC|WESTPAC CARDS',
         rail: BPAY, clearing: westpac-card }
+    # The old RAMS account's closure payout to ing-orange (2026-01-12); the descriptor carries
+    # its number.
+    - { match: 'RAMS\s+13050368', rail: BANK_TRANSFER, clearing: rams-account }
     - { match: 'MR ROHAN JOSEPH MACHADO.*Osko Payment', rail: OSKO }
     # The self Osko to our CBA SmartAccess account (BSB 062-948, account 382524). Destination-based,
     # so a memo inserted before "- Osko Payment" cannot hide it; it shapes and pairs with the CBA
