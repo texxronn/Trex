@@ -365,6 +365,12 @@ tests:
   - description: "AGL SALES REFUND"
     amount: 200
     category: BILLS             # the rule is direction-blind
+  - description: "Direct Debit 344508 AUSSIE BROADBAND 15753836CN953851"
+    amount: -10350
+    category: BILLS
+  - description: "Return 05/12/25 Direct Debit 344508 AUSSIE BROADBAND 15233455CN953851"
+    amount: 10350
+    category: BILLS             # blind: a returned debit nets against the bill
 
   # --- TAXES: no direction, \bATO\b bounded --------------------------------------
   - description: "ATO PAYMENT"
