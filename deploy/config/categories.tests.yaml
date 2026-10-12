@@ -33,6 +33,20 @@ tests:
     amount: -1160000
     category: INVESTMENTS   # the outbound UBS line is an investment contribution, not pay
 
+  # --- BONUS: the employer's referral/incentive arm, distinct from payroll ------------------
+  - description: "J.P. Morgan Admi INVREF-8184564 - Receipt 108309 - From  219900 10050191"
+    amount: 147500
+    category: BONUS
+  - description: "J.P. Morgan Admi INVREF-9238699 - Receipt 152991 - From  219900 10050191"
+    amount: 4142
+    category: BONUS
+  - description: "J.P. Morgan Admi INVREF-8184565 - Receipt 108310 - From  219900 10050191"
+    amount: -147500
+    category: BONUS             # blind: a referral clawback nets against the bonus it reverses
+  - description: "JPMAS PAYROLL AS46812 13005122 - Receipt 102916 - From  219900 10050060"
+    amount: 1336167
+    category: SALARY            # the payroll run is not the bonus admin arm
+
   # --- INTEREST_EARNED / INTEREST_PAID -----------------------------------
   - description: "INTEREST EARNED"
     amount: 500
