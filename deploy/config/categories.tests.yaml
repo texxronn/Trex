@@ -179,6 +179,9 @@ tests:
   - description: "SHELLHARBOUR"
     amount: -1000
     category: UNCATEGORIZED     # a suburb, not the petrol brand; \bshell\b must not fire
+  - description: "Reddy Express 1563 - Visa Purchase - Receipt 115521In Mount Annan Date 28"
+    amount: -10685
+    category: FUEL
 
   # --- VEHICLE -------------------------------------------------------------------
   - description: "BLUEGUM AUTO CARE"
