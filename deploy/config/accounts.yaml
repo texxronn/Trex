@@ -129,6 +129,17 @@ accounts:
     closingBalance: 0
     closedAt: "2023-02-28"
 
+  # The NAB mortgage refinanced to ING on 2022-02-09. The new ING loans' opening drawdowns
+  # (SWIFT Tfr, ing-mortgage-simplifier $360,000 and ing-variable-rate $159,402) are the payout;
+  # an ATTACH_ACCOUNT decision points them here. Holds no facts and is never chained: the computed
+  # opening absorbs the old facility, landing on the declared closing (0 — it was paid out in full).
+  - ref: "nab-mortgage-legacy"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: gray
+    closingBalance: 0
+    closedAt: "2022-02-09"
+
   # The old RAMS savings account (13050368), closed. Its statements were never ingested; its
   # remaining balance came across to ing-orange on 2026-01-12, so the payout pairs directly with
   # this account. Closing 0: it emptied itself into the payout, and no movement is known after it.
