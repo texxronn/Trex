@@ -305,6 +305,12 @@ tests:
   - description: "Rohan Ingleburn Pa - Transfer to Modern Roof Restoration NSW - Receipt 4764"
     amount: -251200
     category: HOUSE_WORKS
+  - description: "Enviro Spray Pest Control - Osko Payment to 112879 125199092"
+    amount: -18500
+    category: HOUSE_WORKS
+  - description: "T&R PEST TERMITE CONTROL Rohan M - Osko Payment to +61-404895508"
+    amount: -20000
+    category: HOUSE_WORKS
 
   # --- CHARITY -------------------------------------------------------------------
   - description: "FAUSTINA CHARITY FOUNDATI - Visa Purchase - Receipt 197484 In INGLEBURN"

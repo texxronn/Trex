@@ -271,9 +271,9 @@ rules:
   # trade's refund nets here. Word-bounded on purpose: "Liverpool" is not a pool and "electricity"
   # is not an electrician.
   - category: HOUSE_WORKS
-    comment: "trades on the property: solar, roof, plumbing, electrical, garage doors, landscaping"
+    comment: "trades on the property: solar, roof, plumbing, electrical, garage doors, landscaping, pest control"
     when:
-      match: "solar|modern roof restoration|\\broof restor|\\bplumb|\\belectric(al|ian)\\b|sparky|garage door|\\bhandyman|\\bgutter|\\bfence|irrigation|paving|\\bturf|landscap"
+      match: "solar|modern roof restoration|\\broof restor|\\bplumb|\\belectric(al|ian)\\b|sparky|garage door|\\bhandyman|\\bgutter|\\bfence|irrigation|paving|\\bturf|landscap|\\bpest\\b|enviro spray"
 
   # Pool service, parts and repairs; the refund claims here too (blind).
   - category: HOUSE_WORKS
