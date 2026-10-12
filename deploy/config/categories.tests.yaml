@@ -250,9 +250,9 @@ tests:
   - description: "DIRECT DEBIT HOLY FAMILY OOSH"
     amount: -8000
     category: CHILDCARE        # the after-school care, not the school
-  - description: "FLEXISCHOOLS"
-    amount: -5000
-    category: CHILDCARE
+  - description: "PAYPAL *FLEXISCHOOL AC   4029357733   AU"
+    amount: -5057
+    category: FOOD              # the school canteen, via Flexischools
   - description: "Papilio Early Le - Direct Debit - Receipt 151015 A004AQ0L1FL"
     amount: -23100
     category: CHILDCARE
