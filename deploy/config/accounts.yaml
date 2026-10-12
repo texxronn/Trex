@@ -166,6 +166,23 @@ accounts:
     closingBalance: 13554      # the cba-smartaccess balance at 2024-10-02
     closedAt: "2024-10-01"
 
+  # The kids' savings accounts (St George), one per child. Their statements are not held, so a
+  # clearing account: a transfer lands as an account side, never a fact, and the derived opening
+  # absorbs the position. The destination text names their mother and the product ("maxi saver"),
+  # never the child, so the per-child landing is an ATTACH_ACCOUNT decision, not a pattern
+  # (see the 'maxi saver' entry in transfers.yaml). Migrate by registering the real account and
+  # revoking the attach. budget is irrelevant: a clearing account is never in "left this month".
+  - ref: "sg-auriel"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: pink
+    closingBalance: 0
+  - ref: "sg-blythe"
+    currency: "AUD"
+    balanceSource: clearing
+    chip_color: fuchsia
+    closingBalance: 0
+
   # Cash. balanceSource: declared — no statement exists, so balances arrive only when a person
   # states one (§2.3 ATTESTATION) and the chain has deliberate gaps between them. One per person,
   # because two wallets are two accounts however loosely either is tracked.
