@@ -167,6 +167,9 @@ tests:
   - description: "BOB JANE TYRES"
     amount: -9000
     category: VEHICLE
+  - description: "J & D JENSEN MECHANICA - Visa Purchase - Receipt 186395In INGLEBURN"
+    amount: -38000
+    category: VEHICLE   # the bank truncates "MECHANICAL"; `mechanic`/`jensen` catch it
   - description: "CAR REGO PAYMENT"
     amount: -5000
     category: VEHICLE
