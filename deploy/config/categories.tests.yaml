@@ -275,6 +275,9 @@ tests:
   - description: "PATHOLOGY NSW"
     amount: -1000
     category: HEALTH
+  - description: "MCARE BENEFITS   656046607 AYWQ  - Receipt 110589"
+    amount: 7370
+    category: HEALTH            # the Medicare rebate, inbound; the rule is blind and nets it
 
   # --- SPORT_AND_LEISURE ---------------------------------------------------------
   - description: "YMCA SYDNEY"
