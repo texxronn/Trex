@@ -43,11 +43,12 @@
 # withdrawal is never a deposit. Direction-blind rules may match an inbound description that
 # happens to name a merchant; measured, that is almost always the refund it is.
 
-categories: [SALARY, BONUS, INTEREST_EARNED, INTEREST_PAID, FEES, VISA_FEES, CASH_WITHDRAW, INSURANCE,
-             SUBSCRIPTIONS, TRANSPORT, FLIGHTS, TRAVEL, FUEL, VEHICLE, GROCERIES, FOOD, SCHOOL_FEES,
-             CHILDCARE, HEALTH_SUPPLIES, HEALTH, SPORT_AND_LEISURE, HOME_IMPROVEMENT, HOUSE_WORKS,
-             SHOPPING, BILLS, TAXES, SAVINGS, INVESTMENTS, DISCRETIONARY, BIG_TICKET_PURCHASES,
-             CHARITY, GIFTS_GIVEN, HOBBY, REBATES, CELEBRATIONS]
+categories: [BIG_TICKET_PURCHASES, BILLS, BONUS, CASH_WITHDRAW, CELEBRATIONS, CHARITY, CHILDCARE,
+             DISCRETIONARY, FEES, FLIGHTS, FOOD, FUEL, GIFTS_GIVEN, GROCERIES, HEALTH,
+             HEALTH_SUPPLIES, HOBBY, HOME_IMPROVEMENT, HOUSE_WORKS, INSURANCE, INTEREST_EARNED,
+             INTEREST_PAID, INVESTMENTS, PROFESSIONAL_DEVELOPMENT, REBATES, SALARY, SAVINGS,
+             SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES, TRANSPORT, TRAVEL,
+             VEHICLE, VISA_FEES]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
@@ -124,6 +125,14 @@ rules:
     comment: "schools, university and student accommodation, plus book club and assessments"
     when:
       match: "scholastic|st patricks college|wccs\\.nsw\\.edu|icas assessments|unsw|scape|tafestore"
+
+  # Adult professional exams and credentials — Pearson VUE test centres and similar. Kept apart
+  # from SCHOOL_FEES (the kids' schooling); the descriptor is the payment gateway's, e.g.
+  # "WL *VUE* TESTING EXAM    BLOOMINGTON  MN".
+  - category: PROFESSIONAL_DEVELOPMENT
+    comment: "professional certification and licensing exams"
+    when:
+      match: "pearson|vue\\*|testing exam"
 
   # International transaction fees and their rebates. Blind on purpose: the rebate is the fee
   # reversed and must net against it — the FEES rule below is direction-out and so would never see

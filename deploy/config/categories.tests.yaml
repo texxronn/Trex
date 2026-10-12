@@ -251,6 +251,11 @@ tests:
     amount: -57422
     category: CHILDCARE
 
+  # --- PROFESSIONAL_DEVELOPMENT ----------------------------------------------------
+  - description: "WL *VUE* TESTING EXAM    BLOOMINGTON  MN"
+    amount: -16500
+    category: PROFESSIONAL_DEVELOPMENT
+
   # --- HEALTH_SUPPLIES / HEALTH ----------------------------------------
   - description: "CHEMIST WAREHOUSE"
     amount: -2000
