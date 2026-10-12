@@ -270,15 +270,16 @@ rules:
     when:
       match: "charity|donation|\\bappeal|gofundme|red cross|unicef|oxfam|world vision|\\brspca\\b|leukemia|cancer council|bushfire|\\buniting\\b"
 
-  # Gifts you give: birthdays, weddings, Christmas, coach collections. Out only — money collected
-  # from other parents towards a gift is not a gift given and stays for review. \bpresent\b rather
-  # than bare "present" so "represent" can never claim it.
+  # Gifts you give: weddings, Christmas, coach collections. Out only — money collected from other
+  # parents towards a gift is not a gift given and stays for review. \bpresent\b rather than bare
+  # "present" so "represent" can never claim it. No birthday/bday: an occasion word is not a gift,
+  # and "BIRTHDAY PARTY VENUE" belongs to CELEBRATIONS by hand.
   - category: GIFTS_GIVEN
     comment: "presents and gift money given"
     when:
       all:
         - direction: out
-        - match: "\\bgift|birthday|\\bbday\\b|wedding|christmas|xmas|anniversary|\\bpresent\\b"
+        - match: "\\bgift|wedding|christmas|xmas|anniversary|\\bpresent\\b"
 
   # Retail, including the op shops.
   - category: "SHOPPING"
