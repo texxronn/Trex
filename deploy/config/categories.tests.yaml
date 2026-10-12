@@ -227,6 +227,9 @@ tests:
   - description: "CAKE MERCHANT"
     amount: -1500
     category: FOOD
+  - description: "1301_George_Street_KFC - Visa Purchase - Receipt 165156In Sydney"
+    amount: -1850
+    category: FOOD              # "KFC" after an underscore; \bkfc\b would miss it
 
   # --- SCHOOL_FEES before FEES and CHILDCARE ------------------------------------------------
   - description: "COM*HOLYFAMILYCATHO"
