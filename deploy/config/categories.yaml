@@ -184,7 +184,7 @@ rules:
   - category: CHILDCARE
     comment: "childcare and after-school care, net of the CCS subsidy"
     when:
-      match: "holy family|oosh|childcare|child care|flexischool|\\bccs\\b"
+      match: "holy family|oosh|childcare|child care|flexischool|\\bccs\\b|papilio|qp ?pel"
 
   # Over the counter: pharmacy and the like.
   - category: HEALTH_SUPPLIES
