@@ -24,6 +24,8 @@
 #                          rule would misfire and it is hand-PINned like BIG_TICKET_PURCHASES.
 #                          A present bought for the occasion is GIFTS_GIVEN; a church offering is
 #                          CHARITY.
+#   LEGAL                  government and legal fees judged per instance — a passport at the post
+#                          office, a conveyancer, a filing fee — so it is hand-PINned.
 #
 # Rule shape (first match wins, pins before rules):
 #   category: <declared name>
@@ -46,9 +48,9 @@
 categories: [BIG_TICKET_PURCHASES, BILLS, BONUS, CASH_WITHDRAW, CELEBRATIONS, CHARITY, CHILDCARE,
              DISCRETIONARY, FEES, FLIGHTS, FOOD, FUEL, GIFTS_GIVEN, GROCERIES, HEALTH,
              HEALTH_SUPPLIES, HOBBY, HOME_IMPROVEMENT, HOUSE_WORKS, INSURANCE, INTEREST_EARNED,
-             INTEREST_PAID, INVESTMENTS, PROFESSIONAL_DEVELOPMENT, REBATES, SALARY, SAVINGS,
-             SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES, TRANSPORT, TRAVEL,
-             VEHICLE, VISA_FEES]
+             INTEREST_PAID, INVESTMENTS, LEGAL, PROFESSIONAL_DEVELOPMENT, REBATES, SALARY,
+             SAVINGS, SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES, TRANSPORT,
+             TRAVEL, VEHICLE, VISA_FEES]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
