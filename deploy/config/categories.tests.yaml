@@ -377,6 +377,9 @@ tests:
   - description: "SUPERANNUATION FUND"
     amount: -30000
     category: INVESTMENTS
+  - description: "Payment - BPAY Bill Payment - Receipt 570385 To australiansuper 3006010767713909"
+    amount: -300000
+    category: INVESTMENTS   # super is on the rule's list; the fund's name was the gap
   - description: "VANGUARD DISTRIBUTION"
     amount: 3000
     category: UNCATEGORIZED   # out only: an inbound distribution is not a contribution
