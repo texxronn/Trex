@@ -284,6 +284,12 @@ tests:
   - description: "MCARE BENEFITS   656046607 AYWQ  - Receipt 110589"
     amount: 7370
     category: HEALTH            # the Medicare rebate, inbound; the rule is blind and nets it
+  - description: "ST GEORGE HOSPITAL"
+    amount: -12000
+    category: HEALTH            # \bhospitals?\b — a real hospital still matches
+  - description: "SQ *KKSY HOSPITALITY P   WentworthvillNS"
+    amount: -3606
+    category: UNCATEGORIZED     # ...but "hospital" inside "HOSPITALITY" must not (a hospitality merchant)
 
   # --- SPORT_AND_LEISURE ---------------------------------------------------------
   - description: "YMCA SYDNEY"
