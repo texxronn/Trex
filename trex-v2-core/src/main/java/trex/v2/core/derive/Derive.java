@@ -2002,10 +2002,13 @@ public final class Derive {
         }
 
         private List<Unit> units() {
+            // Built once: currentById() copies the whole current set, and rebuilding it per leg
+            // made this stage O(transfers x current).
+            Map<String, CurrentFact> byId = currentById();
             List<Unit> out = new ArrayList<>();
             for (TransferRow t : transfers) {
-                CurrentFact from = currentById().get(t.fromLeg());
-                CurrentFact to = currentById().get(t.toLeg());
+                CurrentFact from = byId.get(t.fromLeg());
+                CurrentFact to = byId.get(t.toLeg());
                 if (t.clearingAccount() != null) {
                     // One real leg and an account side (§6.10): the unit is carried by the real leg.
                     CurrentFact real = from != null ? from : to;
