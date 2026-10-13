@@ -262,12 +262,13 @@ rules:
     when:
       match: "chemist|pharmacy|priceline|\\bcwh\\b"
 
-  # Seeing someone: GP, dental, optical, physio, specialists. \bhospitals?\b, never bare
-  # "hospital": "SQ *KKSY HOSPITALITY" is a hospitality merchant, not a hospital.
+  # Seeing someone: GP, dental, optical, physio, specialists. The negative lookahead keeps the
+  # hospitality merchant ("SQ *KKSY HOSPITALITY") out without a word boundary, because the bank
+  # glues hospital names ("LiverpoolHospital", "TheChildrensHospitalWe") where \b would fail.
   - category: HEALTH
     comment: "medical: doctors, dentists, specialists, health funds"
     when:
-      match: "healthcare|medical|dental|physio|specsavers|optical|pathology|radiology|\\bhospitals?\\b"
+      match: "healthcare|medical|dental|physio|specsavers|optical|pathology|radiology|hospital(?!ity)"
 
   # Medicare benefits: the rebate the government pays back for a service — inbound cash that nets
   # against the health spend it partly refunds, because the visit is booked at full cost and the
