@@ -115,6 +115,19 @@ final class Sql {
         + "category=excluded.category, decision_n=excluded.decision_n, user_id=excluded.user_id, "
         + "comment=excluded.comment";
     static final String DELETE_PIN_CURRENT = "DELETE FROM pin_current WHERE external_id = ?";
+    // The NOTE patch (V2-INCREMENTAL-REFRESH-PLAN.md §5 slice 2). A note's decision_n is unique, so
+    // the row is a plain insert keyed by that primary key; the external_id is already chain-resolved
+    // and echoes derive's INSERT_NOTE_CURRENT (a note accumulates, latest wins is not a thing).
+    static final String INSERT_NOTE_CURRENT_SCOPED = "INSERT INTO note_current(decision_n, external_id, "
+        + "text, user_id, at) VALUES(?,?,?,?,?)";
+    // The DISMISS patch (V2-INCREMENTAL-REFRESH-PLAN.md §5 slice 4). The (kind, subject) pair is the
+    // review_item primary key; the subject is resolved exactly as the review stage resolves it for
+    // that kind before the delete. A REVOKE stays a full re-derive.
+    static final String DELETE_REVIEW_ITEM = "DELETE FROM review_item WHERE kind = ? AND subject = ?";
+    // DORMANT_COMMITMENT/COMMITMENT_ARREARS subjects are declared commitment ids, so membership in
+    // the declared fold is checked against the derived commitment table (candidates are `detected`).
+    static final String SELECT_DECLARED_COMMITMENT = "SELECT 1 FROM commitment WHERE commitment_id = ? "
+        + "AND origin = 'declared'";
     static final String UPDATE_TXN_CATEGORY = "UPDATE txn_current SET category=?, category_origin=?, "
         + "rule_id=?, state_hash=? WHERE external_id=?";
     static final String UPDATE_UNIT_CATEGORY = "UPDATE unit SET category=?, origin=? WHERE unit_id=?";
