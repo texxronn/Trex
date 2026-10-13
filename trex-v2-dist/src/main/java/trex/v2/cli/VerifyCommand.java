@@ -49,6 +49,11 @@ public final class VerifyCommand implements Callable<Integer> {
         try (IndexLock ignored = IndexLock.acquire(db);
              Indexer indexer = Indexer.open(db, loaded.config())) {
             indexer.apply(journal, at);
+            // apply no longer advances as_of for a no-op or a row-scoped patch (slice 5); the
+            // fingerprint must be at `at` to compare against the rebuild at the same instant.
+            if (!at.toString().equals(indexer.meta("as_of").orElse(null))) {
+                indexer.deriveNow(at);
+            }
             String incremental = indexer.derivedFingerprint();
             Map<String, Long> counts = indexer.counts();
             java.util.Set<String> declared = loaded.config().registry().accounts().values().stream()

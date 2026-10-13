@@ -139,6 +139,27 @@ class IndexerTest {
     }
 
     @Test
+    void applyAtANewAsOfWithNothingNewIsANoOpAndDeriveNowAdvancesIt(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            assertTrue(indexer.apply(journal, ASOF));
+            String before = indexer.derivedFingerprint();
+            // The write clock and the time clock are decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3):
+            // a consistent apply with no new lines does not re-derive, even at a later asOf.
+            assertFalse(indexer.apply(journal, asof2), "no new lines must not re-derive at a new asOf");
+            assertEquals(before, indexer.derivedFingerprint(), "a no-op apply leaves the tables untouched");
+            assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
+            // The timer's entry point forces the full derive and reports the advance.
+            assertFalse(indexer.deriveNow(ASOF), "deriveNow at the stored asOf changes nothing");
+            assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
+            assertTrue(indexer.deriveNow(asof2), "deriveNow advances as_of");
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+        }
+    }
+
+    @Test
     void anAccountProfileIsWrittenAsTheRowRoleAndSurvivesARebuild(@TempDir Path dir) {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
