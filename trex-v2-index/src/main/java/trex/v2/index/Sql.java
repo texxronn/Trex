@@ -60,6 +60,8 @@ final class Sql {
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
     static final String INSERT_CHAIN_RESOLVED = "INSERT INTO chain_resolved(id, current_id) VALUES(?,?)";
+    /** Resolve a raw id through the supersession chain exactly as derive's map does. */
+    static final String SELECT_CHAIN_RESOLVED = "SELECT current_id FROM chain_resolved WHERE id = ?";
     static final String INSERT_TXN_CURRENT = "INSERT INTO txn_current(external_id, n, account_ref, date, amount, "
         + "balance, raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, "
         + "line_v, at_ms, env, source, target, role, rail, leg, transfer_id, category, category_origin, rule_id, "
@@ -86,6 +88,16 @@ final class Sql {
         + "category, origin, pairing, retired, ineffective) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_USER_ACK = "INSERT INTO user_ack(user_id, external_id, state_hash, "
         + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?)";
+    // ---- row-scoped maintenance (incremental refresh §9.4) ----------------------------------
+    // The targeted path's DML: keyed by the user_ack primary key (user_id, external_id), where the
+    // external_id is already the resolved current id. An ACK upserts (latest effective wins); an
+    // UNACK removes the key. Used only when every new line is a USER_ACK/USER_UNACK.
+    static final String UPSERT_USER_ACK = "INSERT INTO user_ack(user_id, external_id, state_hash, "
+        + "config_revision, derive_version, hash_version, acked_at) VALUES(?,?,?,?,?,?,?) "
+        + "ON CONFLICT(user_id, external_id) DO UPDATE SET state_hash=excluded.state_hash, "
+        + "config_revision=excluded.config_revision, derive_version=excluded.derive_version, "
+        + "hash_version=excluded.hash_version, acked_at=excluded.acked_at";
+    static final String DELETE_USER_ACK = "DELETE FROM user_ack WHERE user_id = ? AND external_id = ?";
     static final String INSERT_COMMITMENT = "INSERT INTO commitment(commitment_id, candidate_key, name, origin, direction, "
         + "cadence, amount_kind, kind, status, first_date, last_date, anchor_date, current_amount, "
         + "previous_amount, change_pct, change_date, occurrence_count, outliers, regularity, variable, arrears_count, "

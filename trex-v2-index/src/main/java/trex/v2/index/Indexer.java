@@ -150,7 +150,8 @@ public final class Indexer implements AutoCloseable {
      * was recomputed.
      */
     public synchronized boolean apply(Path journal, Instant asOf) {
-        ReadResult read = readFrom(journal, offset());
+        long priorOffset = offset();
+        ReadResult read = readFrom(journal, priorOffset);
         try {
             if (!read.lines().isEmpty()) {
                 ingestMirror(read);
@@ -163,6 +164,11 @@ public final class Indexer implements AutoCloseable {
                 && String.valueOf(read.end()).equals(meta("derived_offset").orElse(null));
             if (upToDate) {
                 return false;
+            }
+            // A batch that is exactly row-scoped ack actions patches those rows instead of
+            // re-deriving; anything else falls through to the full derive.
+            if (!read.lines().isEmpty() && patchRowScoped(read, priorOffset)) {
+                return true;
             }
             deriveAndStore(asOf);
             return true;
@@ -307,6 +313,88 @@ public final class Indexer implements AutoCloseable {
     }
 
     // ---- derivation -------------------------------------------------------------------------
+
+    /**
+     * The targeted refresh for a batch that is exactly row-scoped ack actions (V2-PROPOSAL.md §9.4):
+     * {@code USER_ACK}/{@code USER_UNACK} change only {@code user_ack}, and they do not depend on
+     * {@code asOf}, so a full re-derive is unnecessary. Returns false when the batch is not so
+     * scoped or the derived state is not consistent, in which case the caller re-derives in full.
+     *
+     * <p>Conservative by design: a fact, a structural decision, a {@code REVOKE}, a version or
+     * config drift, a stale {@code derived_offset}, or an id that does not resolve through the
+     * supersession chain all fall back — the last because derive would still emit a row for an
+     * unknown id, and patching must never diverge from it. {@code as_of} stays put; one transaction,
+     * like {@code deriveAndStore}.
+     */
+    private boolean patchRowScoped(ReadResult read, long priorOffset) throws SQLException {
+        if (!derivedIsConsistent(priorOffset)) {
+            return false;
+        }
+        List<Decision> actions = new ArrayList<>();
+        List<String> resolved = new ArrayList<>();
+        for (LogLine line : read.lines()) {
+            if (!(line instanceof Decision d)
+                || !(d instanceof Decision.UserAck || d instanceof Decision.UserUnack)) {
+                return false;
+            }
+            String id = resolveChain(d);
+            if (id == null) {
+                return false;
+            }
+            actions.add(d);
+            resolved.add(id);
+        }
+        inTransaction(() -> {
+            for (int i = 0; i < actions.size(); i++) {
+                applyAckAction(actions.get(i), resolved.get(i));
+            }
+            setMeta("derived_offset", String.valueOf(read.end()));
+        });
+        return true;
+    }
+
+    /** The derived tables still describe every line below {@code priorOffset} for this config. */
+    private boolean derivedIsConsistent(long priorOffset) {
+        return config.configRevision().equals(meta("config_revision").orElse(null))
+            && DeriveConfig.DERIVE_VERSION.equals(meta("derive_version").orElse(null))
+            && DeriveConfig.HASH_VERSION.equals(meta("hash_version").orElse(null))
+            && String.valueOf(priorOffset).equals(meta("derived_offset").orElse(null));
+    }
+
+    /** The raw id an ack/unack names, resolved through {@code chain_resolved}; null if unknown. */
+    private String resolveChain(Decision d) throws SQLException {
+        String raw = d instanceof Decision.UserAck ack ? ack.externalId()
+            : ((Decision.UserUnack) d).externalId();
+        try (PreparedStatement ps = conn.prepareStatement(Sql.SELECT_CHAIN_RESOLVED)) {
+            ps.setString(1, raw);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
+            }
+        }
+    }
+
+    /** One keyed write: an ACK upserts the row, an UNACK removes it (V2-PROPOSAL.md §9.4). */
+    private void applyAckAction(Decision d, String resolvedId) throws SQLException {
+        if (d instanceof Decision.UserAck ack) {
+            try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_USER_ACK)) {
+                ps.setString(1, ack.user());
+                ps.setString(2, resolvedId);
+                ps.setString(3, ack.stateHash());
+                ps.setString(4, ack.configRevision());
+                ps.setString(5, ack.deriveVersion());
+                ps.setString(6, ack.hashVersion());
+                ps.setString(7, ack.at().toString());
+                ps.executeUpdate();
+            }
+        } else {
+            Decision.UserUnack unack = (Decision.UserUnack) d;
+            try (PreparedStatement ps = conn.prepareStatement(Sql.DELETE_USER_ACK)) {
+                ps.setString(1, unack.user());
+                ps.setString(2, resolvedId);
+                ps.executeUpdate();
+            }
+        }
+    }
 
     private void deriveAndStore(Instant asOf) throws SQLException {
         List<Fact> facts = readFacts();
