@@ -97,7 +97,18 @@ public record TransferRules(int windowDays, int dupTolerance, int amountToleranc
     /** The first pattern matching this account and cleaned description, or null. */
     public TransferPattern patternFor(String accountRef, String rawDescription) {
         String cleaned = Clean.clean(rawDescription);
-        for (TransferPattern p : effective(accountRef)) {
+        // The account's own patterns first, then the default — the ordering `effective` documents,
+        // without rebuilding that combined list on this hot path.
+        TransferPattern own = firstMatch(patterns.get(accountRef), cleaned);
+        return own != null ? own : firstMatch(patterns.get(ANY_ACCOUNT), cleaned);
+    }
+
+    /** The first pattern in the list whose regex finds in the cleaned description, or null. */
+    private static TransferPattern firstMatch(List<TransferPattern> list, String cleaned) {
+        if (list == null) {
+            return null;
+        }
+        for (TransferPattern p : list) {
             if (p.compiled().matcher(cleaned).find()) {
                 return p;
             }
