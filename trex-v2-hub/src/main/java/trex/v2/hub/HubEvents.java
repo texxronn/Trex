@@ -1,6 +1,9 @@
 package trex.v2.hub;
 
+import trex.v2.hub.api.LedgerRow;
+
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -17,8 +20,18 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class HubEvents implements AutoCloseable {
 
-    /** One change: the index moved to this offset at this {@code n} under these revisions. */
-    public record Change(long n, long offset, String configRevision, String deriveVersion, String hashVersion) {}
+    /**
+     * One change: the index moved to this offset at this {@code n} under these revisions. When the
+     * move was a row-scoped patch (V2-INCREMENTAL-REFRESH-PLAN.md §4), {@code patch} carries the
+     * changed rows so a client replaces them by {@code externalId}; a full derive leaves it empty
+     * and the client reloads the active view.
+     */
+    public record Change(long n, long offset, String configRevision, String deriveVersion, String hashVersion,
+                         List<LedgerRow> patch) {
+        public Change {
+            patch = patch == null ? List.of() : List.copyOf(patch);
+        }
+    }
 
     private static final int QUEUE_DEPTH = 64;
 

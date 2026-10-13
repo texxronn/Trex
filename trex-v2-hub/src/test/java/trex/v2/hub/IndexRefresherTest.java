@@ -2,6 +2,8 @@ package trex.v2.hub;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import trex.v2.core.Actor;
+import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
@@ -20,6 +22,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -45,13 +48,73 @@ class IndexRefresherTest {
         DeriveConfig initial = ConfigLoader.load(configDir).config();
         try (HubEvents events = new HubEvents();
              Indexer indexer = Indexer.open(index, initial);
+             HubQueries reads = new HubQueries(index, 1);
              IndexRefresher refresher = new IndexRefresher(journal, configDir, indexer, initial,
-                 20, 200, events, null)) {
+                 20, 200, events, reads, null)) {
             await(() -> readMeta(index, "as_of") != null);
             String first = readMeta(index, "as_of");
             // A 200 ms cadence and the 1 s idle poll advance as_of with no write in between.
             await(() -> !first.equals(readMeta(index, "as_of")));
         }
+    }
+
+    /**
+     * The delta carries the patch (V2-INCREMENTAL-REFRESH-PLAN.md §4): a row-scoped apply's change
+     * holds the changed rows; a full derive holds none, so its client reloads. The timer is off
+     * ({@code asOfRefreshMs} 0) so every change is traceable to the append that caused it.
+     */
+    @Test
+    void aScopedPatchCarriesItsRowAndAFullDeriveCarriesNone(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(fact(1, "a")));
+        }
+        Path index = dir.resolve("trex.sqlite");
+        DeriveConfig initial = ConfigLoader.load(configDir).config();
+        try (HubEvents events = new HubEvents();
+             HubEvents.Subscription sub = events.subscribe();
+             Indexer indexer = Indexer.open(index, initial);
+             HubQueries reads = new HubQueries(index, 1);
+             IndexRefresher refresher = new IndexRefresher(journal, configDir, indexer, initial,
+                 20, 0, events, reads, null)) {
+            HubEvents.Change first = awaitChange(sub, c -> c.n() >= 1);
+            assertTrue(first.patch().isEmpty(), "the initial full derive carries no patch");
+
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.UserAck(2, "a", "sha256:cfg",
+                    DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION, "state:x", null,
+                    Actor.USER, "ron", AT)));
+            }
+            HubEvents.Change acked = awaitChange(sub, c -> !c.patch().isEmpty());
+            assertEquals(1, acked.patch().size());
+            assertEquals("a", acked.patch().getFirst().externalId());
+
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(fact(3, "b")));
+            }
+            HubEvents.Change derived = awaitChange(sub, c -> c.n() >= 3);
+            assertTrue(derived.patch().isEmpty(), "a full derive carries no patch");
+        }
+    }
+
+    /** The next change matching {@code match}, or a failure after 10 s. */
+    private static HubEvents.Change awaitChange(HubEvents.Subscription sub,
+            java.util.function.Predicate<HubEvents.Change> match) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            HubEvents.Change change = sub.poll(java.time.Duration.ofMillis(200)).orElse(null);
+            if (change != null && match.test(change)) {
+                return change;
+            }
+        }
+        throw new AssertionError("expected change not seen within 10s");
+    }
+
+    private static Fact fact(long n, String id) {
+        return new Fact(n, id, "ing-savings", LocalDate.of(2026, 9, 1), -1000, 0, "COLES 1234", null, 0,
+            Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
     }
 
     private static void await(BooleanSupplier condition) throws InterruptedException {

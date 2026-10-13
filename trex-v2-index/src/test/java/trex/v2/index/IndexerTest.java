@@ -126,8 +126,8 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, config())) {
-            assertTrue(indexer.apply(journal, ASOF));
-            assertFalse(indexer.apply(journal, ASOF), "a second apply with nothing new must be a no-op");
+            assertTrue(applyChanged(indexer, journal, ASOF));
+            assertFalse(applyChanged(indexer, journal, ASOF), "a second apply with nothing new must be a no-op");
             assertEquals(3, count(db, "txn_current"));
             assertEquals(1, count(db, "transfer"));
             assertEquals(1, count(db, "pin_current"));
@@ -144,11 +144,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             String before = indexer.derivedFingerprint();
             // The write clock and the time clock are decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3):
             // a consistent apply with no new lines does not re-derive, even at a later asOf.
-            assertFalse(indexer.apply(journal, asof2), "no new lines must not re-derive at a new asOf");
+            assertFalse(applyChanged(indexer, journal, asof2), "no new lines must not re-derive at a new asOf");
             assertEquals(before, indexer.derivedFingerprint(), "a no-op apply leaves the tables untouched");
             assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
             // The timer's entry point forces the full derive and reports the advance.
@@ -170,7 +170,7 @@ class IndexerTest {
                     "reference"))),
             "sha256:cfg");
         try (Indexer indexer = Indexer.open(db, withProfile)) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             assertEquals("noop", string(db, "SELECT role FROM txn_current WHERE external_id='a'"));
             assertEquals("transaction", string(db, "SELECT role FROM txn_current WHERE external_id='b'"));
             // The role-filtered reads verify() and the hub run over: noops are exclusions, not postings.
@@ -187,7 +187,7 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             String incremental = indexer.derivedFingerprint();
             indexer.rebuild(journal, ASOF);
             assertEquals(incremental, indexer.derivedFingerprint());
@@ -199,11 +199,11 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(ack(6, "a")));
             }
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             assertEquals(1, count(db, "user_ack"));
             // The patch path leaves as_of put; a full derive would have rewritten it identically
             // here, so the fingerprint is the load-bearing check.
@@ -220,11 +220,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(ack(6, "a")));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // A full derive would advance as_of to asof2; the patch is asOf-independent and does not.
             assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(1, count(db, "user_ack"));
@@ -237,17 +237,17 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             String before = indexer.derivedFingerprint();
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(ack(6, "a")));
             }
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             assertEquals(1, count(db, "user_ack"));
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(new Decision.UserUnack(7, "a", null, Actor.USER, "ron", ASOF)));
             }
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             assertEquals(0, count(db, "user_ack"));
             assertEquals(before, indexer.derivedFingerprint(),
                 "ACK then UNACK returns to the pre-ACK derived state");
@@ -260,13 +260,13 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(
                     ack(6, "a"),
                     new Decision.Supersede(7, "a", "b", "reparse", Actor.USER, "ron", ASOF)));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // A structural line in the batch cannot be patched, so the full derive advances as_of.
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
         }
@@ -277,11 +277,11 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, pinConfig())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(pin(6, "a", "DINING")));
             }
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
             assertEquals("PIN", string(db, "SELECT category_origin FROM txn_current WHERE external_id='a'"));
             assertEquals("DINING", string(db, "SELECT category FROM category_current WHERE external_id='a'"));
@@ -299,17 +299,17 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, pinConfig())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(pin(6, "a", "DINING")));
             }
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
             assertEquals("DINING", string(db, "SELECT category FROM pin_current WHERE external_id='a'"));
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(unpin(7, "a")));
             }
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             // The latest effective PIN/UNPIN wins: the UNPIN reverts the category and removes the
             // pin_current row, exactly as derive's pins() now folds both (V2-INCREMENTAL-REFRESH-PLAN.md §7).
             assertEquals("GROCERIES", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
@@ -329,11 +329,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, pinConfig())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(pin(6, "a", "DINING")));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // A full derive would advance as_of to asof2; the patch is asOf-independent and does not.
             assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
             assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
@@ -349,11 +349,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(pin(6, "b", "GROCERIES")));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // The matched leg cannot be patched, so the full derive ran and advanced as_of.
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
@@ -366,11 +366,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(pin(6, "nope", "GROCERIES")));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
         }
@@ -382,11 +382,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(pin(6, "a", "NOT_DECLARED")));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
         }
@@ -397,11 +397,11 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(fact(5, "d", "ing-savings", LocalDate.of(2026, 9, 2), -2000, "COLES 9999")));
             }
-            assertTrue(indexer.apply(journal, ASOF), "a new line must trigger a re-derive");
+            assertTrue(applyChanged(indexer, journal, ASOF), "a new line must trigger a re-derive");
             assertEquals(4, count(db, "txn_current"));
         }
     }
@@ -411,7 +411,7 @@ class IndexerTest {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, config())) {
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             assertFalse(indexer.journalPrefixReplaced(journal), "an appended journal is intact");
 
             // The same bytes, one byte of the last line changed: a different file of the same size.
@@ -450,7 +450,7 @@ class IndexerTest {
                 new Decision.NoteCommitment(4, "acme", "check the price", Actor.USER, "ron", ASOF)));
         }
         try (Indexer indexer = Indexer.open(db, config())) {
-            assertTrue(indexer.apply(journal, ASOF));
+            assertTrue(applyChanged(indexer, journal, ASOF));
             assertEquals(1, count(db, "commitment"));
             assertEquals(1, count(db, "commitment_rule"));
             assertTrue(count(db, "commitment_occurrence") >= 2);
@@ -479,11 +479,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(new Decision.Note(6, "a", "second note", Actor.USER, "ron", ASOF)));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             assertEquals(2, count(db, "note_current"));
             assertEquals("second note", string(db, "SELECT text FROM note_current WHERE decision_n=6"));
             assertEquals("a", string(db, "SELECT external_id FROM note_current WHERE decision_n=6"));
@@ -502,11 +502,11 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(new Decision.Note(6, "nope", "orphan", Actor.USER, "ron", ASOF)));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // The unknown id is derive's to mark ineffective, so the full derive ran and moved as_of.
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
@@ -519,13 +519,13 @@ class IndexerTest {
         Path journal = journal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(
                     new Decision.Note(6, "a", "still here", Actor.USER, "ron", ASOF),
                     new Decision.Revoke(7, 5, "undo the first note", Actor.USER, "ron", ASOF)));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // A REVOKE is global; the batch cannot be patched, so the full derive ran and moved as_of.
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(0, count(db, "note_current WHERE decision_n=5"));
@@ -539,14 +539,14 @@ class IndexerTest {
         Path journal = duplicateJournal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             // Two identical charges on one day form a POTENTIAL_DUP cluster, subject the smallest id.
             assertEquals(1, count(db, "review_item WHERE kind='POTENTIAL_DUP' AND subject='d1'"));
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(new Decision.Dismiss(3, ReviewItem.POTENTIAL_DUP,
                     List.of("d1"), "a genuine repeat", Actor.USER, "ron", ASOF)));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             assertEquals(0, count(db, "review_item WHERE kind='POTENTIAL_DUP' AND subject='d1'"));
             // The patch leaves as_of put; a full derive would have advanced it.
             assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
@@ -563,12 +563,12 @@ class IndexerTest {
         Path journal = duplicateJournal(dir);
         Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
         try (Indexer indexer = Indexer.open(db, config())) {
-            indexer.apply(journal, ASOF);
+            applyChanged(indexer, journal, ASOF);
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(new Decision.Dismiss(3, ReviewItem.POTENTIAL_DUP,
                     List.of("nope"), "not a fact", Actor.USER, "ron", ASOF)));
             }
-            assertTrue(indexer.apply(journal, asof2));
+            assertTrue(applyChanged(indexer, journal, asof2));
             // Derive emits an ineffective_decision the patch does not reproduce, so it ran in full.
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
             assertEquals(1, count(db, "ineffective_decision WHERE decision_n=3"));
@@ -576,7 +576,36 @@ class IndexerTest {
         }
     }
 
+    @Test
+    void aRowScopedPatchReportsTheIdsItChanged(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            assertTrue(indexer.apply(journal, ASOF).changed(), "the first apply is a full derive");
+            assertTrue(indexer.apply(journal, ASOF).patchedIds().isEmpty(),
+                "a full derive reports no ids");
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(ack(6, "a")));
+            }
+            ApplyResult patched = indexer.apply(journal, ASOF);
+            assertTrue(patched.changed());
+            assertEquals(java.util.Set.of("a"), patched.patchedIds(),
+                "an ACK patch reports the row it changed");
+            // A second apply with nothing new is a no-op and reports no ids.
+            assertFalse(indexer.apply(journal, ASOF).changed());
+        }
+    }
+
     // ---- tiny read helpers ------------------------------------------------------------------
+
+    /**
+     * The old bare-boolean contract of {@link Indexer#apply}: whether the derived state moved.
+     * {@code apply} now returns an {@link ApplyResult} so the hub can carry the patched ids; the
+     * rebuild-equivalence tests only care that something moved.
+     */
+    private static boolean applyChanged(Indexer indexer, Path journal, Instant asOf) {
+        return indexer.apply(journal, asOf).changed();
+    }
 
     private static long count(Path db, String table) {
         return Long.parseLong(string(db, "SELECT COUNT(*) FROM " + table));
