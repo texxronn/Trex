@@ -46,3 +46,17 @@ accounts:
   bw-card-legacy: { name: "BankWest Card (pre-2024)",      type: liability }
   cba-legacy:     { name: "CBA SmartAccess (pre-2024-10)", type: asset }
   cash-ron:       { name: "Cash (Ron)",                    type: asset }
+
+  # Clearing accounts added to the journal after this file was first written. They clear the same
+  # way as the block above; the name is the label Firefly shows, the type decides the transaction
+  # direction (see the header). Each holds no facts and is never chained.
+  # Westpac offset/loan package before the NAB and ING facilities; its residual was disbursed to
+  # ing-variable-rate at the 2022-02 refinance (an ATTACH_ACCOUNT points the credit here).
+  westpac-legacy:      { name: "Westpac Offset (closed)",  type: asset }
+  # The NAB mortgage refinanced to ING on 2022-02-09; the two ING opening drawdowns are the payout.
+  nab-mortgage-legacy: { name: "NAB Mortgage (closed)",     type: liability }
+  # The old RAMS savings account, closed; its remaining balance moved to ing-orange on 2026-01-12.
+  rams-savings:        { name: "RAMS Savings (closed)",     type: asset }
+  # Kids' St George savings; the per-child landing is an ATTACH_ACCOUNT decision, not a pattern.
+  sg-auriel:           { name: "St George (Auriel)",        type: asset }
+  sg-blythe:           { name: "St George (Blythe)",        type: asset }
