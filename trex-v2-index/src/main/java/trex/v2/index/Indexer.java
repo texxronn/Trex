@@ -495,10 +495,9 @@ public final class Indexer implements AutoCloseable {
     /**
      * One PIN/UNPIN on a patchable row: recompute the id's category through the same helper derive's
      * category stage uses, then rewrite {@code category_current}, {@code txn_current} (category,
-     * origin, rule id and the content hash) and the row's {@code unit}. A PIN also upserts
-     * {@code pin_current}; an UNPIN leaves it alone, exactly as derive's {@code pins()} does — it
-     * folds only PINs, so a row survives a PIN→UNPIN (V2-INCREMENTAL-REFRESH-PLAN.md §7), a
-     * discrepancy kept here deliberately rather than silently fixed.
+     * origin, rule id and the content hash) and the row's {@code unit}. A PIN upserts
+     * {@code pin_current}; an UNPIN deletes it, so the latest effective PIN/UNPIN wins exactly as
+     * derive's {@code pins()} now folds both (V2-INCREMENTAL-REFRESH-PLAN.md §7).
      */
     private void applyPinAction(Decision d, CurrentFact row) throws SQLException {
         String id = row.externalId();
@@ -535,6 +534,11 @@ public final class Indexer implements AutoCloseable {
                 ps.setLong(3, pin.n());
                 ps.setString(4, pin.user());
                 ps.setString(5, pin.comment());
+                ps.executeUpdate();
+            }
+        } else if (d instanceof Decision.Unpin) {
+            try (PreparedStatement ps = conn.prepareStatement(Sql.DELETE_PIN_CURRENT)) {
+                ps.setString(1, id);
                 ps.executeUpdate();
             }
         }

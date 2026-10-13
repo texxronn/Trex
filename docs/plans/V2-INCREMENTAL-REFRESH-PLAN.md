@@ -47,7 +47,7 @@ server computes it; the client never guesses). Everything else keeps the full de
 | `USER_UNACK` | delete that `user_ack` row | none | 1 |
 | `NOTE` | insert one `note_current` row (`decision_n` PK) at the resolved id | none (invalid id → `ineffective_decision` + `review_item`) | 2 |
 | `PIN` | `pin_current` upsert; `category_current`; `txn_current.category/category_origin/rule_id/state_hash`; `unit.category/origin` | same-account compute, bounded to the id's unit | 3 |
-| `UNPIN` | `category_current`, `txn_current.*`, `unit.*` revert | see §7 (the `pin_current` discrepancy) | 3 |
+| `UNPIN` | `category_current`, `txn_current.*`, `unit.*` revert; delete `pin_current` | see §7 (fixed) | 3 |
 | `DISMISS` | delete the `review_item` rows for the decision's `(kind, subject)` keys | none (silence) | 4 |
 | `REVOKE` (of DISMISS) | — | **global** → full derive | 4 |
 
@@ -120,13 +120,16 @@ Each slice is a small PR; slice 1 proves the mechanism before the rest is built.
   timing the `delta` against the write).
 - Config/version drift still forces a full derive.
 
-## 7. Open discrepancy (do not silently resolve)
+## 7. PIN→UNPIN and `pin_current` (fixed)
 
-`Derive.pins()` folds only `Decision.Pin` and never inspects `Decision.Unpin`, so a `pin_current`
-row survives a PIN→UNPIN while `category_current`/`txn_current` correctly revert. The spec says the
-latest effective PIN/UNPIN wins. A byte-identical PIN patch must replicate the current code; the
-honest fix is a separate tiny change (bump `deriveVersion`) before slice 3. Decide before building
-slice 3.
+`Derive.pins()` folded only `Decision.Pin` and never inspected `Decision.Unpin`, so a `pin_current`
+row survived a PIN→UNPIN while `category_current`/`txn_current` correctly reverted. The spec says the
+latest effective PIN/UNPIN wins. **Fixed** in a separate tiny change (branch `fix/pin-current-unpin`,
+`deriveVersion` → `derive/15`): `Derive.pins()` now folds both `Decision.Pin` and `Decision.Unpin`
+(latest in `n`-order per resolved id, exactly as `categories()` does), so an id has a `pin_current`
+row iff its latest effective PIN/UNPIN is a `PIN`; and the slice-3 patch
+(`Indexer.applyPinAction`) deletes the `pin_current` row on UNPIN instead of leaving it. The targeted
+path stays byte-identical to a full rebuild (`IndexerTest.pinThenUnpinEqualsARebuildAndRemovesThePinRow`).
 
 ## 8. Risks
 
