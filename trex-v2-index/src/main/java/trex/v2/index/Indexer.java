@@ -322,19 +322,21 @@ public final class Indexer implements AutoCloseable {
     // ---- derivation -------------------------------------------------------------------------
 
     /**
-     * The targeted refresh for a batch that is exactly row-scoped actions (V2-PROPOSAL.md §9.4):
-     * {@code USER_ACK}/{@code USER_UNACK} and {@code Decision.Pin}/{@code Decision.Unpin}. Each
-     * changes only the rows it names, and none depends on {@code asOf}, so a full re-derive is
-     * unnecessary. Returns false when the batch is not so scoped, when a PIN/UNPIN target cannot be
-     * patched safely, or when the derived state is not consistent, in which case the caller
-     * re-derives in full.
+     * The targeted refresh for a batch that is exactly row-scoped actions (V2-INCREMENTAL-REFRESH-PLAN.md
+     * §5): {@code USER_ACK}/{@code USER_UNACK}, {@code Decision.Pin}/{@code Decision.Unpin},
+     * {@code Decision.Note} and {@code Decision.Dismiss}. Each changes only the rows it names, and
+     * none depends on {@code asOf}, so a full re-derive is unnecessary. Returns false when the batch
+     * is not so scoped, when a target cannot be patched safely, or when the derived state is not
+     * consistent, in which case the caller re-derives in full.
      *
      * <p>Conservative by design: a fact, any other decision (a structural one, a {@code REVOKE}), a
      * version or config drift, a stale {@code derived_offset}, an id that does not resolve through
-     * the supersession chain, an undeclared or reserved pinned category, or a target that is not a
-     * plain external posting (a matched/structural leg, a noop, a row with no unit) all fall back —
-     * derive would still emit something different for them, and a patch must never diverge from it.
-     * {@code as_of} stays put; one transaction, like {@code deriveAndStore}.
+     * the supersession chain, an undeclared or reserved pinned category, a target that is not a
+     * plain external posting (a matched/structural leg, a noop, a row with no unit), a {@code NOTE}
+     * naming an unknown id, or a {@code DISMISS} whose subject derive would treat as ineffective (or
+     * whose subject transform the patch cannot reproduce) all fall back — derive would still emit
+     * something different for them, and a patch must never diverge from it. {@code as_of} stays put;
+     * one transaction, like {@code deriveAndStore}.
      */
     private boolean patchRowScoped(ReadResult read, long priorOffset) throws SQLException {
         if (!derivedIsConsistent(priorOffset)) {
@@ -374,21 +376,84 @@ public final class Indexer implements AutoCloseable {
                     }
                     actions.add(new RowAction(d, row.externalId(), row));
                 }
+            } else if (d instanceof Decision.Note note) {
+                // A note derives one row at the chain-resolved id; an unknown id is ineffective in
+                // derive (an ineffective_decision + review_item the patch does not reproduce), so
+                // the whole batch falls back.
+                String id = resolveChain(note.externalId());
+                if (id == null) {
+                    return false;
+                }
+                actions.add(new RowAction(d, id, null));
+            } else if (d instanceof Decision.Dismiss dismiss) {
+                for (String raw : dismiss.externalIds()) {
+                    String subject = dismissSubject(dismiss.item(), raw);
+                    if (subject == null) {
+                        return false;
+                    }
+                    actions.add(new RowAction(d, subject, null));
+                }
             } else {
                 return false;
             }
         }
         inTransaction(() -> {
             for (RowAction action : actions) {
-                if (action.row() == null) {
-                    applyAckAction(action.decision(), action.resolvedId());
+                Decision d = action.decision();
+                if (d instanceof Decision.UserAck || d instanceof Decision.UserUnack) {
+                    applyAckAction(d, action.resolvedId());
+                } else if (d instanceof Decision.Note) {
+                    applyNoteAction(d, action.resolvedId());
+                } else if (d instanceof Decision.Dismiss) {
+                    applyDismissAction(d, action.resolvedId());
                 } else {
-                    applyPinAction(action.decision(), action.row());
+                    applyPinAction(d, action.row());
                 }
             }
             setMeta("derived_offset", String.valueOf(read.end()));
         });
         return true;
+    }
+
+    /**
+     * The subject a {@code DISMISS} of {@code kind} silences, or null when the patch cannot
+     * reproduce derive's answer and the caller must re-derive. The transform mirrors
+     * {@code Derive.reviewItems()} exactly (V2-INCREMENTAL-REFRESH-PLAN.md §5 slice 4): a
+     * {@code BALANCE_BREAK} names an account ref; a {@code SUSPECTED_RECURRING} names a detected
+     * candidate key; a {@code DORMANT_COMMITMENT}/{@code COMMITMENT_ARREARS} names a declared
+     * commitment id; every other kind names a fact, chain-resolved. A fresh dismiss's {@code n} is
+     * newer than every fact already indexed, so the {@code dismiss_n > newest} condition derive
+     * applies is always met and the matching row is simply deleted.
+     *
+     * <p>Null (fall back) for: {@code INEFFECTIVE_DECISION} (never DISMISS-able, §9.8),
+     * {@code SUSPECTED_RECURRING} (its candidate set cannot be reconstructed from the derived
+     * tables — suppressed candidates are absent), an unknown account, an undeclared commitment, or
+     * a fact id that does not resolve. Derive would emit an {@code ineffective_decision} for those;
+     * a patch that silently deleted nothing would diverge.
+     */
+    private String dismissSubject(String kind, String raw) throws SQLException {
+        if (ReviewItem.INEFFECTIVE_DECISION.equals(kind)) {
+            return null;
+        }
+        if (ReviewItem.BALANCE_BREAK.equals(kind)) {
+            return config.registry().accounts().containsKey(raw) ? raw : null;
+        }
+        if (ReviewItem.SUSPECTED_RECURRING.equals(kind)) {
+            return null;
+        }
+        if (ReviewItem.DORMANT_COMMITMENT.equals(kind) || ReviewItem.COMMITMENT_ARREARS.equals(kind)) {
+            return declaredCommitmentExists(raw) ? raw : null;
+        }
+        return resolveChain(raw);
+    }
+
+    private boolean declaredCommitmentExists(String commitmentId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(Sql.SELECT_DECLARED_COMMITMENT)) {
+            ps.setString(1, commitmentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
     }
 
     /** The derived tables still describe every line below {@code priorOffset} for this config. */
@@ -489,6 +554,38 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(2, resolvedId);
                 ps.executeUpdate();
             }
+        }
+    }
+
+    /**
+     * One {@code NOTE} on a resolved id: a single {@code note_current} row keyed by the decision's
+     * {@code n}. Notes accumulate, so this is a plain insert, never an upsert
+     * (V2-INCREMENTAL-REFRESH-PLAN.md §5 slice 2).
+     */
+    private void applyNoteAction(Decision d, String resolvedId) throws SQLException {
+        Decision.Note note = (Decision.Note) d;
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_NOTE_CURRENT_SCOPED)) {
+            ps.setLong(1, note.n());
+            ps.setString(2, resolvedId);
+            ps.setString(3, note.text());
+            ps.setString(4, note.user());
+            ps.setString(5, note.at().toString());
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * One {@code DISMISS}: delete the review item for the decision's {@code (kind, subject)} key.
+     * The subject was resolved by {@link #dismissSubject}; a fresh dismiss always post-dates every
+     * fact it could silence, so no {@code newest} test is needed
+     * (V2-INCREMENTAL-REFRESH-PLAN.md §5 slice 4).
+     */
+    private void applyDismissAction(Decision d, String subject) throws SQLException {
+        Decision.Dismiss dismiss = (Decision.Dismiss) d;
+        try (PreparedStatement ps = conn.prepareStatement(Sql.DELETE_REVIEW_ITEM)) {
+            ps.setString(1, dismiss.item());
+            ps.setString(2, subject);
+            ps.executeUpdate();
         }
     }
 

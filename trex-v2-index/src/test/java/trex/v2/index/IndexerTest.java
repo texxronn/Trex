@@ -17,6 +17,7 @@ import trex.v2.core.config.User;
 import trex.v2.core.derive.AmountKind;
 import trex.v2.core.derive.Cadence;
 import trex.v2.core.derive.CommitmentKind;
+import trex.v2.core.derive.ReviewItem;
 import trex.v2.log.JsonlJournal;
 
 import java.nio.file.Path;
@@ -101,6 +102,21 @@ class IndexerTest {
                 fact(3, "c", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "Transfer from Savings 4321"),
                 new Decision.Pin(4, List.of("a"), "GROCERIES", "pin", Actor.USER, "ron", ASOF),
                 new Decision.Note(5, "a", "check me", Actor.USER, "ron", ASOF)));
+        }
+        return path;
+    }
+
+    /**
+     * Two identical posted charges on one account and day, distinct ids: a POTENTIAL_DUP (and
+     * RESTATEMENT) cluster whose subject is the smallest member id, "d1". Enough to raise a real
+     * review item so a DISMISS has something to silence.
+     */
+    private static Path duplicateJournal(Path dir) {
+        Path path = dir.resolve("duplicates.jsonl");
+        try (JsonlJournal j = new JsonlJournal(path)) {
+            j.appendBatch(List.of(
+                fact(1, "d1", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "DUPLICATE CHARGE"),
+                fact(2, "d2", "ing-savings", LocalDate.of(2026, 9, 1), -1000, "DUPLICATE CHARGE")));
         }
         return path;
     }
@@ -433,6 +449,109 @@ class IndexerTest {
             assertEquals(incremental, indexer.derivedFingerprint());
             assertEquals(1, count(db, "commitment"));
             assertEquals(1, count(db, "commitment_note"));
+        }
+    }
+
+    @Test
+    void aRowScopedNotePatchesAndEqualsARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.Note(6, "a", "second note", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            assertEquals(2, count(db, "note_current"));
+            assertEquals("second note", string(db, "SELECT text FROM note_current WHERE decision_n=6"));
+            assertEquals("a", string(db, "SELECT external_id FROM note_current WHERE decision_n=6"));
+            // The patch is asOf-independent: it leaves as_of put while a full derive would advance it.
+            assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint(),
+                "a row-scoped NOTE must give the same tables as a full rebuild");
+        }
+    }
+
+    @Test
+    void aNoteNamingAnUnknownIdFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.Note(6, "nope", "orphan", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // The unknown id is derive's to mark ineffective, so the full derive ran and moved as_of.
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
+        }
+    }
+
+    @Test
+    void aBatchContainingARevokeFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(
+                    new Decision.Note(6, "a", "still here", Actor.USER, "ron", ASOF),
+                    new Decision.Revoke(7, 5, "undo the first note", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // A REVOKE is global; the batch cannot be patched, so the full derive ran and moved as_of.
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(0, count(db, "note_current WHERE decision_n=5"));
+            assertEquals(1, count(db, "note_current WHERE decision_n=6"));
+        }
+    }
+
+    @Test
+    void aRowScopedDismissPatchesAndEqualsARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = duplicateJournal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            // Two identical charges on one day form a POTENTIAL_DUP cluster, subject the smallest id.
+            assertEquals(1, count(db, "review_item WHERE kind='POTENTIAL_DUP' AND subject='d1'"));
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.Dismiss(3, ReviewItem.POTENTIAL_DUP,
+                    List.of("d1"), "a genuine repeat", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            assertEquals(0, count(db, "review_item WHERE kind='POTENTIAL_DUP' AND subject='d1'"));
+            // The patch leaves as_of put; a full derive would have advanced it.
+            assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint(),
+                "a row-scoped DISMISS must give the same tables as a full rebuild");
+        }
+    }
+
+    @Test
+    void aDismissNamingAnUnknownIdFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = duplicateJournal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.Dismiss(3, ReviewItem.POTENTIAL_DUP,
+                    List.of("nope"), "not a fact", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // Derive emits an ineffective_decision the patch does not reproduce, so it ran in full.
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(1, count(db, "ineffective_decision WHERE decision_n=3"));
+            assertEquals(1, count(db, "review_item WHERE kind='POTENTIAL_DUP' AND subject='d1'"));
         }
     }
 
