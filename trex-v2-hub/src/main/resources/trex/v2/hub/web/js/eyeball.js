@@ -45,7 +45,37 @@ export function mount(container, context) {
   period = query.get('period') || keyFor(new Date(), grain);
   render();
   load();
-  return { refresh: load };
+  return { refresh: load, patch };
+}
+
+/**
+ * Apply a row-scoped SSE patch (V2-INCREMENTAL-REFRESH-PLAN.md §4): replace the rows the delta
+ * carries, by externalId. The patch holds row data, not the acting user's read marker, so the
+ * unread/changed state is refreshed with one small acks read rather than by re-fetching the walk.
+ * A patch row the current period does not contain changes nothing visible here.
+ */
+async function patch(changed) {
+  const byId = new Map((changed || []).map((r) => [r.externalId, r]));
+  if (!byId.size) return;
+  let touched = false;
+  rows = rows.map((row) => {
+    const next = byId.get(row.externalId);
+    if (!next) return row;
+    touched = true;
+    return next;
+  });
+  if (!touched) return;
+  try {
+    const all = await api.acks();
+    read = new Map();
+    for (const a of all) {
+      if (a.user === ctx.user) read.set(a.externalId, a);
+    }
+  } catch (error) {
+    reportError(error);
+  }
+  renderHeading();
+  renderTable();
 }
 
 function render() {

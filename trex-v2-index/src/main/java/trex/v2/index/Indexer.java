@@ -47,8 +47,10 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The JDBC materializer (V2-PROPOSAL.md §7): the log mirrored row for row, then the derived tables
@@ -153,8 +155,9 @@ public final class Indexer implements AutoCloseable {
     }
 
     /**
-     * Apply any new log lines and re-derive if anything moved. Returns true when the derived state
-     * was recomputed.
+     * Apply any new log lines and re-derive if anything moved. Returns whether the derived state
+     * was recomputed — and, when a row-scoped patch did it, which ids it touched, so the hub can
+     * carry those rows in its change delta (V2-INCREMENTAL-REFRESH-PLAN.md §4).
      *
      * <p>{@code asOf} is deliberately <em>not</em> part of the up-to-date test: a consistent apply
      * with no new lines and no version/config drift is a no-op even at a later {@code asOf}. The
@@ -162,7 +165,7 @@ public final class Indexer implements AutoCloseable {
      * decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3); {@link #deriveNow} advances {@code asOf} on a
      * timer, and a write that needs the time-driven outputs derives in full.
      */
-    public synchronized boolean apply(Path journal, Instant asOf) {
+    public synchronized ApplyResult apply(Path journal, Instant asOf) {
         long priorOffset = offset();
         ReadResult read = readFrom(journal, priorOffset);
         try {
@@ -175,15 +178,18 @@ public final class Indexer implements AutoCloseable {
                 && DeriveConfig.HASH_VERSION.equals(meta("hash_version").orElse(null))
                 && String.valueOf(read.end()).equals(meta("derived_offset").orElse(null));
             if (upToDate) {
-                return false;
+                return ApplyResult.noChange();
             }
-            // A batch that is exactly row-scoped ack actions patches those rows instead of
-            // re-deriving; anything else falls through to the full derive.
-            if (!read.lines().isEmpty() && patchRowScoped(read, priorOffset)) {
-                return true;
+            // A batch that is exactly row-scoped actions patches those rows instead of re-deriving;
+            // anything else falls through to the full derive.
+            if (!read.lines().isEmpty()) {
+                java.util.Optional<Set<String>> patched = patchRowScoped(read, priorOffset);
+                if (patched.isPresent()) {
+                    return ApplyResult.patched(patched.get());
+                }
             }
             deriveAndStore(asOf);
-            return true;
+            return ApplyResult.derived();
         } catch (SQLException e) {
             throw new IndexException("apply failed against " + journal, e);
         }
@@ -358,35 +364,36 @@ public final class Indexer implements AutoCloseable {
      * naming an unknown id, or a {@code DISMISS} whose subject derive would treat as ineffective (or
      * whose subject transform the patch cannot reproduce) all fall back — derive would still emit
      * something different for them, and a patch must never diverge from it. {@code as_of} stays put;
-     * one transaction, like {@code deriveAndStore}.
+     * one transaction, like {@code deriveAndStore}. The result is the ids the patch named (to be
+     * re-read as rows for the change delta); {@link Optional#empty()} means the caller re-derives.
      */
-    private boolean patchRowScoped(ReadResult read, long priorOffset) throws SQLException {
+    private Optional<Set<String>> patchRowScoped(ReadResult read, long priorOffset) throws SQLException {
         if (!derivedIsConsistent(priorOffset)) {
-            return false;
+            return Optional.empty();
         }
         List<RowAction> actions = new ArrayList<>();
         for (LogLine line : read.lines()) {
             if (!(line instanceof Decision d)) {
-                return false;
+                return Optional.empty();
             }
             if (d instanceof Decision.UserAck || d instanceof Decision.UserUnack) {
                 String raw = d instanceof Decision.UserAck ack ? ack.externalId()
                     : ((Decision.UserUnack) d).externalId();
                 String id = resolveChain(raw);
                 if (id == null) {
-                    return false;
+                    return Optional.empty();
                 }
                 actions.add(new RowAction(d, id, null));
             } else if (d instanceof Decision.Pin pin) {
                 // A pin derive cannot apply (undeclared, reserved or matched) is marked ineffective
                 // by the category stage; a patch cannot reproduce that, so it falls back.
                 if (!config.categories().isDeclared(pin.category()) || RuleSet.isReserved(pin.category())) {
-                    return false;
+                    return Optional.empty();
                 }
                 for (String raw : pin.externalIds()) {
                     CurrentFact row = patchableRow(raw);
                     if (row == null) {
-                        return false;
+                        return Optional.empty();
                     }
                     actions.add(new RowAction(d, row.externalId(), row));
                 }
@@ -394,7 +401,7 @@ public final class Indexer implements AutoCloseable {
                 for (String raw : unpin.externalIds()) {
                     CurrentFact row = patchableRow(raw);
                     if (row == null) {
-                        return false;
+                        return Optional.empty();
                     }
                     actions.add(new RowAction(d, row.externalId(), row));
                 }
@@ -404,20 +411,27 @@ public final class Indexer implements AutoCloseable {
                 // the whole batch falls back.
                 String id = resolveChain(note.externalId());
                 if (id == null) {
-                    return false;
+                    return Optional.empty();
                 }
                 actions.add(new RowAction(d, id, null));
             } else if (d instanceof Decision.Dismiss dismiss) {
                 for (String raw : dismiss.externalIds()) {
                     String subject = dismissSubject(dismiss.item(), raw);
                     if (subject == null) {
-                        return false;
+                        return Optional.empty();
                     }
                     actions.add(new RowAction(d, subject, null));
                 }
             } else {
-                return false;
+                return Optional.empty();
             }
+        }
+        // The ids the patch names, in first-touched order: what the caller re-reads as rows. A
+        // DISMISS subject may not be a txn_current id (an account or a commitment); it is still a
+        // changed id, and a read that finds no row for it simply carries no patch.
+        Set<String> patchedIds = new LinkedHashSet<>();
+        for (RowAction action : actions) {
+            patchedIds.add(action.resolvedId());
         }
         inTransaction(() -> {
             for (RowAction action : actions) {
@@ -434,7 +448,7 @@ public final class Indexer implements AutoCloseable {
             }
             setMeta("derived_offset", String.valueOf(read.end()));
         });
-        return true;
+        return Optional.of(patchedIds);
     }
 
     /**

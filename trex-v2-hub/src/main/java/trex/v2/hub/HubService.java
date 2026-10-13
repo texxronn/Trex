@@ -148,7 +148,8 @@ public final class HubService implements HubApi, AutoCloseable {
             reads = new HubQueries(config.index(), 4);
             HubEvents events = new HubEvents();
             refresher = new IndexRefresher(config.journal(), config.configDir(), indexer,
-                loaded.config(), config.refreshDebounceMs(), config.refreshAsOfByMs(), events, config.evidenceDir());
+                loaded.config(), config.refreshDebounceMs(), config.refreshAsOfByMs(), events, reads,
+                config.evidenceDir());
             SequencerClient sequencer = config.sequencerUrl() == null ? null
                 : new SequencerClient(config.sequencerUrl(), hubSource());
             RunnerClient runner = config.runnerUrl() == null ? null : new RunnerClient(config.runnerUrl(), config.runnerToken());

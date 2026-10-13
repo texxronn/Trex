@@ -381,16 +381,51 @@ public final class HubQueries implements AutoCloseable {
                 ps.setInt(next, q.offset());
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        rows.add(new LedgerRow(rs.getString(1), rs.getLong(2), rs.getString(3),
-                            LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
-                            rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
-                            rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0,
-                            rs.getString(16), rs.getInt(17) != 0, rs.getString(18), rs.getString(19)));
+                        rows.add(ledgerRow(rs));
                     }
                 }
             }
             return new LedgerPage(total, rows);
         });
+    }
+
+    /**
+     * The ledger rows for a set of ids, in id order (V2-INCREMENTAL-REFRESH-PLAN.md §4): the exact
+     * {@link #ledger} shape, read back after a row-scoped patch so the SSE delta can carry the rows
+     * the patch moved rather than ids every client would have to fetch again. Empty ids read
+     * nothing.
+     */
+    public List<LedgerRow> ledgerByIds(java.util.Collection<String> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<String> ordered = new ArrayList<>(new TreeSet<>(ids));
+        String placeholders = String.join(",", java.util.Collections.nCopies(ordered.size(), "?"));
+        return read(conn -> {
+            List<LedgerRow> rows = new ArrayList<>();
+            String sql = HubSql.LEDGER_SELECT + " WHERE t.external_id IN (" + placeholders + ")"
+                + " ORDER BY t.external_id";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (int i = 0; i < ordered.size(); i++) {
+                    ps.setString(i + 1, ordered.get(i));
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        rows.add(ledgerRow(rs));
+                    }
+                }
+            }
+            return rows;
+        });
+    }
+
+    /** One {@code LEDGER_SELECT} row, shared by {@link #ledger} and {@link #ledgerByIds}. */
+    private static LedgerRow ledgerRow(ResultSet rs) throws SQLException {
+        return new LedgerRow(rs.getString(1), rs.getLong(2), rs.getString(3),
+            LocalDate.parse(rs.getString(4)), rs.getLong(5), rs.getLong(6), rs.getString(7),
+            rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11),
+            rs.getString(12), rs.getString(13), rs.getString(14), rs.getInt(15) != 0,
+            rs.getString(16), rs.getInt(17) != 0, rs.getString(18), rs.getString(19));
     }
 
     private static String ledgerWhere(BlotterQuery q, List<Object> params) {

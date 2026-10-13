@@ -3,6 +3,8 @@ package trex.v2.hub;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.v2.core.config.DeriveConfig;
+import trex.v2.hub.api.LedgerRow;
+import trex.v2.index.ApplyResult;
 import trex.v2.index.Indexer;
 import trex.v2.log.ConfigLoader;
 
@@ -17,6 +19,7 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -48,13 +51,14 @@ final class IndexRefresher implements AutoCloseable {
     private final WatchService watch;
     private final Thread worker;
     private final HubEvents events;
+    private final HubQueries reads;
     private final Path evidenceDir;
 
     private volatile DeriveConfig config;
     private volatile boolean running = true;
 
     IndexRefresher(Path journal, Path configDir, Indexer indexer, DeriveConfig initial, long debounceMs,
-                   long asOfRefreshMs, HubEvents events, Path evidenceDir) {
+                   long asOfRefreshMs, HubEvents events, HubQueries reads, Path evidenceDir) {
         this.journal = journal.toAbsolutePath();
         this.journalDir = this.journal.getParent();
         this.configDir = configDir.toAbsolutePath();
@@ -63,6 +67,7 @@ final class IndexRefresher implements AutoCloseable {
         this.debounceMs = debounceMs;
         this.asOfRefreshMs = asOfRefreshMs;
         this.events = events;
+        this.reads = reads;
         this.evidenceDir = evidenceDir;
         try {
             this.watch = FileSystems.getDefault().newWatchService();
@@ -176,9 +181,10 @@ final class IndexRefresher implements AutoCloseable {
                 publish();
                 return asOfMoved(asOfBefore);
             }
-            if (indexer.apply(journal, Instant.now())) {
+            ApplyResult applied = indexer.apply(journal, Instant.now());
+            if (applied.changed()) {
                 log.debug("index refreshed ({})", why);
-                publish();
+                publish(applied.patchedIds());
             }
             scanEvidence();
             return asOfMoved(asOfBefore);
@@ -194,9 +200,21 @@ final class IndexRefresher implements AutoCloseable {
         return !java.util.Objects.equals(before, indexer.meta("as_of").orElse(null));
     }
 
+    /** A full derive (or an asOf advance): no patch, so a client reloads the active view. */
     private void publish() {
+        publish(Set.of());
+    }
+
+    /**
+     * Publish a change, carrying the rows a row-scoped patch moved. A DISMISS of an account or
+     * commitment names an id with no ledger row, so the read can come back empty; that publishes no
+     * patch and the client reloads rather than patch a view it cannot reconcile.
+     */
+    private void publish(Set<String> patchedIds) {
+        List<LedgerRow> patch = patchedIds.isEmpty()
+            ? List.of() : reads.ledgerByIds(patchedIds);
         events.publish(new HubEvents.Change(indexer.logHeadN(), indexer.offset(),
-            config.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION));
+            config.configRevision(), DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION, patch));
     }
 
     /** Index the evidence store's files; the table is disposable and the files are the truth. */

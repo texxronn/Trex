@@ -60,7 +60,14 @@ async function boot() {
       ctx.n = change.n;
       ctx.configRevision = change.configRevision;
       status.refresh();
-      refreshActive();
+      // A row-scoped patch carries the changed rows (V2-INCREMENTAL-REFRESH-PLAN.md §4): a mode
+      // that can apply it replaces just those rows instead of re-fetching the whole view. A full
+      // derive (no patch) or a mode without a patch falls back to the full reload.
+      if (change.patch && change.patch.length && activeMode && activeMode.patch) {
+        activeMode.patch(change.patch);
+      } else {
+        refreshActive();
+      }
       ingestToast.onDelta(change);
     },
   });

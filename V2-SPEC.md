@@ -214,6 +214,13 @@ decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). The hub re-derive
 after any structural write and on `HubConfig.refreshAsOfByMs` (default 60 s) when no write has; a
 shorter cadence keeps the time-driven outputs fresher at the cost of a full derive per tick.
 
+**What the change delta carries.** The `/api/events` delta names the log head, the offset and the
+config/derive/hash revisions, and — when the move was a row-scoped patch — `patch`: the changed
+ledger rows themselves (V2-INCREMENTAL-REFRESH-PLAN.md §4). A full derive carries no patch, and a
+patch the server cannot describe as rows (a `DISMISS` of an account or a commitment) carries none
+either; a client that sees no patch re-fetches the active view. A client that sees one replaces the
+named rows by `externalId` instead.
+
 ### 6.2 Roles
 
 Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is recorded and

@@ -57,7 +57,27 @@ export function mount(container, context) {
   if (query.has('to')) filters.to = query.get('to');
   render();
   load();
-  return { refresh: load };
+  return { refresh: load, patch };
+}
+
+/**
+ * Apply a row-scoped SSE patch (V2-INCREMENTAL-REFRESH-PLAN.md §4): replace the rows the delta
+ * carries, by externalId, in place. A row the patch names but the current page does not show is
+ * left out — the filter, the sort and the total are the server's, so inserting a row the query
+ * excluded (or re-sorting) would misreport the page. Falls back to nothing when none match; the
+ * server sends no patch when it cannot describe the change as rows.
+ */
+function patch(rows) {
+  const byId = new Map((rows || []).map((r) => [r.externalId, r]));
+  if (!byId.size) return;
+  let touched = false;
+  status.rows = (status.rows || []).map((row) => {
+    const next = byId.get(row.externalId);
+    if (!next) return row;
+    touched = true;
+    return next;
+  });
+  if (touched) renderRows();
 }
 
 function render() {

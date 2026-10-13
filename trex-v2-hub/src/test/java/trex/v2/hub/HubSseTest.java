@@ -37,10 +37,11 @@ class HubSseTest {
     void changeFeedDeliversAndCloses() throws Exception {
         HubEvents events = new HubEvents();
         HubEvents.Subscription sub = events.subscribe();
-        events.publish(new HubEvents.Change(7, 100, "cfg", "derive/1", "statehash/1"));
+        events.publish(new HubEvents.Change(7, 100, "cfg", "derive/1", "statehash/1", List.of()));
         HubEvents.Change change = sub.poll(Duration.ofSeconds(1)).orElseThrow();
         assertEquals(7, change.n());
         assertEquals(100, change.offset());
+        assertTrue(change.patch().isEmpty(), "a change with no patch carries an empty list");
         sub.close();
         events.close();
         assertFalse(events.isOpen());
