@@ -286,10 +286,16 @@ tests:
     category: HEALTH            # the Medicare rebate, inbound; the rule is blind and nets it
   - description: "ST GEORGE HOSPITAL"
     amount: -12000
-    category: HEALTH            # \bhospitals?\b — a real hospital still matches
+    category: HEALTH            # a real hospital matches
+  - description: "LiverpoolHospital - Visa Purchase - Receipt 141595In Liverpool Date 22 May 2025 Card 420274xxxxxx5603"
+    amount: -1200
+    category: HEALTH            # ...even glued to the name: no leading word boundary is required
+  - description: "TheChildrensHospitalWe - Visa Purchase - Receipt 191342In Westmead Date 20 Sep 2024 Card 420274xxxxxx5603"
+    amount: -1890
+    category: HEALTH            # ...nor glued to the suburb
   - description: "SQ *KKSY HOSPITALITY P   WentworthvillNS"
     amount: -3606
-    category: UNCATEGORIZED     # ...but "hospital" inside "HOSPITALITY" must not (a hospitality merchant)
+    category: UNCATEGORIZED     # ...but the -ity continuation is a hospitality merchant, not a hospital
 
   # --- SPORT_AND_LEISURE ---------------------------------------------------------
   - description: "YMCA SYDNEY"
