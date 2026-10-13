@@ -63,6 +63,11 @@ class IndexerTest {
             Provenance.BANK, null, "test/1", Instant.parse("2026-09-30T00:00:00Z"));
     }
 
+    private static Decision.UserAck ack(long n, String id) {
+        return new Decision.UserAck(n, id, "sha256:cfg", DeriveConfig.DERIVE_VERSION,
+            DeriveConfig.HASH_VERSION, "state:abc", null, Actor.USER, "ron", ASOF);
+    }
+
     private static Path journal(Path dir) {
         Path path = dir.resolve("trex.jsonl");
         try (JsonlJournal j = new JsonlJournal(path)) {
@@ -125,6 +130,84 @@ class IndexerTest {
             String incremental = indexer.derivedFingerprint();
             indexer.rebuild(journal, ASOF);
             assertEquals(incremental, indexer.derivedFingerprint());
+        }
+    }
+
+    @Test
+    void aRowScopedAckPatchesAndEqualsARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(ack(6, "a")));
+            }
+            assertTrue(indexer.apply(journal, ASOF));
+            assertEquals(1, count(db, "user_ack"));
+            // The patch path leaves as_of put; a full derive would have rewritten it identically
+            // here, so the fingerprint is the load-bearing check.
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint(),
+                "a row-scoped ACK must give the same tables as a full rebuild");
+        }
+    }
+
+    @Test
+    void aRowScopedAckAtADifferentAsOfDoesNotAdvanceIt(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(ack(6, "a")));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // A full derive would advance as_of to asof2; the patch is asOf-independent and does not.
+            assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(1, count(db, "user_ack"));
+            assertEquals("a", string(db, "SELECT external_id FROM user_ack WHERE user_id='ron'"));
+        }
+    }
+
+    @Test
+    void unackRoundTripsToThePreAckFingerprint(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            String before = indexer.derivedFingerprint();
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(ack(6, "a")));
+            }
+            indexer.apply(journal, ASOF);
+            assertEquals(1, count(db, "user_ack"));
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.UserUnack(7, "a", null, Actor.USER, "ron", ASOF)));
+            }
+            indexer.apply(journal, ASOF);
+            assertEquals(0, count(db, "user_ack"));
+            assertEquals(before, indexer.derivedFingerprint(),
+                "ACK then UNACK returns to the pre-ACK derived state");
+        }
+    }
+
+    @Test
+    void aMixedAppendFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(
+                    ack(6, "a"),
+                    new Decision.Supersede(7, "a", "b", "reparse", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // A structural line in the batch cannot be patched, so the full derive advances as_of.
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
         }
     }
 
