@@ -10,23 +10,34 @@ import java.nio.file.Path;
  */
 public record HubConfig(Path journal, Path index, Path configDir, String host, int port,
                         long refreshDebounceMs, String sequencerUrl, Path evidenceDir,
-                        String runnerUrl, String runnerToken) {
+                        String runnerUrl, String runnerToken, long refreshAsOfByMs) {
 
     public static final long DEFAULT_DEBOUNCE_MS = 200;
 
+    /**
+     * How often the refresher forces a full derive to advance {@code asOf} when no write has moved
+     * it (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). This is a full derive, so a shorter
+     * cadence keeps the time-driven outputs (pending aging, the time-relative review kinds,
+     * commitment faces) fresher at the cost of CPU; 60 s is the default.
+     */
+    public static final long DEFAULT_ASOF_REFRESH_MS = 60_000;
+
     /** A read-only hub with no evidence store. */
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs) {
-        this(journal, index, configDir, host, port, refreshDebounceMs, null, null, null, null);
+        this(journal, index, configDir, host, port, refreshDebounceMs, null, null, null, null,
+            DEFAULT_ASOF_REFRESH_MS);
     }
 
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
                      String sequencerUrl) {
-        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, null, null, null);
+        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, null, null, null,
+            DEFAULT_ASOF_REFRESH_MS);
     }
 
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
                      String sequencerUrl, Path evidenceDir) {
-        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, evidenceDir, null, null);
+        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, evidenceDir, null, null,
+            DEFAULT_ASOF_REFRESH_MS);
     }
 
     public HubConfig {
@@ -38,6 +49,9 @@ public record HubConfig(Path journal, Path index, Path configDir, String host, i
         }
         if (refreshDebounceMs < 0) {
             throw new IllegalArgumentException("refreshDebounceMs must be >= 0");
+        }
+        if (refreshAsOfByMs < 0) {
+            throw new IllegalArgumentException("refreshAsOfByMs must be >= 0");
         }
         if (sequencerUrl != null && !sequencerUrl.isBlank()
             && !(sequencerUrl.startsWith("http://") || sequencerUrl.startsWith("https://"))) {

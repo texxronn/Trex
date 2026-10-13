@@ -207,6 +207,13 @@ facts dated after `asOf`. Every other table and every other review kind is ident
 adds it to this list and to that test. Where a judgement needs "how far the data reaches", it uses an
 account's **frontier** — its newest current posted date at or before `asOf` — never `asOf` itself.
 
+**When `asOf` advances.** The indexer advances `asOf` by a full derive, not on every append. A
+row-scoped decision (`USER_ACK`/`USER_UNACK`, `PIN`/`UNPIN`, `NOTE`, `DISMISS`) is `asOf`-independent
+and patches only the rows it names, leaving `as_of` put, so the write clock and the time clock are
+decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). The hub re-derives to advance `asOf`
+after any structural write and on `HubConfig.refreshAsOfByMs` (default 60 s) when no write has; a
+shorter cadence keeps the time-driven outputs fresher at the cost of a full derive per tick.
+
 ### 6.2 Roles
 
 Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is recorded and

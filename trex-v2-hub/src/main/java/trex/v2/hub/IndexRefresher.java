@@ -28,6 +28,12 @@ import java.util.concurrent.TimeUnit;
  * <p>Rule edits and registry changes are ordinary file events; there is no separate apply step.
  * Refreshes are coalesced so a burst — a statement ingest, an editor writing several files — costs
  * one derivation, not one per event.
+ *
+ * <p>The write clock and the time clock are decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3): a
+ * row-scoped patch is {@code asOf}-independent and leaves {@code as_of} put, so a write no longer
+ * advances {@code asOf}. While the loop polls, it also forces a full derive on
+ * {@code asOfRefreshMs} so the time-driven outputs (pending aging, the time-relative review kinds,
+ * commitment faces) stay current without a write.
  */
 final class IndexRefresher implements AutoCloseable {
 
@@ -38,6 +44,7 @@ final class IndexRefresher implements AutoCloseable {
     private final Path configDir;
     private final Indexer indexer;
     private final long debounceMs;
+    private final long asOfRefreshMs;
     private final WatchService watch;
     private final Thread worker;
     private final HubEvents events;
@@ -47,13 +54,14 @@ final class IndexRefresher implements AutoCloseable {
     private volatile boolean running = true;
 
     IndexRefresher(Path journal, Path configDir, Indexer indexer, DeriveConfig initial, long debounceMs,
-                   HubEvents events, Path evidenceDir) {
+                   long asOfRefreshMs, HubEvents events, Path evidenceDir) {
         this.journal = journal.toAbsolutePath();
         this.journalDir = this.journal.getParent();
         this.configDir = configDir.toAbsolutePath();
         this.indexer = indexer;
         this.config = initial;
         this.debounceMs = debounceMs;
+        this.asOfRefreshMs = asOfRefreshMs;
         this.events = events;
         this.evidenceDir = evidenceDir;
         try {
@@ -79,28 +87,43 @@ final class IndexRefresher implements AutoCloseable {
 
     private void loop() {
         refresh("initial");
+        long lastDerive = System.nanoTime();
         while (running) {
             try {
                 WatchKey key = watch.poll(1, TimeUnit.SECONDS);
-                if (key == null) {
-                    continue;
-                }
-                boolean relevant = false;
-                boolean overflow = false;
-                // Drain the burst: keep taking keys for the debounce window.
-                do {
-                    for (WatchEvent<?> event : key.pollEvents()) {
-                        if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
-                            overflow = true;
-                        } else if (relevant(key, event)) {
-                            relevant = true;
+                if (key != null) {
+                    boolean relevant = false;
+                    boolean overflow = false;
+                    // Drain the burst: keep taking keys for the debounce window.
+                    do {
+                        for (WatchEvent<?> event : key.pollEvents()) {
+                            if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+                                overflow = true;
+                            } else if (relevant(key, event)) {
+                                relevant = true;
+                            }
+                        }
+                        key.reset();
+                        key = watch.poll(debounceMs, TimeUnit.MILLISECONDS);
+                    } while (key != null && running);
+                    if (relevant || overflow) {
+                        // Only a full derive moves as_of; a row-scoped patch does not, so the timer
+                        // still owes the time-driven outputs an advance.
+                        if (refresh(overflow ? "overflow" : "change")) {
+                            lastDerive = System.nanoTime();
                         }
                     }
-                    key.reset();
-                    key = watch.poll(debounceMs, TimeUnit.MILLISECONDS);
-                } while (key != null && running);
-                if (relevant || overflow) {
-                    refresh(overflow ? "overflow" : "change");
+                }
+                // Advance the time clock even when no append has: patches are asOf-independent, so
+                // nothing else would ever move the time-driven outputs. Full derive per tick, so the
+                // cadence trades freshness for CPU (HubConfig.refreshAsOfByMs).
+                if (asOfRefreshMs > 0
+                    && System.nanoTime() - lastDerive >= TimeUnit.MILLISECONDS.toNanos(asOfRefreshMs)) {
+                    if (indexer.deriveNow(Instant.now())) {
+                        log.debug("asOf advanced on the {} ms timer", asOfRefreshMs);
+                        publish();
+                    }
+                    lastDerive = System.nanoTime();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -125,7 +148,11 @@ final class IndexRefresher implements AutoCloseable {
         return false;
     }
 
-    private void refresh(String why) {
+    /**
+     * One pass: reload the config, apply any new journal lines, and index the evidence store.
+     * Returns whether the full derive ran (so {@code as_of} moved) — a row-scoped patch does not.
+     */
+    private boolean refresh(String why) {
         try {
             DeriveConfig reloaded = ConfigLoader.load(configDir).config();
             if (!reloaded.configRevision().equals(config.configRevision())) {
@@ -138,26 +165,33 @@ final class IndexRefresher implements AutoCloseable {
         }
         try {
             if (Files.notExists(journal)) {
-                return;
+                return false;
             }
+            String asOfBefore = indexer.meta("as_of").orElse(null);
             long size = Files.size(journal);
             if (indexer.offset() > size || indexer.journalPrefixReplaced(journal)) {
                 log.warn("journal replaced or shrank (offset {}, size {}); refolding from 0",
                     indexer.offset(), size);
                 indexer.rebuild(journal, Instant.now());
                 publish();
-                return;
+                return asOfMoved(asOfBefore);
             }
             if (indexer.apply(journal, Instant.now())) {
                 log.debug("index refreshed ({})", why);
                 publish();
             }
             scanEvidence();
+            return asOfMoved(asOfBefore);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (RuntimeException e) {
             log.error("index refresh failed ({})", why, e);
         }
+        return false;
+    }
+
+    private boolean asOfMoved(String before) {
+        return !java.util.Objects.equals(before, indexer.meta("as_of").orElse(null));
     }
 
     private void publish() {

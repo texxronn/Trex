@@ -155,6 +155,12 @@ public final class Indexer implements AutoCloseable {
     /**
      * Apply any new log lines and re-derive if anything moved. Returns true when the derived state
      * was recomputed.
+     *
+     * <p>{@code asOf} is deliberately <em>not</em> part of the up-to-date test: a consistent apply
+     * with no new lines and no version/config drift is a no-op even at a later {@code asOf}. The
+     * row-scoped patches are {@code asOf}-independent, so the write clock and the time clock are
+     * decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3); {@link #deriveNow} advances {@code asOf} on a
+     * timer, and a write that needs the time-driven outputs derives in full.
      */
     public synchronized boolean apply(Path journal, Instant asOf) {
         long priorOffset = offset();
@@ -167,7 +173,6 @@ public final class Indexer implements AutoCloseable {
                 && config.configRevision().equals(meta("config_revision").orElse(null))
                 && DeriveConfig.DERIVE_VERSION.equals(meta("derive_version").orElse(null))
                 && DeriveConfig.HASH_VERSION.equals(meta("hash_version").orElse(null))
-                && asOf.toString().equals(meta("as_of").orElse(null))
                 && String.valueOf(read.end()).equals(meta("derived_offset").orElse(null));
             if (upToDate) {
                 return false;
@@ -182,6 +187,23 @@ public final class Indexer implements AutoCloseable {
         } catch (SQLException e) {
             throw new IndexException("apply failed against " + journal, e);
         }
+    }
+
+    /**
+     * Force a full re-derive at {@code asOf}, advancing the time-driven outputs (pending aging, the
+     * four time-relative review kinds, the commitment faces and the {@code >asOf} cut-off) that a
+     * row-scoped patch leaves alone (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). The hub's
+     * timer calls this when no append has moved {@code asOf}; it returns true when {@code as_of}
+     * moved, so the caller publishes. Ordinary appends derive through {@link #apply}.
+     */
+    public synchronized boolean deriveNow(Instant asOf) {
+        boolean changed = !asOf.toString().equals(meta("as_of").orElse(null));
+        try {
+            deriveAndStore(asOf);
+        } catch (SQLException e) {
+            throw new IndexException("cannot re-derive at " + asOf, e);
+        }
+        return changed;
     }
 
     /** Wipe every table and re-read the whole log (V2-PROPOSAL.md §4 rebuild test). */

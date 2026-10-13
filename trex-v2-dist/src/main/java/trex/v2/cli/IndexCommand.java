@@ -45,6 +45,12 @@ public final class IndexCommand implements Callable<Integer> {
                 System.out.println("rebuilt " + index + " at asOf " + at);
             } else {
                 boolean changed = indexer.apply(journal, at);
+                // apply no longer advances as_of for a no-op or a row-scoped patch (slice 5); the
+                // command asks for the tables at its as-of, so force the time clock when it lagged.
+                if (!at.toString().equals(indexer.meta("as_of").orElse(null))) {
+                    indexer.deriveNow(at);
+                    changed = true;
+                }
                 System.out.println((changed ? "applied" : "up to date at") + " " + index
                     + " (offset " + indexer.offset() + ")");
             }
