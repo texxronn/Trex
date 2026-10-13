@@ -190,11 +190,15 @@ class DeriveTest {
         Derivation pinned = Derive.derive(facts, List.of(pin(2, "FOO", "a")), config(), ASOF);
         assertEquals("FOO", pinned.current("a").orElseThrow().category());
         assertEquals(CategoryOrigin.PIN, pinned.current("a").orElseThrow().categoryOrigin());
+        assertEquals(1, pinned.pins().size());
 
         Derivation unpinned = Derive.derive(facts,
             List.of(pin(2, "FOO", "a"), new Decision.Unpin(3, List.of("a"), null, Actor.USER, "ron", ASOF)),
             config(), ASOF);
         assertEquals("GROCERIES", unpinned.current("a").orElseThrow().category());
+        // The latest effective PIN/UNPIN wins: an UNPIN removes the pin_current row, not just the
+        // category (V2-INCREMENTAL-REFRESH-PLAN.md §7).
+        assertTrue(unpinned.pins().isEmpty());
     }
 
     @Test

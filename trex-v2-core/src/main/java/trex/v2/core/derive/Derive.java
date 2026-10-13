@@ -853,20 +853,37 @@ public final class Derive {
             return out;
         }
 
+        /**
+         * The effective pin for each id: the latest effective {@code PIN}/{@code UNPIN} naming it,
+         * ids resolved through the supersession map (V2-PROPOSAL.md §7.2, §9.9.E). An id has a row
+         * iff that latest decision is a {@code PIN}; a later {@code UNPIN} removes it, exactly as
+         * {@code categories()} reverts the category.
+         */
         private List<PinRow> pins() {
             Map<String, PinRow> out = new TreeMap<>();
-            Map<String, Decision.Pin> latest = new HashMap<>();
+            Map<String, Decision> latest = new HashMap<>();
             for (Decision d : effective) {
-                if (d instanceof Decision.Pin p) {
-                    for (String raw : p.externalIds()) {
+                if (d instanceof Decision.Pin pin) {
+                    for (String raw : pin.externalIds()) {
                         String id = resolve(raw);
                         if (id != null) {
-                            latest.put(id, p);
+                            latest.put(id, d);
+                        }
+                    }
+                } else if (d instanceof Decision.Unpin unpin) {
+                    for (String raw : unpin.externalIds()) {
+                        String id = resolve(raw);
+                        if (id != null) {
+                            latest.put(id, d);
                         }
                     }
                 }
             }
-            latest.forEach((id, p) -> out.put(id, new PinRow(id, p.category(), p.n(), p.user(), p.comment())));
+            latest.forEach((id, d) -> {
+                if (d instanceof Decision.Pin pin) {
+                    out.put(id, new PinRow(id, pin.category(), pin.n(), pin.user(), pin.comment()));
+                }
+            });
             return new ArrayList<>(out.values());
         }
 

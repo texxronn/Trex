@@ -258,7 +258,7 @@ class IndexerTest {
     }
 
     @Test
-    void pinThenUnpinEqualsARebuildAndKeepsThePinRow(@TempDir Path dir) {
+    void pinThenUnpinEqualsARebuildAndRemovesThePinRow(@TempDir Path dir) {
         Path db = dir.resolve("trex.sqlite");
         Path journal = journal(dir);
         try (Indexer indexer = Indexer.open(db, pinConfig())) {
@@ -268,22 +268,21 @@ class IndexerTest {
             }
             assertTrue(indexer.apply(journal, ASOF));
             assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
+            assertEquals("DINING", string(db, "SELECT category FROM pin_current WHERE external_id='a'"));
             try (JsonlJournal j = new JsonlJournal(journal)) {
                 j.appendBatch(List.of(unpin(7, "a")));
             }
             assertTrue(indexer.apply(journal, ASOF));
-            // The category reverts to the rule's answer...
+            // The latest effective PIN/UNPIN wins: the UNPIN reverts the category and removes the
+            // pin_current row, exactly as derive's pins() now folds both (V2-INCREMENTAL-REFRESH-PLAN.md §7).
             assertEquals("GROCERIES", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
             assertEquals("RULE", string(db, "SELECT category_origin FROM txn_current WHERE external_id='a'"));
             assertEquals("GROCERIES", string(db, "SELECT category FROM unit WHERE unit_id='a'"));
-            // ...but derive's pins() folds only PINs, so a pin_current row survives a PIN→UNPIN.
-            assertEquals(1, count(db, "pin_current WHERE external_id='a'"));
-            assertEquals("DINING", string(db, "SELECT category FROM pin_current WHERE external_id='a'"));
-            assertEquals(6L, Long.parseLong(string(db, "SELECT decision_n FROM pin_current WHERE external_id='a'")));
+            assertEquals(0, count(db, "pin_current WHERE external_id='a'"));
             String incremental = indexer.derivedFingerprint();
             indexer.rebuild(journal, ASOF);
             assertEquals(incremental, indexer.derivedFingerprint(),
-                "the replicated pin_current quirk must match a full rebuild");
+                "a PIN->UNPIN patch must give the same tables as a full rebuild");
         }
     }
 
