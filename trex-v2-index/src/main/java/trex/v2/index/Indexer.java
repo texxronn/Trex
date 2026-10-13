@@ -196,6 +196,33 @@ public final class Indexer implements AutoCloseable {
     }
 
     /**
+     * The synchronous response patch's entry point (V2-INCREMENTAL-REFRESH-PLAN.md §4): apply the
+     * new lines only when they are exactly a row-scoped patch, and <em>never</em> fall back to a full
+     * derive. The HTTP request that carries a decision must not block for the seconds a full derive
+     * costs; the caller ({@code HubService}) holds the hub's index-write gate so it also never queues
+     * behind the refresher's derive. Ingest-first, exactly like {@link #apply}, so a decision is
+     * persisted before the rows it moves.
+     *
+     * <p>Empty when the batch is not patchable — a fact, a structural action or a {@code REVOKE}, a
+     * version or config drift, or a target the patch cannot reproduce (e.g. a
+     * {@code SUSPECTED_RECURRING} dismissal). Nothing is patched then; the lines are left for the
+     * refresher's next {@link #apply}, which derives in full. The result is the ids the patch named.
+     */
+    public synchronized Optional<Set<String>> applyRowScoped(Path journal) {
+        long priorOffset = offset();
+        ReadResult read = readFrom(journal, priorOffset);
+        if (read.lines().isEmpty() || !derivedIsConsistent(priorOffset)) {
+            return Optional.empty();
+        }
+        try {
+            ingestMirror(read);
+            return patchRowScoped(read, priorOffset);
+        } catch (SQLException e) {
+            throw new IndexException("scoped apply failed against " + journal, e);
+        }
+    }
+
+    /**
      * Force a full re-derive at {@code asOf}, advancing the time-driven outputs (pending aging, the
      * four time-relative review kinds, the commitment faces and the {@code >asOf} cut-off) that a
      * row-scoped patch leaves alone (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). The hub's

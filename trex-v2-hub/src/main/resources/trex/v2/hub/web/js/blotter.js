@@ -334,10 +334,16 @@ function confirmedLines(ids) {
 
 async function submit(list) {
   try {
-    await api.decisions(ctx.n, list);
+    const response = await api.decisions(ctx.n, list);
     selected = new Set();
     toast('Recorded');
-    await load();
+    // A row-scoped decision returns the rows it moved (V2-INCREMENTAL-REFRESH-PLAN.md §4): apply
+    // them in place instead of re-fetching the view. Any other decision has no patch and reloads.
+    if (response && response.patch && response.patch.length) {
+      patch(response.patch);
+    } else {
+      await load();
+    }
   } catch (error) {
     reportError(error);
     await load();

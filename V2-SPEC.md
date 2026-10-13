@@ -221,6 +221,14 @@ patch the server cannot describe as rows (a `DISMISS` of an account or a commitm
 either; a client that sees no patch re-fetches the active view. A client that sees one replaces the
 named rows by `externalId` instead.
 
+**The decision response patch.** A `/api/decisions` (and `/api/acks`) batch that is *entirely*
+row-scoped is applied to the index before the hub answers, and its response carries the same `patch`
+the delta would, so the acting client needs no second fetch (V2-INCREMENTAL-REFRESH-PLAN.md §4). The
+hub never waits for a full derive to produce it: it try-takes the registry write gate and, when the
+refresher is mid-derive or the batch is not purely row-scoped, answers with no patch and the client
+falls back to the delta or a reload. Applying the patch also publishes it, so other clients still
+receive it even though the request consumed the lines.
+
 ### 6.2 Roles
 
 Every current fact has a derived role, `transaction` (default) or `noop`: a `noop` row is recorded and
@@ -424,7 +432,7 @@ unauthenticated and binds loopback by default.
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
 | GET/POST | `/api/acks` | per-user `USER_ACK` rows and their validity |
-| POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer |
+| POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer; a row-scoped batch's response also carries `patch` — the rows it moved (§6.6) |
 | POST | `/api/reflow/preview`, `/api/reflow/preview/transfers` | blast radius of a category or transfer-pattern edit, before it is saved |
 | GET/PUT | `/api/config/categories`, `/api/config/transfers` | the rule files the Rules mode edits |
 | GET | `/api/config/drift` | shipped vs base vs current for every seeded config file (§12): `[{file, state}]`, `state` ∈ `same`, `repo-newer`, `edited-here`, `both-changed`, `unknown` |

@@ -227,14 +227,20 @@ function rowMenuItems(row) {
 async function toggleAck(row) {
   const isRead = read.has(row.externalId);
   try {
-    await api.postAck({
+    const response = await api.postAck({
       user: ctx.user,
       externalId: row.externalId,
       action: isRead ? 'UNACK' : 'ACK',
       comment: null,
     });
     toast(`${isRead ? 'Unacked' : 'Acked'} ${shortId(row.externalId)} for ${ctx.user}`);
-    await load();
+    // A row-scoped ack returns the row it moved (V2-INCREMENTAL-REFRESH-PLAN.md §4): patch it in
+    // place; anything else (no patch) reloads the walk.
+    if (response && response.patch && response.patch.length) {
+      await patch(response.patch);
+    } else {
+      await load();
+    }
   } catch (error) {
     reportError(error);
   }

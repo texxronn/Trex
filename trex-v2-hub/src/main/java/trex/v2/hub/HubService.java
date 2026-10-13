@@ -37,6 +37,7 @@ import trex.v2.hub.api.ChainsResponse;
 import trex.v2.hub.api.CursorRequest;
 import trex.v2.hub.api.CursorResponse;
 import trex.v2.hub.api.DecisionRequest;
+import trex.v2.hub.api.DecisionResponse;
 import trex.v2.hub.api.EyeballResponse;
 import trex.v2.hub.api.ReflowPreview;
 import trex.v2.core.workbook.Workbook;
@@ -44,6 +45,7 @@ import trex.v2.log.Yaml;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
+import trex.v2.hub.api.LedgerRow;
 import trex.v2.hub.api.OpeningResponse;
 import trex.v2.hub.api.PrecheckResponse;
 import trex.v2.hub.api.ProjectionRequest;
@@ -104,6 +106,15 @@ public final class HubService implements HubApi, AutoCloseable {
 
     /** The commitment id slug (V2-COMMITMENTS-PLAN.md §2.1): lowercase, hyphenated, frozen. */
     private static final Pattern COMMITMENT_ID = Pattern.compile("[a-z0-9][a-z0-9-]*");
+
+    /**
+     * The actions a row-scoped patch can apply directly (V2-INCREMENTAL-REFRESH-PLAN.md §2.1): a
+     * batch made only of these is patched synchronously and its rows returned in the response. Any
+     * other action is structural and keeps the refresh/SSE path. {@code Action.fromWire} is exact
+     * uppercase, and precheck has already validated every draft, so the wire strings compare direct.
+     */
+    private static final Set<String> ROW_SCOPED_ACTIONS = Set.of(
+        "USER_ACK", "USER_UNACK", "PIN", "UNPIN", "NOTE", "DISMISS");
 
     /**
      * The seeded config files the MCP resources expose (V2-MCP-SERVER-PLAN.md §3.3): a subset of
@@ -1021,9 +1032,51 @@ public final class HubService implements HubApi, AutoCloseable {
         try {
             BatchResponse response = sequencer.postDecisions(
                 new DecisionBatch(request.allOrNone(), request.decisions()));
-            return new DecisionOutcome(200, response);
+            return new DecisionOutcome(200,
+                DecisionResponse.of(response, rowScopedPatch(request.decisions())));
         } catch (SequencerClient.Unavailable e) {
             return new DecisionOutcome(502, new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    /**
+     * The synchronous response patch (V2-INCREMENTAL-REFRESH-PLAN.md §4): for a batch that is
+     * entirely row-scoped, apply it to the index now and return the rows it moved, so the acting
+     * client needs no second fetch and does not wait for the SSE delta. Every other batch, and any
+     * scoped batch the hub cannot apply without waiting, returns no patch and the client falls back
+     * to the delta or a reload.
+     *
+     * <p>The hub's index-write gate is <em>try</em>-locked, never waited on: a full derive is
+     * seconds and the HTTP response must not block for it. {@code Indexer.applyRowScoped} itself
+     * never falls back to a derive. A patch that fails after the writer committed is swallowed — the
+     * decisions are already durable and the refresher will land them — so a successful write is
+     * never turned into an error. The publish mirrors the refresher's, so other clients still get
+     * the changed rows even though this request consumed the lines.
+     */
+    private List<LedgerRow> rowScopedPatch(List<DecisionDraft> drafts) {
+        if (drafts == null || drafts.isEmpty()
+            || !drafts.stream().allMatch(d -> d != null && ROW_SCOPED_ACTIONS.contains(d.action()))) {
+            return List.of();
+        }
+        if (!refresher.tryIndexWrite()) {
+            return List.of();
+        }
+        try {
+            Optional<Set<String>> patched = indexer.applyRowScoped(config.journal());
+            if (patched.isEmpty()) {
+                return List.of();
+            }
+            List<LedgerRow> rows = reads.ledgerByIds(patched.get());
+            events.publish(new HubEvents.Change(indexer.logHeadN(), indexer.offset(),
+                refresher.config().configRevision(), DeriveConfig.DERIVE_VERSION,
+                DeriveConfig.HASH_VERSION, rows));
+            return rows;
+        } catch (RuntimeException e) {
+            log.warn("synchronous row-scoped patch failed; the SSE delta will carry it: {}",
+                e.getMessage());
+            return List.of();
+        } finally {
+            refresher.endIndexWrite();
         }
     }
 
