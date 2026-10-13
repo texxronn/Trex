@@ -1,6 +1,7 @@
 package trex.v2.hub;
 
 import com.sun.net.httpserver.HttpServer;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.v2.core.Actor;
@@ -28,6 +29,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
@@ -91,6 +93,62 @@ class HubDecisionPathTest {
             HttpClient client = HttpClient.newHttpClient();
             URI base = URI.create("http://127.0.0.1:" + readOnly.port());
             assertEquals(503, post(client, base, new DecisionRequestJson().add(markExternal("a")).json()).statusCode());
+        }
+        stub.stop(0);
+    }
+
+    /**
+     * The synchronous response patch (V2-INCREMENTAL-REFRESH-PLAN.md §4): a row-scoped decision is
+     * applied to the index before the hub answers, and the response carries the row it moved, so the
+     * acting client needs no second fetch. A structural decision carries no patch and the client
+     * falls back to the SSE delta. The stub stands in for the sequencer and appends the decided line
+     * to the journal, exactly as the real writer would, because the hub's patch reads it back.
+     */
+    @Test
+    void aRowScopedDecisionReturnsTheChangedRowAndAStructuralOneDoesNot(@TempDir Path dir)
+            throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(new Fact(1, "a", "ing-savings", LocalDate.of(2026, 9, 1), -1000, 0,
+                "COLES 1234", null, 0, Observation.POSTED, "ing-csv", Provenance.BANK, null,
+                "ing-csv/1", AT)));
+        }
+
+        AtomicLong nextN = new AtomicLong(2);
+        HttpServer stub = appendingStub(journal, nextN);
+        stub.start();
+        String stubUrl = "http://127.0.0.1:" + stub.getAddress().getPort();
+
+        Path index = dir.resolve("trex.sqlite");
+        // A long debounce and no asOf timer, so the hub's own synchronous patch — not the refresher —
+        // is what moves the index during the test.
+        HubConfig hubConfig = new HubConfig(journal, index, configDir, "127.0.0.1", 0, 60_000,
+            stubUrl, null, null, null, 0);
+        try (HubService hub = HubService.start(hubConfig)) {
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+
+            HttpResponse<String> ack = client.send(HttpRequest.newBuilder(base.resolve("/api/acks"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "{\"user\":\"ron\",\"externalId\":\"a\",\"action\":\"ACK\"}"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, ack.statusCode(), ack.body());
+            JsonNode ackBody = Json.mapper().readTree(ack.body());
+            assertEquals(1, ackBody.path("patch").size(), ack.body());
+            assertEquals("a", ackBody.path("patch").get(0).path("externalId").asText(), ack.body());
+            // The response patch moved the same read model this request serves.
+            assertEquals(1, hub.acks().size(), "the USER_ACK is visible in the index");
+
+            HttpResponse<String> structural = post(client, base,
+                new DecisionRequestJson().add(markExternal("a")).json());
+            assertEquals(200, structural.statusCode(), structural.body());
+            JsonNode structuralBody = Json.mapper().readTree(structural.body());
+            assertTrue(structuralBody.path("patch").isEmpty(),
+                "a structural decision carries no patch: " + structural.body());
         }
         stub.stop(0);
     }
@@ -226,6 +284,63 @@ class HubDecisionPathTest {
             }
         });
         return stub;
+    }
+
+    /**
+     * A stub sequencer that appends the decided line to the journal (as the real writer would) and
+     * commits, so the hub's synchronous patch has a line to read back. Only the actions this test
+     * submits are built.
+     */
+    private static HttpServer appendingStub(Path journal, AtomicLong nextN) throws java.io.IOException {
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/decisions", ex -> {
+            try {
+                JsonNode root = Json.mapper().readTree(ex.getRequestBody().readAllBytes());
+                Decision decision = decision(nextN.getAndIncrement(), root.path("decisions").path(0));
+                if (decision != null) {
+                    try (JsonlJournal j = new JsonlJournal(journal)) {
+                        j.appendBatch(List.of(decision));
+                    }
+                }
+                byte[] body = "{\"batchHandle\":\"stub\",\"batchStatus\":\"COMMITTED\",\"results\":[]}"
+                    .getBytes(StandardCharsets.UTF_8);
+                ex.getResponseHeaders().set("Content-Type", "application/json");
+                ex.sendResponseHeaders(200, body.length);
+                try (OutputStream out = ex.getResponseBody()) {
+                    out.write(body);
+                }
+            } catch (Exception e) {
+                try {
+                    ex.sendResponseHeaders(500, 0);
+                    ex.close();
+                } catch (java.io.IOException ignored) {
+                    // The client sees the 500 either way.
+                }
+            }
+        });
+        return stub;
+    }
+
+    private static Decision decision(long n, JsonNode d) {
+        String action = text(d, "action");
+        if (action == null) {
+            return null;
+        }
+        String user = text(d, "user");
+        String comment = text(d, "comment");
+        return switch (action) {
+            case "USER_ACK" -> new Decision.UserAck(n, text(d, "externalId"),
+                text(d, "configRevision"), text(d, "deriveVersion"), text(d, "hashVersion"),
+                text(d, "stateHash"), comment, Actor.USER, user, AT);
+            case "MARK_EXTERNAL" -> new Decision.MarkExternal(n, text(d, "externalId"), comment,
+                Actor.USER, user, AT);
+            default -> null;
+        };
+    }
+
+    private static String text(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? null : value.asText();
     }
 
     private static DecisionDraft.MatchDraft match(String regex) {

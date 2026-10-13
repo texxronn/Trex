@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * The hub's index refresher (V2-PROPOSAL.md §7.4, §9.2): it watches the journal and the config
@@ -54,6 +55,15 @@ final class IndexRefresher implements AutoCloseable {
     private final HubQueries reads;
     private final Path evidenceDir;
 
+    /**
+     * The gate around the long index writes (a full derive, a rebuild, the {@code asOf} timer). The
+     * decision path's synchronous response patch try-locks it (V2-INCREMENTAL-REFRESH-PLAN.md §4): a
+     * scoped patch is milliseconds, a full derive is seconds, so the HTTP response must never queue
+     * behind the refresher. {@link Indexer} is itself {@code synchronized}; this gate is what lets
+     * the hub skip instead of blocking on that monitor.
+     */
+    private final ReentrantLock indexWrite = new ReentrantLock();
+
     private volatile DeriveConfig config;
     private volatile boolean running = true;
 
@@ -83,6 +93,29 @@ final class IndexRefresher implements AutoCloseable {
 
     DeriveConfig config() {
         return config;
+    }
+
+    /**
+     * Try to take the index-write gate for the decision response's synchronous patch. False when the
+     * refresher is mid-derive, so the caller falls back to the SSE delta rather than block.
+     */
+    boolean tryIndexWrite() {
+        return indexWrite.tryLock();
+    }
+
+    /** Release the gate taken by {@link #tryIndexWrite()}. */
+    void endIndexWrite() {
+        indexWrite.unlock();
+    }
+
+    /** Run one long index write (full derive, rebuild, asOf advance) under the gate. */
+    private <T> T withIndexWrite(java.util.function.Supplier<T> write) {
+        indexWrite.lock();
+        try {
+            return write.get();
+        } finally {
+            indexWrite.unlock();
+        }
     }
 
     /** Force one refresh now (tests and the CLI's first-pass hook). */
@@ -124,7 +157,7 @@ final class IndexRefresher implements AutoCloseable {
                 // cadence trades freshness for CPU (HubConfig.refreshAsOfByMs).
                 if (asOfRefreshMs > 0
                     && System.nanoTime() - lastDerive >= TimeUnit.MILLISECONDS.toNanos(asOfRefreshMs)) {
-                    if (indexer.deriveNow(Instant.now())) {
+                    if (withIndexWrite(() -> indexer.deriveNow(Instant.now()))) {
                         log.debug("asOf advanced on the {} ms timer", asOfRefreshMs);
                         publish();
                     }
@@ -177,11 +210,11 @@ final class IndexRefresher implements AutoCloseable {
             if (indexer.offset() > size || indexer.journalPrefixReplaced(journal)) {
                 log.warn("journal replaced or shrank (offset {}, size {}); refolding from 0",
                     indexer.offset(), size);
-                indexer.rebuild(journal, Instant.now());
+                withIndexWrite(() -> { indexer.rebuild(journal, Instant.now()); return null; });
                 publish();
                 return asOfMoved(asOfBefore);
             }
-            ApplyResult applied = indexer.apply(journal, Instant.now());
+            ApplyResult applied = withIndexWrite(() -> indexer.apply(journal, Instant.now()));
             if (applied.changed()) {
                 log.debug("index refreshed ({})", why);
                 publish(applied.patchedIds());

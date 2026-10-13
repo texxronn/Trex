@@ -596,6 +596,37 @@ class IndexerTest {
         }
     }
 
+    /**
+     * The synchronous response path's entry point (V2-INCREMENTAL-REFRESH-PLAN.md §4): it patches a
+     * scoped batch and reports the ids, but refuses a structural one instead of deriving in full —
+     * the HTTP response must never wait for a derive.
+     */
+    @Test
+    void applyRowScopedPatchesAScopedBatchButNeverDerivesInFull(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            assertTrue(indexer.apply(journal, ASOF).changed(), "the first apply is a full derive");
+
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(ack(6, "a")));
+            }
+            assertEquals(java.util.Optional.of(java.util.Set.of("a")), indexer.applyRowScoped(journal),
+                "an ACK is applied synchronously and reports the row it moved");
+            String derivedOffset = indexer.meta("derived_offset").orElse(null);
+            String asOf = indexer.meta("as_of").orElse(null);
+
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(new Decision.MarkExternal(7, "a", "ordinary", Actor.USER, "ron", ASOF)));
+            }
+            assertTrue(indexer.applyRowScoped(journal).isEmpty(),
+                "a structural action is not a row-scoped patch");
+            assertEquals(derivedOffset, indexer.meta("derived_offset").orElse(null),
+                "a refused patch does not advance the derived frontier");
+            assertEquals(asOf, indexer.meta("as_of").orElse(null), "a refused patch does not derive");
+        }
+    }
+
     // ---- tiny read helpers ------------------------------------------------------------------
 
     /**
