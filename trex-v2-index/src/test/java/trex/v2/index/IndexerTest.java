@@ -58,6 +58,30 @@ class IndexerTest {
             TransferRules.defaults(List.of("Transfer")), trex.v2.core.config.Profiles.empty(), "sha256:cfg");
     }
 
+    /** A second declared category, DINING, so a pin can differ from the rule's GROCERIES answer. */
+    private static DeriveConfig pinConfig() {
+        List<Account> accounts = List.of(
+            new Account("ing-savings", "AUD", BalanceSource.STATEMENT, 7),
+            new Account("ing-orange", "AUD", BalanceSource.STATEMENT, 7));
+        Map<String, Account> accountMap = accounts.stream().collect(Collectors.toMap(Account::ref, a -> a));
+        Map<String, User> userMap = Map.of("ron", new User("ron", "Ron", true, "weekly"));
+        Registry registry = new Registry(accountMap, userMap);
+        RuleSet rules = RuleSet.compile("t.yaml", new RuleSet.File(
+            List.of("GROCERIES", "DINING"),
+            List.of(new RuleSet.RuleEntry("GROCERIES", null, new RuleSet.WhenEntry(null, null, null, null,
+                "COLES", "raw", null, null, null, null)))));
+        return new DeriveConfig(registry, rules,
+            TransferRules.defaults(List.of("Transfer")), trex.v2.core.config.Profiles.empty(), "sha256:cfg");
+    }
+
+    private static Decision.Pin pin(long n, String id, String category) {
+        return new Decision.Pin(n, List.of(id), category, "pin", Actor.USER, "ron", ASOF);
+    }
+
+    private static Decision.Unpin unpin(long n, String id) {
+        return new Decision.Unpin(n, List.of(id), "unpin", Actor.USER, "ron", ASOF);
+    }
+
     private static Fact fact(long n, String id, String account, LocalDate date, long amount, String raw) {
         return new Fact(n, id, account, date, amount, 0, raw, null, 0, Observation.POSTED, "test",
             Provenance.BANK, null, "test/1", Instant.parse("2026-09-30T00:00:00Z"));
@@ -208,6 +232,127 @@ class IndexerTest {
             assertTrue(indexer.apply(journal, asof2));
             // A structural line in the batch cannot be patched, so the full derive advances as_of.
             assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+        }
+    }
+
+    @Test
+    void aRowScopedPinPatchesAndEqualsARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, pinConfig())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(pin(6, "a", "DINING")));
+            }
+            assertTrue(indexer.apply(journal, ASOF));
+            assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
+            assertEquals("PIN", string(db, "SELECT category_origin FROM txn_current WHERE external_id='a'"));
+            assertEquals("DINING", string(db, "SELECT category FROM category_current WHERE external_id='a'"));
+            assertEquals("DINING", string(db, "SELECT category FROM unit WHERE unit_id='a'"));
+            assertEquals("DINING", string(db, "SELECT category FROM pin_current WHERE external_id='a'"));
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint(),
+                "a row-scoped PIN must give the same tables as a full rebuild");
+        }
+    }
+
+    @Test
+    void pinThenUnpinEqualsARebuildAndKeepsThePinRow(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        try (Indexer indexer = Indexer.open(db, pinConfig())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(pin(6, "a", "DINING")));
+            }
+            assertTrue(indexer.apply(journal, ASOF));
+            assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(unpin(7, "a")));
+            }
+            assertTrue(indexer.apply(journal, ASOF));
+            // The category reverts to the rule's answer...
+            assertEquals("GROCERIES", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
+            assertEquals("RULE", string(db, "SELECT category_origin FROM txn_current WHERE external_id='a'"));
+            assertEquals("GROCERIES", string(db, "SELECT category FROM unit WHERE unit_id='a'"));
+            // ...but derive's pins() folds only PINs, so a pin_current row survives a PIN→UNPIN.
+            assertEquals(1, count(db, "pin_current WHERE external_id='a'"));
+            assertEquals("DINING", string(db, "SELECT category FROM pin_current WHERE external_id='a'"));
+            assertEquals(6L, Long.parseLong(string(db, "SELECT decision_n FROM pin_current WHERE external_id='a'")));
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint(),
+                "the replicated pin_current quirk must match a full rebuild");
+        }
+    }
+
+    @Test
+    void aRowScopedPinAtADifferentAsOfDoesNotAdvanceIt(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, pinConfig())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(pin(6, "a", "DINING")));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // A full derive would advance as_of to asof2; the patch is asOf-independent and does not.
+            assertEquals(ASOF.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals("DINING", string(db, "SELECT category FROM txn_current WHERE external_id='a'"));
+            String incremental = indexer.derivedFingerprint();
+            indexer.rebuild(journal, ASOF);
+            assertEquals(incremental, indexer.derivedFingerprint());
+        }
+    }
+
+    @Test
+    void aPinNamingAMatchedLegFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(pin(6, "b", "GROCERIES")));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            // The matched leg cannot be patched, so the full derive ran and advanced as_of.
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
+        }
+    }
+
+    @Test
+    void aPinNamingAnUnknownIdFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(pin(6, "nope", "GROCERIES")));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
+        }
+    }
+
+    @Test
+    void aPinToAnUndeclaredCategoryFallsBackToAFullDerive(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = journal(dir);
+        Instant asof2 = ASOF.plus(java.time.Duration.ofDays(30));
+        try (Indexer indexer = Indexer.open(db, config())) {
+            indexer.apply(journal, ASOF);
+            try (JsonlJournal j = new JsonlJournal(journal)) {
+                j.appendBatch(List.of(pin(6, "a", "NOT_DECLARED")));
+            }
+            assertTrue(indexer.apply(journal, asof2));
+            assertEquals(asof2.toString(), indexer.meta("as_of").orElse(null));
+            assertEquals(1, count(db, "ineffective_decision WHERE decision_n=6"));
         }
     }
 

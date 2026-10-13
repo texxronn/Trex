@@ -98,6 +98,24 @@ final class Sql {
         + "config_revision=excluded.config_revision, derive_version=excluded.derive_version, "
         + "hash_version=excluded.hash_version, acked_at=excluded.acked_at";
     static final String DELETE_USER_ACK = "DELETE FROM user_ack WHERE user_id = ? AND external_id = ?";
+    // The PIN/UNPIN patch's DML (V2-INCREMENTAL-REFRESH-PLAN.md §5 slice 3). The target must already
+    // be a real posting with a unit, so category_current and pin_current are upserted (keyed by
+    // external_id) while txn_current and unit are plain updates; the id is already chain-resolved.
+    static final String SELECT_TXN_ROW = "SELECT n, external_id, account_ref, date, amount, balance, "
+        + "raw_description, receipt, occ, observation, source_type, provenance, evidence_id, parser, "
+        + "line_v, at_ms, env, source, target, role, rail, leg, transfer_id, category, category_origin, "
+        + "rule_id, state_hash FROM txn_current WHERE external_id = ? AND synthetic = 0";
+    static final String SELECT_UNIT_EXISTS = "SELECT 1 FROM unit WHERE unit_id = ?";
+    static final String UPSERT_CATEGORY_CURRENT = "INSERT INTO category_current(external_id, category, origin, "
+        + "rule_id) VALUES(?,?,?,?) ON CONFLICT(external_id) DO UPDATE SET category=excluded.category, "
+        + "origin=excluded.origin, rule_id=excluded.rule_id";
+    static final String UPSERT_PIN_CURRENT = "INSERT INTO pin_current(external_id, category, decision_n, "
+        + "user_id, comment) VALUES(?,?,?,?,?) ON CONFLICT(external_id) DO UPDATE SET "
+        + "category=excluded.category, decision_n=excluded.decision_n, user_id=excluded.user_id, "
+        + "comment=excluded.comment";
+    static final String UPDATE_TXN_CATEGORY = "UPDATE txn_current SET category=?, category_origin=?, "
+        + "rule_id=?, state_hash=? WHERE external_id=?";
+    static final String UPDATE_UNIT_CATEGORY = "UPDATE unit SET category=?, origin=? WHERE unit_id=?";
     static final String INSERT_COMMITMENT = "INSERT INTO commitment(commitment_id, candidate_key, name, origin, direction, "
         + "cadence, amount_kind, kind, status, first_date, last_date, anchor_date, current_amount, "
         + "previous_amount, change_pct, change_date, occurrence_count, outliers, regularity, variable, arrears_count, "
