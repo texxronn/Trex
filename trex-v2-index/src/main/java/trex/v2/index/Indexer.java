@@ -8,7 +8,10 @@ import trex.v2.core.Hashes;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.Rail;
 import trex.v2.core.config.DeriveConfig;
+import trex.v2.core.config.RuleSet;
+import trex.v2.core.derive.CategoryOrigin;
 import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.ClearingLeg;
 import trex.v2.core.derive.Commitment;
@@ -21,8 +24,11 @@ import trex.v2.core.derive.CurrentFact;
 import trex.v2.core.derive.Derivation;
 import trex.v2.core.derive.Derive;
 import trex.v2.core.derive.IneffectiveDecision;
+import trex.v2.core.derive.LegState;
 import trex.v2.core.derive.PendingRow;
 import trex.v2.core.derive.ReviewItem;
+import trex.v2.core.derive.Role;
+import trex.v2.core.derive.StateHash;
 import trex.v2.core.derive.Supersession;
 import trex.v2.core.derive.TransferRow;
 import trex.v2.core.derive.Unit;
@@ -39,6 +45,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -315,38 +322,69 @@ public final class Indexer implements AutoCloseable {
     // ---- derivation -------------------------------------------------------------------------
 
     /**
-     * The targeted refresh for a batch that is exactly row-scoped ack actions (V2-PROPOSAL.md §9.4):
-     * {@code USER_ACK}/{@code USER_UNACK} change only {@code user_ack}, and they do not depend on
-     * {@code asOf}, so a full re-derive is unnecessary. Returns false when the batch is not so
-     * scoped or the derived state is not consistent, in which case the caller re-derives in full.
+     * The targeted refresh for a batch that is exactly row-scoped actions (V2-PROPOSAL.md §9.4):
+     * {@code USER_ACK}/{@code USER_UNACK} and {@code Decision.Pin}/{@code Decision.Unpin}. Each
+     * changes only the rows it names, and none depends on {@code asOf}, so a full re-derive is
+     * unnecessary. Returns false when the batch is not so scoped, when a PIN/UNPIN target cannot be
+     * patched safely, or when the derived state is not consistent, in which case the caller
+     * re-derives in full.
      *
-     * <p>Conservative by design: a fact, a structural decision, a {@code REVOKE}, a version or
-     * config drift, a stale {@code derived_offset}, or an id that does not resolve through the
-     * supersession chain all fall back — the last because derive would still emit a row for an
-     * unknown id, and patching must never diverge from it. {@code as_of} stays put; one transaction,
-     * like {@code deriveAndStore}.
+     * <p>Conservative by design: a fact, any other decision (a structural one, a {@code REVOKE}), a
+     * version or config drift, a stale {@code derived_offset}, an id that does not resolve through
+     * the supersession chain, an undeclared or reserved pinned category, or a target that is not a
+     * plain external posting (a matched/structural leg, a noop, a row with no unit) all fall back —
+     * derive would still emit something different for them, and a patch must never diverge from it.
+     * {@code as_of} stays put; one transaction, like {@code deriveAndStore}.
      */
     private boolean patchRowScoped(ReadResult read, long priorOffset) throws SQLException {
         if (!derivedIsConsistent(priorOffset)) {
             return false;
         }
-        List<Decision> actions = new ArrayList<>();
-        List<String> resolved = new ArrayList<>();
+        List<RowAction> actions = new ArrayList<>();
         for (LogLine line : read.lines()) {
-            if (!(line instanceof Decision d)
-                || !(d instanceof Decision.UserAck || d instanceof Decision.UserUnack)) {
+            if (!(line instanceof Decision d)) {
                 return false;
             }
-            String id = resolveChain(d);
-            if (id == null) {
+            if (d instanceof Decision.UserAck || d instanceof Decision.UserUnack) {
+                String raw = d instanceof Decision.UserAck ack ? ack.externalId()
+                    : ((Decision.UserUnack) d).externalId();
+                String id = resolveChain(raw);
+                if (id == null) {
+                    return false;
+                }
+                actions.add(new RowAction(d, id, null));
+            } else if (d instanceof Decision.Pin pin) {
+                // A pin derive cannot apply (undeclared, reserved or matched) is marked ineffective
+                // by the category stage; a patch cannot reproduce that, so it falls back.
+                if (!config.categories().isDeclared(pin.category()) || RuleSet.isReserved(pin.category())) {
+                    return false;
+                }
+                for (String raw : pin.externalIds()) {
+                    CurrentFact row = patchableRow(raw);
+                    if (row == null) {
+                        return false;
+                    }
+                    actions.add(new RowAction(d, row.externalId(), row));
+                }
+            } else if (d instanceof Decision.Unpin unpin) {
+                for (String raw : unpin.externalIds()) {
+                    CurrentFact row = patchableRow(raw);
+                    if (row == null) {
+                        return false;
+                    }
+                    actions.add(new RowAction(d, row.externalId(), row));
+                }
+            } else {
                 return false;
             }
-            actions.add(d);
-            resolved.add(id);
         }
         inTransaction(() -> {
-            for (int i = 0; i < actions.size(); i++) {
-                applyAckAction(actions.get(i), resolved.get(i));
+            for (RowAction action : actions) {
+                if (action.row() == null) {
+                    applyAckAction(action.decision(), action.resolvedId());
+                } else {
+                    applyPinAction(action.decision(), action.row());
+                }
             }
             setMeta("derived_offset", String.valueOf(read.end()));
         });
@@ -361,14 +399,72 @@ public final class Indexer implements AutoCloseable {
             && String.valueOf(priorOffset).equals(meta("derived_offset").orElse(null));
     }
 
-    /** The raw id an ack/unack names, resolved through {@code chain_resolved}; null if unknown. */
-    private String resolveChain(Decision d) throws SQLException {
-        String raw = d instanceof Decision.UserAck ack ? ack.externalId()
-            : ((Decision.UserUnack) d).externalId();
+    /** A raw id resolved through {@code chain_resolved}; null if it is not a known fact. */
+    private String resolveChain(String raw) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(Sql.SELECT_CHAIN_RESOLVED)) {
             ps.setString(1, raw);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getString(1) : null;
+            }
+        }
+    }
+
+    /**
+     * The current row a PIN/UNPIN names, or null when it cannot be patched: the id must resolve, be
+     * a plain external posting (a {@code transaction} whose leg is {@code EXTERNAL}, so its
+     * {@code unit} is keyed by the id) and have that unit row. A matched/structural leg, a noop, a
+     * held leg or an attestation has no unit to rewrite, so it is derive's to handle in full.
+     */
+    private CurrentFact patchableRow(String raw) throws SQLException {
+        String id = resolveChain(raw);
+        if (id == null) {
+            return null;
+        }
+        CurrentFact row = readCurrentFact(id);
+        if (row == null || row.role() != Role.TRANSACTION || row.leg() != LegState.EXTERNAL) {
+            return null;
+        }
+        return unitExists(id) ? row : null;
+    }
+
+    /** One current row rebuilt from {@code txn_current}, for the patch's rule and hash recompute. */
+    private CurrentFact readCurrentFact(String id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(Sql.SELECT_TXN_ROW)) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                Fact fact = new Fact(
+                    new Envelope(rs.getLong(1), Fact.KIND, rs.getInt(15), rs.getLong(16),
+                        rs.getString(17), rs.getString(18), rs.getString(19)),
+                    rs.getString(2),
+                    rs.getString(3),
+                    LocalDate.parse(rs.getString(4)),
+                    rs.getLong(5),
+                    rs.getLong(6),
+                    rs.getString(7),
+                    rs.getString(8),
+                    rs.getInt(9),
+                    Observation.fromWire(rs.getString(10)),
+                    rs.getString(11),
+                    Provenance.fromWire(rs.getString(12)),
+                    rs.getString(13),
+                    rs.getString(14));
+                String rail = rs.getString(21);
+                return new CurrentFact(fact, Role.fromWire(rs.getString(20)),
+                    rail == null ? null : Rail.valueOf(rail), LegState.valueOf(rs.getString(22)),
+                    rs.getString(23), rs.getString(24), CategoryOrigin.valueOf(rs.getString(25)),
+                    rs.getString(26), rs.getString(27));
+            }
+        }
+    }
+
+    private boolean unitExists(String unitId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(Sql.SELECT_UNIT_EXISTS)) {
+            ps.setString(1, unitId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
             }
         }
     }
@@ -395,6 +491,57 @@ public final class Indexer implements AutoCloseable {
             }
         }
     }
+
+    /**
+     * One PIN/UNPIN on a patchable row: recompute the id's category through the same helper derive's
+     * category stage uses, then rewrite {@code category_current}, {@code txn_current} (category,
+     * origin, rule id and the content hash) and the row's {@code unit}. A PIN also upserts
+     * {@code pin_current}; an UNPIN leaves it alone, exactly as derive's {@code pins()} does — it
+     * folds only PINs, so a row survives a PIN→UNPIN (V2-INCREMENTAL-REFRESH-PLAN.md §7), a
+     * discrepancy kept here deliberately rather than silently fixed.
+     */
+    private void applyPinAction(Decision d, CurrentFact row) throws SQLException {
+        String id = row.externalId();
+        CategoryRow answer = Derive.resolveCategory(config, row, d);
+        CurrentFact recategorized = new CurrentFact(row.fact(), row.role(), row.rail(), row.leg(),
+            row.transferId(), answer.category(), answer.origin(), answer.ruleId(), null);
+        String stateHash = StateHash.forRow(recategorized,
+            config.registry().account(row.fact().accountRef()).currency());
+        try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_CATEGORY_CURRENT)) {
+            ps.setString(1, id);
+            ps.setString(2, answer.category());
+            ps.setString(3, answer.origin().name());
+            ps.setString(4, answer.ruleId());
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.UPDATE_TXN_CATEGORY)) {
+            ps.setString(1, answer.category());
+            ps.setString(2, answer.origin().name());
+            ps.setString(3, answer.ruleId());
+            ps.setString(4, stateHash);
+            ps.setString(5, id);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.UPDATE_UNIT_CATEGORY)) {
+            ps.setString(1, answer.category());
+            ps.setString(2, answer.origin().name());
+            ps.setString(3, id);
+            ps.executeUpdate();
+        }
+        if (d instanceof Decision.Pin pin) {
+            try (PreparedStatement ps = conn.prepareStatement(Sql.UPSERT_PIN_CURRENT)) {
+                ps.setString(1, id);
+                ps.setString(2, pin.category());
+                ps.setLong(3, pin.n());
+                ps.setString(4, pin.user());
+                ps.setString(5, pin.comment());
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    /** One row-scoped write: its decision, the resolved id it names, and the row (null for acks). */
+    private record RowAction(Decision decision, String resolvedId, CurrentFact row) {}
 
     private void deriveAndStore(Instant asOf) throws SQLException {
         List<Fact> facts = readFacts();

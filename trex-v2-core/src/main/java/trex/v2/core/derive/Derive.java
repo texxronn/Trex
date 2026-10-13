@@ -54,6 +54,34 @@ public final class Derive {
         return new Ctx(facts, decisions, config, asOf).run();
     }
 
+    /**
+     * The category one current row resolves to, given the latest effective PIN/UNPIN naming it
+     * (V2-PROPOSAL.md §9.9.E): a {@code PIN} wins, otherwise the first matching rule, otherwise
+     * {@code UNCATEGORIZED}. A row in a matched transfer leg is structural and never categorised.
+     *
+     * <p>This is the per-row half of the category stage, extracted so the incremental PIN/UNPIN
+     * patch (V2-INCREMENTAL-REFRESH-PLAN.md §3) shares it with {@code categories()} by
+     * construction: {@code pin} is the controlling decision for the id — a {@link Decision.Pin}, a
+     * {@link Decision.Unpin}, or null — and anything that is not a {@code Pin} falls through to the
+     * rules, exactly as the stage does. Pure; it reads only {@code config} and the row.
+     */
+    public static CategoryRow resolveCategory(DeriveConfig config, CurrentFact row, Decision pin) {
+        String id = row.externalId();
+        if (row.matched()) {
+            return new CategoryRow(id, RuleSet.TRANSFER, CategoryOrigin.STRUCTURAL, null);
+        }
+        if (pin instanceof Decision.Pin p) {
+            return new CategoryRow(id, p.category(), CategoryOrigin.PIN, null);
+        }
+        RuleSubject subject = RuleSubject.of(id, row.fact().accountRef(), row.fact().rawDescription(),
+            row.fact().amount());
+        Optional<Rule> rule = config.categories().firstMatch(subject);
+        if (rule.isPresent()) {
+            return new CategoryRow(id, rule.get().category(), CategoryOrigin.RULE, rule.get().where());
+        }
+        return new CategoryRow(id, RuleSet.UNCATEGORIZED, CategoryOrigin.NONE, null);
+    }
+
     private static final class Ctx {
 
         final List<Fact> facts;
@@ -820,25 +848,7 @@ public final class Derive {
                 }
             }
             for (CurrentFact c : currentMap.values()) {
-                String id = c.externalId();
-                if (c.matched()) {
-                    out.put(id, new CategoryRow(id, RuleSet.TRANSFER, CategoryOrigin.STRUCTURAL, null));
-                    continue;
-                }
-                Decision pin = pinDecision.get(id);
-                if (pin instanceof Decision.Pin p) {
-                    out.put(id, new CategoryRow(id, p.category(), CategoryOrigin.PIN, null));
-                    continue;
-                }
-                RuleSubject subject = RuleSubject.of(id, c.fact().accountRef(), c.fact().rawDescription(),
-                    c.fact().amount());
-                Optional<Rule> rule = config.categories().firstMatch(subject);
-                if (rule.isPresent()) {
-                    out.put(id, new CategoryRow(id, rule.get().category(), CategoryOrigin.RULE,
-                        rule.get().where()));
-                } else {
-                    out.put(id, new CategoryRow(id, RuleSet.UNCATEGORIZED, CategoryOrigin.NONE, null));
-                }
+                out.put(c.externalId(), resolveCategory(config, c, pinDecision.get(c.externalId())));
             }
             return out;
         }
