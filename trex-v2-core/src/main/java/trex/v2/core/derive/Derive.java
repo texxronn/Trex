@@ -513,6 +513,15 @@ public final class Derive {
             }
             eligible.sort(Comparator.comparing((CurrentFact c) -> c.fact().date()).thenComparingLong(c -> c.fact().n()));
 
+            // Every tier's candidate filter requires equal magnitude (and opposite sign), so a
+            // candidate outside the leg's own |amount| can never match. Bucket the pool once so the
+            // pairwise scan is bounded by bucket size, not the whole pool (§6.3).
+            Map<Long, List<Integer>> byAbsAmount = new HashMap<>();
+            for (int idx = 0; idx < eligible.size(); idx++) {
+                byAbsAmount.computeIfAbsent(Math.abs(eligible.get(idx).fact().amount()), k -> new ArrayList<>())
+                    .add(idx);
+            }
+
             boolean[] paired = new boolean[eligible.size()];
             for (int i = 0; i < eligible.size(); i++) {
                 if (paired[i]) {
@@ -535,7 +544,7 @@ public final class Derive {
                 // T1 — receipt. Equal amount, opposite sign, same currency and within the window:
                 // receipts recur across accounts and years, so the guard costs nothing on a genuine
                 // pair and refuses to shape two unrelated rows on a collision (§9.9.C.3).
-                List<Integer> t1 = candidates(eligible, paired, i, (s, g) ->
+                List<Integer> t1 = candidates(eligible, byAbsAmount, paired, i, (s, g) ->
                     s.fact().receipt() != null && !s.fact().receipt().isBlank()
                         && s.fact().receipt().equals(g.fact().receipt())
                         && !g.fact().accountRef().equals(s.fact().accountRef())
@@ -560,14 +569,14 @@ public final class Derive {
                         && !g.fact().accountRef().equals(s.fact().accountRef())
                         && currency(g).equals(currency(s))
                         && g.fact().date().equals(s.fact().date());
-                int t2 = counterpart(eligible, paired, i, sameDay);
+                int t2 = counterpart(eligible, byAbsAmount, paired, i, sameDay);
                 if (t2 >= 0) {
                     pairT2(rows, paired, eligible, i, t2, f, Confidence.HIGH);
                     continue;
                 }
                 if (t2 == AMBIGUOUS) {
                     legState.put(f.externalId(), LegState.HELD);
-                    pairingReview.add(ambiguous(f, candidates(eligible, paired, i, sameDay), eligible));
+                    pairingReview.add(ambiguous(f, candidates(eligible, byAbsAmount, paired, i, sameDay), eligible));
                     continue;
                 }
                 // T3 — windowed unique: as T2, for legs that differ in date by at most windowDays.
@@ -578,14 +587,14 @@ public final class Derive {
                         && currency(g).equals(currency(s))
                         && !g.fact().date().equals(s.fact().date())
                         && Math.abs(ChronoUnit.DAYS.between(s.fact().date(), g.fact().date())) <= window;
-                int t3 = counterpart(eligible, paired, i, windowed);
+                int t3 = counterpart(eligible, byAbsAmount, paired, i, windowed);
                 if (t3 >= 0) {
                     pairT2(rows, paired, eligible, i, t3, f, Confidence.HIGH);
                     continue;
                 }
                 if (t3 == AMBIGUOUS) {
                     legState.put(f.externalId(), LegState.HELD);
-                    pairingReview.add(ambiguous(f, candidates(eligible, paired, i, windowed), eligible));
+                    pairingReview.add(ambiguous(f, candidates(eligible, byAbsAmount, paired, i, windowed), eligible));
                     continue;
                 }
                 legState.put(f.externalId(), LegState.HELD);
@@ -610,11 +619,12 @@ public final class Derive {
             transfers = new ArrayList<>(rows.values());
         }
 
-        private List<Integer> candidates(List<CurrentFact> eligible, boolean[] paired, int self,
+        private List<Integer> candidates(List<CurrentFact> eligible, Map<Long, List<Integer>> byAbsAmount,
+                                         boolean[] paired, int self,
                                          java.util.function.BiPredicate<CurrentFact, CurrentFact> filter) {
             CurrentFact s = eligible.get(self);
             List<Integer> out = new ArrayList<>();
-            for (int j = 0; j < eligible.size(); j++) {
+            for (int j : byAbsAmount.getOrDefault(Math.abs(s.fact().amount()), List.of())) {
                 if (j == self || paired[j]) {
                     continue;
                 }
@@ -634,9 +644,10 @@ public final class Derive {
          * {@link #AMBIGUOUS}. Mutual uniqueness is what stops a leg with two suitors from being
          * paired arbitrarily by the first one processed (§9.9.C.3).
          */
-        private int counterpart(List<CurrentFact> eligible, boolean[] paired, int self,
+        private int counterpart(List<CurrentFact> eligible, Map<Long, List<Integer>> byAbsAmount,
+                                boolean[] paired, int self,
                                 java.util.function.BiPredicate<CurrentFact, CurrentFact> filter) {
-            List<Integer> mine = candidates(eligible, paired, self, filter);
+            List<Integer> mine = candidates(eligible, byAbsAmount, paired, self, filter);
             if (mine.isEmpty()) {
                 return -1;
             }
@@ -644,7 +655,7 @@ public final class Derive {
                 return AMBIGUOUS;
             }
             int j = mine.getFirst();
-            List<Integer> theirs = candidates(eligible, paired, j, filter);
+            List<Integer> theirs = candidates(eligible, byAbsAmount, paired, j, filter);
             return theirs.size() == 1 && theirs.getFirst() == self ? j : AMBIGUOUS;
         }
 
