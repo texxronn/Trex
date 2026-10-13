@@ -528,10 +528,7 @@ public final class Derive {
                     continue;
                 }
                 CurrentFact f = eligible.get(i);
-                if (!isShaped(f.fact(), receiptShaped)) {
-                    legState.put(f.externalId(), LegState.EXTERNAL);
-                    continue;
-                }
+                // `eligible` above holds only shaped legs, so no re-check is needed here.
                 // A clearing pattern names its counterparty: the leg pairs directly with that
                 // account — no contra fact, no window, no ambiguity (§6.10).
                 String clearing = config.transfers().clearingFor(f.fact().accountRef(), f.fact().rawDescription());
