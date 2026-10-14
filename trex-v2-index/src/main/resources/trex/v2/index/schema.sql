@@ -125,6 +125,22 @@ CREATE TABLE IF NOT EXISTS transfer (
 CREATE INDEX IF NOT EXISTS transfer_from ON transfer(from_leg);
 CREATE INDEX IF NOT EXISTS transfer_to ON transfer(to_leg);
 
+-- one row per declared wallet and calendar month; the unrecorded cash figure (§9.4, V2-CASH-PLAN.md §4.4)
+CREATE TABLE IF NOT EXISTS cash_month (
+  account_ref  TEXT NOT NULL,
+  month        TEXT NOT NULL,
+  in_from_bank INTEGER NOT NULL,
+  out_to_bank  INTEGER NOT NULL,
+  recorded_out INTEGER NOT NULL,
+  recorded_in  INTEGER NOT NULL,
+  held_open    INTEGER,
+  held_close   INTEGER,
+  held_delta   INTEGER NOT NULL,
+  unrecorded   INTEGER NOT NULL,
+  open         INTEGER NOT NULL,
+  PRIMARY KEY (account_ref, month)
+);
+
 CREATE TABLE IF NOT EXISTS pending (
   external_id TEXT PRIMARY KEY,
   fact_n      INTEGER NOT NULL,

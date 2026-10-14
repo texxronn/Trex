@@ -48,14 +48,14 @@ final class Sql {
         "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
         "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack",
         "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
-        "commitment_exclusion", "commitment_fact");
+        "commitment_exclusion", "commitment_fact", "cash_month");
 
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
         "pending", "review_item", "category_current", "pin_current", "note_current", "ineffective_decision", "unit",
         "user_ack", "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
-        "commitment_exclusion", "commitment_fact");
+        "commitment_exclusion", "commitment_fact", "cash_month");
 
     static final String INSERT_SUPERSESSION = "INSERT INTO supersession(from_id, to_id, decision_n, reason) "
         + "VALUES(?,?,?,?)";
@@ -74,6 +74,9 @@ final class Sql {
         + "decision_n, method, clearing_account, matched_at) VALUES(?,?,?,?,?,?,?,?,?)";
     static final String INSERT_PENDING = "INSERT INTO pending(external_id, fact_n, account_ref, date, amount, "
         + "settled_by, state) VALUES(?,?,?,?,?,?,?)";
+    static final String INSERT_CASH_MONTH = "INSERT INTO cash_month(account_ref, month, in_from_bank, "
+        + "out_to_bank, recorded_out, recorded_in, held_open, held_close, held_delta, unrecorded, open) "
+        + "VALUES(?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_REVIEW_ITEM = "INSERT INTO review_item(subject, kind, detail, amount_stake, "
         + "opened_at, state_hash) VALUES(?,?,?,?,?,?)";
     static final String INSERT_CATEGORY_CURRENT = "INSERT INTO category_current(external_id, category, origin, "

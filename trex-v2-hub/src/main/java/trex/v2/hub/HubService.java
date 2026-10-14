@@ -35,6 +35,7 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
+import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.CashResponse;
 import trex.v2.hub.api.ChainsResponse;
@@ -374,6 +375,11 @@ public final class HubService implements HubApi, AutoCloseable {
     @Override
     public List<TransferJson> transfers() {
         return reads.transfers();
+    }
+
+    @Override
+    public List<CashMonthJson> cashMonths(String account) {
+        return reads.cashMonths(account);
     }
 
     @Override

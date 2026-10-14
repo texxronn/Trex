@@ -35,7 +35,8 @@ public record Derivation(
     List<CommitmentOccurrence> commitmentOccurrences,
     List<CommitmentNote> commitmentNotes,
     List<CommitmentExclusion> commitmentExclusions,
-    List<CommitmentFact> commitmentFacts) {
+    List<CommitmentFact> commitmentFacts,
+    List<CashMonth> cashMonth) {
 
     public Derivation {
         chainResolved = Map.copyOf(new TreeMap<>(chainResolved));
@@ -57,6 +58,7 @@ public record Derivation(
         commitmentNotes = List.copyOf(commitmentNotes);
         commitmentExclusions = List.copyOf(commitmentExclusions);
         commitmentFacts = List.copyOf(commitmentFacts);
+        cashMonth = List.copyOf(cashMonth);
     }
 
     public Optional<CurrentFact> current(String externalId) {

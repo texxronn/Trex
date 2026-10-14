@@ -13,6 +13,7 @@ import trex.v2.core.config.DeriveConfig;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.derive.CategoryOrigin;
 import trex.v2.core.derive.CategoryRow;
+import trex.v2.core.derive.CashMonth;
 import trex.v2.core.derive.ClearingLeg;
 import trex.v2.core.derive.Commitment;
 import trex.v2.core.derive.CommitmentExclusion;
@@ -842,6 +843,24 @@ public final class Indexer implements AutoCloseable {
                 ps.setLong(5, p.fact().amount());
                 ps.setString(6, p.settledBy());
                 ps.setString(7, p.state().name());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_CASH_MONTH)) {
+            for (CashMonth m : d.cashMonth()) {
+                int i = 1;
+                ps.setString(i++, m.accountRef());
+                ps.setString(i++, m.month().toString());
+                ps.setLong(i++, m.inFromBank());
+                ps.setLong(i++, m.outToBank());
+                ps.setLong(i++, m.recordedOut());
+                ps.setLong(i++, m.recordedIn());
+                setNullableLong(ps, i++, m.heldOpen());
+                setNullableLong(ps, i++, m.heldClose());
+                ps.setLong(i++, m.heldDelta());
+                ps.setLong(i++, m.unrecorded());
+                ps.setBoolean(i++, m.open());
                 ps.addBatch();
             }
             ps.executeBatch();

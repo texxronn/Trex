@@ -4,6 +4,7 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
+import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
@@ -123,6 +124,13 @@ interface HubApi {
      * sequencer and then the ordinary decision path for the {@code PIN}.
      */
     DecisionOutcome submitCash(CashRequest request);
+
+    /**
+     * The derived per-month unrecorded cash rows (V2-SPEC.md §9.4): one per declared account and
+     * calendar month, from the wallet's first movement to the month of {@code asOf}. {@code account}
+     * filters to one wallet; null or blank is every wallet.
+     */
+    List<CashMonthJson> cashMonths(String account);
 
     /** Evidence ids present on facts, so the Jobs view can tick the files already in. */
     java.util.Set<String> ingestedEvidenceIds();

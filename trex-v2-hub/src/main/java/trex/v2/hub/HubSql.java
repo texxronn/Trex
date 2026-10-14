@@ -65,6 +65,16 @@ final class HubSql {
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, method, clearing_account, matched_at
         FROM transfer ORDER BY transfer_id""";
 
+    /** The derived per-month unrecorded cash rows (§9.4); all wallets, or one. */
+    static final String CASH_MONTHS_SELECT = """
+        SELECT account_ref, month, in_from_bank, out_to_bank, recorded_out, recorded_in,
+               held_open, held_close, held_delta, unrecorded, open
+        FROM cash_month ORDER BY account_ref, month""";
+    static final String CASH_MONTHS_FOR_SELECT = """
+        SELECT account_ref, month, in_from_bank, out_to_bank, recorded_out, recorded_in,
+               held_open, held_close, held_delta, unrecorded, open
+        FROM cash_month WHERE account_ref = ? ORDER BY account_ref, month""";
+
     // ---- commitments (V2-COMMITMENTS-PLAN.md §2.7, §2.8) -------------------------------------
 
     /**
