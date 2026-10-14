@@ -287,10 +287,28 @@ class CommitmentsApiTest {
             assertEquals(3, counts.get("commitment_rule").asLong());
             assertTrue(counts.get("commitment_occurrence").asLong() > 0);
             assertEquals(1, counts.get("commitment_note").asLong());
-            // The expectations nudge counts declared commitments' open occurrences due this ISO
-            // week: the weekly Netflix anchor lands one today. Candidates, settled, awaiting and
-            // missed occurrences are excluded, and it counts occurrences, never dollars.
-            assertTrue(statusBody.get("expectedDueThisWeek").asInt() >= 1, statusBody.toPrettyString());
+            // The expectations nudge (V2-SPEC.md §9.1) counts declared commitments' open occurrences
+            // due this ISO week. It must equal the week view filtered to declared commitments'
+            // `due` occurrences — read at the server's own day, the same clock the strip uses — so a
+            // candidate, or a settled/awaiting/missed occurrence, is not counted, and it counts
+            // occurrences, never dollars.
+            java.util.Set<String> declaredIds = new java.util.HashSet<>();
+            for (JsonNode row : registry) {
+                if ("declared".equals(row.get("origin").asText())) {
+                    declaredIds.add(row.get("commitmentId").asText());
+                }
+            }
+            int dueThisWeek = 0;
+            for (JsonNode occurrence : json(get(client, base, "/api/expected?window=week"))
+                    .get("occurrences")) {
+                if (declaredIds.contains(occurrence.get("commitmentId").asText())
+                    && "due".equals(occurrence.get("status").asText())) {
+                    dueThisWeek++;
+                }
+            }
+            assertTrue(dueThisWeek >= 1, "the weekly Netflix anchor is due this week");
+            assertEquals(dueThisWeek, statusBody.get("expectedDueThisWeek").asInt(),
+                statusBody.toPrettyString());
         }
     }
 

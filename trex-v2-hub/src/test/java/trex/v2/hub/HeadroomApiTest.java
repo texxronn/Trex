@@ -88,7 +88,7 @@ class HeadroomApiTest {
                 Json.mapper().convertValue(headroom.get("accounts"), List.class));
             assertEquals(today.toString(), headroom.get("through").asText());
 
-            // The status strip carries the same date, so an "all clear" says what it holds to.
+            // The status strip carries the same date, so the "Review clear" line says what it holds to.
             HttpResponse<String> status = client.send(HttpRequest.newBuilder(base.resolve("/api/status")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
             assertEquals(today.toString(), Json.mapper().readTree(status.body()).get("through").asText(), status.body());

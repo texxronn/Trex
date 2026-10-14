@@ -11,6 +11,12 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Expected reframed; the strip's clear line renamed** (`V2-SPEC.md` §9.1–§9.3). Expected is now the
+  **declared-expectations checklist**: only declared commitments' occurrences are shown (a detected
+  candidate is a discovery, not an asserted expectation, §6.5), each amount an unsigned magnitude with
+  an explicit in/out direction; the out/in dollar totals, the Headroom block and Catch up's running
+  total are dropped. The status strip's finish line now reads **"Review clear"** rather than "all
+  clear", so a clean queue cannot be read as "nothing due".
 - **`V2-SPEC.md` is the specification** (`V2-REVIEW-FIXES-PLAN.md` §12). `V2-PROPOSAL.md` is frozen
   as the history of intent; `AGENTS.md` follows. The spec now states its own contracts — row
   outcomes, the review table with dismissal rules, the commitment status table, the pending rule, the
@@ -19,6 +25,13 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A `Budget` mode and an expectations nudge** (`V2-SPEC.md` §9.1, §9.2). "Left this month"
+  (headroom) moves out of Expected into a new **Budget** mode — the same `/api/expected` read, no new
+  endpoint, calculation unchanged. `/api/status` gains `expectedDueThisWeek`: the count of declared
+  commitments' occurrences still open (`status = 'due'`) and due inside the current ISO week, counting
+  occurrences not dollars; the strip shows it as a muted **`N expectations due this week`** after the
+  clear line and before the statement nudge, clicking through to `#expected?window=week` (Expected now
+  honours that deep link).
 - **A `Mortgage` mode** (`V2-MORTGAGE-PLAN.md`, built). A new tab over a declared facility — the ING
   offset `ing-loan-offset` and its two loans — composed entirely from existing reads: offset
   liquidity and each loan's balance with its **own** statement date (never netted), the recorded
