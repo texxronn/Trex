@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import trex.v2.core.Action;
 import trex.v2.core.Actor;
 import trex.v2.core.Fact;
+import trex.v2.core.Observation;
+import trex.v2.core.Provenance;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
@@ -33,6 +35,8 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
+import trex.v2.hub.api.CashRequest;
+import trex.v2.hub.api.CashResponse;
 import trex.v2.hub.api.ChainsResponse;
 import trex.v2.hub.api.CursorRequest;
 import trex.v2.hub.api.CursorResponse;
@@ -65,6 +69,9 @@ import trex.v2.log.ConfigLoader;
 import trex.v2.sequencer.api.BatchResponse;
 import trex.v2.sequencer.api.DecisionBatch;
 import trex.v2.sequencer.api.DecisionDraft;
+import trex.v2.sequencer.api.FactBatch;
+import trex.v2.sequencer.api.FactDraft;
+import trex.v2.sequencer.api.RowResult;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -82,6 +89,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -1065,6 +1073,145 @@ public final class HubService implements HubApi, AutoCloseable {
         } catch (SequencerClient.Unavailable e) {
             return new DecisionOutcome(502, new ErrorResponse(e.getMessage()));
         }
+    }
+
+    // ---- manual cash (V2-CASH-PLAN.md §4.3, V2-SPEC.md §9.4) --------------------------------
+
+    /**
+     * Record one manual cash fact on a declared wallet, and optionally pin a category on that same
+     * fact in the same request. The fact is forwarded to the sequencer's {@code POST /facts}; the
+     * category is a {@code PIN} through the ordinary decision path, so the writer stays the only
+     * interpreter. The hub validates the shape and the account kind, and answers 422 (never an
+     * exception) for anything it refuses; a sequencer that is down is 502 and no sequencer is 503.
+     *
+     * <p>A null or {@code 0} {@code amount} is a <em>count</em>: the fact carries {@code amount: 0}
+     * and the counted {@code balance}, and derives as an ATTESTATION, never a unit. A spend or
+     * income carries its signed {@code amount} and defaults {@code balance} to {@code 0}.
+     */
+    @Override
+    public DecisionOutcome submitCash(CashRequest request) {
+        if (sequencer == null) {
+            return new DecisionOutcome(503, new ErrorResponse("no sequencer configured; this hub is read-only"));
+        }
+        if (request == null) {
+            return new DecisionOutcome(422, new ErrorResponse("a cash request is required"));
+        }
+        DeriveConfig cfg = refresher.config();
+        if (request.account() == null || request.account().isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("account is required"));
+        }
+        Account account = cfg.registry().findAccount(request.account()).orElse(null);
+        if (account == null || account.balanceSource() != BalanceSource.DECLARED) {
+            return new DecisionOutcome(422, new ErrorResponse(
+                "cash is recorded on a declared account, not '" + request.account() + "'"));
+        }
+        if (request.date() == null) {
+            return new DecisionOutcome(422, new ErrorResponse("date is required"));
+        }
+        if (request.description() == null || request.description().isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("description is required"));
+        }
+        if (request.user() == null || request.user().isBlank()) {
+            return new DecisionOutcome(422, new ErrorResponse("user is required"));
+        }
+        String category = request.category() == null || request.category().isBlank()
+            ? null : request.category();
+        if (category != null) {
+            if (RuleSet.isReserved(category)) {
+                return new DecisionOutcome(422,
+                    new ErrorResponse("'" + category + "' is reserved and cannot be pinned"));
+            }
+            if (!cfg.categories().isDeclared(category)) {
+                return new DecisionOutcome(422,
+                    new ErrorResponse("category '" + category + "' is not declared"));
+            }
+        }
+
+        boolean count = request.amount() == null || request.amount() == 0L;
+        if (count && request.balance() == null) {
+            return new DecisionOutcome(422, new ErrorResponse("a count needs its balance"));
+        }
+        long amount = count ? 0L : request.amount();
+        long balance = count ? request.balance() : (request.balance() == null ? 0L : request.balance());
+
+        String receipt = request.receipt() == null || request.receipt().isBlank()
+            ? mintReceipt() : request.receipt();
+        FactDraft draft = new FactDraft(request.account(), request.date(), amount, balance,
+            request.description(), receipt, Observation.POSTED, "manual", Provenance.AUTHORED, null,
+            "manual/1", null);
+
+        BatchResponse response;
+        try {
+            response = sequencer.postFacts(new FactBatch(true, List.of(draft)));
+        } catch (SequencerClient.Unavailable e) {
+            return new DecisionOutcome(502, new ErrorResponse(e.getMessage()));
+        }
+        if (response.results() == null || response.results().isEmpty()) {
+            return new DecisionOutcome(422, new ErrorResponse("the sequencer recorded no row"));
+        }
+        RowResult row = response.results().getFirst();
+        if (RowResult.REJECTED.equals(row.outcome())) {
+            return new DecisionOutcome(422,
+                new ErrorResponse(row.reason() == null ? "the cash fact was rejected" : row.reason()));
+        }
+        String externalId = row.externalId();
+
+        // The PIN is the ordinary decision path, on the fact we just made durable. A rejection
+        // leaves the fact recorded and reports pinError; it never undoes the fact.
+        String pinned = null;
+        String pinError = null;
+        if (category != null) {
+            awaitFact(externalId);
+            DecisionDraft pin = new DecisionDraft("PIN", "user", request.user(), null, null,
+                null, null, null, null, null, null, List.of(externalId), category, null, null, null,
+                null, null, null, null, null, null, null);
+            DecisionOutcome outcome = submitDecisions(new DecisionRequest(null, null, List.of(pin)));
+            if (outcome.status() == 200) {
+                pinned = category;
+            } else {
+                pinError = outcomeMessage(outcome);
+            }
+        }
+        return new DecisionOutcome(200,
+            new CashResponse(externalId, row.n(), row.outcome(), pinned, pinError));
+    }
+
+    /**
+     * The same-request {@code PIN} needs the new fact in the index, but the hub indexes the journal
+     * asynchronously (the refresher). Wait briefly for the fact to appear — the refresher is watching
+     * the file and derives in the background, so this is a short poll, not a derive — and let the
+     * ordinary precheck report the failure when it never does; the fact itself is already durable.
+     */
+    private void awaitFact(String externalId) {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while (!reads.factKnown(externalId)) {
+            if (System.nanoTime() >= deadline) {
+                return;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    /** A refused decision's readable reason: the {@code ErrorResponse}, or the precheck failures. */
+    private static String outcomeMessage(DecisionOutcome outcome) {
+        if (outcome.body() instanceof ErrorResponse error) {
+            return error.error();
+        }
+        if (outcome.body() instanceof PrecheckResponse precheck) {
+            return precheck.failures().stream().map(PrecheckResponse.Failure::message)
+                .collect(Collectors.joining("; "));
+        }
+        return String.valueOf(outcome.body());
+    }
+
+    /** The client-minted manual receipt the spec names (§9.4): {@code MAN-} plus a random uuid. */
+    private static String mintReceipt() {
+        return "MAN-" + UUID.randomUUID().toString().replace("-", "");
     }
 
     /**

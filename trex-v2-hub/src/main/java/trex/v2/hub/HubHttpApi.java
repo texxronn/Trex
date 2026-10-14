@@ -8,6 +8,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.v2.hub.api.AckRequest;
+import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
 import trex.v2.hub.api.ReflowRequest;
@@ -150,6 +151,15 @@ final class HubHttpApi {
             try {
                 DecisionRequest request = Json.mapper().readValue(readBody(ex), DecisionRequest.class);
                 DecisionOutcome outcome = api.submitDecisions(request);
+                write(ex, outcome.status(), outcome.body());
+            } catch (com.fasterxml.jackson.core.JacksonException e) {
+                sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            }
+        });
+        route(server, "/api/cash", "POST", ex -> {
+            try {
+                CashRequest request = Json.mapper().readValue(readBody(ex), CashRequest.class);
+                DecisionOutcome outcome = api.submitCash(request);
                 write(ex, outcome.status(), outcome.body());
             } catch (com.fasterxml.jackson.core.JacksonException e) {
                 sendError(ex, 400, "malformed body: " + e.getOriginalMessage());

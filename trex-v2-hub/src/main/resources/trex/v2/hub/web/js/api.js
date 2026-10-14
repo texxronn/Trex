@@ -73,6 +73,7 @@ export const api = {
     ...(user ? { user } : {}),
   })),
   accounts: (params = {}) => request('GET', '/api/accounts?' + new URLSearchParams(params)),
+  cash: (body) => request('POST', '/api/cash', body),
   jobs: () => request('GET', '/api/jobs'),
   jobAdapters: () => request('GET', '/api/jobs/adapters'),
   staging: () => request('GET', '/api/jobs/staging'),
