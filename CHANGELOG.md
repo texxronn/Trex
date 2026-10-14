@@ -27,6 +27,11 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A Mortgage amortiser.** The Mortgage mode gains an editable projection: loan, offset, rate,
+  repayment and an optional extra monthly amount default to the facility's current figures and
+  recompute live, showing the monthly interest/principal split, the year the linked-offset effective
+  balance reaches zero, and the total interest to that point. Presentation only — no API, derive or
+  Firefly change.
 - **A `Budget` mode and an expectations nudge** (`V2-SPEC.md` §9.1, §9.2). "Left this month"
   (headroom) moves out of Expected into a new **Budget** mode — the same `/api/expected` read, no new
   endpoint, calculation unchanged. `/api/status` gains `expectedDueThisWeek`: the count of declared
