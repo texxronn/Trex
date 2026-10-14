@@ -1,6 +1,7 @@
 package trex.v2.hub;
 
 import trex.v2.hub.api.ActivityJson;
+import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
 import trex.v2.hub.api.ExpectedResponse;
@@ -1063,6 +1064,33 @@ public final class HubQueries implements AutoCloseable {
                     rows.add(new TransferJson(rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rs.getString(5), rs.wasNull() ? null : decisionN,
                         rs.getString(7), rs.getString(8), Instant.parse(rs.getString(9))));
+                }
+            }
+            return rows;
+        });
+    }
+
+    /** The derived per-month unrecorded cash rows (§9.4); {@code account} null or blank is all. */
+    public List<CashMonthJson> cashMonths(String account) {
+        return read(conn -> {
+            boolean filtered = account != null && !account.isBlank();
+            String sql = filtered ? HubSql.CASH_MONTHS_FOR_SELECT : HubSql.CASH_MONTHS_SELECT;
+            List<CashMonthJson> rows = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                if (filtered) {
+                    ps.setString(1, account);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        long heldOpen = rs.getLong(7);
+                        boolean nullOpen = rs.wasNull();
+                        long heldClose = rs.getLong(8);
+                        boolean nullClose = rs.wasNull();
+                        rows.add(new CashMonthJson(rs.getString(1), rs.getString(2), rs.getLong(3),
+                            rs.getLong(4), rs.getLong(5), rs.getLong(6), nullOpen ? null : heldOpen,
+                            nullClose ? null : heldClose, rs.getLong(9), rs.getLong(10),
+                            rs.getInt(11) != 0));
+                    }
                 }
             }
             return rows;

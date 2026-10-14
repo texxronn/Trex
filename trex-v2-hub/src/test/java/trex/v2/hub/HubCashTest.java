@@ -19,6 +19,7 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -65,6 +66,48 @@ class HubCashTest {
                 // The row is on the ledger read the UI uses.
                 JsonNode ledger = Json.mapper().readTree(get(client, api.resolve("/api/ledger?account=cash-ron")));
                 assertEquals(cash.externalId(), ledger.path("rows").get(0).path("externalId").asText());
+            }
+        }
+    }
+
+    @Test
+    void theSpendMonthIsReadBackFromTheEndpoint(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+
+        try (SequencerService sequencer = SequencerService.start(dir.resolve("trex.jsonl"), configDir,
+                "127.0.0.1", 0, Clock.systemUTC())) {
+            HttpClient client = HttpClient.newHttpClient();
+            Path index = dir.resolve("trex.sqlite");
+            try (HubService hub = HubService.start(new HubConfig(dir.resolve("trex.jsonl"), index, configDir,
+                    "127.0.0.1", 0, 50, "http://127.0.0.1:" + sequencer.port()))) {
+                URI api = URI.create("http://127.0.0.1:" + hub.port());
+
+                HttpResponse<String> response = postJson(client, api.resolve("/api/cash"),
+                    "{\"account\":\"cash-ron\",\"date\":\"2026-09-05\",\"amount\":-1234,"
+                        + "\"description\":\"MANUAL LUNCH\",\"user\":\"ron\"}");
+                assertEquals(200, response.statusCode(), response.body());
+                await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+
+                // GET /api/cash/months is the derived table behind the Cash tab's monthly header.
+                JsonNode months = Json.mapper().readTree(
+                    get(client, api.resolve("/api/cash/months?account=cash-ron")));
+                assertTrue(months.isArray() && !months.isEmpty(), months.toString());
+                JsonNode sep = null;
+                for (JsonNode month : months) {
+                    assertEquals("cash-ron", month.path("accountRef").asText(), months.toString());
+                    if (month.path("month").asText().equals("2026-09")) {
+                        sep = month;
+                    }
+                }
+                assertNotNull(sep, months.toString());
+                assertEquals(1234, sep.path("recordedOut").asLong());
+                assertEquals(0, sep.path("recordedIn").asLong());
+                assertEquals(0, sep.path("inFromBank").asLong());
+                assertEquals(-1234, sep.path("unrecorded").asLong(), sep.toString());
+                assertFalse(sep.path("open").asBoolean());
+                assertTrue(sep.path("heldOpen").isNull() && sep.path("heldClose").isNull(), sep.toString());
             }
         }
     }

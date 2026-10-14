@@ -165,6 +165,8 @@ final class HubHttpApi {
                 sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
             }
         });
+        route(server, "/api/cash/months", "GET",
+            ex -> write(ex, 200, api.cashMonths(param(ex.getRequestURI().getQuery(), "account"))));
 
         Map<String, Handler> acks = new LinkedHashMap<>();
         acks.put("GET", ex -> write(ex, 200, api.acks()));

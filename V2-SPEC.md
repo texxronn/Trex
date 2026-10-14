@@ -191,7 +191,7 @@ replay → effective decisions → supersession / chain resolution → current t
 (`note_current`) → clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/16"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/17"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state. A change to
 derive's semantics — including any constant in §6.9 — bumps `deriveVersion`; a change to §6.8 bumps
 `hashVersion`.

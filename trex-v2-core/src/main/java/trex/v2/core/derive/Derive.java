@@ -17,6 +17,7 @@ import trex.v2.core.config.RuleSubject;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -152,6 +153,7 @@ public final class Derive {
             List<Unit> units = units();
             List<NoteRow> notes = notes();
             List<ClearingLeg> clearingLegs = clearingLegs();
+            List<CashMonth> cashMonth = cashMonths();
             ineffective.sort(Comparator.comparingLong(IneffectiveDecision::decisionN)
                 .thenComparing(IneffectiveDecision::action));
 
@@ -174,7 +176,8 @@ public final class Derive {
                 commitmentOccurrences,
                 commitmentNotes,
                 commitmentExclusions,
-                commitmentFacts);
+                commitmentFacts,
+                cashMonth);
         }
 
         /** The latest effective USER_ACK/USER_UNACK per (user, row) (V2-PROPOSAL.md §9.4). */
@@ -2112,6 +2115,126 @@ public final class Derive {
             String realId = t.clearingAccount().equals(t.fromLeg()) ? t.toLeg() : t.fromLeg();
             return byId.get(realId);
         }
+
+        /**
+         * The derived {@code cash_month} rows (V2-CASH-PLAN.md §4.4). One row per declared wallet
+         * and calendar month, from the wallet's first <em>movement</em> (a recorded fact or a
+         * wallet leg — a count alone establishes no month) to the month of {@code asOf}. Pure: a
+         * function of the current facts, the transfers, the registry and the explicit {@code asOf}.
+         */
+        private List<CashMonth> cashMonths() {
+            Map<String, CurrentFact> byId = currentById();
+            YearMonth asOfMonth = YearMonth.from(asOf.atZone(ZoneOffset.UTC).toLocalDate());
+            List<CashMonth> out = new ArrayList<>();
+            for (Account a : config.registry().accounts().values()) {
+                if (a.balanceSource() != BalanceSource.DECLARED) {
+                    continue;
+                }
+                String account = a.ref();
+
+                // The wallet's own current events, split the way §4.4 names them: a count is a $0
+                // fact (an ATTESTATION), a recorded fact moves money. A noop is not a posting.
+                List<CurrentFact> counts = new ArrayList<>();
+                List<CurrentFact> recorded = new ArrayList<>();
+                for (CurrentFact c : current) {
+                    if (!account.equals(c.fact().accountRef()) || c.role() == Role.NOOP) {
+                        continue;
+                    }
+                    if (c.fact().amount() == 0) {
+                        counts.add(c);
+                    } else {
+                        recorded.add(c);
+                    }
+                }
+
+                // The synthetic wallet legs: the real bank leg's date, and the wallet-side movement
+                // -real.amount() (an ATM withdrawal is positive into the wallet). The legs are only
+                // summed per month, so their order never matters.
+                List<WalletLeg> legs = new ArrayList<>();
+                LocalDate earliest = null;
+                for (CurrentFact c : recorded) {
+                    earliest = earlier(earliest, c.fact().date());
+                }
+                for (TransferRow t : transfers) {
+                    if (!account.equals(t.clearingAccount())) {
+                        continue;
+                    }
+                    CurrentFact real = realLegOf(t, byId);
+                    if (real == null) {
+                        continue;
+                    }
+                    legs.add(new WalletLeg(real.fact().date(), -real.fact().amount()));
+                    earliest = earlier(earliest, real.fact().date());
+                }
+                if (earliest == null) {
+                    continue; // neither a recorded fact nor a leg: no rows for this wallet
+                }
+                counts.sort(Comparator.comparing((CurrentFact c) -> c.fact().date())
+                    .thenComparingLong(c -> c.fact().n()));
+
+                for (YearMonth m = YearMonth.from(earliest); !m.isAfter(asOfMonth); m = m.plusMonths(1)) {
+                    LocalDate first = m.atDay(1);
+                    LocalDate last = m.atEndOfMonth();
+
+                    long inFromBank = 0;
+                    long outToBank = 0;
+                    for (WalletLeg leg : legs) {
+                        if (!YearMonth.from(leg.date()).equals(m)) {
+                            continue;
+                        }
+                        if (leg.movement() > 0) {
+                            inFromBank += leg.movement();
+                        } else if (leg.movement() < 0) {
+                            outToBank += -leg.movement();
+                        }
+                    }
+
+                    long recordedOut = 0;
+                    long recordedIn = 0;
+                    for (CurrentFact c : recorded) {
+                        if (!YearMonth.from(c.fact().date()).equals(m)) {
+                            continue;
+                        }
+                        long amount = c.fact().amount();
+                        if (amount < 0) {
+                            recordedOut += -amount;
+                        } else {
+                            recordedIn += amount;
+                        }
+                    }
+
+                    // counts is (date, n)-ordered, so the last assignment before/at the bound wins.
+                    Long heldOpen = null;
+                    Long heldClose = null;
+                    for (CurrentFact c : counts) {
+                        LocalDate date = c.fact().date();
+                        if (date.isBefore(first)) {
+                            heldOpen = c.fact().balance();
+                        }
+                        if (!date.isAfter(last)) {
+                            heldClose = c.fact().balance();
+                        }
+                    }
+                    long heldDelta = heldOpen != null && heldClose != null ? heldClose - heldOpen : 0L;
+                    long unrecorded = inFromBank - outToBank - recordedOut + recordedIn - heldDelta;
+                    out.add(new CashMonth(account, m, inFromBank, outToBank, recordedOut, recordedIn,
+                        heldOpen, heldClose, heldDelta, unrecorded, m.equals(asOfMonth)));
+                }
+            }
+            out.sort(Comparator.comparing(CashMonth::accountRef).thenComparing(CashMonth::month));
+            return out;
+        }
+
+        /** The earlier of two dates, either of which may be null. */
+        private static LocalDate earlier(LocalDate a, LocalDate b) {
+            if (a == null) {
+                return b;
+            }
+            return a.isBefore(b) ? a : b;
+        }
+
+        /** One synthetic wallet leg: its bank-side date and the movement it gives the wallet. */
+        private record WalletLeg(LocalDate date, long movement) {}
 
         private List<Unit> units() {
             // Built once: currentById() copies the whole current set, and rebuilding it per leg

@@ -281,7 +281,8 @@ class DeriveTest {
                 Observation.PENDING, "test", Provenance.BANK, null, "test/1", Instant.parse("2026-09-30T00:00:00Z")),
             fact(7, "m7", "ing-savings", LocalDate.of(2026, 7, 15), -10000, "ACME BILL", null, 0),
             fact(8, "m8", "ing-savings", LocalDate.of(2026, 8, 15), -10000, "ACME BILL", null, 0),
-            fact(9, "m9", "ing-savings", LocalDate.of(2026, 9, 15), -10000, "ACME BILL", null, 0));
+            fact(9, "m9", "ing-savings", LocalDate.of(2026, 9, 15), -10000, "ACME BILL", null, 0),
+            fact(10, "cm", "cash-ron", LocalDate.of(2026, 9, 15), -1000, "MANUAL SPEND", null, 0));
         List<Decision> decisions = List.of(pin(20, "FOO", "a"),
             declare(21, "acme", "Acme", "out", -10000L, LocalDate.of(2026, 7, 15), "ACME"));
 
@@ -303,6 +304,17 @@ class DeriveTest {
         assertEquals(now.commitmentNotes(), later.commitmentNotes());
         assertEquals(now.commitmentExclusions(), later.commitmentExclusions());
         assertEquals(now.commitmentFacts(), later.commitmentFacts());
+        // cashMonth is time-relative: the trailing month range and the open flag depend on asOf. Every
+        // month already closed at `now` is unchanged at `later` (an open month may close, and more
+        // months may append); the plain equality set above deliberately omits cashMonth, whose open
+        // flag would otherwise fail. The time-relative half really does move.
+        List<trex.v2.core.derive.CashMonth> closedNow = closedCashMonths(now);
+        List<trex.v2.core.derive.CashMonth> closedLater = closedCashMonths(later);
+        assertEquals(closedNow, closedLater.subList(0, closedNow.size()),
+            "every month closed at now is unchanged at later");
+        assertTrue(closedLater.size() > closedNow.size(), "later closes the month that was open");
+        assertEquals("2026-10", openMonth(now).toString());
+        assertEquals("2026-11", openMonth(later).toString());
         assertEquals(steady(now.review()), steady(later.review()), "only the time-relative kinds may move");
         // The time-relative half really does move here, so the test cannot pass vacuously.
         assertFalse(now.review().stream().anyMatch(r -> r.kind().equals(trex.v2.core.derive.ReviewItem.UNMATCHED_LEG)));
@@ -312,6 +324,17 @@ class DeriveTest {
 
     private static List<trex.v2.core.derive.ReviewItem> steady(List<trex.v2.core.derive.ReviewItem> items) {
         return items.stream().filter(r -> !TIME_RELATIVE_KINDS.contains(r.kind())).toList();
+    }
+
+    /** The closed cash months: what every earlier {@code asOf} must agree on (§6.1). */
+    private static List<trex.v2.core.derive.CashMonth> closedCashMonths(Derivation d) {
+        return d.cashMonth().stream().filter(m -> !m.open()).toList();
+    }
+
+    /** The single open cash month (a derivation always has at most one). */
+    private static java.time.YearMonth openMonth(Derivation d) {
+        return d.cashMonth().stream().filter(trex.v2.core.derive.CashMonth::open)
+            .map(trex.v2.core.derive.CashMonth::month).findFirst().orElseThrow();
     }
 
     // ---- a second observation of one id (V2-REVIEW-FIXES-PLAN.md §5.1) ----------------------
