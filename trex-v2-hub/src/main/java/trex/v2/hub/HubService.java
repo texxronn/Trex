@@ -141,12 +141,19 @@ public final class HubService implements HubApi, AutoCloseable {
     private final SequencerClient sequencer;
     private final HubEvents events;
     private final RunnerClient runner;
+    /**
+     * The declared mortgage facilities (V2-SPEC.md §12). View config loaded once at startup from
+     * {@code mortgages.yaml}: it links an offset to its loans for the Mortgage mode, is not a derive
+     * input, and is not part of {@code configRevision}, so an edit needs a hub restart, not a
+     * re-derive.
+     */
+    private final List<RefdataResponse.MortgageJson> mortgages;
     private final AtomicBoolean closed = new AtomicBoolean();
     private HttpServer server;
 
     private HubService(HubConfig config, IndexLock lock, Indexer indexer, HubQueries reads,
                        IndexRefresher refresher, SequencerClient sequencer, HubEvents events,
-                       RunnerClient runner) {
+                       RunnerClient runner, List<RefdataResponse.MortgageJson> mortgages) {
         this.config = config;
         this.lock = lock;
         this.indexer = indexer;
@@ -155,10 +162,14 @@ public final class HubService implements HubApi, AutoCloseable {
         this.sequencer = sequencer;
         this.events = events;
         this.runner = runner;
+        this.mortgages = mortgages;
     }
 
     public static HubService start(HubConfig config) {
         ConfigLoader.Loaded loaded = ConfigLoader.load(config.configDir());
+        // View config, loaded here and not through ConfigLoader: it must never enter configRevision.
+        List<RefdataResponse.MortgageJson> mortgages =
+            Mortgages.load(config.configDir(), loaded.registry());
         IndexLock lock = IndexLock.acquire(config.index());
         Indexer indexer = null;
         HubQueries reads = null;
@@ -173,7 +184,8 @@ public final class HubService implements HubApi, AutoCloseable {
             SequencerClient sequencer = config.sequencerUrl() == null ? null
                 : new SequencerClient(config.sequencerUrl(), hubSource());
             RunnerClient runner = config.runnerUrl() == null ? null : new RunnerClient(config.runnerUrl(), config.runnerToken());
-            HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events, runner);
+            HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events, runner,
+                mortgages);
             service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner);
             log.info("trex hub listening on {}:{}; journal {}; index {}",
                 config.host(), service.server.getAddress().getPort(), config.journal(), config.index());
@@ -314,7 +326,7 @@ public final class HubService implements HubApi, AutoCloseable {
             .map(u -> new RefdataResponse.UserJson(u.id(), u.name(), u.active(), u.cadence()))
             .toList();
         return new RefdataResponse(accounts, users, c.categories().declared(), c.configRevision(),
-            DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION);
+            DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION, mortgages);
     }
 
     @Override

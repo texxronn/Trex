@@ -582,6 +582,10 @@ rows (a clearing pair included, carried by its real leg). Never a leg (a transfe
 double-count), never HELD/REVIEW, PENDING, an ATTESTATION (a $0 transaction forever) or a retired
 fact. Transaction notes and commitments are not projected (Firefly holds money that moved).
 
+**The Mortgage mode (§9.3) has no impact here.** It is a view over existing reads — balances,
+reconciliation and commitment activity — so it changes no unit, no account type and no balance, and
+the repayments and interest it shows are commitments, which are never projected.
+
 **The type comes from the two Firefly account kinds**, not from trex: asset↔asset and
 liability↔liability are `transfer`; asset→liability is `withdrawal`; liability→asset is `deposit`
 (Firefly refuses a `transfer` across the line).
@@ -684,7 +688,8 @@ compares the three per file — current vs shipped, current vs base, shipped vs 
 `/etc/trex/.backup/` and installs the shipped one; `--adopt FILE` records the live file as the base
 for an `unknown` first run, refused when `.shipped` has no copy of the file (one `up` seeds it).
 The same container script is documented for the host in `docs/DEPLOYMENTS.md`. A sync needs no
-restart.
+restart. `mortgages.yaml` is one of the seeded files, so the drift table and `sync-config` cover it
+like any other; a sync re-seeds the file and a hub restart picks the new mapping up.
 
 ---
 

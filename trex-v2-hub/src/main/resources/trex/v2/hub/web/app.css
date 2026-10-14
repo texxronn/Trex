@@ -571,3 +571,10 @@ button.warn:hover { background: var(--warn-soft); }
   border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 13px; }
 .since-text { flex: 1; }
 .since-dismiss { padding: 0 6px; line-height: 1.2; }
+
+/* ---- Mortgage: one facility's offset and loans (V2-SPEC.md §9.3) ---------- */
+
+.mortgage + .mortgage { margin-top: 1.6rem; }
+.tag.open { color: var(--good); border-color: var(--good); background: var(--good-soft); }
+.tag.closed { color: var(--muted); }
+.estimate { border-bottom: 1px dashed var(--muted); cursor: help; }

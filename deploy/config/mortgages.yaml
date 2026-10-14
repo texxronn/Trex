@@ -1,0 +1,28 @@
+# mortgages.yaml — the declared mortgage facilities for the Mortgage view (V2-MORTGAGE-PLAN.md §4.1).
+#
+# View-config, not a derive input: this file groups accounts for one screen and moves no derived
+# state, so it is deliberately NOT hashed into configRevision (M-5). Editing it takes effect on the
+# next hub restart (or any config-revision change); it never re-derives the index and never touches
+# Firefly. An unknown account ref is a startup error; a commitment id is a decision in the log, so it
+# is not resolved here — the view shows an empty series when the commitment is absent or retired.
+#
+# The offset→loan link is an operator declaration, never inferred from charges (M-2).
+
+mortgages:
+  - name: "ING"
+    # The offset account whose balance shelters the loans below.
+    offset: ing-loan-offset
+    # Optional. The observed rate (%) used for the idle-offset cost estimate, which is only ever
+    # shown labelled as an estimate. Omit to hide that figure entirely.
+    observedRatePct: 6.15
+    loans:
+      - account: ing-mortgage-simplifier
+        label: "Simplifier"
+        # The commitment that classifies this loan's repayments (a TRANSFER offset → loan) …
+        repaymentCommitment: ing-simplifier-repayment
+        # … and the one that classifies its recorded interest charges.
+        interestCommitment: ing-simplifier-interest
+      - account: ing-variable-rate
+        label: "Variable"
+        repaymentCommitment: ing-variable-repayment
+        interestCommitment: ing-variable-interest

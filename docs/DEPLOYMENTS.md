@@ -85,7 +85,8 @@ scp deploy/v2/compose.server.yml deploy@10.10.10.142:/tmp/compose.yml
 scp deploy/config/accounts.yaml deploy/config/users.yaml deploy/config/categories.yaml \
     deploy/config/transfers.yaml deploy/config/pins.yaml deploy/config/firefly.yaml \
     deploy/config/profiles.yaml deploy/config/statements.yaml deploy/config/sources.yaml \
-    deploy/config/schedule.yaml deploy/v2/sequencer.yaml deploy@10.10.10.142:/tmp/
+    deploy/config/schedule.yaml deploy/config/mortgages.yaml deploy/v2/sequencer.yaml \
+    deploy@10.10.10.142:/tmp/
 # as root on the host: install into /opt/trex/config and `docker compose up -d`
 ```
 
