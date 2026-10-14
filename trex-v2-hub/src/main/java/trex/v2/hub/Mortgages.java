@@ -96,7 +96,14 @@ final class Mortgages {
             loans.add(new RefdataResponse.LoanJson(l.account(), l.label(),
                 l.repaymentCommitment(), l.interestCommitment(), state));
         }
-        return new RefdataResponse.MortgageJson(m.name(), m.offset(), m.observedRatePct(), List.copyOf(loans));
+        String appliesTo = m.offsetAppliesTo() == null || m.offsetAppliesTo().isBlank()
+            ? null : m.offsetAppliesTo().trim();
+        if (appliesTo != null && loans.stream().noneMatch(l -> l.account().equals(appliesTo))) {
+            throw new IllegalArgumentException(file.getFileName() + ": facility '" + m.name()
+                + "' declares offsetAppliesTo '" + appliesTo + "', which is not one of its loans");
+        }
+        return new RefdataResponse.MortgageJson(m.name(), m.offset(), appliesTo, m.observedRatePct(),
+            List.copyOf(loans));
     }
 
     private static void requireKnown(Path file, Registry registry, String ref) {
@@ -111,7 +118,8 @@ final class Mortgages {
 
     record MortgagesFile(List<MortgageEntry> mortgages) {}
 
-    record MortgageEntry(String name, String offset, Double observedRatePct, List<LoanEntry> loans) {}
+    record MortgageEntry(String name, String offset, String offsetAppliesTo, Double observedRatePct,
+                         List<LoanEntry> loans) {}
 
     record LoanEntry(String account, String label, String repaymentCommitment,
                      String interestCommitment, String state) {}

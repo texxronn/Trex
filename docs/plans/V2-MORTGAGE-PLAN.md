@@ -64,6 +64,7 @@ view degrades to an empty series when a commitment is absent or retired.
 mortgages:
   - name: "ING"
     offset: ing-loan-offset
+    offsetAppliesTo: ing-variable-rate   # the loan the offset shelters; omit to model the whole facility
     observedRatePct: 6.15          # optional; enables the idle-offset cost estimate
     loans:
       - account: ing-mortgage-simplifier
@@ -123,29 +124,32 @@ An absent file is valid (no facilities, no Mortgage content).
 
 | module | file | change |
 |---|---|---|
-| core | `config/Mortgages.java` (new) | the facility model + validation |
-| core | `config/DeriveConfig.java` | carry the loaded `Mortgages` (not hashed) |
-| log | `ConfigLoader.java` | read optional `mortgages.yaml`; validate; keep it out of `configRevision` |
-| hub | `api/RefdataResponse.java` | `List<MortgageJson> mortgages` |
-| hub | `HubService.java` | map the loaded facilities into refdata |
+| hub | `Mortgages.java` (new) | the facility model + validation, read once at hub startup |
+| hub | `api/RefdataResponse.java` | `List<MortgageJson> mortgages` + a six-arg convenience constructor |
+| hub | `HubService.java` | load the facilities at startup and map them into refdata |
 | hub | `ConfigDrift.java` | add `mortgages.yaml` to `FILES` |
 | web | `js/mortgage.js` (new), `js/app.js`, `index.html`, `app.css` | the mode, nav and styles |
 | deploy | `deploy/config/mortgages.yaml`, `compose.yml`, `compose.server.yml`, `sync-config.sh` | seed the file |
-| docs | `V2-SPEC.md` §9, §12, §17; `CHANGELOG.md`; `docs/DEPLOYMENTS.md`; `deploy/v2/README.md` | the amendments |
+| docs | `V2-SPEC.md` §9, §11.1, §12, §17; `CHANGELOG.md`; `docs/DEPLOYMENTS.md`; `deploy/v2/README.md` | the amendments |
 
-**Tests:** a `MortgagesTest` / `ConfigLoaderTest` case for loading, defaults and each refusal (unknown
-account, a loan that is also the offset, an empty facility); a `HubApiTest` assertion that
-`/api/refdata` carries the mapping; and the constructor updates in `McpResourcesTest` /
-`McpWriteToolsTest`. No `derive()` test moves — the point of M-3/M-5 is that none can.
+The loader lives in the hub, not in core `ConfigLoader`: `mortgages.yaml` is a view input, and
+routing it through `DeriveConfig` would risk hashing it into `configRevision` and re-deriving on an
+edit. Keeping it hub-only is what makes M-5 structural rather than a promise.
+
+**Tests:** `MortgagesTest` (loading, defaults and each refusal: an unknown account, a loan that is
+also the offset, an empty facility), a `HubApiTest` assertion that `/api/refdata` carries the
+mapping, and the `ConfigDriftTest`/`HubConfigDriftApiTest` file-count updates. No `derive()` test
+moves — the point of M-3/M-5 is that none can.
 
 ## 7. Stages
 
-Each stage is one PR (or one commit when folded); failing tests first, the tree green after each.
+Landed as: this plan and the spec (§9, §12, §17) as their own commits, then one implementation commit
+covering 3–6. The tree is green after each.
 
-1. **This plan** — land as a docs commit.
-2. **Spec PR** — §9 (the Mortgage mode; the refdata field), §12 (`mortgages.yaml`, view-config, not
+1. **This plan** (docs commit).
+2. **Spec** — §9 (the Mortgage mode; the refdata field), §12 (`mortgages.yaml`, view-config, not
    hashed), §17 (record).
-3. **Config** — `Mortgages`, the loader, validation; `mortgages.yaml`.
+3. **Config** — `Mortgages` (hub-only), validation; `mortgages.yaml`.
 4. **Refdata** — the response field, the mapping, the test constructors.
 5. **Web** — `mortgage.js`, nav, styles.
 6. **Deploy and docs** — the seed lists, `DEPLOYMENTS.md`, `CHANGELOG.md`.

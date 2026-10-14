@@ -1,7 +1,8 @@
 // Mortgage mode (V2-SPEC.md §9.3, §12): one declared facility's offset and loans, composed from the
-// existing reads — /api/refdata (the facility mapping), /api/reconcile (balances, opening/closing),
-// /api/accounts (each account's own statement date) and /api/commitments/activity (the repayments
-// and interest a commitment claims). Nothing is derived and no endpoint is added.
+// existing reads — /api/refdata (the facility mapping), /api/ledger (each account's statement
+// running balance and its ends), /api/reconcile (a reconciled account's closing) and
+// /api/commitments/activity (the repayments and interest a commitment claims). Nothing is derived
+// and no endpoint is added.
 //
 // Facts and estimates are kept apart: balances, movements and the residual are facts; "principal"
 // is an estimate from recorded movements and its residual is shown, never folded in; the idle
@@ -32,29 +33,42 @@ export function mount(container, context) {
 async function load() {
   const generation = ++loadGeneration;
   try {
-    const [refdata, reconcile, accounts] = await Promise.all([
-      api.refdata(), api.reconcile(), api.accounts({ window: 'all' }),
-    ]);
+    const [refdata, reconcile] = await Promise.all([api.refdata(), api.reconcile()]);
     const facilities = (refdata && refdata.mortgages) || [];
+
+    const refs = new Set();
     const ids = new Set();
     for (const f of facilities) {
+      if (f.offset) refs.add(f.offset);
       for (const l of f.loans || []) {
+        if (l.account) refs.add(l.account);
         if (l.repaymentCommitment) ids.add(l.repaymentCommitment);
         if (l.interestCommitment) ids.add(l.interestCommitment);
       }
     }
-    // Each commitment is one read; a missing or retired one answers empty rather than failing the
-    // whole view.
+    // Each account's ledger carries the statement's running balance — the only reliable balance
+    // when a chain is broken (the offset's reconcile answers zero). Each commitment is one read; a
+    // missing or retired one answers empty rather than failing the whole view.
+    const ledgers = new Map();
     const activities = new Map();
-    await Promise.all([...ids].map(async (id) => {
-      try {
-        activities.set(id, await api.activity(id));
-      } catch {
-        activities.set(id, []);
-      }
-    }));
+    await Promise.all([
+      ...[...refs].map(async (ref) => {
+        try {
+          ledgers.set(ref, ((await api.ledger({ account: ref, limit: '5000' })).rows) || []);
+        } catch {
+          ledgers.set(ref, []);
+        }
+      }),
+      ...[...ids].map(async (id) => {
+        try {
+          activities.set(id, await api.activity(id));
+        } catch {
+          activities.set(id, []);
+        }
+      }),
+    ]);
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
-    data = compose(facilities, reconcile, accounts, activities);
+    data = compose(facilities, reconcile, activities, ledgers);
     errorBar.hidden = true;
   } catch (error) {
     if (generation !== loadGeneration) return;
@@ -83,25 +97,46 @@ function render() {
 
 // ---- the composed model -------------------------------------------------------------------------
 
-function compose(facilities, reconcile, accounts, activities) {
+function compose(facilities, reconcile, activities, ledgers) {
   const byRef = new Map((reconcile.accounts || []).map((a) => [a.accountRef, a]));
-  const lastByRef = new Map((accounts.accounts || []).map((a) => [a.ref, a.last]));
+
+  // One account's balance and the ends of its ledger. The ledger's rows are ordered by (date, n),
+  // so the newest row is the statement's running balance and the oldest is the account's first
+  // recorded movement. A reconciled account's closing is authoritative and wins; a broken chain
+  // (the offset's) reports zero, so the ledger's latest stands.
+  function account(ref) {
+    const rows = [...(ledgers.get(ref) || [])]
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.n - b.n)));
+    const r = byRef.get(ref);
+    const reconciled = !!(r && r.status === 'reconciled');
+    const first = rows.length ? rows[0] : null;
+    const last = rows.length ? rows[rows.length - 1] : null;
+    return {
+      balance: reconciled ? r.closing : (last ? last.balance : null),
+      first: first ? first.balance : null,
+      date: last ? last.date : null,
+      reconciled,
+    };
+  }
+
   return facilities.map((f) => {
-    const offsetRecon = byRef.get(f.offset);
-    const offset = Math.max(0, offsetRecon ? offsetRecon.closing : 0);
+    const o = account(f.offset);
+    const offset = Math.max(0, o.balance || 0);
     const loans = (f.loans || []).map((l) => {
-      const r = byRef.get(l.account);
+      const a = account(l.account);
       const repaid = series(activities.get(l.repaymentCommitment));
       const interest = series(activities.get(l.interestCommitment));
       // Principal is repayments less recorded interest: an estimate, not an observed movement.
       const principal = repaid.total - interest.total;
-      const change = r ? r.closing - r.opening : null;
+      // The balance change since the account's first recorded movement; the residual is what
+      // neither principal nor a refund accounts for, surfaced rather than folded in.
+      const change = a.balance === null || a.first === null ? null : a.balance - a.first;
       return {
         ...l,
-        balance: r ? r.closing : null,
-        balanceDate: lastByRef.get(l.account) || null,
+        balance: a.balance,
+        balanceDate: a.date,
         change,
-        reconciled: r ? r.status === 'reconciled' : false,
+        reconciled: a.reconciled,
         repayments: repaid,
         interest,
         principal,
@@ -109,15 +144,23 @@ function compose(facilities, reconcile, accounts, activities) {
       };
     });
     const debt = loans.reduce((n, l) => n + Math.abs(l.balance || 0), 0);
+    // What the offset actually shelters: the declared loan when the bank links it to one, else the
+    // whole facility. The balance beyond it is idle — the finding this view exists to show.
+    const sheltered = f.offsetAppliesTo
+      ? loans.find((l) => l.account === f.offsetAppliesTo) || null
+      : null;
+    const shelteredDebt = sheltered ? Math.abs(sheltered.balance || 0) : debt;
     return {
       ...f,
-      offsetBalance: offsetRecon ? offsetRecon.closing : null,
-      offsetDate: lastByRef.get(f.offset) || null,
+      offsetBalance: o.balance,
+      offsetDate: o.date,
       loans,
       debt,
       offset,
-      working: Math.min(offset, debt),
-      idle: Math.max(0, offset - debt),
+      sheltered,
+      shelteredDebt,
+      working: Math.min(offset, shelteredDebt),
+      idle: Math.max(0, offset - shelteredDebt),
     };
   });
 }
@@ -274,9 +317,13 @@ function residualCell(l) {
 function idle(f) {
   const head = ['Offset vs loans', el('span', { class: 'muted' },
     ` · working ${money(f.working)} · idle ${money(f.idle)}`)];
+  const scope = f.sheltered
+    ? `It shelters only ${f.sheltered.label || f.sheltered.account} (declared in mortgages.yaml) — `
+      + `a balance of ${money(f.shelteredDebt)}.`
+    : `It is declared against the whole facility (${money(f.debt)} of loans).`;
   return fold('idle:' + f.name, true, head, [
     el('div', {},
-      `The offset holds ${money(f.offsetBalance)} against ${money(f.debt)} of declared loans: `,
+      `The offset holds ${money(f.offsetBalance)}. ${scope} `,
       el('b', {}, `${money(f.working)} working`), ', ',
       el('b', { class: f.idle ? 'occ-partial' : 'tick' }, `${money(f.idle)} idle`), '.'),
     costLine(f),

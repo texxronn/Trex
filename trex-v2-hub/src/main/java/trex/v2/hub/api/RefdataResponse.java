@@ -27,11 +27,13 @@ public record RefdataResponse(List<AccountJson> accounts, List<UserJson> users, 
     }
 
     /**
-     * One declared mortgage facility (V2-MORTGAGE-PLAN.md): the offset account, its loans, and an
-     * optional observed rate for the idle-offset estimate. Set from config; empty when no
+     * One declared mortgage facility (V2-MORTGAGE-PLAN.md): the offset account, the loan it
+     * shelters (when named — the offset→loan link is a declaration, not an inference), its loans,
+     * and an optional observed rate for the idle-offset estimate. Set from config; empty when no
      * {@code mortgages.yaml} is declared.
      */
-    public record MortgageJson(String name, String offset, Double observedRatePct, List<LoanJson> loans) {}
+    public record MortgageJson(String name, String offset, String offsetAppliesTo, Double observedRatePct,
+                               List<LoanJson> loans) {}
 
     /** One loan of a facility: its account ref, a label, its two commitment ids, and open/closed state. */
     public record LoanJson(String account, String label, String repaymentCommitment,

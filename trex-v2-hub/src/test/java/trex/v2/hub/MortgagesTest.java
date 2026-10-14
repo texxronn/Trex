@@ -46,6 +46,7 @@ class MortgagesTest {
             mortgages:
               - name: "ING"
                 offset: ing-loan-offset
+                offsetAppliesTo: ing-variable-rate
                 observedRatePct: 6.15
                 loans:
                   - account: ing-mortgage-simplifier
@@ -63,11 +64,29 @@ class MortgagesTest {
         RefdataResponse.MortgageJson ing = facilities.getFirst();
         assertEquals("ING", ing.name());
         assertEquals("ing-loan-offset", ing.offset());
+        assertEquals("ing-variable-rate", ing.offsetAppliesTo());
         assertEquals(6.15, ing.observedRatePct());
         assertEquals(2, ing.loans().size());
         assertEquals("open", ing.loans().get(0).state(), "state defaults to open");
         assertEquals("ing-simplifier-repayment", ing.loans().get(0).repaymentCommitment());
         assertEquals("closed", ing.loans().get(1).state());
+    }
+
+    @Test
+    void offsetAppliesToMustNameALoan(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("mortgages.yaml"), """
+            mortgages:
+              - name: "ING"
+                offset: ing-loan-offset
+                offsetAppliesTo: ing-credit-card
+                loans:
+                  - account: ing-variable-rate
+                    repaymentCommitment: a
+                    interestCommitment: b
+            """);
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+            () -> Mortgages.load(dir, REGISTRY));
+        assertTrue(error.getMessage().contains("offsetAppliesTo"), error.getMessage());
     }
 
     @Test

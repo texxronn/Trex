@@ -12,6 +12,11 @@ mortgages:
   - name: "ING"
     # The offset account whose balance shelters the loans below.
     offset: ing-loan-offset
+    # Which loan the offset actually shelters, when the bank links it to one of them. The link is a
+    # declaration, never inferred from near-zero interest — that inference is exactly the mistake
+    # this view exists to catch. Omit to model the offset against the whole facility; when named,
+    # any balance beyond that loan's is shown idle (and costed, if a rate is given).
+    offsetAppliesTo: ing-variable-rate
     # Optional. The observed rate (%) used for the idle-offset cost estimate, which is only ever
     # shown labelled as an estimate. Omit to hide that figure entirely.
     observedRatePct: 6.15

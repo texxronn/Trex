@@ -672,8 +672,10 @@ to and from the bank are skipped by headroom, §9.2; presentation only), and for
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
 `clearing` account or a declared wallet, §6.3)),
 `firefly.yaml` (account mapping), `mortgages.yaml` (optional **view-config**, not a derive input:
-each facility's offset account, its loans, and per loan the repayment/interest commitment ids, with
-an optional observed rate — §9.3; never hashed into `configRevision`), `sources.yaml` (the declared 8-char sources the sequencer accepts),
+each facility's offset account, the loan it shelters (`offsetAppliesTo` — the declaration the
+idle-offset insight rests on, never inferred from charges), its loans, and per loan the
+repayment/interest commitment ids, with an optional observed rate — §9.3; never hashed into
+`configRevision`), `sources.yaml` (the declared 8-char sources the sequencer accepts),
 `statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker), and an
 optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a
 rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
