@@ -344,6 +344,12 @@ rules:
         - direction: out
         - match: "\\bgift|wedding|christmas|xmas|anniversary|\\bpresent\\b"
 
+  # A celebration cake: the same money as the party it is for, so not FOOD.
+  - category: CELEBRATIONS
+    comment: "CAKEMAKERS SYDNEY (celebration cakes)"
+    when:
+      match: "cakemakers"
+
   # Retail, including the op shops.
   - category: "SHOPPING"
     comment: "general retail that no narrower rule claimed. alipayaustr and aiaumarkets are the same company — AIAU Markets Pty Ltd trades as Alipay (Australia), ABN 17 151 757 845 — so both descriptors mean a payment processor, not a shop"
