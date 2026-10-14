@@ -578,3 +578,19 @@ button.warn:hover { background: var(--warn-soft); }
 .tag.open { color: var(--good); border-color: var(--good); background: var(--good-soft); }
 .tag.closed { color: var(--muted); }
 .estimate { border-bottom: 1px dashed var(--muted); cursor: help; }
+
+/* The amortiser: editable current-figure defaults with a live projection. */
+.amort-controls { display: flex; flex-wrap: wrap; gap: 0.6rem 1.1rem; align-items: end; margin: 0.5rem 0 0.9rem; }
+.amort-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.amort-field input { width: 8.5rem; padding: 3px 6px; }
+.amort-summary { display: flex; flex-wrap: wrap; gap: 1.6rem; margin: 0.4rem 0 0.7rem; }
+.amort-stat { display: flex; flex-direction: column; gap: 1px; }
+.amort-stat b { font-size: 1.05rem; }
+.price-chart .line.interest { stroke: var(--bad); }
+.price-chart .line.principal { stroke: var(--good); }
+.price-chart .dot.interest { fill: var(--bad); }
+.price-chart .dot.principal { fill: var(--good); }
+.amort-legend { display: flex; gap: 1rem; font-size: 11px; color: var(--muted); margin-top: 0.2rem; }
+.amort-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.amort-legend .swatch.interest { background: var(--bad); }
+.amort-legend .swatch.principal { background: var(--good); }

@@ -11,7 +11,7 @@
 
 import { api } from './api.js';
 import { accountChip } from './account.js';
-import { el, clear, scroll } from './dom.js';
+import { el, clear, scroll, svgEl } from './dom.js';
 import { date, money } from './format.js';
 import { direction } from './direction.js';
 import { reportError } from './toast.js';
@@ -189,7 +189,8 @@ function facilityView(f) {
     seriesSection(f, 'repayments'),
     seriesSection(f, 'interest'),
     principal(f),
-    idle(f));
+    idle(f),
+    amortizer(f));
 }
 
 function header(f) {
@@ -355,6 +356,215 @@ function costLine(f) {
   return el('p', { class: 'muted' },
     'No observed rate is declared and no interest charge is on record, so the idle offset\'s cost '
     + 'is not estimated.');
+}
+
+// ---- 6. the amortiser ---------------------------------------------------------------------------
+
+// The inputs live here, keyed by facility name, so a re-render (an SSE delta rebuilds the view) does
+// not wipe an edit. Seeded from the facility's current figures the first time it is seen; "Reset to
+// current" clears the entry so the next render re-seeds.
+const amort = new Map();
+
+function seedAmort(f) {
+  let s = amort.get(f.name);
+  if (!s) {
+    s = {
+      loan: Math.round(f.debt || 0),
+      offset: Math.round(Math.max(0, f.offsetBalance || 0)),
+      rate: f.observedRatePct != null ? f.observedRatePct : 6,
+      pay: monthlyRepayment(f),
+      extra: 0,
+    };
+    amort.set(f.name, s);
+  }
+  return s;
+}
+
+/** The recent monthly repayment: the last 12 months of the facility's repayment commitments. */
+function monthlyRepayment(f) {
+  const rows = f.loans.flatMap((l) => l.repayments.rows || []);
+  const cutoff = isoDaysAgo(365);
+  const recent = rows.filter((r) => r.date >= cutoff);
+  if (!recent.length) return 0;
+  return Math.round(recent.reduce((n, r) => n + Math.abs(r.amount || 0), 0) / 12);
+}
+
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A linked-offset amortisation: interest is the rate on the effective balance (loan − offset) while
+ * the loan exceeds the offset; the monthly payment (plus any extra) pays that interest and reduces
+ * the loan. It stops when the loan falls to the offset — the point the effective balance, and so the
+ * interest, reach zero. Illustrative: it holds the rate, the payment and the offset flat, and models
+ * no fees, redraws, splits or fixed-rate periods.
+ */
+function amortise(loan, offset, ratePct, pay, extra) {
+  const r = ratePct / 100 / 12;
+  const monthly = pay + extra;
+  let bal = loan, cum = 0, months = 0, yearInterest = 0, yearPrincipal = 0;
+  const trace = [];
+  if (bal <= offset || monthly <= 0) {
+    return { months: 0, cum: 0, trace, stalled: false };
+  }
+  const cap = 12 * 60;
+  while (bal > offset + 0.01 && months < cap) {
+    const interest = (bal - offset) * r;
+    if (monthly <= interest) return { months: Infinity, cum, trace, stalled: true };
+    const principal = monthly - interest;
+    bal -= principal;
+    cum += interest;
+    yearInterest += interest;
+    yearPrincipal += principal;
+    months += 1;
+    if (months % 12 === 0) {
+      trace.push({ year: months / 12, loan: Math.max(0, bal), net: Math.max(0, bal - offset),
+        cum, interest: yearInterest, principal: yearPrincipal });
+      yearInterest = 0;
+      yearPrincipal = 0;
+    }
+  }
+  if (yearInterest > 0 || yearPrincipal > 0) {
+    trace.push({ year: months / 12, loan: Math.max(0, bal), net: Math.max(0, bal - offset),
+      cum, interest: yearInterest, principal: yearPrincipal, partial: true });
+  }
+  return { months, cum, trace, stalled: false };
+}
+
+function amortizer(f) {
+  const s = seedAmort(f);
+  const out = el('div', { class: 'amort-out' });
+  const recompute = () => { clear(out); for (const node of amortResult(s)) out.append(node); };
+
+  // Balances and payments are edited in dollars, held in cents.
+  const dollars = (key, label, step) => el('label', { class: 'amort-field' }, label,
+    el('input', { type: 'number', min: '0', step, value: String(Math.round(s[key] / 100)),
+      oninput: (e) => { s[key] = toCents(parseNum(e.target.value)); recompute(); } }));
+
+  recompute();
+  return fold('amortiser:' + f.name, true,
+    ['Amortiser', el('span', { class: 'muted' }, ' · defaults are the current figures; edit to explore')],
+    [
+      el('p', { class: 'hint muted' },
+        'Interest is charged on (loan − offset); the payment covers it and reduces the loan; the '
+        + 'projection ends when the loan falls to the offset and the interest reaches zero. It holds '
+        + 'the rate, payment and offset flat — an illustration, not a forecast.'),
+      el('div', { class: 'amort-controls' },
+        dollars('loan', 'Loan', '1000'),
+        dollars('offset', 'Offset', '1000'),
+        el('label', { class: 'amort-field' }, 'Rate %',
+          el('input', { type: 'number', min: '0', step: '0.05', value: String(s.rate),
+            oninput: (e) => { s.rate = parseNum(e.target.value); recompute(); } })),
+        dollars('pay', 'Repayment / mo', '50'),
+        dollars('extra', 'Extra / mo', '50'),
+        el('button', { type: 'button', class: 'ghost',
+          onclick: () => { amort.delete(f.name); render(); } }, 'Reset to current')),
+      out,
+    ]);
+}
+
+function amortResult(s) {
+  const r = s.rate / 100 / 12;
+  const net = Math.max(0, s.loan - s.offset);
+  const interest = Math.round(net * r);
+  const principal = s.pay + s.extra - interest;
+  const res = amortise(s.loan, s.offset, s.rate, s.pay, s.extra);
+  const nodes = [el('div', { class: 'amort-summary' },
+    stat('Effective balance', money(net)),
+    stat('Interest / month', money(interest)),
+    stat('Principal / month', money(principal)))];
+  if (s.loan <= s.offset) {
+    nodes.push(el('p', { class: 'muted' },
+      'The offset already covers the loan: the effective balance, and the interest, are zero.'));
+    return nodes;
+  }
+  if (res.stalled) {
+    nodes.push(el('p', { class: 'occ-partial' },
+      'The payment does not cover the interest, so the balance never falls.'));
+    return nodes;
+  }
+  const y = Math.floor(res.months / 12), m = res.months % 12;
+  nodes.push(el('p', {},
+    el('b', {}, 'Debt-free (net) in '),
+    `${y}y ${m}m · ~${res.months} payments · ${endMonth(res.months)}`,
+    el('span', { class: 'muted' }, ` · total interest ${money(Math.round(res.cum))}`)));
+  const chart = amortChart(res);
+  if (chart) nodes.push(chart);
+  nodes.push(scroll(el('table', {}, el('thead', {}, el('tr', {},
+    el('th', {}, 'Year'), el('th', { class: 'amount' }, 'Loan'),
+    el('th', { class: 'amount' }, 'Effective'), el('th', { class: 'amount' }, 'Interest to date'))),
+    el('tbody', {}, ...res.trace.map((t) => el('tr', {},
+      el('td', {}, String(t.year)), el('td', { class: 'amount' }, money(Math.round(t.loan))),
+      el('td', { class: 'amount' }, money(Math.round(t.net))),
+      el('td', { class: 'amount' }, money(Math.round(t.cum)))))))));
+  return nodes;
+}
+
+/**
+ * Interest vs principal, per year: the annual interest and the annual principal of the projection,
+ * plotted together so the split is visible — the interest falls and the principal rises as the
+ * balance comes down. Only full years are plotted (a final partial year would mislead). House SVG
+ * idiom, like the commitment price chart.
+ */
+function amortChart(res) {
+  const pts = res.trace.filter((p) => !p.partial);
+  if (pts.length < 2) return null;
+  const W = 720, H = 240, padL = 56, padR = 14, padT = 14, padB = 28;
+  const lastYear = pts[pts.length - 1].year;
+  const maxV = Math.max(1, ...pts.map((p) => Math.max(p.interest, p.principal))) * 1.1;
+  const x = (year) => padL + (year / lastYear) * (W - padL - padR);
+  const y = (value) => H - padB - (value / maxV) * (H - padT - padB);
+  const grid = [];
+  for (let i = 0; i <= 4; i++) {
+    const value = (maxV * i) / 4, gy = y(value);
+    grid.push(svgEl('line', { class: 'grid', x1: padL, y1: gy, x2: W - padR, y2: gy }));
+    grid.push(svgEl('text', { class: 'lbl', x: padL - 6, y: gy + 3, 'text-anchor': 'end' },
+      money(Math.round(value))));
+  }
+  const line = (key) => svgEl('polyline', { class: 'line ' + key,
+    points: pts.map((p) => `${x(p.year).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ') });
+  const dots = (key) => pts.map((p) => svgEl('circle', { class: 'dot ' + key,
+    cx: x(p.year), cy: y(p[key]), r: 3 },
+    svgEl('title', {}, `year ${p.year.toFixed(1)} · interest ${money(Math.round(p.interest))}`
+      + ` · principal ${money(Math.round(p.principal))}`)));
+  return el('div', {},
+    svgEl('svg', { class: 'price-chart amort-chart', viewBox: `0 0 ${W} ${H}`,
+        preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Interest vs principal by year' },
+      ...grid,
+      svgEl('line', { class: 'axis', x1: padL, y1: H - padB, x2: W - padR, y2: H - padB }),
+      svgEl('line', { class: 'axis', x1: padL, y1: padT, x2: padL, y2: H - padB }),
+      svgEl('text', { class: 'lbl', x: padL, y: H - padB + 14 }, 'yr 1'),
+      svgEl('text', { class: 'lbl end', x: W - padR, y: H - padB + 14 }, `yr ${lastYear}`),
+      ...dots('interest'), ...dots('principal'),
+      line('interest'), line('principal')),
+    el('div', { class: 'amort-legend' },
+      el('span', {}, el('span', { class: 'swatch interest' }), 'Interest'),
+      el('span', {}, el('span', { class: 'swatch principal' }), 'Principal')),
+    el('div', { class: 'muted chart-note' },
+      'Annual interest vs principal: interest falls and principal rises as the balance comes down.'));
+}
+
+function endMonth(months) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function stat(label, value) {
+  return el('div', { class: 'amort-stat' },
+    el('span', { class: 'muted' }, label), el('b', {}, value));
+}
+
+function parseNum(value) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toCents(dollars) {
+  return Math.round((dollars || 0) * 100);
 }
 
 // ---- helpers ------------------------------------------------------------------------------------
