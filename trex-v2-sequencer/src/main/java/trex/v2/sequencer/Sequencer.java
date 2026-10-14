@@ -11,6 +11,7 @@ import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
+import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.RuleSet;
 import trex.v2.core.derive.AmountKind;
@@ -570,7 +571,7 @@ public final class Sequencer implements AutoCloseable {
                 d.comment(), actor, user);
             case NOTE -> new Decision.Note(envelope, d.externalId(), require(d.text(), "text"), actor, user);
             case ATTACH_ACCOUNT -> new Decision.AttachAccount(envelope,
-                requireFacts(d.externalIds(), "externalIds"), requireClearingAccount(d.account()),
+                requireFacts(d.externalIds(), "externalIds"), requirePairableAccount(d.account()),
                 d.comment(), actor, user);
             case DECLARE_COMMITMENT -> new Decision.DeclareCommitment(envelope,
                 require(d.commitmentId(), "commitmentId"), require(d.name(), "name"),
@@ -603,7 +604,7 @@ public final class Sequencer implements AutoCloseable {
         };
     }
 
-    private String requireClearingAccount(String ref) {
+    private String requirePairableAccount(String ref) {
         if (ref == null || ref.isBlank()) {
             throw new IllegalArgumentException("account is required");
         }
@@ -611,8 +612,9 @@ public final class Sequencer implements AutoCloseable {
         if (account.isEmpty()) {
             throw new IllegalArgumentException("unknown account '" + ref + "'");
         }
-        if (!account.get().clearing()) {
-            throw new IllegalArgumentException("ATTACH_ACCOUNT must name a clearing account, not '" + ref + "'");
+        if (!account.get().clearing() && account.get().balanceSource() != BalanceSource.DECLARED) {
+            throw new IllegalArgumentException(
+                "ATTACH_ACCOUNT must name a clearing or declared account, not '" + ref + "'");
         }
         return ref;
     }

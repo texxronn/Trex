@@ -187,6 +187,48 @@ class ConfigLoaderTest {
         assertTrue(error.getMessage().contains("reason"), error.getMessage());
     }
 
+    @Test
+    void aDeclaredTargetIsAcceptedByTheLoader(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        writeCashAccounts(dir);
+        Files.writeString(dir.resolve("transfers.yaml"), """
+            windowDays: 4
+            transferPatterns:
+              default:
+                - { match: 'ATM', rail: BANK_TRANSFER, clearing: cash-ron }
+            """);
+        DeriveConfig config = ConfigLoader.load(dir).config();
+        assertEquals("cash-ron", config.transfers().clearingFor("ing-savings", "ATM WDL 123"));
+    }
+
+    @Test
+    void aStatementTargetIsRefusedByTheLoader(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        writeCashAccounts(dir);
+        Files.writeString(dir.resolve("transfers.yaml"), """
+            windowDays: 4
+            transferPatterns:
+              default:
+                - { match: 'ATM', rail: BANK_TRANSFER, clearing: ing-savings }
+            """);
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ConfigLoader.load(dir));
+        assertTrue(error.getMessage().contains("neither balanceSource: clearing nor declared"),
+            error.getMessage());
+    }
+
+    private static void writeCashAccounts(Path dir) throws Exception {
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: declared
+            """);
+    }
+
     private static void writeBaseConfig(Path dir) throws Exception {
         Files.writeString(dir.resolve("accounts.yaml"), """
             accounts:

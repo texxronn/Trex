@@ -66,7 +66,17 @@ public final class ChainHealth {
 
     /** Every account's chain, transaction accounts only, with excluded noop rows listed (§6.9). */
     public static Map<String, Account> of(List<Fact> transactions, List<Fact> noops, Set<String> declared) {
-        Map<String, Reconciliation.AccountResult> base = Reconciliation.reconcile(transactions, noops, declared);
+        return of(transactions, noops, declared, Map.of());
+    }
+
+    /**
+     * @param synthetic per declared account, its synthetic wallet legs as movements between counts
+     *                  (§6.7); forwarded to {@link Reconciliation#reconcile}
+     */
+    public static Map<String, Account> of(List<Fact> transactions, List<Fact> noops, Set<String> declared,
+                                          Map<String, List<Reconciliation.Movement>> synthetic) {
+        Map<String, Reconciliation.AccountResult> base =
+            Reconciliation.reconcile(transactions, noops, declared, synthetic);
         Map<String, List<Fact>> byAccount = group(transactions);
         Map<String, Account> out = new LinkedHashMap<>();
         base.forEach((account, r) -> out.put(account, new Account(account, r.status(), r.opening(),
@@ -81,6 +91,12 @@ public final class ChainHealth {
      */
     public static Preview preview(List<Fact> transactions, List<Fact> noops, Set<String> declared,
                                   String externalId) {
+        return preview(transactions, noops, declared, externalId, Map.of());
+    }
+
+    /** As {@link #preview(List, List, Set, String)}, carrying the declared synthetic movements. */
+    public static Preview preview(List<Fact> transactions, List<Fact> noops, Set<String> declared,
+                                  String externalId, Map<String, List<Reconciliation.Movement>> synthetic) {
         List<Fact> remaining = new ArrayList<>();
         String account = null;
         for (Fact f : transactions) {
@@ -94,7 +110,7 @@ public final class ChainHealth {
             return null;
         }
         String ref = account;
-        Reconciliation.AccountResult r = Reconciliation.reconcile(remaining, noops, declared).get(ref);
+        Reconciliation.AccountResult r = Reconciliation.reconcile(remaining, noops, declared, synthetic).get(ref);
         if (r == null) {
             r = new Reconciliation.AccountResult(ref, Reconciliation.Status.RECONCILED, 0, 0, 0, 0, List.of());
         }

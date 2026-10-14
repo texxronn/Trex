@@ -238,13 +238,15 @@ public final class ConfigLoader {
                             throw new IllegalArgumentException(source + ": pattern '" + e.match()
                                 + "' names unknown clearing account '" + clearing + "'");
                         }
-                        if (target.balanceSource() != BalanceSource.CLEARING) {
+                        if (target.balanceSource() != BalanceSource.CLEARING
+                            && target.balanceSource() != BalanceSource.DECLARED) {
                             throw new IllegalArgumentException(source + ": pattern '" + e.match()
-                                + "' names '" + clearing + "', which is not balanceSource: clearing");
+                                + "' names '" + clearing
+                                + "', which is neither balanceSource: clearing nor declared");
                         }
                         if (!shape) {
                             throw new IllegalArgumentException(source + ": pattern '" + e.match()
-                                + "' names a clearing account but is shape: false");
+                                + "' names an account side but is shape: false");
                         }
                     }
                     try {

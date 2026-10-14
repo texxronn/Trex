@@ -31,6 +31,11 @@ transferPatterns:
     # The old RAMS savings account's closure payout to ing-orange (2026-01-12); the descriptor
     # carries its number.
     - { match: 'RAMS\s+13050368', rail: BANK_TRANSFER, clearing: rams-savings }
+    # Cash out of an ATM is a transfer to the declared wallet (V2-CASH-PLAN.md §4.1): one real leg
+    # and the account side, exactly like a clearing target — no window, no ambiguity. A
+    # cash-deposit pattern is pending Stage 0's measurement (V2-CASH-PLAN.md §6 Stage 0) and MUST
+    # NOT be guessed here: a broad descriptor would mis-pair ordinary deposits.
+    - { match: '\batm\b|wdl atm|cash out|cash withdrawal', rail: BANK_TRANSFER, clearing: cash-ron }
     # The kids' transfers: CommBank writes the destination as the mother's name and the product
     # ("maxi saver"), never the child, and there is one such account per child with no statements
     # held. So it shapes — it enters the pool, sits HELD (reported apart, never counted as spend),
