@@ -10,7 +10,7 @@ import { direction } from './direction.js';
 import { openAnnotate } from './annotate.js';
 import { openConfirm, openPrompt, openSelect } from './dialog.js';
 import { el, clear, field, scroll } from './dom.js';
-import { date, money, shortId } from './format.js';
+import { categoryTitle, date, money, shortId } from './format.js';
 import { kebabButton, openContextMenu } from './menu.js';
 import * as since from './since.js';
 import { reportError, toast } from './toast.js';
@@ -173,7 +173,7 @@ function renderRows() {
       ...(hideBalances ? [] : [el('td', { class: 'amount' }, money(row.balance))]),
       el('td', { class: 'desc' }, row.rawDescription,
         row.latestNote ? el('span', { class: 'note-chip', title: row.latestNote }, '\u270e ' + row.latestNote) : null),
-      el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: row.ruleId || '' }, row.category)),
+      el('td', {}, el('span', { class: 'tag ' + row.categoryOrigin, title: categoryTitle(row) }, row.category)),
       el('td', {}, commitmentChip(row)),
       el('td', {}, row.leg + (row.transferId ? ' \u21c4' : '')),
       el('td', {}, row.synthetic ? el('span', { class: 'tag synthetic' }, 'synthetic')

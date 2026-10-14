@@ -7,7 +7,7 @@
 import { api } from './api.js';
 import { accountChip } from './account.js';
 import { el, clear, field, scroll } from './dom.js';
-import { date, money } from './format.js';
+import { categoryTitle, date, money } from './format.js';
 import { reportError, toast } from './toast.js';
 
 let host;
@@ -268,7 +268,7 @@ function row(r) {
     el('td', { class: 'amount' }, money(r.amount)),
     el('td', { class: 'amount' }, count ? money(r.balance) : ''),
     el('td', {}, r.category
-      ? el('span', { class: 'tag ' + (r.categoryOrigin || ''), title: r.ruleId || '' }, r.category)
+      ? el('span', { class: 'tag ' + (r.categoryOrigin || ''), title: categoryTitle(r) }, r.category)
       : el('span', { class: 'muted' }, '\u2014')));
 }
 

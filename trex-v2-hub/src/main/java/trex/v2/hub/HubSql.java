@@ -20,7 +20,10 @@ final class HubSql {
                  ORDER BY n.decision_n DESC LIMIT 1) AS latest_note,
                t.synthetic,
                cf.commitment_id,
-               cm.name AS commitment_name
+               cm.name AS commitment_name,
+               (SELECT o.account_ref FROM txn_current o
+                 WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
+                 ORDER BY o.external_id LIMIT 1) AS counterpart_account
         FROM txn_current t
         LEFT JOIN commitment_fact cf ON cf.external_id = t.external_id
         LEFT JOIN commitment cm ON cm.commitment_id = cf.commitment_id""";
