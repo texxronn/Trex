@@ -19,6 +19,16 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **A `Mortgage` mode** (`V2-MORTGAGE-PLAN.md`, built). A new tab over a declared facility — the ING
+  offset `ing-loan-offset` and its two loans — composed entirely from existing reads: offset
+  liquidity and each loan's balance with its **own** statement date (never netted), the recorded
+  repayments and interest per loan, **principal = repayments − recorded interest** as a labelled
+  **estimate** with its balance-change residual shown (the variable loan's ~$470 gap surfaced, never
+  folded in), and the **idle offset** — the balance beyond the loan it shelters — with a labelled
+  cost estimate. The offset→loan link is an **operator declaration** in the new
+  `deploy/config/mortgages.yaml`, served on `/api/refdata`; it is view-config, never hashed into
+  `configRevision`, so it triggers no re-derive and no Firefly change. This takes the UI to **eleven
+  modes**.
 - **A `Retire…` action on the Blotter.** Fact-level `RETIRE` (§5) — "the fact no longer counts and
   has no replacement" — was reachable only from the reparse card and `POST /api/decisions`; the
   Blotter's row menu now offers it, one row at a time, behind a reason prompt and a warning. It is

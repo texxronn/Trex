@@ -32,7 +32,7 @@ inferences must not be presented as facts.
 | **Principal = repayments − recorded interest** | arithmetic | **estimate** |
 | Balance change `closing − opening`, and the **residual** against principal | `/api/reconcile` opening/closing | arithmetic (exposes an unexplained difference) |
 | Offset sheltering a named loan, and the **idle** balance beyond it | the declared facility mapping | **declaration** (config) + arithmetic |
-| Cost of the idle offset | declared observed rate × idle | **estimate**, labelled |
+| Cost of the idle offset | declared observed rate × idle, else the latest recorded charge scaled to the idle | **estimate**, labelled |
 
 The honest caveats, stated in the view: the repayment− interest principal is an *estimate from
 recorded movements*, not an observed transaction; a residual (the variable loan carries a ~$470
@@ -99,8 +99,9 @@ MOVEMENTS (per loan)
 ```
 
 Signed magnitudes with explicit direction, matching Expected's convention (§9.3). The idle-offset
-cost line appears only when `observedRatePct` is set, always labelled an estimate. No numbers are
-netted across loans with different statement dates.
+cost line is always labelled an estimate: with `observedRatePct` set it is the declared rate × idle,
+otherwise it is estimated from the latest recorded charge, and with neither a rate nor a charge on
+record it is omitted. No numbers are netted across loans with different statement dates.
 
 ### 4.4 Deploy/ops
 
