@@ -9,6 +9,7 @@ import * as since from './since.js';
 import * as blotter from './blotter.js';
 import * as review from './review.js';
 import * as expected from './expected.js';
+import * as budget from './budget.js';
 import * as eyeball from './eyeball.js';
 import * as rules from './rules.js';
 import * as accounts from './accounts.js';
@@ -17,7 +18,7 @@ import * as chains from './chains.js';
 import * as jobs from './jobs.js';
 import * as ingestToast from './ingestToast.js';
 
-const modes = { blotter, review, expected, eyeball, rules, accounts, cash, chains, jobs };
+const modes = { blotter, review, expected, budget, eyeball, rules, accounts, cash, chains, jobs };
 
 const ctx = {
   n: 0,

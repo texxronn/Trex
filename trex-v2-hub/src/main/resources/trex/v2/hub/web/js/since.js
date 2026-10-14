@@ -66,15 +66,18 @@ export function latestLeft() {
 
 /**
  * The summary line, or null when there is no marker, no validated answer, the marker line is
- * gone from the journal, or the person has dismissed it. Expected renders it above the headroom,
- * Blotter above its toolbar; both read the same cached response. Every collection is normalised
- * below, so a payload with wrong-shaped rows renders nothing (or the calm line) instead of
- * throwing in either view.
+ * gone from the journal, or the person has dismissed it. Expected renders it above its
+ * occurrences, Blotter above its toolbar; both read the same cached response. Expected passes
+ * {@code left: false} to drop the "left this month" text — that figure lives in Budget now
+ * (V2-SPEC.md §9.1) — while the Blotter keeps it. Every collection is normalised below, so a
+ * payload with wrong-shaped rows renders nothing (or the calm line) instead of throwing in either
+ * view.
  */
-export function line() {
+export function line(options = {}) {
   if (!markerN || !data || !data.at || dismissed) return null;
+  const includeLeft = options.left !== false;
   const node = el('div', { class: 'since' },
-    el('span', { class: 'since-text' }, summary(data)),
+    el('span', { class: 'since-text' }, summary(data, includeLeft)),
     el('button', {
       type: 'button', class: 'ghost since-dismiss', title: 'dismiss until the next visit',
       onclick: () => {
@@ -86,7 +89,7 @@ export function line() {
 }
 
 /** The one line: the example in the plan, in order, and the calm answer when nothing happened. */
-function summary(s) {
+function summary(s, includeLeft) {
   const parts = [];
   const rows = countOf(s.rows);
   const items = countOf(s.items);
@@ -101,8 +104,10 @@ function summary(s) {
   const decisions = decisionsText(s.decisions);
   if (decisions) parts.push(decisions);
   if (!parts.length) return `Nothing new since ${when(s.at)}.`;
-  const left = leftText(s);
-  if (left) parts.push(left);
+  if (includeLeft) {
+    const left = leftText(s);
+    if (left) parts.push(left);
+  }
   return `Since ${when(s.at)}: ${parts.join(' \u00b7 ')}`;
 }
 

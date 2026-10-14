@@ -29,7 +29,7 @@ class McpResourcesTest {
 
     private static final StatusResponse STATUS = new StatusResponse(42, 42, 42, 0,
         Map.of("txn_current", 3L), Map.of(), "cfg/1", "derive/2", "hash/1",
-        LocalDate.of(2026, 10, 1), List.of(), "Dev1");
+        LocalDate.of(2026, 10, 1), List.of(), 0, "Dev1");
     private static final HeadResponse HEAD = new HeadResponse(42, 42, 42, 0);
     private static final RefdataResponse REFDATA = new RefdataResponse(
         List.of(new RefdataResponse.AccountJson("acct:1", "EUR", "statement", 3, "#fff")),
