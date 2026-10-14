@@ -309,7 +309,7 @@ rules:
   - category: HOME_IMPROVEMENT
     comment: "hardware and the house — tracked apart from SHOPPING on purpose"
     when:
-      match: "bunnings|mitre ?10"
+      match: "bunnings|mitre ?10|minto home hardware"
 
   # Trades on the property: installations, repairs, servicing, refurbishment — the labour side, as
   # against HOME_IMPROVEMENT (the hardware you bought) and BILLS (running the house). Blind, so a
