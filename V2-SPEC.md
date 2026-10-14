@@ -151,9 +151,11 @@ content rows each take `0`.
   group annotation is a batch of `NOTE`s, one per member id. `DISMISS` and `USER_ACK` carry an
   optional `comment`; a dismissed item's reason is surfaced through `/api/dismissals`, because the
   item itself leaves the queue. Annotations are display only — never identity, never logic.
-- **Attached transfers.** `ATTACH_ACCOUNT` names transfer-shaped legs and a clearing account: the
-  legs are transfers with an account side, not a contra fact (a pruned counterparty; `V2-ATTACH-ACCOUNT-PLAN.md`). The
-  account must be `clearing`; the decision is id-scoped and `REVOKE` releases the legs to the matcher.
+- **Attached transfers.** `ATTACH_ACCOUNT` names transfer-shaped legs and a `clearing` or `declared`
+  account: the legs are transfers with an account side, not a contra fact (a pruned counterparty, or a
+  declared cash wallet; `V2-ATTACH-ACCOUNT-PLAN.md`). A declared target's legs pair exactly as a
+  clearing target's — one real leg plus a synthetic account side, never a contra fact. The account must be
+  `clearing` or `declared`; the decision is id-scoped and `REVOKE` releases the legs to the matcher.
 - **Commitment curation.** Nine actions curate commitments (§6.5). `DECLARE_COMMITMENT` declares
   one, or confirms a detected candidate (`fromCandidate`); the rules are embedded, and a re-declare
   with the same id replaces the curated fields and the rule set — the edit — while cadence and anchor
@@ -201,8 +203,9 @@ id is applied through the supersession map.
 **The `asOf` contract.** `asOf` is the only notion of now, and only these outputs may depend on it:
 `pending` status; the `UNMATCHED_LEG`, `STALE_PENDING`, `DORMANT_COMMITMENT` and `COMMITMENT_ARREARS`
 review items; the commitment faces (arrears, `lapsed`, next due) and `commitment_occurrence`
-(generated `asOf − 12 months … asOf + 92 days`, and `due`/`awaiting`/`missed`); and the exclusion of
-facts dated after `asOf`. Every other table and every other review kind is identical at any later
+(generated `asOf − 12 months … asOf + 92 days`, and `due`/`awaiting`/`missed`); the exclusion of
+facts dated after `asOf`; and the `cash_month` table's `open` flag (the current month derives like any
+other and is marked `open`). Every other table and every other review kind is identical at any later
 `asOf` (`DeriveTest.laterAsOfMovesOnlyTimeRelativeOutputs`). A change that adds an `asOf` dependency
 adds it to this list and to that test. Where a judgement needs "how far the data reaches", it uses an
 account's **frontier** — its newest current posted date at or before `asOf` — never `asOf` itself.
@@ -247,9 +250,13 @@ account. `PAIR` decisions win. The pool ladder pairs shaped, undecided legs in `
 **T1** shared receipt, **T2** same day, **T3** within `windowDays`, each requiring equal magnitude,
 opposite sign, different accounts, same currency, and a **mutually unique** counterpart (this leg has
 one candidate and that candidate no other suitor). More than one candidate opens `AMBIGUOUS_TRANSFER`
-and pairs nothing; text is never compared across accounts. A clearing leg pairs directly with its
-`clearing:` account — one real leg and an account side, no window, no ambiguity. A matched pair
-records the payer leg's rail method; the rail direction is the sign. A T1 pair's id is
+and pairs nothing; text is never compared across accounts. A leg whose pattern names a `clearing:`
+account pairs directly with that account — one real leg and an account side, no window, no ambiguity;
+the target may be `clearing` or `declared`. A `declared` target is the cash-wallet case: an ATM
+withdrawal on a bank account pairs to the wallet, a cash deposit pairs the other way. Its synthetic
+leg takes its balance from the declared (attestation) chain, never from a computed opening (that is
+clearing semantics); a `clearing:` target that is a `statement` account is refused on config load. A
+matched pair records the payer leg's rail method; the rail direction is the sign. A T1 pair's id is
 `TRF-<receipt>` for the first pair carrying that receipt and the hashed form (§4) for any later one;
 two pairs never share an id (a collision is a derive error, never an overwrite).
 
@@ -337,8 +344,9 @@ Reconciliation runs over `transaction` rows only; a `noop` row's edges and amoun
 are named as exclusions. A statement account's chain closes when its rows' previous balances
 (`balance − amount`) and balances leave exactly one opening and one closing; otherwise it is
 `broken` (`BALANCE_BREAK`), with the contested values reported as forks. A `DECLARED` (cash) account
-reports its gap; a `CLEARING` account holds no facts and reports a computed opening
-(`closing + Σ real movements`), so its derived balance lands on the declared closing.
+reports its gap; its reconciliation now includes the synthetic wallet legs as movements between its
+counts (they are transfers, not facts). A `CLEARING` account holds no facts and reports a computed
+opening (`closing + Σ real movements`), so its derived balance lands on the declared closing.
 
 ### 6.8 The state hash
 
@@ -375,8 +383,8 @@ the per-account `transferPatterns`.
 
 SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `ingest_event`); level
 2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current` (carrying the
-derived `role`, rail, and a `synthetic` flag — true only for a derived clearing leg, §6.3), `transfer` (carrying the payer `method` and, for a clearing pair, the
-`clearing_account`), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
+derived `role`, rail, and a `synthetic` flag — true only for a derived account side (a clearing account or a declared wallet, §6.3)), `transfer` (carrying the payer `method` and, for a clearing pair, the
+`clearing_account`), `cash_month` (one row per declared account and calendar month; not a unit, §9.4), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
 `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note`,
 `commitment_exclusion`, `commitment_fact` (the fact → commitment reverse map, §6.5),
 `ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
@@ -433,6 +441,8 @@ unauthenticated and binds loopback by default.
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
 | GET/POST | `/api/acks` | per-user `USER_ACK` rows and their validity |
 | POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer; a row-scoped batch's response also carries `patch` — the rows it moved (§6.6) |
+| POST | `/api/cash` | a manual cash fact — spend, income or a wallet count — on a declared account, forwarded to the sequencer (§9.4) |
+| GET | `/api/cash/months` | the derived per-month `cash_month` rows: the unrecorded cash figures (§9.4) |
 | POST | `/api/reflow/preview`, `/api/reflow/preview/transfers` | blast radius of a category or transfer-pattern edit, before it is saved |
 | GET/PUT | `/api/config/categories`, `/api/config/transfers` | the rule files the Rules mode edits |
 | GET | `/api/config/drift` | shipped vs base vs current for every seeded config file (§12): `[{file, state}]`, `state` ∈ `same`, `repo-newer`, `edited-here`, `both-changed`, `unknown` |
@@ -482,10 +492,13 @@ current price as due); every other row counts as spend or income, except: a tran
 budget accounts is skipped; a transfer to or from one of your own accounts outside the budget is
 *moved*; a commitment that only ever claims internal transfers, or lands only outside the budget, is
 skipped. `missed` commitments and unpaired (`HELD`) legs are reported apart, never folded in.
+The month's unrecorded cash (§9.4) is added as one line, `Unrecorded cash`, signed — a negative month
+reduces spend. A declared wallet is a `budget` account, so an ATM withdrawal is a transfer between
+two budget accounts, which headroom already skips.
 
 ### 9.3 The UI modes
 
-Eight modes; each one's detail lives in the plan that built it.
+Nine modes; each one's detail lives in the plan that built it.
 
 | Mode | What it is for | Detail |
 |---|---|---|
@@ -496,7 +509,29 @@ Eight modes; each one's detail lives in the plan that built it.
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
+| **Cash** | a wallet's rows — transfers in/out, recorded spends/income and counts, newest first; a quick-add form for spend/income/count; the month's unrecorded figure at the top | `V2-CASH-PLAN.md` |
 | **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
+
+### 9.4 Cash
+
+`POST /api/cash` forwards a manual cash **fact** to the sequencer (source `HUB_0001` in
+`sources.yaml`, the manual-cash source), on a `declared` account only — refused on `statement` and
+`clearing`. The fact carries `accountRef` (a declared account), `date`, a signed `amount` (spend
+negative, income positive), `rawDescription`, `receipt` (a client-minted `MAN-…` ref — identity by
+natural key), `sourceType: manual`, `provenance: AUTHORED`, `evidenceId: null` and `parser: manual/1`.
+A **count** is the same with `amount: 0` and `balance` the counted value, derived as an ATTESTATION.
+Corrections are a new fact plus `SUPERSEDE`, or `RETIRE` — never an edit. An optional category is
+applied as a `PIN` decision on the new fact in the same request (a rule may also catch it); the
+category is never a field of the fact, and the acting user signs the `PIN`.
+
+`GET /api/cash/months` returns the `cash_month` rows (§7) — one per declared account and calendar
+month: `in_from_bank`, `out_to_bank` (Σ synthetic wallet legs in/out, magnitudes), `recorded_out`,
+`recorded_in` (Σ current manual facts as magnitudes; ATTESTATIONs and `noop` excluded), `held_open`,
+`held_close` (the latest count before the month / at its end; null before the first count),
+`held_delta` (**0** before the first count), the signed `unrecorded` figure and `open`.
+The figure is `unrecorded = in_from_bank − out_to_bank − recorded_out + recorded_in − held_delta`:
+`> 0` is cash left the wallet unrecorded, `< 0` is cash appeared unrecorded, `= 0` a fully recorded
+month.
 
 ---
 
@@ -565,6 +600,13 @@ found through the hub's supersession map (EXTERNAL) or the legs in the notes (TR
 changed kind is an orphan reported beside its successors. Nothing is deleted without
 `--remove-orphans`; a missing group on delete is already gone.
 
+**Cash.** Every ATM and cash-deposit row changes kind — from an EXTERNAL withdrawal/deposit to a
+TRANSFER between two assets, bank ↔ "Cash (Ron)" — so by the identity-moves rule each old unit is an
+orphan beside its successor and the old groups are cleaned with `--remove-orphans` (explicit;
+`V2-CASH-PLAN.md`). The month's unrecorded cash figure is **not** projected as a unit in this change:
+Firefly's cash balance drifts by the cumulative unrecorded figure, while trex's budget stays right
+regardless.
+
 **Firefly-side edits.** Firefly is edited only within the operational contract
 (`docs/DEPLOYMENTS.md`): your tags, budgets, bills, notes below our first line and hand-splits are
 yours; deleting a tagged transaction, removing the `trex` tag, editing `external_id`, the first
@@ -603,10 +645,12 @@ thousand creates) and safe to interrupt.
 (the statement-age nudge, §9.1 — presentation only: default 31 for a statement account, none for
 declared/clearing, `0` off), `chip_color` — the hub
 chip colour, presentation only — `budget` (default true, never for a clearing account: whether the
-account is in Expected's "left this month"; presentation only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
+account is in Expected's "left this month"; a declared wallet stays `budget: true`, so its transfers
+to and from the bank are skipped by headroom, §9.2; presentation only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
-per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing`),
+per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
+`clearing` account or a declared wallet, §6.3)),
 `firefly.yaml` (account mapping), `sources.yaml` (the declared 8-char sources the sequencer accepts),
 `statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker), and an
 optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a
