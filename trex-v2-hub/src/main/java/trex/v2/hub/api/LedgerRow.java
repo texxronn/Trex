@@ -8,10 +8,12 @@ import java.time.LocalDate;
  * (§6.2) if any — so a row with an annotation is visible without opening the thread. When the fact
  * is an occurrence of a commitment, {@code commitmentId}/{@code commitmentName} carry the chip
  * (V2-COMMITMENTS-PLAN.md §2.8); several occurrences can share a lump payment's fact, and the
- * latest due date wins, deterministically.
+ * latest due date wins, deterministically. {@code counterpartAccount} is the other side of a
+ * paired transfer — the other leg's account, or the clearing/wallet account of a clearing pair —
+ * and null for anything unpaired; the UI names it on the {@code TRANSFER} chip.
  */
 public record LedgerRow(String externalId, long n, String accountRef, LocalDate date, long amount,
                         long balance, String rawDescription, String leg, String role, String rail,
                         String transferId, String category, String categoryOrigin, String ruleId,
                         boolean hasReview, String latestNote, boolean synthetic,
-                        String commitmentId, String commitmentName) {}
+                        String commitmentId, String commitmentName, String counterpartAccount) {}

@@ -41,3 +41,15 @@ export function shortId(id) {
 export function total(counts) {
   return Object.values(counts || {}).reduce((sum, n) => sum + n, 0);
 }
+
+/**
+ * The category chip's tooltip. A structural TRANSFER has no rule to name, so it names the other
+ * side of the pair instead: `to:<account>` when this row is where the money left, `from:<account>`
+ * when it arrived. Anything else shows its rule id (empty for a rule-less row).
+ */
+export function categoryTitle(row) {
+  if (row.category === 'TRANSFER' && row.counterpartAccount) {
+    return (row.amount < 0 ? 'to:' : 'from:') + row.counterpartAccount;
+  }
+  return row.ruleId || '';
+}
