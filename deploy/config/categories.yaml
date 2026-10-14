@@ -239,7 +239,7 @@ rules:
   - category: FOOD
     comment: "eating out: cafes, bakeries, takeaway and restaurants"
     when:
-      match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph|sushi|mcdonald|hungry ?jack|kfc|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
+      match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong ?cha|sushi hub|pline ph|sushi|mcdonald|hungry ?jack|kfc|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
 
   # H Nguyen Rolls, a takeaway paid by Osko; the descriptor carries the payee name and a mobile
   # number, so the name is the only stable handle.
@@ -354,7 +354,7 @@ rules:
   - category: "SHOPPING"
     comment: "general retail that no narrower rule claimed. alipayaustr and aiaumarkets are the same company — AIAU Markets Pty Ltd trades as Alipay (Australia), ABN 17 151 757 845 — so both descriptors mean a payment processor, not a shop"
     when:
-      match: "amazon au|amazon pay india|kmart|big ?w|target [0-9]|st vincent de paul|vinnies|salvos|myer|ikea|just ?group|ebay au|alipayaustr|aiaumarkets|hmhennesmau|kathmandupt|temu"
+      match: "amazon au|amazon pay india|kmart|big ?w|target [0-9]|st vincent de paul|st vin de paul|vinnies|salvos|myer|ikea|just ?group|ebay au|alipayaustr|aiaumarkets|hmhennesmau|kathmandupt|temu"
 
   - category: BILLS
     comment: "household bills: power, water, phone, internet, council"
