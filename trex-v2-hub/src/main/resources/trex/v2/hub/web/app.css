@@ -586,3 +586,11 @@ button.warn:hover { background: var(--warn-soft); }
 .amort-summary { display: flex; flex-wrap: wrap; gap: 1.6rem; margin: 0.4rem 0 0.7rem; }
 .amort-stat { display: flex; flex-direction: column; gap: 1px; }
 .amort-stat b { font-size: 1.05rem; }
+.price-chart .line.interest { stroke: var(--bad); }
+.price-chart .line.principal { stroke: var(--good); }
+.price-chart .dot.interest { fill: var(--bad); }
+.price-chart .dot.principal { fill: var(--good); }
+.amort-legend { display: flex; gap: 1rem; font-size: 11px; color: var(--muted); margin-top: 0.2rem; }
+.amort-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.amort-legend .swatch.interest { background: var(--bad); }
+.amort-legend .swatch.principal { background: var(--good); }

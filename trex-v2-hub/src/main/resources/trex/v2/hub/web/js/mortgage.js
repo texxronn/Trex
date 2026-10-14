@@ -11,7 +11,7 @@
 
 import { api } from './api.js';
 import { accountChip } from './account.js';
-import { el, clear, scroll } from './dom.js';
+import { el, clear, scroll, svgEl } from './dom.js';
 import { date, money } from './format.js';
 import { direction } from './direction.js';
 import { reportError } from './toast.js';
@@ -405,7 +405,7 @@ function isoDaysAgo(days) {
 function amortise(loan, offset, ratePct, pay, extra) {
   const r = ratePct / 100 / 12;
   const monthly = pay + extra;
-  let bal = loan, cum = 0, months = 0;
+  let bal = loan, cum = 0, months = 0, yearInterest = 0, yearPrincipal = 0;
   const trace = [];
   if (bal <= offset || monthly <= 0) {
     return { months: 0, cum: 0, trace, stalled: false };
@@ -414,12 +414,22 @@ function amortise(loan, offset, ratePct, pay, extra) {
   while (bal > offset + 0.01 && months < cap) {
     const interest = (bal - offset) * r;
     if (monthly <= interest) return { months: Infinity, cum, trace, stalled: true };
-    bal -= (monthly - interest);
+    const principal = monthly - interest;
+    bal -= principal;
     cum += interest;
+    yearInterest += interest;
+    yearPrincipal += principal;
     months += 1;
     if (months % 12 === 0) {
-      trace.push({ year: months / 12, loan: Math.max(0, bal), net: Math.max(0, bal - offset), cum });
+      trace.push({ year: months / 12, loan: Math.max(0, bal), net: Math.max(0, bal - offset),
+        cum, interest: yearInterest, principal: yearPrincipal });
+      yearInterest = 0;
+      yearPrincipal = 0;
     }
+  }
+  if (yearInterest > 0 || yearPrincipal > 0) {
+    trace.push({ year: months / 12, loan: Math.max(0, bal), net: Math.max(0, bal - offset),
+      cum, interest: yearInterest, principal: yearPrincipal, partial: true });
   }
   return { months, cum, trace, stalled: false };
 }
@@ -481,6 +491,8 @@ function amortResult(s) {
     el('b', {}, 'Debt-free (net) in '),
     `${y}y ${m}m · ~${res.months} payments · ${endMonth(res.months)}`,
     el('span', { class: 'muted' }, ` · total interest ${money(Math.round(res.cum))}`)));
+  const chart = amortChart(res);
+  if (chart) nodes.push(chart);
   nodes.push(scroll(el('table', {}, el('thead', {}, el('tr', {},
     el('th', {}, 'Year'), el('th', { class: 'amount' }, 'Loan'),
     el('th', { class: 'amount' }, 'Effective'), el('th', { class: 'amount' }, 'Interest to date'))),
@@ -489,6 +501,50 @@ function amortResult(s) {
       el('td', { class: 'amount' }, money(Math.round(t.net))),
       el('td', { class: 'amount' }, money(Math.round(t.cum)))))))));
   return nodes;
+}
+
+/**
+ * Interest vs principal, per year: the annual interest and the annual principal of the projection,
+ * plotted together so the split is visible — the interest falls and the principal rises as the
+ * balance comes down. Only full years are plotted (a final partial year would mislead). House SVG
+ * idiom, like the commitment price chart.
+ */
+function amortChart(res) {
+  const pts = res.trace.filter((p) => !p.partial);
+  if (pts.length < 2) return null;
+  const W = 720, H = 240, padL = 56, padR = 14, padT = 14, padB = 28;
+  const lastYear = pts[pts.length - 1].year;
+  const maxV = Math.max(1, ...pts.map((p) => Math.max(p.interest, p.principal))) * 1.1;
+  const x = (year) => padL + (year / lastYear) * (W - padL - padR);
+  const y = (value) => H - padB - (value / maxV) * (H - padT - padB);
+  const grid = [];
+  for (let i = 0; i <= 4; i++) {
+    const value = (maxV * i) / 4, gy = y(value);
+    grid.push(svgEl('line', { class: 'grid', x1: padL, y1: gy, x2: W - padR, y2: gy }));
+    grid.push(svgEl('text', { class: 'lbl', x: padL - 6, y: gy + 3, 'text-anchor': 'end' },
+      money(Math.round(value))));
+  }
+  const line = (key) => svgEl('polyline', { class: 'line ' + key,
+    points: pts.map((p) => `${x(p.year).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ') });
+  const dots = (key) => pts.map((p) => svgEl('circle', { class: 'dot ' + key,
+    cx: x(p.year), cy: y(p[key]), r: 3 },
+    svgEl('title', {}, `year ${p.year.toFixed(1)} · interest ${money(Math.round(p.interest))}`
+      + ` · principal ${money(Math.round(p.principal))}`)));
+  return el('div', {},
+    svgEl('svg', { class: 'price-chart amort-chart', viewBox: `0 0 ${W} ${H}`,
+        preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Interest vs principal by year' },
+      ...grid,
+      svgEl('line', { class: 'axis', x1: padL, y1: H - padB, x2: W - padR, y2: H - padB }),
+      svgEl('line', { class: 'axis', x1: padL, y1: padT, x2: padL, y2: H - padB }),
+      svgEl('text', { class: 'lbl', x: padL, y: H - padB + 14 }, 'yr 1'),
+      svgEl('text', { class: 'lbl end', x: W - padR, y: H - padB + 14 }, `yr ${lastYear}`),
+      ...dots('interest'), ...dots('principal'),
+      line('interest'), line('principal')),
+    el('div', { class: 'amort-legend' },
+      el('span', {}, el('span', { class: 'swatch interest' }), 'Interest'),
+      el('span', {}, el('span', { class: 'swatch principal' }), 'Principal')),
+    el('div', { class: 'muted chart-note' },
+      'Annual interest vs principal: interest falls and principal rises as the balance comes down.'));
 }
 
 function endMonth(months) {
