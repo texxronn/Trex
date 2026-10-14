@@ -100,6 +100,9 @@ function headroom() {
     `commitments ${money(h.committedPaid)}` + (h.committedDue ? ` + ${money(h.committedDue)} due` : ''),
     `other spend ${money(h.uncommittedSpend)}`,
   ];
+  // The wallet's unrecorded cash (V2-CASH-PLAN.md §4.2): spend the bank movements imply but no
+  // fact records. Signed by the backend — positive is spend, so it moves `left` like any outflow.
+  if (h.unrecordedCash) parts.push(`unrecorded cash ${money(h.unrecordedCash)}`);
   if (h.movedOut || h.movedIn) {
     parts.push(`moved to your other accounts ${money(h.movedOut - h.movedIn)}`);
   }

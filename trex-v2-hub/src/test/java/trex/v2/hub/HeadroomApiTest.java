@@ -80,9 +80,11 @@ class HeadroomApiTest {
             assertEquals(200000, headroom.get("committedPaid").asLong(), headroom.toPrettyString());
             assertEquals(3000, headroom.get("uncommittedSpend").asLong(),
                 "the shop; never the card repayment: " + headroom.toPrettyString());
+            assertEquals(0, headroom.get("unrecordedCash").asLong(),
+                "no wallet movement: " + headroom.toPrettyString());
             assertEquals(50000, headroom.get("movedOut").asLong(), "the savings deposit is moved, not spent");
             assertEquals(247000, headroom.get("left").asLong(), headroom.toPrettyString());
-            assertEquals(List.of("card", "everyday"),
+            assertEquals(List.of("card", "cash-ron", "everyday"),
                 Json.mapper().convertValue(headroom.get("accounts"), List.class));
             assertEquals(today.toString(), headroom.get("through").asText());
 
@@ -91,6 +93,119 @@ class HeadroomApiTest {
                 HttpResponse.BodyHandlers.ofString());
             assertEquals(today.toString(), Json.mapper().readTree(status.body()).get("through").asText(), status.body());
         }
+    }
+
+    /**
+     * An ATM recorded as a manual spend: the withdrawal is a transfer between two budget accounts
+     * (skipped) and the recorded spend counts like any other, so the month nets to zero unrecorded
+     * cash and {@code left} is the spend alone.
+     */
+    @Test
+    void anAtmRecordedAsSpendNetsToZeroUnrecorded(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                // Cash out of the ATM: shape-matched to the wallet, so it is a transfer, not spend.
+                fact(1, "atm", "everyday", -10000, "ATM WDL 123", today),
+                // The same cash, recorded as spent from the wallet: the recorded spend counts.
+                fact(2, "cash-spend", "cash-ron", -10000, "MANUAL LUNCH", today)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            awaitCash(hub);
+            JsonNode headroom = headroom(hub, today);
+
+            assertEquals(0, headroom.get("unrecordedCash").asLong(),
+                "the withdrawal went in and was recorded out: " + headroom.toPrettyString());
+            assertEquals(10000, headroom.get("uncommittedSpend").asLong(),
+                "the recorded spend sits in uncommittedSpend: " + headroom.toPrettyString());
+            assertEquals(-10000, headroom.get("left").asLong(),
+                "the spend alone; unrecordedCash adds nothing: " + headroom.toPrettyString());
+        }
+    }
+
+    /**
+     * An ATM nobody recorded: the withdrawal is still a transfer between budget accounts (skipped),
+     * but the wallet's month is unrecorded cash, and {@code left} carries it as spend.
+     */
+    @Test
+    void anUnrecordedAtmMovesLeftByTheUnrecordedFigure(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(fact(1, "atm", "everyday", -10000, "ATM WDL 123", today)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            awaitCash(hub);
+            JsonNode headroom = headroom(hub, today);
+
+            assertEquals(10000, headroom.get("unrecordedCash").asLong(),
+                "cash left the wallet unrecorded: " + headroom.toPrettyString());
+            assertEquals(0, headroom.get("uncommittedSpend").asLong(),
+                "the transfer is skipped, so it is not spend: " + headroom.toPrettyString());
+            assertEquals(-10000, headroom.get("left").asLong(),
+                "left moves by the unrecorded figure: " + headroom.toPrettyString());
+        }
+    }
+
+    /**
+     * Cash that appeared unrecorded: the wallet count is higher than the movement explains, so the
+     * month is negative and it moves {@code left} the other way (it reduces the spend).
+     */
+    @Test
+    void cashThatAppearedUnrecordedMovesLeftTheOtherWay(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate first = today.withDayOfMonth(1);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                // The month's opening baseline: the latest count before it.
+                count(1, "cash-ron", first.minusMonths(1).withDayOfMonth(15), 10000),
+                count(2, "cash-ron", today, 15000),
+                fact(3, "cash-spend", "cash-ron", -1000, "MANUAL LUNCH", today)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            awaitCash(hub);
+            JsonNode headroom = headroom(hub, today);
+
+            assertEquals(-6000, headroom.get("unrecordedCash").asLong(),
+                "1000 recorded out, 5000 appeared unrecorded: " + headroom.toPrettyString());
+            assertEquals(1000, headroom.get("uncommittedSpend").asLong(),
+                "the manual spend still counts: " + headroom.toPrettyString());
+            assertEquals(5000, headroom.get("left").asLong(),
+                "-1000 spend plus 6000 of cash that appeared: " + headroom.toPrettyString());
+        }
+    }
+
+    private static JsonNode headroom(HubService hub, LocalDate today) throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        URI base = URI.create("http://127.0.0.1:" + hub.port());
+        HttpResponse<String> response = client.send(HttpRequest.newBuilder(
+            base.resolve("/api/expected?window=today&asOf=" + today)).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), response.body());
+        return Json.mapper().readTree(response.body()).get("headroom");
+    }
+
+    /** The wallet's derived months are written in the same transaction as the rest of the derive. */
+    private static void awaitCash(HubService hub) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline && hub.cashMonths("cash-ron").isEmpty()) {
+            Thread.sleep(50);
+        }
+        assertTrue(!hub.cashMonths("cash-ron").isEmpty(), "the cash month never appeared");
     }
 
     private static void await(HubService hub) throws InterruptedException {
@@ -113,6 +228,12 @@ class HeadroomApiTest {
             "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
     }
 
+    /** A wallet count: a $0 fact whose balance is what the person counted. */
+    private static Fact count(long n, String account, LocalDate date, long balance) {
+        return new Fact(n, "count-" + n, account, date, 0, balance, "Wallet count", null, 0,
+            Observation.POSTED, "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
+    }
+
     private static void config(Path configDir) throws Exception {
         Files.createDirectories(configDir);
         Files.writeString(configDir.resolve("accounts.yaml"), """
@@ -127,6 +248,9 @@ class HeadroomApiTest {
                 currency: "AUD"
                 balanceSource: declared
                 budget: false
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: declared
             """);
         Files.writeString(configDir.resolve("users.yaml"), """
             users:
@@ -143,8 +267,10 @@ class HeadroomApiTest {
             """);
         Files.writeString(configDir.resolve("transfers.yaml"), """
             windowDays: 4
-            allowlist:
-              - 'Transfer'
+            transferPatterns:
+              everyday:
+                # An ATM withdrawal is a transfer to the declared wallet (V2-CASH-PLAN.md §4.1).
+                - { match: 'ATM', rail: BANK_TRANSFER, clearing: cash-ron }
             """);
     }
 }

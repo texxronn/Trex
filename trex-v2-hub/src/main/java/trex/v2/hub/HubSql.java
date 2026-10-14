@@ -168,6 +168,13 @@ final class HubSql {
         ORDER BY t.external_id""";
 
     /**
+     * The month's unrecorded cash per wallet (V2-CASH-PLAN.md §4.2, V2-SPEC.md §9.2): the derived
+     * {@code cash_month} figure, signed, keyed by {@code YYYY-MM}.
+     */
+    static final String CASH_MONTH_UNRECORDED_SELECT =
+        "SELECT account_ref, unrecorded FROM cash_month WHERE month = ?";
+
+    /**
      * Every claimed fact with its accounts, per commitment: where a commitment lands, and whether it
      * only ever moves money between two accounts (a card repayment declared as a commitment).
      */

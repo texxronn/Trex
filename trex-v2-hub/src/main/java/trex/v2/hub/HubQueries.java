@@ -30,6 +30,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -1009,9 +1010,24 @@ public final class HubQueries implements AutoCloseable {
             }
 
             LocalDate through = oldestFrontier(conn, today, statementBudget);
-            long left = incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend - movedOut;
+            // The month's unrecorded cash (§9.2): the cash_month figure over the wallets in the
+            // budget. cash_month only ever holds declared wallets, but a wallet with budget: false
+            // must still be left out, exactly as its spend is.
+            long unrecordedCash = 0;
+            try (PreparedStatement ps = conn.prepareStatement(HubSql.CASH_MONTH_UNRECORDED_SELECT)) {
+                ps.setString(1, YearMonth.from(month.from()).toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (budget.contains(rs.getString(1))) {
+                            unrecordedCash += rs.getLong(2);
+                        }
+                    }
+                }
+            }
+            long left = incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend
+                - movedOut - unrecordedCash;
             return new ExpectedResponse.Headroom(month.from(), left, incomeIn, incomeDue, committedPaid,
-                committedDue, uncommittedSpend, movedOut, movedIn, missed, unpaired, through,
+                committedDue, uncommittedSpend, unrecordedCash, movedOut, movedIn, missed, unpaired, through,
                 List.copyOf(new java.util.TreeSet<>(budget)));
         });
     }
