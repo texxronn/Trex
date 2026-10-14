@@ -440,16 +440,18 @@ public final class Derive {
                 }
             }
 
-            // A person attached these legs to a clearing account (§6.10): a pruned counterparty whose
-            // statements are gone. They pair directly, like a clearing pattern, overriding the matcher.
+            // A person attached these legs to a clearing or declared account (§6.10, §6.3): a pruned
+            // counterparty whose statements are gone, or the cash wallet. They pair directly, like a
+            // clearing pattern, overriding the matcher.
             Map<String, String> attached = new HashMap<>();
             for (Decision d : effective) {
                 if (d instanceof Decision.AttachAccount aa) {
-                    boolean clearing = config.registry().findAccount(aa.account())
-                        .map(a -> a.balanceSource() == BalanceSource.CLEARING).orElse(false);
-                    if (!clearing) {
+                    boolean pairable = config.registry().findAccount(aa.account())
+                        .map(a -> a.balanceSource() == BalanceSource.CLEARING
+                            || a.balanceSource() == BalanceSource.DECLARED).orElse(false);
+                    if (!pairable) {
                         ineffective.add(new IneffectiveDecision(d.n(), d.action().wire(),
-                            "ATTACH_ACCOUNT names a non-clearing account " + aa.account()));
+                            "ATTACH_ACCOUNT names a non-clearing, non-declared account " + aa.account()));
                         continue;
                     }
                     for (String raw : aa.externalIds()) {
@@ -500,7 +502,10 @@ public final class Derive {
                 if (livePairLegs.contains(id) || outOfPool.contains(id)) {
                     continue;
                 }
-                if (attached.containsKey(id)) {
+                // A leg never pairs with its own account: a declared wallet holds facts, so a default
+                // pattern that names the wallet would otherwise self-pair a wallet row (§6.3). Such a
+                // decision is meaningless, and such a leg falls through to the matcher instead.
+                if (attached.containsKey(id) && !c.fact().accountRef().equals(attached.get(id))) {
                     pairClearing(rows, c, attached.get(id));
                     continue;
                 }
@@ -530,9 +535,10 @@ public final class Derive {
                 CurrentFact f = eligible.get(i);
                 // `eligible` above holds only shaped legs, so no re-check is needed here.
                 // A clearing pattern names its counterparty: the leg pairs directly with that
-                // account — no contra fact, no window, no ambiguity (§6.10).
+                // account — no contra fact, no window, no ambiguity (§6.10). The target may be a
+                // clearing or a declared account (§6.3).
                 String clearing = config.transfers().clearingFor(f.fact().accountRef(), f.fact().rawDescription());
-                if (clearing != null) {
+                if (clearing != null && !clearing.equals(f.fact().accountRef())) {
                     pairClearing(rows, f, clearing);
                     paired[i] = true;
                     continue;
@@ -656,7 +662,8 @@ public final class Derive {
             return theirs.size() == 1 && theirs.getFirst() == self ? j : AMBIGUOUS;
         }
 
-        /** Pair a leg with a clearing account: one real leg, an account side, direction structural. */
+        /** Pair a leg with an account side: a clearing counterparty or a declared wallet (one real
+         * leg, an account side, direction structural). */
         private void pairClearing(Map<String, TransferRow> rows, CurrentFact f, String clearingAccount) {
             Fact real = f.fact();
             String tid = Ids.transferId(real.externalId(), clearingAccount);
@@ -1802,8 +1809,24 @@ public final class Derive {
             for (CurrentFact c : current) {
                 (c.role() == Role.NOOP ? noops : transactions).add(c.fact());
             }
+            // A declared account's synthetic wallet legs count between its counts (§6.7): the gap is
+            // the number a person reads, even though only a BROKEN statement chain is a review item.
+            Map<String, CurrentFact> byId = currentById();
+            Map<String, List<Reconciliation.Movement>> synthetic = new TreeMap<>();
+            for (TransferRow t : transfers) {
+                if (t.clearingAccount() == null) {
+                    continue;
+                }
+                CurrentFact real = realLegOf(t, byId);
+                if (real != null) {
+                    synthetic.computeIfAbsent(t.clearingAccount(), k -> new ArrayList<>())
+                        .add(new Reconciliation.Movement(real.fact().date(), real.fact().n(),
+                            -real.fact().amount()));
+                }
+            }
             List<ReviewItem> out = new ArrayList<>();
-            for (Reconciliation.AccountResult r : Reconciliation.reconcile(transactions, noops, declared).values()) {
+            for (Reconciliation.AccountResult r :
+                    Reconciliation.reconcile(transactions, noops, declared, synthetic).values()) {
                 if (r.status() != Reconciliation.Status.BROKEN) {
                     continue;
                 }
@@ -1961,32 +1984,42 @@ public final class Derive {
         // ---- P12: units ---------------------------------------------------------------------
 
         /**
-         * The counterpart of every clearing transfer (§6.10), materialised as a derived leg so a
-         * clearing transfer has two concrete legs and the clearing account's ledger is queryable.
-         * Never a fact: reserved {@code clr|…} id, no evidence, not a decision target. The balance is
-         * derived — {@code opening + Σ movements}, landing on the account's declared closing.
+         * The counterpart of every clearing or declared transfer (§6.10, §6.3), materialised as a
+         * derived leg so a clearing transfer has two concrete legs and the account's ledger is
+         * queryable. Never a fact: reserved {@code clr|…} id, no evidence, not a decision target.
+         *
+         * <p>A clearing account's balance is derived — {@code opening + Σ movements}, landing on the
+         * account's declared closing. A declared wallet's balance comes from its declared chain
+         * instead: the facts and the synthetic legs interleaved in {@code (date, n)} order, anchored
+         * by attestations (a clearing opening is clearing semantics, not a wallet's, §6.7).
          */
         private List<ClearingLeg> clearingLegs() {
             Map<String, CurrentFact> byId = currentById();
             Map<String, Long> movementSum = new HashMap<>();
+            List<TransferRow> ordered = new ArrayList<>();
             for (TransferRow t : transfers) {
                 if (t.clearingAccount() == null) {
                     continue;
                 }
                 CurrentFact real = realLegOf(t, byId);
-                if (real != null) {
-                    movementSum.merge(t.clearingAccount(), -real.fact().amount(), Long::sum);
+                if (real == null) {
+                    continue;
                 }
+                ordered.add(t);
+                movementSum.merge(t.clearingAccount(), -real.fact().amount(), Long::sum);
             }
             Map<String, Long> running = new HashMap<>();
+            Map<String, Map<String, Long>> declaredBalances = new HashMap<>();
             for (Map.Entry<String, Long> e : movementSum.entrySet()) {
-                Long closing = config.registry().findAccount(e.getKey()).map(a -> a.closingBalance()).orElse(0L);
-                running.put(e.getKey(), (closing == null ? 0L : closing) - e.getValue());
-            }
-            List<TransferRow> ordered = new ArrayList<>();
-            for (TransferRow t : transfers) {
-                if (t.clearingAccount() != null && realLegOf(t, byId) != null) {
-                    ordered.add(t);
+                Account a = config.registry().findAccount(e.getKey()).orElse(null);
+                if (a == null) {
+                    continue;
+                }
+                if (a.balanceSource() == BalanceSource.CLEARING) {
+                    Long closing = a.closingBalance();
+                    running.put(e.getKey(), (closing == null ? 0L : closing) - e.getValue());
+                } else if (a.balanceSource() == BalanceSource.DECLARED) {
+                    declaredBalances.put(e.getKey(), declaredLegBalances(e.getKey(), byId));
                 }
             }
             ordered.sort(Comparator.comparing((TransferRow t) -> realLegOf(t, byId).fact().date())
@@ -1996,13 +2029,84 @@ public final class Derive {
                 Fact real = realLegOf(t, byId).fact();
                 String account = t.clearingAccount();
                 long amount = -real.amount();
-                long balance = running.merge(account, amount, Long::sum);
+                long balance = declaredBalances.containsKey(account)
+                    ? declaredBalances.get(account).getOrDefault(t.transferId(), 0L)
+                    : running.merge(account, amount, Long::sum);
                 out.add(new ClearingLeg(t.transferId(), "clr|" + account + "|" + real.externalId(),
                     account, real.date(), amount, balance, "clearing \u00b7 " + real.rawDescription(),
                     real.externalId(), real.n()));
             }
             return out;
         }
+
+        /**
+         * The balance of each synthetic leg on a declared wallet, read from the declared chain: the
+         * account's current transaction facts (attestations and manual movements) interleaved with
+         * the legs in {@code (date, n)} order. An attestation snaps the running balance to its
+         * counted value; before the first attestation the running balance is
+         * {@code firstAttestation.balance − Σ movements before it} (and 0 when there is no count).
+         */
+        private Map<String, Long> declaredLegBalances(String account, Map<String, CurrentFact> byId) {
+            List<DeclaredPoint> points = new ArrayList<>();
+            for (CurrentFact c : current) {
+                if (!c.fact().accountRef().equals(account) || c.role() == Role.NOOP) {
+                    continue;
+                }
+                points.add(new DeclaredPoint(c.fact().date(), c.fact().n(), 0, null, c.fact()));
+            }
+            for (TransferRow t : transfers) {
+                if (!account.equals(t.clearingAccount())) {
+                    continue;
+                }
+                CurrentFact real = realLegOf(t, byId);
+                if (real != null) {
+                    points.add(new DeclaredPoint(real.fact().date(), real.fact().n(), 1, t, null));
+                }
+            }
+            points.sort(Comparator.comparing(DeclaredPoint::date).thenComparingLong(DeclaredPoint::n)
+                .thenComparingInt(DeclaredPoint::order));
+
+            int firstAttestation = -1;
+            for (int i = 0; i < points.size(); i++) {
+                Fact f = points.get(i).fact();
+                if (f != null && f.amount() == 0) {
+                    firstAttestation = i;
+                    break;
+                }
+            }
+            long running = 0;
+            if (firstAttestation >= 0) {
+                long before = 0;
+                for (int i = 0; i < firstAttestation; i++) {
+                    before += movement(points.get(i), byId);
+                }
+                running = points.get(firstAttestation).fact().balance() - before;
+            }
+            Map<String, Long> out = new HashMap<>();
+            for (DeclaredPoint p : points) {
+                if (p.leg() != null) {
+                    running += movement(p, byId);
+                    out.put(p.leg().transferId(), running);
+                } else if (p.fact().amount() == 0) {
+                    running = p.fact().balance();
+                } else {
+                    running += p.fact().amount();
+                }
+            }
+            return out;
+        }
+
+        /** The movement a declared point contributes to its wallet's running balance. */
+        private long movement(DeclaredPoint p, Map<String, CurrentFact> byId) {
+            if (p.leg() != null) {
+                CurrentFact real = realLegOf(p.leg(), byId);
+                return real == null ? 0 : -real.fact().amount();
+            }
+            return p.fact().amount();
+        }
+
+        /** One event in a declared wallet's chain: the fact (an attestation or a movement) or a leg. */
+        private record DeclaredPoint(LocalDate date, long n, int order, TransferRow leg, Fact fact) {}
 
         private CurrentFact realLegOf(TransferRow t, Map<String, CurrentFact> byId) {
             String realId = t.clearingAccount().equals(t.fromLeg()) ? t.toLeg() : t.fromLeg();

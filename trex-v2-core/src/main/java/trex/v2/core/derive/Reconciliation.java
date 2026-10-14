@@ -2,6 +2,7 @@ package trex.v2.core.derive;
 
 import trex.v2.core.Fact;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -59,6 +60,14 @@ public final class Reconciliation {
     private Reconciliation() {}
 
     /**
+     * A declared account's synthetic wallet leg as a movement between counts (§6.7): an ATM
+     * withdrawal or cash deposit is a transfer, not a fact, so it is not in the account's fact
+     * list but must count against its gap. {@code amount} is the movement on the declared account
+     * (the real leg's amount negated), at the real leg's {@code (date, n)}.
+     */
+    public record Movement(LocalDate date, long n, long amount) {}
+
+    /**
      * A clearing account's result (§6.10): its opening is computed backwards from the movements
      * that matched it, its closing is declared, and it has no chain to break — never {@code BROKEN}.
      */
@@ -80,6 +89,17 @@ public final class Reconciliation {
      */
     public static Map<String, AccountResult> reconcile(List<Fact> transactions, List<Fact> noopExclusions,
                                                        Set<String> declaredAccounts) {
+        return reconcile(transactions, noopExclusions, declaredAccounts, Map.of());
+    }
+
+    /**
+     * @param synthetic        per declared account, its synthetic wallet legs as movements between
+     *                         counts (§6.7); cleared accounts are unaffected, and an account absent
+     *                         here reconciles over its facts alone
+     */
+    public static Map<String, AccountResult> reconcile(List<Fact> transactions, List<Fact> noopExclusions,
+                                                       Set<String> declaredAccounts,
+                                                       Map<String, List<Movement>> synthetic) {
         Map<String, List<Fact>> byAccount = new TreeMap<>();
         for (Fact f : transactions) {
             byAccount.computeIfAbsent(f.accountRef(), k -> new ArrayList<>()).add(f);
@@ -94,7 +114,7 @@ public final class Reconciliation {
         byAccount.forEach((account, facts) -> {
             List<String> ex = excluded.getOrDefault(account, List.of());
             results.put(account, declaredAccounts.contains(account)
-                ? reconcileDeclared(account, facts, ex)
+                ? reconcileDeclared(account, facts, ex, synthetic.getOrDefault(account, List.of()))
                 : reconcileStatement(account, facts, ex));
         });
         // An account whose rows are all noop has no chain to break: report it reconciled, with its
@@ -136,33 +156,47 @@ public final class Reconciliation {
     /**
      * A declared account reconciles between attestations, not across the whole history. In v2 an
      * attestation is derived: a declared account's fact with {@code amount == 0} (§6.1). Each gap
-     * is cash that moved and was never itemised; reporting it is the point.
+     * is cash that moved and was never itemised; reporting it is the point. Its synthetic wallet
+     * legs (§6.7) are movements too: they count in the interval like a non-zero fact, but they
+     * never anchor it — only a count does.
      */
-    private static AccountResult reconcileDeclared(String account, List<Fact> facts, List<String> excluded) {
-        List<Fact> byDate = facts.stream()
-            .sorted(Comparator.comparing(Fact::date).thenComparingLong(Fact::n))
-            .toList();
-        long sum = byDate.stream().mapToLong(Fact::amount).sum();
+    private static AccountResult reconcileDeclared(String account, List<Fact> facts, List<String> excluded,
+                                                   List<Movement> movements) {
+        // Facts and movements share the (date, n) order; facts sort first on a tie (they cannot tie:
+        // n is globally unique and a movement borrows a real leg's n, never a declared fact's).
+        List<Point> points = new ArrayList<>(facts.size() + movements.size());
+        for (Fact f : facts) {
+            points.add(new Point(f.date(), f.n(), 0, f.amount(), f.amount() == 0 ? f.balance() : null));
+        }
+        for (Movement m : movements) {
+            points.add(new Point(m.date(), m.n(), 1, m.amount(), null));
+        }
+        points.sort(Comparator.comparing(Point::date).thenComparingLong(Point::n)
+            .thenComparingInt(Point::order));
+        long sum = facts.stream().mapToLong(Fact::amount).sum();
 
         Long previous = null;
         long moved = 0;
         long gap = 0;
         long opening = 0;
         long closing = 0;
-        for (Fact f : byDate) {
-            if (f.amount() != 0) {
-                moved += f.amount();
+        for (Point p : points) {
+            if (p.snap() == null) {
+                moved += p.delta();
                 continue;
             }
             if (previous != null) {
-                gap += f.balance() - previous - moved;
+                gap += p.snap() - previous - moved;
             } else {
-                opening = f.balance() - moved;
+                opening = p.snap() - moved;
             }
-            previous = f.balance();
-            closing = f.balance();
+            previous = p.snap();
+            closing = p.snap();
             moved = 0;
         }
         return new AccountResult(account, Status.DECLARED, opening, closing, sum, gap, excluded);
     }
+
+    /** One event in a declared account's chain: a fact or a movement; {@code snap} anchors a count. */
+    private record Point(LocalDate date, long n, int order, long delta, Long snap) {}
 }

@@ -433,7 +433,9 @@ public final class HubService implements HubApi, AutoCloseable {
         Set<String> declared = declaredAccounts(c);
         List<Fact> transactions = reads.currentFacts();
         List<Fact> noops = reads.currentNoops();
-        Map<String, ChainHealth.Account> health = ChainHealth.of(transactions, noops, declared);
+        Map<String, List<Reconciliation.Movement>> synthetic =
+            declaredMovements(reads.transferRows(), transactions);
+        Map<String, ChainHealth.Account> health = ChainHealth.of(transactions, noops, declared, synthetic);
         List<ChainsResponse.AccountJson> accounts = new ArrayList<>();
         for (ChainHealth.Account a : health.values()) {
             if (account != null && !account.equals(a.accountRef())) {
@@ -444,7 +446,7 @@ public final class HubService implements HubApi, AutoCloseable {
             a.forks().forEach(f -> candidates.addAll(f.externalIds()));
             List<ChainsResponse.PreviewJson> previews = new ArrayList<>();
             for (String id : candidates) {
-                ChainHealth.Preview p = ChainHealth.preview(transactions, noops, declared, id);
+                ChainHealth.Preview p = ChainHealth.preview(transactions, noops, declared, id, synthetic);
                 if (p != null) {
                     previews.add(new ChainsResponse.PreviewJson(p.externalId(), statusWire(p.status()),
                         p.reconciled(), p.opening(), p.closing(), forksJson(p.remainingForks())));
@@ -475,8 +477,8 @@ public final class HubService implements HubApi, AutoCloseable {
         for (Fact f : noops) {
             noopById.put(f.externalId(), f);
         }
-        Map<String, Reconciliation.AccountResult> results =
-            Reconciliation.reconcile(transactions, noops, declared);
+        Map<String, Reconciliation.AccountResult> results = Reconciliation.reconcile(transactions, noops,
+            declared, declaredMovements(reads.transferRows(), transactions));
         // A clearing account holds no facts: opening computed, closing declared, never broken (§6.10).
         List<trex.v2.core.derive.TransferRow> transferRows = reads.transferRows();
         Map<String, Long> clearingReal = clearingRealAmounts(transferRows, transactions);
@@ -523,6 +525,32 @@ public final class HubService implements HubApi, AutoCloseable {
             Fact real = byId.get(realId);
             if (real != null) {
                 out.merge(t.clearingAccount(), real.amount(), Long::sum);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Per declared wallet, its synthetic legs as movements between counts (§6.7): each transfer with
+     * a {@code clearingAccount} contributes the movement on that account — the real leg's amount
+     * negated, at the real leg's date and {@code n}. A clearing account is untouched here.
+     */
+    private static Map<String, List<Reconciliation.Movement>> declaredMovements(
+            List<trex.v2.core.derive.TransferRow> transfers, List<Fact> facts) {
+        Map<String, Fact> byId = new HashMap<>();
+        for (Fact f : facts) {
+            byId.put(f.externalId(), f);
+        }
+        Map<String, List<Reconciliation.Movement>> out = new TreeMap<>();
+        for (trex.v2.core.derive.TransferRow t : transfers) {
+            if (t.clearingAccount() == null) {
+                continue;
+            }
+            String realId = t.clearingAccount().equals(t.fromLeg()) ? t.toLeg() : t.fromLeg();
+            Fact real = byId.get(realId);
+            if (real != null) {
+                out.computeIfAbsent(t.clearingAccount(), k -> new ArrayList<>())
+                    .add(new Reconciliation.Movement(real.date(), real.n(), -real.amount()));
             }
         }
         return out;
@@ -1187,7 +1215,9 @@ public final class HubService implements HubApi, AutoCloseable {
                 }
                 var account = cfg.registry().findAccount(d.account());
                 yield account.isEmpty() ? "unknown account '" + d.account() + "'"
-                    : (account.get().clearing() ? null : "ATTACH_ACCOUNT must name a clearing account");
+                    : (account.get().clearing()
+                        || account.get().balanceSource() == BalanceSource.DECLARED ? null
+                            : "ATTACH_ACCOUNT must name a clearing or declared account");
             }
             case DECLARE_COMMITMENT -> precheckDeclare(d);
             case RETIRE_COMMITMENT -> {
