@@ -287,7 +287,9 @@ successor returns to that level is flagged as an `outlier` — flagging only; ex
 decision. Coverage is relative to the frontier of the accounts the series appears on: `active` within
 one cadence plus tolerance, `ended` beyond two periods, otherwise `dormant`. A candidate is suppressed
 by an effective `IGNORE_RECURRING`, by a declaration that named it `fromCandidate`, or by declaration
-rules covering its facts; only a non-ended candidate raises review.
+rules covering its facts; only a non-ended candidate raises review. A detected candidate is a
+discovery, never an asserted expectation: only a declaration asserts one, so a candidate's history is
+not part of the Expected checklist (§9.3) or the expectations nudge (§9.1).
 
 **Occurrences.** A declared regular commitment generates due dates from its anchor with calendar
 arithmetic (a clamped month returns to the anchor's day), over `asOf − 12 months … asOf + 92 days`,
@@ -424,7 +426,7 @@ unauthenticated and binds loopback by default.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through` and `stale` (§9.1) |
+| GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through`, `stale` and `expectedDueThisWeek` (§9.1) |
 | GET | `/api/refdata` | accounts, users, declared categories, revisions |
 | GET | `/api/ledger` | the blotter rows; filters include `role`, `leg`, account, category, dates |
 | GET | `/api/review` | the derived queue (§6.6); filters `kind`, `account` |
@@ -451,41 +453,53 @@ unauthenticated and binds loopback by default.
 
 ### 9.1 The status strip
 
-Open review count (a link to Review), or **✓ all clear — through <date>** once nothing is open; the
-date is the oldest statement frontier of the `budget` accounts, so an all-clear never claims more
-than the statements say.
+Open review count (a link to Review), or **✓ Review clear — through <date>** once nothing is open;
+the date is the oldest statement frontier of the `budget` accounts, so a clear never claims more
+than the statements say. The wording names Review, not the world: a clean queue is not the same as
+nothing due, so it cannot be read as an all-clear.
+
+**The expectations nudge.** `/api/status` also returns `expectedDueThisWeek`: the count of declared
+commitments' occurrences whose window is still open (`status = 'due'`) and whose `due_date` falls
+inside the current ISO week. It counts occurrences — never commitments or dollars — and explicitly
+excludes `awaiting`, `missed`, `occurred`, `settled` occurrences and detected candidates (§6.5). When
+non-zero the strip shows muted `N expectations due this week` **after** the review count/`Review
+clear` item and **before** the statement-age nudge; a click opens Expected on the week window
+(`#expected?window=week`). Tooltip: *"Declared commitments with an open occurrence window this ISO
+week. Missed expectations are in Review; awaiting-statement occurrences are excluded."*
 
 **The statement-age nudge** (`V2-QOL-IMPROVEMENTS-PLAN.md` §2). `/api/status` also returns `stale`: every
 account whose frontier — the newest non-synthetic statement row at or before today — is older than
 its effective fetch cadence (`fetchEveryDays`; §12), oldest first, as
 `{account, frontier, days, fetchEveryDays}` with `days = today − frontier` and `days > fetchEveryDays`
 strictly. An account with no frontier has nothing to fetch yet and is absent; a null or `0` cadence
-never nudges. The strip shows `⧗ N statements to fetch` after the all-clear or the review count —
-muted, amber once any account is more than twice its cadence — with a tooltip naming each account,
-its age and its frontier; a click opens Jobs at the fetch-frontier table.
+never nudges. The strip shows `⧗ N statements to fetch` after the review count, `Review clear` and the
+expectations nudge — muted, amber once any account is more than twice its cadence — with a tooltip
+naming each account, its age and its frontier; a click opens Jobs at the fetch-frontier table.
 
 **The "since you last cleared" line** (`V2-QOL-IMPROVEMENTS-PLAN.md` §5). The marker is per viewer
 and lives in the browser (`localStorage`), never the log and never the index: the strip records the
-head `n` whenever it shows all clear (`trex.clearedAtN`), with the last known month left beside it
-(`trex.clearedLeft`). The client captures the stored marker when the page loads, before the
-all-clear write can move it; an all-clear advances it only when there was no marker to read or
+head `n` whenever it shows `Review clear` (`trex.clearedAtN`), with the last known month left beside
+it (`trex.clearedLeft`). The client captures the stored marker when the page loads, before the
+`Review clear` write can move it; a clear advances it only when there was no marker to read or
 the visit's read succeeded — a failed or malformed read leaves the marker where it was, so the
 next visit retries news it never showed. `GET /api/since?n=<n>&user=<id>` then reads what the log appended
 after that line: facts (total and per account), completed batches, review items opened after the
 line's time, occurrences that turned `occurred` (the fact the matcher attached is after `n`) or
 `missed` (the window closed after the line's UTC date), and the decisions after `n` that are not
-the viewer's own, plus the month's headroom (§9.2). Expected shows one line **above** its headroom
+the viewer's own, plus the month's headroom (§9.2). Expected shows one line **above** its occurrences
 and the Blotter one at its top, once per visit until dismissed: **Since Tue 08:40:** 47 new rows
 (ing-salary, bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was
-−$95). The parenthetical comes from `trex.clearedLeft` and is omitted when the marker's month is
-not the current one or nothing is stored; with a marker and no news the line is **Nothing new
-since Tue 08:40.**; a marker whose line is no longer in the log (a rebuilt journal) shows nothing;
-a new device has no marker and no line. Nothing is stored outside the browser; the endpoint is a
-read of the disposable index.
+−$95). The **left this month** clause belongs to the Blotter alone; Expected omits it, because that
+figure is Budget's now (§9.2, §9.3). The parenthetical comes from `trex.clearedLeft` and is omitted
+when the marker's month is not the current one or nothing is stored; with a marker and no news the
+line is **Nothing new since Tue 08:40.**; a marker whose line is no longer in the log (a rebuilt
+journal) shows nothing; a new device has no marker and no line. Nothing is stored outside the
+browser; the endpoint is a read of the disposable index.
 
 ### 9.2 Headroom ("left this month")
 
-Always the calendar month of `asOf`, over the `budget` accounts:
+Presented by the **Budget** mode (§9.3); the calculation is unchanged. Always the calendar month of
+`asOf`, over the `budget` accounts:
 `left = income in + income due + moved in − commitments paid − commitments due − other spend − moved out`.
 Commitments count through their occurrences (`occurred`/`settled` as paid, `due`/`awaiting` at the
 current price as due); every other row counts as spend or income, except: a transfer between two
@@ -498,13 +512,14 @@ two budget accounts, which headroom already skips.
 
 ### 9.3 The UI modes
 
-Nine modes; each one's detail lives in the plan that built it.
+Ten modes; each one's detail lives in the plan that built it.
 
 | Mode | What it is for | Detail |
 |---|---|---|
 | **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
-| **Expected** | headroom; the window's occurrences; **Catch up** (arrears, oldest first); the commitment registry with its Actions menu; rule lint; the since-cleared line above the headroom (§9.1) | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md` |
+| **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md` |
+| **Budget** | the month's **headroom** ("left this month"), moved out of Expected; the same read as `/api/expected`'s `headroom` field, calculation unchanged (§9.2) | `V2-REVIEW-FIXES-PLAN.md` §10 |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
@@ -645,7 +660,7 @@ thousand creates) and safe to interrupt.
 (the statement-age nudge, §9.1 — presentation only: default 31 for a statement account, none for
 declared/clearing, `0` off), `chip_color` — the hub
 chip colour, presentation only — `budget` (default true, never for a clearing account: whether the
-account is in Expected's "left this month"; a declared wallet stays `budget: true`, so its transfers
+account is in Budget's "left this month"; a declared wallet stays `budget: true`, so its transfers
 to and from the bank are skipped by headroom, §9.2; presentation only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and

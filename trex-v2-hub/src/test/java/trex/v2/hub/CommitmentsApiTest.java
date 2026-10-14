@@ -281,11 +281,16 @@ class CommitmentsApiTest {
             assertEquals(422, get(client, base, "/api/expected?window=quarter").statusCode());
 
             // ---- the status strip counts the commitment tables -------------------------------
-            JsonNode counts = json(get(client, base, "/api/status")).get("counts");
+            JsonNode statusBody = json(get(client, base, "/api/status"));
+            JsonNode counts = statusBody.get("counts");
             assertEquals(4, counts.get("commitment").asLong());
             assertEquals(3, counts.get("commitment_rule").asLong());
             assertTrue(counts.get("commitment_occurrence").asLong() > 0);
             assertEquals(1, counts.get("commitment_note").asLong());
+            // The expectations nudge counts declared commitments' open occurrences due this ISO
+            // week: the weekly Netflix anchor lands one today. Candidates, settled, awaiting and
+            // missed occurrences are excluded, and it counts occurrences, never dollars.
+            assertTrue(statusBody.get("expectedDueThisWeek").asInt() >= 1, statusBody.toPrettyString());
         }
     }
 

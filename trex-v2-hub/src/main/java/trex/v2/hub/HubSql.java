@@ -206,6 +206,19 @@ final class HubSql {
         WHERE o.status = 'missed'
         ORDER BY o.due_date, o.commitment_id""";
 
+    /**
+     * The expectations nudge (V2-SPEC.md §9.1): how many declared commitments have an occurrence
+     * with an open window ({@code status = 'due'}) due inside the given ISO-week bounds. It counts
+     * occurrences, never commitments or dollars; a candidate ({@code origin = 'detected'}) and a
+     * non-{@code due} status — {@code awaiting}, {@code missed}, {@code occurred}, {@code settled} —
+     * are excluded.
+     */
+    static final String EXPECTED_DUE_THIS_WEEK = """
+        SELECT COUNT(*) FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE c.origin = 'declared' AND o.status = 'due'
+          AND o.due_date >= ? AND o.due_date <= ?""";
+
     /** All-time first/last transaction date and the row count, one row per account. */
     static final String ACCOUNT_TOTALS = """
         SELECT account_ref, MIN(date), MAX(date), COUNT(*)

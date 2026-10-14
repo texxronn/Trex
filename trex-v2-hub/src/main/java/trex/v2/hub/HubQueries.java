@@ -358,6 +358,16 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /**
+     * The expectations nudge (V2-SPEC.md §9.1): how many declared commitments have an occurrence
+     * with an open window due inside {@code week}. Occurrences, not commitments or dollars. A read
+     * of the disposable index; no state.
+     */
+    public long expectedDueThisWeek(Period.Range week) {
+        return read(conn -> count(conn, HubSql.EXPECTED_DUE_THIS_WEEK,
+            week.from().toString(), week.to().toString()));
+    }
+
     // ---- blotter ----------------------------------------------------------------------------
 
     /** A filtered, sorted, paged page of current transactions (V2-PROPOSAL.md §10.2). */

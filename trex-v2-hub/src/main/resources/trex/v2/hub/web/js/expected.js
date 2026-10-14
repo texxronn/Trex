@@ -1,8 +1,10 @@
-// Expected mode (V2-COMMITMENTS-PLAN.md §2.8, V2-PROPOSAL.md §10.6): what is committed and what
-// is behind. The window's occurrences rendered honestly — occurred carries a fact, settled is a
-// person's conclusion, due, partial and missed are the forward states — the committed totals, the
-// catch-up backlog oldest first with a running total, the registry with its curation actions, and
-// the rule lint.
+// Expected mode (V2-COMMITMENTS-PLAN.md §2.8, V2-PROPOSAL.md §10.6): the declared-expectations
+// checklist. Only declared commitments' occurrences are shown — a detected candidate is a
+// discovery, not an asserted expectation (§6.5) — rendered honestly: occurred carries a fact,
+// settled is a person's conclusion, due, partial and missed are the forward states. Each amount is
+// an unsigned magnitude with an explicit in/out direction. The catch-up backlog is the arrears
+// list, oldest first, the registry with its curation actions, and the rule lint. Headroom moved to
+// the Budget mode (V2-SPEC.md §9.2).
 //
 // The four sections fold (V2-EXPECTED-UX-PLAN.md §4): the summary is the section header and
 // carries its live figures, so a collapsed section still speaks. The daily content — occurrences
@@ -43,6 +45,10 @@ function loadSections() {
 export function mount(container, context) {
   host = container;
   ctx = context;
+  // A #expected?window=week deep link (the status nudge's click target) overrides the stored
+  // device preference for this visit, like the other modes' query params.
+  const requested = context.modeQuery && context.modeQuery.get('window');
+  if (requested && WINDOWS[requested]) win = requested;
   if (!WINDOWS[win]) win = 'month';
   render();
   load();
@@ -72,52 +78,16 @@ async function load() {
 function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
-  host.append(errorBar, el('div', { class: 'toolbar' }, tabs(), summary()));
-  // The since-clear line sits above the headroom (QOL §5), from the visit's cached read.
-  const notice = since.line();
+  host.append(errorBar, el('div', { class: 'toolbar' }, tabs()));
+  // The since-clear line sits above the occurrences (QOL §5), from the visit's cached read. It
+  // drops the "left this month" text — that figure lives in Budget now; the Blotter keeps it.
+  const notice = since.line({ left: false });
   if (notice) host.append(notice);
   if (!data) {
     host.append(el('p', { class: 'muted' }, 'Loading…'));
     return;
   }
-  host.append(headroom(), occurrences(), catchUp(), registrySection(), lint());
-}
-
-/**
- * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10): one figure that answers "am I okay?", with the
- * arithmetic beside it and the date the statements reach, so a late statement reads as a late
- * statement and not as money.
- */
-function headroom() {
-  const h = data.headroom;
-  if (!h) return el('div');
-  const month = new Date(h.month + 'T00:00:00Z')
-    .toLocaleString(undefined, { month: 'long', timeZone: 'UTC' });
-  const figure = el('b', { class: h.left < 0 ? 'occ-missed' : 'tick' },
-    money(h.left));
-  const parts = [
-    `in ${money(h.incomeIn)}` + (h.incomeDue ? ` + ${money(h.incomeDue)} due` : ''),
-    `commitments ${money(h.committedPaid)}` + (h.committedDue ? ` + ${money(h.committedDue)} due` : ''),
-    `other spend ${money(h.uncommittedSpend)}`,
-  ];
-  // The wallet's unrecorded cash (V2-CASH-PLAN.md §4.2): spend the bank movements imply but no
-  // fact records. Signed by the backend — positive is spend, so it moves `left` like any outflow.
-  if (h.unrecordedCash) parts.push(`unrecorded cash ${money(h.unrecordedCash)}`);
-  if (h.movedOut || h.movedIn) {
-    parts.push(`moved to your other accounts ${money(h.movedOut - h.movedIn)}`);
-  }
-  const notes = [];
-  if (h.missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(h.missed)}`));
-  if (h.unpaired) {
-    notes.push(el('span', { class: 'muted', title: 'transfer legs still waiting for their other side' },
-      `unpaired transfers: ${money(h.unpaired)}`));
-  }
-  return el('section', { class: 'headroom' },
-    el('div', {}, el('span', { class: 'muted' }, `Left in ${month} `), figure),
-    el('div', { class: 'muted' }, parts.join(' · ')),
-    el('div', { class: 'muted', title: 'budget accounts: ' + (h.accounts || []).join(', ') },
-      h.through ? `through ${date(h.through)} — the statements say nothing after it` : 'no statements yet'),
-    notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '');
+  host.append(occurrences(), catchUp(), registrySection(), lint());
 }
 
 function tabs() {
@@ -134,18 +104,14 @@ function tabs() {
     }, label)));
 }
 
-function summary() {
-  if (!data) return el('span', { class: 'muted' }, '');
-  const totals = data.totals || { out: 0, in: 0 };
-  return el('span', { class: 'muted' },
-    'committed ', el('b', {}, money(totals.out)), ' out · ',
-    el('span', { class: 'tick' }, money(totals.in) + ' in'));
-}
-
 // ---- the window's occurrences -----------------------------------------------------------------
 
 function occurrences() {
-  const rows = data.occurrences || [];
+  // Declared commitments only: a detected candidate is a discovery, never an asserted expectation
+  // (§6.5), so its history is not part of the checklist. The registry is already loaded.
+  const declared = new Set(registry.filter((c) => c.origin === 'declared')
+    .map((c) => c.commitmentId));
+  const rows = (data.occurrences || []).filter((o) => declared.has(o.commitmentId));
   const head = ['Occurrences',
     el('span', { class: 'muted' }, ` · ${WINDOWS[data.window] || data.window} · ${rows.length}`)];
   const body = rows.length
@@ -165,8 +131,8 @@ function occurrenceRow(o) {
     el('td', {}, o.commitmentName || shortId(o.commitmentId)),
     el('td', {}, direction(sign)),
     el('td', { class: 'amount' }, o.amount != null
-      ? money(o.amount)
-      : (current != null ? el('span', { class: 'muted', title: 'current price' }, money(current)) : '')),
+      ? money(Math.abs(o.amount))
+      : (current != null ? el('span', { class: 'muted', title: 'current price' }, money(Math.abs(current))) : '')),
     statusCell(o),
     matchedCell(o));
 }
@@ -230,9 +196,10 @@ function catchUp() {
   if (!arrears.length) {
     return fold('arrears', ['Catch up', el('span', { class: 'muted' }, ' · nothing in arrears')], []);
   }
-  const total = arrears[arrears.length - 1].runningTotal;
+  // The running dollar total is gone (V2-SPEC.md §9.3): the backlog is a list of holes, each with
+  // its own expected and shortfall, not a cumulative figure to chase.
   const head = ['Catch up',
-    el('span', { class: 'occ-partial' }, ` · ${arrears.length} behind · ${money(total)}`)];
+    el('span', { class: 'occ-partial' }, ` · ${arrears.length} behind`)];
   return fold('arrears', head, [
     el('p', { class: 'muted hint' },
       'Oldest first. Mark paid concludes a hole was paid without a fact; Assign a payment takes you '
@@ -240,7 +207,7 @@ function catchUp() {
     scroll(el('table', {}, el('thead', {}, el('tr', {},
       el('th', {}, 'Due'), el('th', {}, 'Commitment'), el('th', {}, 'Status'),
       el('th', { class: 'amount' }, 'Expected'), el('th', { class: 'amount' }, 'Shortfall'),
-      el('th', { class: 'amount' }, 'Running'), el('th', {}, ''))),
+      el('th', {}, ''))),
       el('tbody', {}, ...arrears.map(arrearRow)))),
   ]);
 }
@@ -253,7 +220,6 @@ function arrearRow(a) {
       a.status)),
     el('td', { class: 'amount' }, money(a.expected)),
     el('td', { class: 'amount' }, money(a.shortfall)),
-    el('td', { class: 'amount' }, money(a.runningTotal)),
     el('td', {},
       el('button', { type: 'button', class: 'ghost',
         onclick: () => settleCommitment(a) }, 'Mark paid'),
@@ -417,9 +383,9 @@ function currentCell(c) {
   if (c.currentAmount == null) {
     return el('span', { class: 'muted' }, '—');
   }
-  const cell = el('span', {}, money(c.currentAmount));
+  const cell = el('span', {}, money(Math.abs(c.currentAmount)));
   if (c.previousAmount != null) {
-    cell.append(el('span', { class: 'muted' }, ` from ${money(c.previousAmount)}`));
+    cell.append(el('span', { class: 'muted' }, ` from ${money(Math.abs(c.previousAmount))}`));
   }
   if (c.changePct != null) {
     const sign = c.changePct > 0 ? '+' : '';

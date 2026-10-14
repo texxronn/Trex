@@ -235,7 +235,9 @@ public final class HubService implements HubApi, AutoCloseable {
             reads.counts(), reads.reviewByKind(), c.configRevision(),
             DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION,
             oldestFrontier(frontiers, statementBudget(registry)),
-            staleAccounts(registry, frontiers, today), env());
+            staleAccounts(registry, frontiers, today),
+            Math.toIntExact(reads.expectedDueThisWeek(Period.bounds(Period.weekKey(today)))),
+            env());
     }
 
     /**

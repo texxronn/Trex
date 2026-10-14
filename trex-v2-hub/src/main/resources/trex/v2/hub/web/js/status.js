@@ -46,6 +46,7 @@ export async function refresh() {
       item('txn', status.counts.txn_current ?? 0),
       item('transfers', status.counts.transfer ?? 0),
       allClear(review, status.through),
+      expectedNudge(status.expectedDueThisWeek),
       stale(status.stale),
       item('pending', status.counts.pending ?? 0),
       revisions(status),
@@ -58,14 +59,30 @@ export async function refresh() {
 
 /**
  * The daily finish line (V2-REVIEW-FIXES-PLAN.md §11): a count while anything is open, and once the
- * queue is empty a plain "all clear", with the date the statements reach so it never claims more.
+ * queue is empty a plain "Review clear", with the date the statements reach so it never claims
+ * more. The wording names Review specifically (V2-SPEC.md §9.1) — a clean review queue is not the
+ * same as nothing due, so a zero expectations nudge next to it cannot read as "nothing due".
  */
 function allClear(open, through) {
   if (open > 0) {
     return el('a', { href: '#review', title: 'open review items' }, item('review', open, 'bad'));
   }
   return el('span', { class: 'tick', title: 'nothing open in review' },
-    '\u2713 all clear' + (through ? ` \u2014 through ${date(through)}` : ''));
+    '\u2713 Review clear' + (through ? ` \u2014 through ${date(through)}` : ''));
+}
+
+/**
+ * The expectations nudge (V2-SPEC.md §9.1): declared commitments whose occurrence window is still
+ * open somewhere in this ISO week. Muted, after the review count/all-clear and before the
+ * statement nudge; a zero count renders nothing, so the strip stays quiet when nothing is due. A
+ * click opens Expected on the week window.
+ */
+function expectedNudge(count) {
+  if (!count) return el('span');
+  return el('a', { href: '#expected?window=week', class: 'muted',
+    title: 'Declared commitments with an open occurrence window this ISO week. '
+      + 'Missed expectations are in Review; awaiting-statement occurrences are excluded.' },
+    `${count} expectation${count === 1 ? '' : 's'} due this week`);
 }
 
 /**
