@@ -7,6 +7,7 @@ import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.Registry;
 import trex.v2.core.config.User;
 import trex.v2.hub.api.RefdataResponse;
+import trex.v2.log.ConfigLoader;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -38,6 +40,26 @@ class MortgagesTest {
     @Test
     void absentFileIsNoFacilities(@TempDir Path dir) {
         assertTrue(Mortgages.load(dir, REGISTRY).isEmpty());
+    }
+
+    /**
+     * The shipped mapping is real config: it must parse against the shipped registry, because a
+     * hub that cannot read it at startup is a hub that does not come up.
+     */
+    @Test
+    void theShippedMappingLoadsAgainstTheShippedRegistry() {
+        Path dir = Path.of("..", "deploy", "config");
+        if (!Files.isDirectory(dir)) {
+            dir = Path.of("deploy", "config");
+        }
+        if (!Files.isDirectory(dir)) {
+            return; // run from a module dir without the repo alongside: nothing to check
+        }
+        Registry registry = ConfigLoader.load(dir).registry();
+        List<RefdataResponse.MortgageJson> facilities = Mortgages.load(dir, registry);
+        assertFalse(facilities.isEmpty(), "deploy/config/mortgages.yaml declares the ING facility");
+        assertEquals("ing-loan-offset", facilities.getFirst().offset());
+        assertEquals("ing-variable-rate", facilities.getFirst().offsetAppliesTo());
     }
 
     @Test
