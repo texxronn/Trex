@@ -3,7 +3,7 @@
 // never the log or the index.
 //
 // The marker is captured at module load — before boot() can call status.refresh(), which rewrites
-// it whenever the strip shows all clear — so the line always speaks about the marker the visit
+// it whenever the strip shows "Review clear" — so the line always speaks about the marker the visit
 // opened with. One /api/since fetch per visit, cached; Expected and Blotter render from it. A
 // failed or malformed read never advances the marker (mayAdvance), so news it could not show
 // stays unread and the next visit retries.

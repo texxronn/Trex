@@ -87,7 +87,7 @@ function expectedNudge(count) {
 
 /**
  * The finish line is the next visit's starting line (V2-QOL-IMPROVEMENTS-PLAN.md §5): when the
- * strip shows all clear, the browser marker may move to the head, with the last known month left
+ * strip shows "Review clear", the browser marker may move to the head, with the last known month left
  * beside it so the next summary can say "left this month X (was Y)". The marker is captured by
  * since.js at load before this can overwrite it, and it moves only when doing so is safe: a
  * failed or still-pending summary read leaves it where it was, so an all-clear can never bury
