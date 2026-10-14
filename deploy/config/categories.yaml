@@ -209,7 +209,7 @@ rules:
   - category: TRANSPORT
     comment: "trains, tolls, rideshare and tap-on transport"
     when:
-      match: "tfnsw|opal machine|opal fare|linkt|e-?toll|uber\\s+\\*?\\s*trip|translink|transportfornsw"
+      match: "tfnsw|opal machine|opal fare|linkt|e-?toll|uber\\s+\\*?\\s*trip|translink|transportfornsw|syd aprt intnl carp"
 
   # Petrol only, kept apart from TRANSPORT so train spend is visible on its own, and apart
   # from VEHICLE so servicing does not hide inside the fuel bill. Before GROCERIES so COSTCO
