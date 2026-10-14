@@ -524,6 +524,17 @@ function amortChart(res) {
     grid.push(svgEl('text', { class: 'lbl', x: padL - 6, y: gy + 3, 'text-anchor': 'end' },
       money(Math.round(value))));
   }
+  // Horizontal-axis markers: a tick, a faint vertical, and a year label at each year; thinned when
+  // the horizon is long so the labels do not collide.
+  const step = Math.max(1, Math.ceil(pts.length / 12));
+  for (let i = 0; i < pts.length; i++) {
+    if (i % step !== 0 && i !== pts.length - 1) continue;
+    const gx = x(pts[i].year);
+    grid.push(svgEl('line', { class: 'grid', x1: gx, y1: padT, x2: gx, y2: H - padB }));
+    grid.push(svgEl('line', { class: 'axis', x1: gx, y1: H - padB, x2: gx, y2: H - padB + 4 }));
+    grid.push(svgEl('text', { class: 'lbl', x: gx, y: H - padB + 14, 'text-anchor': 'middle' },
+      String(Math.round(pts[i].year))));
+  }
   const line = (key) => svgEl('polyline', { class: 'line ' + key,
     points: pts.map((p) => `${x(p.year).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ') });
   const dots = (key) => pts.map((p) => svgEl('circle', { class: 'dot ' + key,
@@ -536,8 +547,6 @@ function amortChart(res) {
       ...grid,
       svgEl('line', { class: 'axis', x1: padL, y1: H - padB, x2: W - padR, y2: H - padB }),
       svgEl('line', { class: 'axis', x1: padL, y1: padT, x2: padL, y2: H - padB }),
-      svgEl('text', { class: 'lbl', x: padL, y: H - padB + 14 }, 'yr 1'),
-      svgEl('text', { class: 'lbl end', x: W - padR, y: H - padB + 14 }, `yr ${lastYear}`),
       ...dots('interest'), ...dots('principal'),
       line('interest'), line('principal')),
     el('div', { class: 'amort-legend' },
