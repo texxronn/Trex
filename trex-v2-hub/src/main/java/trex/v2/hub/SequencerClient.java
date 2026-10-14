@@ -3,6 +3,7 @@ package trex.v2.hub;
 import trex.v2.log.Json;
 import trex.v2.sequencer.api.BatchResponse;
 import trex.v2.sequencer.api.DecisionBatch;
+import trex.v2.sequencer.api.FactBatch;
 
 import java.io.IOException;
 import java.net.URI;
@@ -31,6 +32,33 @@ final class SequencerClient {
         String trimmed = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
         this.base = URI.create(trimmed);
         this.source = source;
+    }
+
+    /**
+     * Forward a fact batch, stamped with the hub's source (§6) — the manual-cash path
+     * (V2-CASH-PLAN.md §4.3). A transport failure is {@link Unavailable}.
+     */
+    BatchResponse postFacts(FactBatch batch) {
+        FactBatch stamped = new FactBatch(batch.allOrNone(), source, batch.target(), batch.facts());
+        try {
+            byte[] json = Json.mapper().writeValueAsBytes(stamped);
+            HttpRequest request = HttpRequest.newBuilder(base.resolve("/facts"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(json))
+                .build();
+            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() / 100 != 2) {
+                throw new Unavailable("sequencer answered HTTP " + response.statusCode() + ": "
+                    + new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
+            }
+            return Json.mapper().readValue(response.body(), BatchResponse.class);
+        } catch (IOException e) {
+            throw new Unavailable("cannot reach the sequencer at " + base + ": " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new Unavailable("interrupted posting to " + base);
+        }
     }
 
     /** Forward a decision batch, stamped with the hub's source (§6); a transport failure is {@link Unavailable}. */

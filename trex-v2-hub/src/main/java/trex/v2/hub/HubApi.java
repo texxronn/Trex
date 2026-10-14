@@ -4,6 +4,7 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
+import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.HeadResponse;
 import trex.v2.hub.api.LedgerPage;
@@ -115,6 +116,13 @@ interface HubApi {
     DecisionOutcome putCursors(CursorRequest request);
 
     DecisionOutcome submitDecisions(DecisionRequest request);
+
+    /**
+     * Record one manual cash fact on a declared wallet, and optionally the category {@code PIN} on
+     * that same fact (V2-CASH-PLAN.md §4.3, V2-SPEC.md §9.4). Wraps {@code POST /facts} on the
+     * sequencer and then the ordinary decision path for the {@code PIN}.
+     */
+    DecisionOutcome submitCash(CashRequest request);
 
     /** Evidence ids present on facts, so the Jobs view can tick the files already in. */
     java.util.Set<String> ingestedEvidenceIds();
