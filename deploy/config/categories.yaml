@@ -231,7 +231,7 @@ rules:
   - category: GROCERIES
     comment: "supermarkets, grocers and the bulk shops"
     when:
-      match: "woolworths|coles|aldi|iga|foodland|costco wholesale|costco crossroads|minto fruit|bakers flour|glenfield bakery|best meats"
+      match: "woolworths|coles|aldi|iga|foodland|costco wholesale|costco crossroads|minto fruit|bakers flour|glenfield bakery|best meats|harris farm"
 
   # Eating that is not a grocery run: cafés, coffee, takeaway. Restaurants are deliberately
   # NOT here — a restaurant meal is the thing you would cut, so it sits in DISCRETIONARY,
@@ -239,7 +239,7 @@ rules:
   - category: FOOD
     comment: "eating out: cafes, bakeries, takeaway and restaurants"
     when:
-      match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph|sushi|mcdonald|hungry jack|kfc|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
+      match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph|sushi|mcdonald|hungry ?jack|kfc|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
 
   # H Nguyen Rolls, a takeaway paid by Osko; the descriptor carries the payee name and a mobile
   # number, so the name is the only stable handle.
