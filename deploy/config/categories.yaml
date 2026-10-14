@@ -296,7 +296,7 @@ rules:
   - category: SPORT_AND_LEISURE
     comment: "sport, activities and the kids' clubs"
     when:
-      match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|eschol park|camden tigers|football|soccer club|leisure cent"
+      match: "mount annan leisur|ymca|bluefit|campbelltown indoo|gunners soccer|gunners sc|eschol park|camden tigers|football|soccer club|leisure cent"
 
   # Aquarium supplies; a hobby the operator wanted apart from general retail.
   - category: HOBBY
