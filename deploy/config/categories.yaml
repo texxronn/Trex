@@ -241,6 +241,13 @@ rules:
     when:
       match: "cafe|coffee|piccolo me|uber eats|menulog|doordash|gyg|guzman|little chinese kitchen|whale tea|cake merchant|dominos|gong cha|sushi hub|pline ph|sushi|mcdonald|hungry jack|kfc|krispy kreme|donut king|gloria jeans|oporto|yakiniku|doughkyo|dosahut|lotus express|michael chang|prince bakery|trappers bakery|market espresso|caffe brioso"
 
+  # H Nguyen Rolls, a takeaway paid by Osko; the descriptor carries the payee name and a mobile
+  # number, so the name is the only stable handle.
+  - category: FOOD
+    comment: "H Nguyen Rolls, via Osko"
+    when:
+      match: "h nguyen rolls"
+
   # The school canteen: Flexischools is a school-payments platform (it can also sell uniforms and
   # trips), but the family's charges are canteen top-ups, so they sit with FOOD — above CHILDCARE,
   # which no longer claims the name.
@@ -255,6 +262,13 @@ rules:
     comment: "childcare and after-school care, net of the CCS subsidy"
     when:
       match: "holy family|oosh|childcare|child care|\\bccs\\b|papilio|qp ?pel"
+
+  # CarePlus Compounding, a compounding pharmacy. Kept in HEALTH (the service), not HEALTH_SUPPLIES,
+  # and placed above it so a future "pharmacy" in the text cannot pull it the other way.
+  - category: HEALTH
+    comment: "CarePlus Compounding"
+    when:
+      match: "careplus"
 
   # Over the counter: pharmacy and the like.
   - category: HEALTH_SUPPLIES
