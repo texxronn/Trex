@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-14
+
 ### Changed
 
 - **Expected reframed; the strip's clear line renamed** (`V2-SPEC.md` §9.1–§9.3). Expected is now the
