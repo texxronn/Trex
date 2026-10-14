@@ -51,6 +51,11 @@ transferPatterns:
     # so a memo inserted before "- Osko Payment" cannot hide it; it shapes and pairs with the CBA
     # credit. Ordinary Oskos to other accounts fall to the bare rail-only tag below.
     - { match: 'Osko Payment to 062948 382524', rail: OSKO }
+    # The same self-transfer to our CBA account, written the other way ING sometimes uses: no
+    # "Osko Payment", the receipt sits between the name and the destination. It shapes so it pairs
+    # with the CBA credit written "Direct Credit 123079 Meldina Machado" (see cba-smartaccess).
+    # Measured on Dev1 2026-10-14: 4 such rows, two of them pairable against a held statement.
+    - { match: 'Transfer to Rohan Machado.*062948 382524', rail: BANK_TRANSFER }
     - { match: 'Osko Payment', rail: OSKO, shape: false }
     - { match: 'BPAY',         rail: BPAY, shape: false }
     - { match: 'PayID',        rail: PAYID, shape: false }
@@ -129,6 +134,9 @@ transferPatterns:
     - { match: 'to PayID',             rail: PAYID, shape: false }
     - { match: 'Fast Transfer',        rail: BANK_TRANSFER }
     - { match: 'Transfer from xx\d+',  rail: BANK_TRANSFER }
+    # The receiving side of a self-transfer from ING, written this way instead of "Fast Transfer
+    # From Rohan Machado": shapes so it pairs with the ING leg. Measured on Dev1 2026-10-14.
+    - { match: 'Direct Credit 123079 Meldina Machado', rail: BANK_TRANSFER }
   cba-netsaver:
     - { match: 'to PayID',             rail: PAYID, shape: false }
     - { match: 'Transfer to xx\d+',    rail: BANK_TRANSFER }
