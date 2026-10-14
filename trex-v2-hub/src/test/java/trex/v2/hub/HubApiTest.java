@@ -52,6 +52,9 @@ class HubApiTest {
 
             assertTrue(get(client, base, "/api/refdata").body().contains("\"ref\":\"ing-savings\""));
             assertTrue(get(client, base, "/api/refdata").body().contains("GROCERIES"));
+            String refdata = get(client, base, "/api/refdata").body();
+            assertTrue(refdata.contains("\"offset\":\"ing-savings\""), refdata);
+            assertTrue(refdata.contains("\"repaymentCommitment\":\"repay\""), refdata);
 
             assertEquals(2, total(client, base, "/api/ledger?category=GROCERIES"));
             assertEquals(2, total(client, base, "/api/ledger?q=coles"));
@@ -135,6 +138,15 @@ class HubApiTest {
             windowDays: 4
             allowlist:
               - 'Transfer'
+            """);
+        Files.writeString(configDir.resolve("mortgages.yaml"), """
+            mortgages:
+              - name: "Test facility"
+                offset: ing-savings
+                loans:
+                  - account: ing-orange
+                    repaymentCommitment: repay
+                    interestCommitment: interest
             """);
     }
 

@@ -23,7 +23,7 @@ public final class ConfigDrift {
     public static final List<String> FILES = List.of(
         "sequencer.yaml", "accounts.yaml", "users.yaml", "categories.yaml", "transfers.yaml",
         "pins.yaml", "firefly.yaml", "statements.yaml", "sources.yaml", "schedule.yaml",
-        "profiles.yaml");
+        "profiles.yaml", "mortgages.yaml");
 
     /** One file's comparison, as served by {@code GET /api/config/drift}. */
     public record Row(String file, String state) {}

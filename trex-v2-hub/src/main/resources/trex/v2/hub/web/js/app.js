@@ -13,18 +13,19 @@ import * as budget from './budget.js';
 import * as eyeball from './eyeball.js';
 import * as rules from './rules.js';
 import * as accounts from './accounts.js';
+import * as mortgage from './mortgage.js';
 import * as cash from './cash.js';
 import * as chains from './chains.js';
 import * as jobs from './jobs.js';
 import * as ingestToast from './ingestToast.js';
 
-const modes = { blotter, review, expected, budget, eyeball, rules, accounts, cash, chains, jobs };
+const modes = { blotter, review, expected, budget, eyeball, rules, accounts, mortgage, cash, chains, jobs };
 
 const ctx = {
   n: 0,
   configRevision: null,
   user: localStorage.getItem('trex.user') || 'ron',
-  refdata: { users: [], accounts: [], categories: [] },
+  refdata: { users: [], accounts: [], categories: [], mortgages: [] },
   onUserChange: () => {},
 };
 

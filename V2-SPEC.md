@@ -427,7 +427,7 @@ unauthenticated and binds loopback by default.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through`, `stale` and `expectedDueThisWeek` (§9.1) |
-| GET | `/api/refdata` | accounts, users, declared categories, revisions |
+| GET | `/api/refdata` | accounts, users, declared categories, **mortgage facilities** (§9.3), revisions |
 | GET | `/api/ledger` | the blotter rows; filters include `role`, `leg`, account, category, dates |
 | GET | `/api/review` | the derived queue (§6.6); filters `kind`, `account` |
 | GET | `/api/dismissals` | effective `DISMISS` reasons (the item itself has left the queue) |
@@ -512,7 +512,7 @@ two budget accounts, which headroom already skips.
 
 ### 9.3 The UI modes
 
-Ten modes; each one's detail lives in the plan that built it.
+Eleven modes; each one's detail lives in the plan that built it.
 
 | Mode | What it is for | Detail |
 |---|---|---|
@@ -523,6 +523,7 @@ Ten modes; each one's detail lives in the plan that built it.
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
+| **Mortgage** | a declared facility: offset liquidity and each loan's balance with its own statement date; per loan the repayment and interest series (count, span, total); principal as a labelled estimate with its residual; the idle offset beyond the loan it shelters | `V2-MORTGAGE-PLAN.md` |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
 | **Cash** | a wallet's rows — transfers in/out, recorded spends/income and counts, newest first; a quick-add form for spend/income/count; the month's unrecorded figure at the top | `V2-CASH-PLAN.md` |
 | **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
@@ -580,6 +581,10 @@ A batch (`plan` / `apply` / `verify`), never a daemon; started from Jobs or the 
 rows (a clearing pair included, carried by its real leg). Never a leg (a transfer and its legs
 double-count), never HELD/REVIEW, PENDING, an ATTESTATION (a $0 transaction forever) or a retired
 fact. Transaction notes and commitments are not projected (Firefly holds money that moved).
+
+**The Mortgage mode (§9.3) has no impact here.** It is a view over existing reads — balances,
+reconciliation and commitment activity — so it changes no unit, no account type and no balance, and
+the repayments and interest it shows are commitments, which are never projected.
 
 **The type comes from the two Firefly account kinds**, not from trex: asset↔asset and
 liability↔liability are `transfer`; asset→liability is `withdrawal`; liability→asset is `deposit`
@@ -666,7 +671,11 @@ to and from the bank are skipped by headroom, §9.2; presentation only), and for
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
 `clearing` account or a declared wallet, §6.3)),
-`firefly.yaml` (account mapping), `sources.yaml` (the declared 8-char sources the sequencer accepts),
+`firefly.yaml` (account mapping), `mortgages.yaml` (optional **view-config**, not a derive input:
+each facility's offset account, the loan it shelters (`offsetAppliesTo` — the declaration the
+idle-offset insight rests on, never inferred from charges), its loans, and per loan the
+repayment/interest commitment ids, with an optional observed rate — §9.3; never hashed into
+`configRevision`), `sources.yaml` (the declared 8-char sources the sequencer accepts),
 `statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker), and an
 optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a
 rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
@@ -681,7 +690,8 @@ compares the three per file — current vs shipped, current vs base, shipped vs 
 `/etc/trex/.backup/` and installs the shipped one; `--adopt FILE` records the live file as the base
 for an `unknown` first run, refused when `.shipped` has no copy of the file (one `up` seeds it).
 The same container script is documented for the host in `docs/DEPLOYMENTS.md`. A sync needs no
-restart.
+restart. `mortgages.yaml` is one of the seeded files, so the drift table and `sync-config` cover it
+like any other; a sync re-seeds the file and a hub restart picks the new mapping up.
 
 ---
 
@@ -798,6 +808,10 @@ Recorded, with the tests that pin them, in `docs/V2-PARITY.md`:
   window, holes are the backlog, and clearing is a decision (V2-MANUAL-ARREARS-PLAN.md) —
   post-proposal, with no v1 counterpart (pinned by `CommitmentsTest`, `CommitmentMatchTest`,
   `DeriveTest`, `IndexerTest` and `CommitmentsApiTest`);
+- the **Mortgage** mode and its `mortgages.yaml` view-config (`V2-MORTGAGE-PLAN.md`) — post-proposal,
+  presentation over existing reads (balances, reconciliation, commitment activity) with no derive or
+  Firefly effect; the offset→loan link is a declaration, and the config is never hashed into
+  `configRevision`;
 - migration (`V2-PROPOSAL.md` §16) is retired — there is no migration, and the importer is a dev tool.
 
 ---
