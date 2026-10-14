@@ -21,11 +21,16 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
      * they move {@code left} like any outflow or inflow, but they are not spending or income. {@code missed} (out-commitments whose window
      * closed with nothing seen) and {@code unpaired} (transfer legs still waiting for their other
      * side) are shown, never folded into {@code left}. {@code through} is the oldest statement
-     * frontier among the budget accounts: the figure knows nothing after it.
+     * frontier among the budget accounts: the figure knows nothing after it. {@code unrecordedCash}
+     * is the month's unrecorded cash (V2-CASH-PLAN.md §4.2, V2-SPEC.md §9.2) over the declared
+     * wallets in the budget — the {@code cash_month} figure, signed: a positive month is spend nobody
+     * recorded, a negative one is cash that appeared unrecorded, and it moves {@code left} like other
+     * spend and income.
      */
     public record Headroom(LocalDate month, long left, long incomeIn, long incomeDue, long committedPaid,
-                           long committedDue, long uncommittedSpend, long movedOut, long movedIn, long missed,
-                           long unpaired, LocalDate through, List<String> accounts) {}
+                           long committedDue, long uncommittedSpend, long unrecordedCash, long movedOut,
+                           long movedIn, long missed, long unpaired, LocalDate through,
+                           List<String> accounts) {}
 
 
     /**
