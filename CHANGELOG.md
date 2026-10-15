@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-15
+
 ### Added
 
 - **Manual commitments and the manual-pay reminder** (`V2-SPEC.md` §5, §6.5, §9.1). A declaration
