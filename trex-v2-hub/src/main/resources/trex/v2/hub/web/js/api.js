@@ -45,8 +45,13 @@ export const api = {
   activity: (id) => request('GET', '/api/commitments/activity?' + new URLSearchParams({ id })),
   expected: (window) => request('GET', '/api/expected'
     + (window ? '?' + new URLSearchParams({ window }) : '')),
-  budget: (month) => request('GET', '/api/budget'
-    + (month ? '?' + new URLSearchParams({ month }) : '')),
+  budget: (month, includePrincipal) => {
+    const params = new URLSearchParams();
+    if (month) params.set('month', month);
+    if (includePrincipal) params.set('principal', 'include');
+    const query = params.toString();
+    return request('GET', '/api/budget' + (query ? '?' + query : ''));
+  },
   projection: () => request('GET', '/api/projection'),
   reconcile: () => request('GET', '/api/reconcile'),
   chains: (account) => request('GET', '/api/chains'

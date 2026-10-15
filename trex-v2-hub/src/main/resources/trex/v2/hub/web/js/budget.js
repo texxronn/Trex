@@ -6,8 +6,9 @@
 // the status line's headroom for the same month, because the hub shares headroom's row-walk (§9.2),
 // not because the view computes anything of its own.
 //
-// The month lives in the URL (#budget?month=YYYY-MM) so a month is linkable and survives a reload.
-// Stepping rewrites it with history.replaceState, never location.hash: a hash assignment fires
+// The month lives in the URL (#budget?month=YYYY-MM&principal=include) so a month — and the
+// operator's "include principal repayments" choice — is linkable and survives a reload. Stepping
+// rewrites it with history.replaceState, never location.hash: a hash assignment fires
 // `hashchange` and the router would remount the mode on every step.
 
 import { api } from './api.js';
@@ -19,6 +20,10 @@ import { date, money } from './format.js';
 // unrecorded cash. They are not posted spending, so the tables mark them muted and the donut keeps
 // them apart from the groups. A move between your own accounts is never here: it rides `moved`.
 const SYNTHETIC = new Set(['Due', 'Unrecorded']);
+
+// The operator's option (V2-BUDGET-VIEW-PLAN.md D-7) turns the month's loan principal repayments
+// into a Money Out slice named this; the hub places it after the groups and before Due.
+const PRINCIPAL = 'Loan principal';
 
 // The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
 // one <circle> per slice with a dash pattern of its arc length, which needs no trigonometry.
@@ -38,6 +43,7 @@ const OTHER_COLOR = '#6b7280';
 let host;
 let ctx;
 let month = null; // the YYYY-MM in the URL; the response's month is the truth once it arrives
+let includePrincipal = false; // the operator's option, also in the URL (D-7)
 let data = null;
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
@@ -49,6 +55,7 @@ export function mount(container, context) {
   host = container;
   ctx = context;
   month = (context.modeQuery && context.modeQuery.get('month')) || null;
+  includePrincipal = Boolean(context.modeQuery && context.modeQuery.get('principal') === 'include');
   buildShell();
   renderSheet();
   load();
@@ -58,7 +65,7 @@ export function mount(container, context) {
 async function load() {
   const generation = ++loadGeneration;
   try {
-    data = await api.budget(month || undefined);
+    data = await api.budget(month || undefined, includePrincipal);
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     month = data.month; // the hub names the month it read, whether or not the URL asked for one
     errorBar.hidden = true;
@@ -173,20 +180,53 @@ function moneyIn() {
 }
 
 /**
- * Money Out, one row per slice: the rolled-up groups and the synthetic Due/Unrecorded. A group row
- * opens into its parts — the trex categories inside it (the read carries them, §4). A move is never
- * a slice: it rides the bridge below, so the donut is real spending only.
+ * Money Out, one row per slice: the rolled-up groups, the Loan principal slice when the operator
+ * asked for it, and the synthetic Due/Unrecorded. A group row opens into its parts — the trex
+ * categories inside it (the read carries them, §4); the principal row opens into the loan accounts
+ * it repaid, rendered as account chips like the move bridge's parts. A move is never a slice: it
+ * rides the bridge below, so the donut is real spending only. The header carries the operator's
+ * "Include principal repayments" option (D-7), hidden when the month has no principal repayment.
  */
 function moneyOut() {
   const rows = [];
   for (const slice of data.spend.slices) {
     const synthetic = SYNTHETIC.has(slice.group);
+    const principal = slice.group === PRINCIPAL;
     rows.push(...expandableRow(synthetic ? 'synthetic' : '', [slice.group], slice.amount,
-      slice.parts || [], false, 'click for the categories inside this group'));
+      slice.parts || [], principal,
+      principal ? 'click for the loan accounts this repaid' : 'click for the categories inside this group'));
   }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.spend.total))));
-  return section('Money Out', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
+  return el('section', { class: 'mode-section' },
+    el('h4', {}, 'Money Out', principalToggle()),
+    scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
+}
+
+/**
+ * The "Include principal repayments" checkbox (V2-BUDGET-VIEW-PLAN.md D-7), in the Money Out header
+ * with the month's principal amount beside it. On, the loan principal repayments are Money Out and
+ * lower `left`; off, they stay a move between the operator's own accounts. The choice lives in the
+ * URL, like the month. Hidden entirely when the month has no principal repayment: there is nothing
+ * to toggle, and an always-off checkbox would only ask a question with one answer.
+ */
+function principalToggle() {
+  const principal = data.principal;
+  if (!principal || !principal.total) return null;
+  return el('label', {
+      class: 'principal-toggle',
+      title: "Count the month's loan principal repayments as Money Out; the status strip never does",
+    },
+    el('input', {
+      type: 'checkbox', checked: includePrincipal,
+      onchange: (event) => {
+        includePrincipal = event.target.checked;
+        writeUrl();
+        load();
+      },
+    }),
+    ` Include principal repayments `,
+    el('span', { class: 'muted' }, money(principal.total)));
 }
 
 /**
@@ -346,8 +386,21 @@ function jump(event) {
 /** Stepping and jumping change one month, rewrite the URL in place, and re-read. */
 function goTo(key) {
   month = key;
-  history.replaceState(null, '', '#budget?month=' + key);
+  writeUrl();
   load();
+}
+
+/**
+ * The month and the principal option both live in the URL query (D-7), so a sheet is linkable and
+ * survives a reload. history.replaceState, never location.hash: a hash assignment fires
+ * `hashchange` and the router would remount the mode on every change.
+ */
+function writeUrl() {
+  const params = new URLSearchParams();
+  if (month) params.set('month', month);
+  if (includePrincipal) params.set('principal', 'include');
+  const query = params.toString();
+  history.replaceState(null, '', '#budget' + (query ? '?' + query : ''));
 }
 
 function currentMonth() {

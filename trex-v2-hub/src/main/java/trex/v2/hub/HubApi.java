@@ -65,8 +65,13 @@ interface HubApi {
      * equals {@code /api/expected}'s {@code headroom.left} for the same month. {@code month} is any
      * {@code YYYY-MM}; null or blank is the hub's current month, and a malformed month is an
      * {@link IllegalArgumentException}. A read of the derived index; nothing is stored.
+     *
+     * <p>{@code includePrincipal} (V2-BUDGET-VIEW-PLAN.md D-7) counts the month's loan principal
+     * repayments as a Money Out slice: then the sheet's {@code left} is lower than headroom's by
+     * exactly the principal, because the status strip never counts it. Off, they stay a move between
+     * the operator's own accounts.
      */
-    BudgetResponse budget(String month);
+    BudgetResponse budget(String month, boolean includePrincipal);
 
     /** The note thread on one id (or every note), oldest first (§6.2 {@code NOTE}). */
     List<trex.v2.hub.api.NoteJson> notes(String externalId);

@@ -629,6 +629,12 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-table .twisty { color: var(--muted); font-size: 10px; }
 .budget-table tr.leaf td { color: var(--muted); }
 .budget-table tr.leaf td:first-child { padding-left: 1.5rem; }
+/* The Money Out header carries the operator's "Include principal repayments" option (D-7): a small
+   inline checkbox with the month's principal amount beside it. */
+.principal-toggle { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.6rem;
+  font-weight: 400; cursor: pointer; }
+.principal-toggle input { margin: 0; }
+.principal-toggle span { font-variant-numeric: tabular-nums; }
 
 /* The donut: twice the old size, but never wider than its column. It carries a viewBox, so the whole
    ring scales, text included. */

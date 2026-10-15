@@ -14,9 +14,15 @@ import java.util.List;
  * can never drift. Every amount is a positive magnitude except {@code left} and a {@link Moved}'s
  * {@code net}, which are signed; {@code month} is the absolute {@code YYYY-MM}, unlike headroom's
  * "the month of {@code asOf"}.
+ *
+ * <p>With the operator's {@code includePrincipal} option (V2-BUDGET-VIEW-PLAN.md D-7) the month's
+ * loan principal repayments become a Money Out slice and reduce {@code left}, so the sheet's
+ * {@code left} is lower than the status strip's {@code headroom.left} by exactly the principal —
+ * the strip never counts it. With the option off they stay what they are: a move between your own
+ * accounts, carried by {@link Moved}.
  */
 public record BudgetResponse(String month, LocalDate through, List<String> accounts,
-                             Income income, Spend spend, Moved moved,
+                             Income income, Spend spend, Moved moved, Principal principal,
                              long missed, long unpaired, long left) {
 
     /**
@@ -40,10 +46,12 @@ public record BudgetResponse(String month, LocalDate through, List<String> accou
      * move.
      *
      * <p>{@code slices} is the posted spend rolled into its primary group (§11.2; an unmapped or
-     * blank category falls back to {@code Expense}), amount descending then name, followed by the
-     * synthetic slices {@code Due} (committed-due, which carries no category) and {@code Unrecorded}
-     * (the unrecorded figure), each only when non-zero. The group slices sum to {@code posted};
-     * every slice sums to {@code total}. A move is never a slice — it lives in {@link Moved}.
+     * blank category falls back to {@code Expense}), amount descending then name, followed — when
+     * the operator asked for them — by the {@code Loan principal} slice (a loan repayment now
+     * counted as Money Out, D-7), then the synthetic slices {@code Due} (committed-due, which
+     * carries no category) and {@code Unrecorded} (the unrecorded figure), each only when non-zero.
+     * The group slices sum to {@code posted}; every slice sums to {@code total} (which includes the
+     * principal only when it is a slice). A move is never a slice — it lives in {@link Moved}.
      */
     public record Spend(long posted, long due, long unrecorded, long total, List<Slice> slices) {}
 
@@ -81,11 +89,24 @@ public record BudgetResponse(String month, LocalDate through, List<String> accou
                         List<Outside> outside) {}
 
     /**
+     * The month's loan principal repayments (V2-BUDGET-VIEW-PLAN.md D-7): the transfers whose paying
+     * leg went to one of the declared loan accounts in {@code mortgages.yaml}. Always present,
+     * whether or not the operator's {@code includePrincipal} option counts them: {@code total} is
+     * their summed magnitude and {@code parts} name the loan accounts, amount descending then name.
+     * With the option off they stay a move between your own accounts — they ride {@link
+     * Moved#outside} and change {@code left} not at all; with it on the {@code Loan principal} slice
+     * carries them and {@code spend.total} and {@code left} include them, so the sheet's {@code left}
+     * is lower than headroom's by exactly {@code total} (the status strip never counts it).
+     */
+    public record Principal(long total, List<Part> parts) {}
+
+    /**
      * One move between two accounts that are <b>both</b> outside the budget
      * (V2-BUDGET-VIEW-PLAN.md D-3): the loan repayments, aggregated over the month by its pair.
      * {@code from} pays {@code to}; {@code amount} is the month's summed magnitude and {@code count}
      * the number of payments behind it. It never enters In/Out/Left, because it never crosses the
-     * budget boundary.
+     * budget boundary. With the principal option on, a repayment to a declared loan account has left
+     * this list for the {@code Loan principal} slice.
      */
     public record Outside(String from, String to, long amount, int count) {}
 }
