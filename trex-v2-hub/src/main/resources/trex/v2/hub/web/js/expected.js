@@ -133,12 +133,59 @@ function occurrences() {
     (data.toPay || []).length
       ? el('span', { class: 'occ-partial' }, ` · ${(data.toPay || []).length} to pay`) : null];
   const body = [manualPayments(), rows.length
-    ? scroll(el('table', {}, el('thead', {}, el('tr', {},
-        el('th', {}, 'Date'), el('th', {}, 'Commitment'), el('th', {}, 'Direction'),
-        el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Status'),
-        el('th', {}, 'Matched'))), el('tbody', {}, ...rows.map(occurrenceRow))))
+    ? occurrencePanels(rows)
     : el('p', { class: 'muted' }, 'Nothing due in this window.')];
   return fold('occurrences', head, body);
+}
+
+/**
+ * The window's occurrences as two panels — IN on the left, OUT on the right — carrying the same
+ * columns. Either side may be empty. The panels are flex siblings, so `align-items: stretch` gives
+ * the shorter one the taller one's height and the pair reads as a single table.
+ */
+function occurrencePanels(rows) {
+  const ins = rows.filter((o) => o.direction === 'in');
+  const outs = rows.filter((o) => o.direction === 'out');
+  return el('div', { class: 'occ-block' },
+    occurrenceTotals(ins, outs),
+    el('div', { class: 'occ-split' },
+      occurrencePanel('in', ins),
+      occurrencePanel('out', outs)));
+}
+
+/**
+ * The window's totals, in a status line above the two panels and aligned to each (IN left, OUT
+ * right): how many, and the summed Amount column. A row's figure is what it carries once a fact
+ * landed, else the commitment's current price — exactly what the row shows — so the line never
+ * disagrees with the panel below it.
+ */
+function occurrenceTotals(ins, outs) {
+  const half = (dir, rows) => el('span', { class: `occ-total occ-total-${dir}` },
+    `${dir.toUpperCase()} `, el('b', {}, String(rows.length)), ' \u00b7 ',
+    el('b', {}, money(rows.reduce((sum, o) => sum + occurrenceAmount(o), 0))));
+  return el('div', { class: 'occ-totals' }, half('in', ins), half('out', outs));
+}
+
+/** The magnitude the Amount column shows for one occurrence: what moved, else the current price. */
+function occurrenceAmount(o) {
+  if (o.amount != null) return Math.abs(o.amount);
+  const current = currentOf(o.commitmentId);
+  return current == null ? 0 : Math.abs(current);
+}
+
+function occurrencePanel(dir, rows) {
+  const body = rows.length
+    ? rows.map(occurrenceRow)
+    : [el('tr', {}, el('td', { colspan: 6, class: 'empty' }, `Nothing ${dir}.`))];
+  return el('section', { class: `occ-panel occ-panel-${dir}` },
+    el('h4', { class: 'occ-panel-head' }, dir.toUpperCase(),
+      el('span', { class: 'muted' }, ` · ${rows.length}`)),
+    scroll(el('table', {},
+      el('thead', {}, el('tr', {},
+        el('th', {}, 'Date'), el('th', {}, 'Commitment'), el('th', {}, 'Direction'),
+        el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Status'),
+        el('th', {}, 'Matched'))),
+      el('tbody', {}, ...body))));
 }
 
 /** Window-independent actions, exactly the rows counted in the status strip (§9.1). */
@@ -323,8 +370,9 @@ function arrearsFor(commitmentId) {
 
 // The registry's controls live in module state so an SSE re-render (which rebuilds the DOM) keeps
 // them, and a filter change re-renders only the list and the header count — typing in the search
-// box never loses focus. All rows show by default; filtering is opt-in (operator, 2026-10-08).
-const filters = { origin: 'all', status: '', direction: '', q: '', sort: 'last' };
+// box never loses focus. The status filter starts on `active`: a live list of what is still running,
+// with dormant and ended rows one click away (operator, 2026-10-15).
+const filters = { origin: 'all', status: 'active', direction: '', q: '', sort: 'last' };
 let registryListHost;
 let registryCountSpan;
 let registryRows = [];

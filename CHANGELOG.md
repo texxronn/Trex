@@ -26,6 +26,11 @@ everything is under **Unreleased**.
 
 ### Changed
 
+- **Expected → Occurrences is split IN | OUT** (`V2-SPEC.md` §9.3). The window's occurrences render
+  as two panels — **IN** left, **OUT** right — with the same columns on both, a totals status line
+  above them (count and summed amount per side), and the shorter panel stretched to the taller one's
+  height; under 720px the panels stack. Either side may be empty. The commitment registry now starts
+  filtered to `active` (dormant and ended rows are one click away).
 - **Cards and loans are Firefly asset accounts** (`V2-SPEC.md` §11.1). `deploy/config/firefly.yaml`
   maps `ing-credit-card`, `bw-credit-card`, `ing-mortgage-simplifier` and `ing-variable-rate` as
   `asset` — each runs a negative balance, so a card purchase stays an expense (correctly categorised)
