@@ -45,6 +45,7 @@ export async function refresh() {
       item('lag', status.lagBytes + ' B', status.lagBytes > 0 ? 'bad' : 'good'),
       item('txn', status.counts.txn_current ?? 0),
       item('transfers', status.counts.transfer ?? 0),
+      manualToPayNudge(status.manualToPay),
       allClear(review, status.through),
       expectedNudge(status.expectedDueThisWeek),
       stale(status.stale),
@@ -55,6 +56,20 @@ export async function refresh() {
   } catch {
     // transient: the next delta retries
   }
+}
+
+/** Manual payments are the only nudge that asks for an action with a deadline (§9.1). */
+function manualToPayNudge(counts) {
+  const upcoming = Number((counts && counts.upcoming) || 0);
+  const overdue = Number((counts && counts.overdue) || 0);
+  const count = upcoming + overdue;
+  if (!count) return el('span');
+  return el('a', {
+    href: '#expected?section=to-pay',
+    class: overdue ? 'bad' : 'warn',
+    title: 'Manual payments due within their reminder window, or unpaid in the last 30 days. '
+      + 'Mark paid once you have paid; the transaction lands with the next statement.',
+  }, `💳 ${count} to pay${overdue ? ` · ${overdue} overdue` : ''}`);
 }
 
 /**

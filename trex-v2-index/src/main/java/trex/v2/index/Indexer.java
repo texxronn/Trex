@@ -980,6 +980,12 @@ public final class Indexer implements AutoCloseable {
                 setNullableLong(ps, i++, c.declaredN());
                 setNullableLong(ps, i++, c.retiredN());
                 ps.setString(i++, date(c.endedAt()));
+                ps.setString(i++, c.payment().wire());
+                if (c.remindDays() == null) {
+                    ps.setNull(i++, java.sql.Types.INTEGER);
+                } else {
+                    ps.setInt(i++, c.remindDays());
+                }
                 ps.setString(i++, c.stateHash());
                 ps.addBatch();
             }

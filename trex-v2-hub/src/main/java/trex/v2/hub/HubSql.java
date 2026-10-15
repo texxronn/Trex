@@ -97,7 +97,8 @@ final class HubSql {
                change_date, occurrence_count, outliers, regularity, variable, arrears_count,
                arrears_amount, declared_n, retired_n, ended_at, candidate_key,
                (SELECT MIN(o.due_date) FROM commitment_occurrence o
-                 WHERE o.commitment_id = commitment.commitment_id AND o.status = 'due') AS next_due
+                 WHERE o.commitment_id = commitment.commitment_id AND o.status = 'due') AS next_due,
+                payment, remind_days
         FROM commitment ORDER BY commitment_id""";
 
     /** The effective rule set (a projection of the latest effective declaration), deterministic. */
@@ -148,7 +149,8 @@ final class HubSql {
     static final String EXPECTED_OCCURRENCES = """
         SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
                o.due_date, o.window_start, o.window_end, o.status, o.amount,
-               o.matched_external_id, o.matched_date, o.matched_by, o.off_schedule, o.settle_n
+               o.matched_external_id, o.matched_date, o.matched_by, o.off_schedule, o.settle_n,
+               c.payment
         FROM commitment_occurrence o
         JOIN commitment c ON c.commitment_id = o.commitment_id
         WHERE o.due_date >= ? AND o.due_date <= ?
@@ -218,6 +220,42 @@ final class HubSql {
         JOIN commitment c ON c.commitment_id = o.commitment_id
         WHERE c.origin = 'declared' AND o.status = 'due'
           AND o.due_date >= ? AND o.due_date <= ?""";
+
+    /** Shared scope for the manual-payment reminder reads (§9.1). */
+    private static final String MANUAL_TO_PAY_SCOPE = "c.origin = 'declared' AND c.retired_n IS NULL "
+        + "AND c.payment = 'manual'";
+
+    /**
+     * Reminder window starts today and includes the commitment's effective lead time. The default
+     * lead time is {@code COALESCE}d so a manual row whose derived {@code remind_days} were ever
+     * NULL still reminds (and its returned {@code remindDays} agrees with the predicate).
+     */
+    private static final String MANUAL_TO_PAY_UPCOMING_PREDICATE = "o.status = 'due' "
+        + "AND o.due_date >= ? AND o.due_date <= date(?, '+' || COALESCE(c.remind_days, 5) || ' days')";
+
+    /** The unpaid occurrence backlog is bounded to the last 30 calendar days. */
+    private static final String MANUAL_TO_PAY_OVERDUE_PREDICATE = "o.status IN ('due', 'missed', 'awaiting') "
+        + "AND o.due_date >= date(?, '-30 days') AND o.due_date < ?";
+
+    static final String MANUAL_TO_PAY_UPCOMING = "SELECT COUNT(*) FROM commitment_occurrence o "
+        + "JOIN commitment c ON c.commitment_id = o.commitment_id WHERE " + MANUAL_TO_PAY_SCOPE
+        + " AND " + MANUAL_TO_PAY_UPCOMING_PREDICATE;
+
+    static final String MANUAL_TO_PAY_OVERDUE = "SELECT COUNT(*) FROM commitment_occurrence o "
+        + "JOIN commitment c ON c.commitment_id = o.commitment_id WHERE " + MANUAL_TO_PAY_SCOPE
+        + " AND " + MANUAL_TO_PAY_OVERDUE_PREDICATE;
+
+    /** The exact occurrences counted above, with bucket and effective reminder lead time. */
+    static final String MANUAL_TO_PAY_ROWS = """
+        SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
+               o.due_date, o.window_start, o.window_end, o.status, o.amount,
+               o.matched_external_id, o.matched_date, o.matched_by, o.off_schedule, o.settle_n,
+               c.payment, COALESCE(c.remind_days, 5) AS remind_days,
+               CASE WHEN o.due_date < ? THEN 'overdue' ELSE 'upcoming' END AS bucket
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE """ + " " + MANUAL_TO_PAY_SCOPE + " AND ((" + MANUAL_TO_PAY_UPCOMING_PREDICATE + ") OR ("
+        + MANUAL_TO_PAY_OVERDUE_PREDICATE + ")) ORDER BY bucket, o.due_date, o.commitment_id";
 
     /** All-time first/last transaction date and the row count, one row per account. */
     static final String ACCOUNT_TOTALS = """

@@ -21,11 +21,16 @@ export const decisions = {
   note: (ctx, id, text) => ({ ...envelope('NOTE', ctx, null), externalId: id, text }),
   attachAccount: (ctx, ids, account, comment) => ({ ...envelope('ATTACH_ACCOUNT', ctx, comment),
     externalIds: ids, account }),
-  declareCommitment: (ctx, fields) => ({ ...envelope('DECLARE_COMMITMENT', ctx, fields.comment),
-    commitmentId: fields.commitmentId, name: fields.name, direction: fields.direction,
-    cadence: fields.cadence, amountKind: fields.amountKind, kind: fields.kind,
-    matches: fields.matches, amount: fields.amount, anchor: fields.anchor,
-    fromCandidate: fields.fromCandidate }),
+  declareCommitment: (ctx, fields) => {
+    const payment = fields.payment || 'auto';
+    return { ...envelope('DECLARE_COMMITMENT', ctx, fields.comment),
+      commitmentId: fields.commitmentId, name: fields.name, direction: fields.direction,
+      cadence: fields.cadence, amountKind: fields.amountKind, kind: fields.kind,
+      matches: fields.matches, amount: fields.amount, anchor: fields.anchor,
+      fromCandidate: fields.fromCandidate, payment,
+      ...(payment === 'manual' && fields.remindDays != null ? { remindDays: fields.remindDays } : {}),
+    };
+  },
   retireCommitment: (ctx, commitmentId, endedAt, reason) => ({
     ...envelope('RETIRE_COMMITMENT', ctx, null), commitmentId, endedAt, reason }),
   ignoreRecurring: (ctx, candidate, reason) => ({

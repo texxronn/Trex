@@ -379,6 +379,8 @@ tbody tr.noop:hover td { opacity: .8; }
 .x-section .x-body { margin-top: 0.4rem; }
 .x-section .section-actions { margin-bottom: 0.5rem; }
 .x-section .series { font-size: 11px; margin-top: 0.15rem; }
+.manual-payments { scroll-margin-top: 6rem; }
+.manual-pay-marker { white-space: nowrap; }
 .bucket { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
 
@@ -422,6 +424,7 @@ tbody tr.noop:hover td { opacity: .8; }
 .dialog .field[hidden] { display: none; }
 .dialog .field select { flex: 1 1 auto; max-width: 60%; }
 .dialog .field input { flex: 1 1 auto; max-width: 60%; }
+.dialog .field input[type="checkbox"] { flex: 0 0 auto; width: 1rem; height: 1rem; min-height: 0; }
 .dialog .field textarea { flex: 1 1 auto; max-width: 60%; min-height: 5.5rem; font-size: 12px; }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 /* A confirm's warning line (openConfirm): the consequence, in the caution colour. */

@@ -77,6 +77,16 @@ final class IndexSchema {
                 st.execute("ALTER TABLE commitment ADD COLUMN outliers INTEGER NOT NULL DEFAULT 0");
                 clearDerivedMeta(st);
             }
+            // Payment curation is a derived commitment field. Add compatible defaults, then force a
+            // derive so the disposable table is populated from the decision log.
+            if (hasTable(st, "commitment") && !hasColumn(st, "commitment", "payment")) {
+                st.execute("ALTER TABLE commitment ADD COLUMN payment TEXT NOT NULL DEFAULT 'auto'");
+                clearDerivedMeta(st);
+            }
+            if (hasTable(st, "commitment") && !hasColumn(st, "commitment", "remind_days")) {
+                st.execute("ALTER TABLE commitment ADD COLUMN remind_days INTEGER");
+                clearDerivedMeta(st);
+            }
         }
     }
 

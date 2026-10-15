@@ -11,6 +11,7 @@ import trex.v2.core.Fact;
 import trex.v2.core.IngestEvent;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
+import trex.v2.core.Payment;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
 import trex.v2.core.derive.AmountKind;
@@ -179,6 +180,12 @@ public final class LogCodec {
                 putNullable(o, "anchor", dc.anchor() == null ? null : dc.anchor().toString());
                 putNullable(o, "fromCandidate", dc.fromCandidate());
                 putNullable(o, "comment", dc.comment());
+                if (dc.payment() != Payment.AUTO) {
+                    o.put("payment", dc.payment().wire());
+                }
+                if (dc.remindDays() != null) {
+                    o.put("remindDays", dc.remindDays());
+                }
             }
             case Decision.RetireCommitment rc -> {
                 o.put("commitmentId", rc.commitmentId());
@@ -317,7 +324,9 @@ public final class LogCodec {
                 AmountKind.fromWire(text(n, "amountKind")),
                 CommitmentKind.fromWire(text(n, "commitmentKind")),
                 matchList(n, "matches"), optLong(n, "amount"), optDate(n, "anchor"),
-                opt(n, "fromCandidate"), opt(n, "comment"), actor, user);
+                opt(n, "fromCandidate"), opt(n, "comment"), actor, user,
+                n.hasNonNull("payment") ? Payment.fromWire(text(n, "payment")) : Payment.AUTO,
+                optInt(n, "remindDays"));
             case RETIRE_COMMITMENT -> new Decision.RetireCommitment(e, text(n, "commitmentId"),
                 LocalDate.parse(text(n, "endedAt")), text(n, "reason"), actor, user);
             case IGNORE_RECURRING -> new Decision.IgnoreRecurring(e, text(n, "candidate"),

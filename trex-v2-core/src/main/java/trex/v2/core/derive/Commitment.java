@@ -1,6 +1,7 @@
 package trex.v2.core.derive;
 
 import trex.v2.core.Hashes;
+import trex.v2.core.Payment;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -63,16 +64,46 @@ public record Commitment(
     Long arrearsAmount,
     Long declaredN,
     Long retiredN,
-    LocalDate endedAt) {
+    LocalDate endedAt,
+    Payment payment,
+    Integer remindDays) {
 
     public static final String OUT = "out";
     public static final String IN = "in";
 
     public Commitment {
         steps = steps == null ? List.of() : List.copyOf(steps);
+        payment = payment == null ? Payment.AUTO : payment;
+        if (remindDays == null && payment == Payment.MANUAL) {
+            remindDays = 5;
+        }
+        if (remindDays != null && (remindDays < 1 || remindDays > 60)) {
+            throw new IllegalArgumentException("remindDays must be between 1 and 60");
+        }
+        if (remindDays != null && payment != Payment.MANUAL) {
+            throw new IllegalArgumentException("remindDays is only valid for manual payments");
+        }
+        if (payment == Payment.MANUAL && cadence == Cadence.IRREGULAR) {
+            throw new IllegalArgumentException(
+                "a manual payment needs due dates; an irregular commitment generates none");
+        }
         if (!OUT.equals(direction) && !IN.equals(direction)) {
             throw new IllegalArgumentException("direction must be 'in' or 'out', not '" + direction + "'");
         }
+    }
+
+    /** Existing candidate and declaration call shape: automatic, with no lead time. */
+    public Commitment(String commitmentId, String candidateKey, String name, CommitmentOrigin origin,
+                      String direction, Cadence cadence, AmountKind amountKind, CommitmentKind kind,
+                      CommitmentStatus status, LocalDate firstDate, LocalDate lastDate, LocalDate anchorDate,
+                      Long currentAmount, Long previousAmount, Double changePct, LocalDate changeDate,
+                      List<PriceStep> steps, Long costToDate, Long annualised, int occurrenceCount,
+                      int outliers, Double regularity, boolean variable, int arrearsCount, Long arrearsAmount,
+                      Long declaredN, Long retiredN, LocalDate endedAt) {
+        this(commitmentId, candidateKey, name, origin, direction, cadence, amountKind, kind, status,
+            firstDate, lastDate, anchorDate, currentAmount, previousAmount, changePct, changeDate, steps,
+            costToDate, annualised, occurrenceCount, outliers, regularity, variable, arrearsCount,
+            arrearsAmount, declaredN, retiredN, endedAt, Payment.AUTO, null);
     }
 
     /** True when the commitment is an outflow; the sign of its facts. */
@@ -122,7 +153,9 @@ public record Commitment(
             .append(arrearsAmount).append('|')
             .append(declaredN).append('|')
             .append(retiredN).append('|')
-            .append(endedAt).append('|');
+            .append(endedAt).append('|')
+            .append(payment.wire()).append('|')
+            .append(remindDays).append('|');
         for (PriceStep step : steps) {
             canonical.append(step.date()).append(':').append(step.amount()).append(':')
                 .append(step.previousAmount()).append(':').append(step.changePct()).append(';');

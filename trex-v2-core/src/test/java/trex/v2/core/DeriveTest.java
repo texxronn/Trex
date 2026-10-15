@@ -40,6 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -715,6 +717,41 @@ class DeriveTest {
         assertTrue(occurrences(d, "plan").stream()
             .filter(o -> o.matchedExternalId() != null)
             .allMatch(o -> o.matchedExternalId().startsWith("other-")));
+    }
+
+    @Test
+    void paymentIsCuratedReplacedAndRestoredByRevoke() {
+        List<Fact> facts = acmeFacts();
+        Decision.DeclareCommitment automatic = declare(10, "acme", "Acme", "out", 10000,
+            LocalDate.of(2026, 1, 15), "ACME");
+        Decision.DeclareCommitment manual = new Decision.DeclareCommitment(11, "acme", "Acme", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            List.of(new Decision.Match("ACME", null)), 10000L, LocalDate.of(2026, 1, 15), null, null,
+            Actor.USER, "ron", Payment.MANUAL, 12, ASOF);
+
+        Commitment auto = commitment(Derive.derive(facts, List.of(automatic), config(), ASOF), "acme");
+        Commitment manuallyPaid = commitment(Derive.derive(facts, List.of(automatic, manual), config(), ASOF),
+            "acme");
+        assertEquals(Payment.AUTO, auto.payment());
+        assertNull(auto.remindDays());
+        assertEquals(Payment.MANUAL, manuallyPaid.payment());
+        assertEquals(12, manuallyPaid.remindDays());
+        assertNotEquals(auto.stateHash(), manuallyPaid.stateHash());
+
+        Decision.Revoke revoke = new Decision.Revoke(12, 11, null, Actor.USER, "ron", ASOF);
+        Commitment restored = commitment(Derive.derive(facts, List.of(automatic, manual, revoke), config(), ASOF),
+            "acme");
+        assertEquals(Payment.AUTO, restored.payment());
+        assertNull(restored.remindDays());
+
+        Decision.DeclareCommitment noLeadTime = new Decision.DeclareCommitment(13, "acme", "Acme", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.BILL,
+            List.of(new Decision.Match("ACME", null)), 10000L, LocalDate.of(2026, 1, 15), null, null,
+            Actor.USER, "ron", Payment.MANUAL, null, ASOF);
+        Commitment defaultReminder = commitment(Derive.derive(facts, List.of(noLeadTime), config(), ASOF), "acme");
+        assertEquals(5, defaultReminder.remindDays());
+        assertNotEquals(defaultReminder.stateHash(), manuallyPaid.stateHash(),
+            "the lead time is part of the commitment state hash");
     }
 
     @Test

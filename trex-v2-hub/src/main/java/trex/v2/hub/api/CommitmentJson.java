@@ -23,7 +23,8 @@ public record CommitmentJson(String commitmentId, String name, String stem, Stri
                              LocalDate changeDate, int occurrenceCount, int outliers,
                              Double regularity, boolean variable, int arrearsCount, Long arrearsAmount,
                              Long declaredN, Long retiredN, LocalDate endedAt,
-                             List<RuleJson> rules, LocalDate nextDue, List<NoteJson> notes) {
+                              List<RuleJson> rules, LocalDate nextDue, List<NoteJson> notes,
+                              String payment, Integer remindDays) {
 
     /** One rule of the effective declaration: a regex, optionally scoped to one account ref. */
     public record RuleJson(String match, String account) {}

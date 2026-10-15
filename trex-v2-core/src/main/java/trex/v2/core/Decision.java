@@ -408,7 +408,8 @@ public sealed interface Decision extends LogLine
     record DeclareCommitment(Envelope envelope, String commitmentId, String name, String direction,
                              Cadence cadence, AmountKind amountKind, CommitmentKind commitmentKind,
                              List<Match> matches, Long amount, LocalDate anchor, String fromCandidate,
-                             String comment, Actor actor, String user) implements Decision {
+                             String comment, Actor actor, String user, Payment payment,
+                             Integer remindDays) implements Decision {
         public DeclareCommitment {
             Envelope.require(envelope);
             require(commitmentId, "commitmentId");
@@ -424,6 +425,26 @@ public sealed interface Decision extends LogLine
             matches = List.copyOf(matches);
             require(!matches.isEmpty(), "matches must not be empty");
             require(actor, "actor");
+            payment = payment == null ? Payment.AUTO : payment;
+            if (remindDays != null && (remindDays < 1 || remindDays > 60)) {
+                throw new IllegalArgumentException("remindDays must be between 1 and 60");
+            }
+            if (remindDays != null && payment != Payment.MANUAL) {
+                throw new IllegalArgumentException("remindDays is only valid for manual payments");
+            }
+            if (payment == Payment.MANUAL && cadence == Cadence.IRREGULAR) {
+                throw new IllegalArgumentException(
+                    "a manual payment needs due dates; an irregular commitment generates none");
+            }
+        }
+
+        /** Existing call shape defaults to automatic payment with no reminder lead time. */
+        public DeclareCommitment(Envelope envelope, String commitmentId, String name, String direction,
+                                 Cadence cadence, AmountKind amountKind, CommitmentKind commitmentKind,
+                                 List<Match> matches, Long amount, LocalDate anchor, String fromCandidate,
+                                 String comment, Actor actor, String user) {
+            this(envelope, commitmentId, name, direction, cadence, amountKind, commitmentKind,
+                matches, amount, anchor, fromCandidate, comment, actor, user, Payment.AUTO, null);
         }
 
         public DeclareCommitment(long n, String commitmentId, String name, String direction,
@@ -432,6 +453,16 @@ public sealed interface Decision extends LogLine
                                  String comment, Actor actor, String user, Instant at) {
             this(Envelope.stamped(n, KIND, at), commitmentId, name, direction, cadence, amountKind,
                 commitmentKind, matches, amount, anchor, fromCandidate, comment, actor, user);
+        }
+
+        public DeclareCommitment(long n, String commitmentId, String name, String direction,
+                                 Cadence cadence, AmountKind amountKind, CommitmentKind commitmentKind,
+                                 List<Match> matches, Long amount, LocalDate anchor, String fromCandidate,
+                                 String comment, Actor actor, String user, Payment payment,
+                                 Integer remindDays, Instant at) {
+            this(Envelope.stamped(n, KIND, at), commitmentId, name, direction, cadence, amountKind,
+                commitmentKind, matches, amount, anchor, fromCandidate, comment, actor, user,
+                payment, remindDays);
         }
 
         @Override

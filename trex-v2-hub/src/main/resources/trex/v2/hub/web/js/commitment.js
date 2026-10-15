@@ -54,6 +54,11 @@ export function openDeclare(ctx, prefill, onDone) {
   const rulesInput = el('textarea', { rows: '3',
     placeholder: 'one regex per line; append "@ account" to scope it' }, formatRules(p.matches));
   const commentInput = el('input', { type: 'text', value: p.comment || '' });
+  const manualInput = el('input', { type: 'checkbox', checked: p.payment === 'manual' });
+  const manualRow = row('Paid manually', manualInput);
+  const remindInput = el('input', { type: 'number', min: '1', max: '60', step: '1',
+    value: p.remindDays == null ? '5' : String(p.remindDays) });
+  const remindRow = row('Remind N days before', remindInput);
   const dialog = el('div', { class: 'dialog wide', role: 'dialog', 'aria-label': 'Commitment' },
     el('h3', {}, p.idLocked ? 'Re-declare commitment' : 'Declare commitment'),
     p.summary ? el('p', { class: 'muted' }, p.summary) : null,
@@ -67,6 +72,8 @@ export function openDeclare(ctx, prefill, onDone) {
     anchorRow,
     retireRow,
     row('Rules', rulesInput),
+    manualRow,
+    remindRow,
     row('Comment', commentInput),
     el('div', { class: 'actions' },
       el('button', { type: 'button', onclick: close }, 'Cancel'),
@@ -86,16 +93,23 @@ export function openDeclare(ctx, prefill, onDone) {
     }
   });
 
-  // An irregular commitment predicts nothing, so it carries no anchor (§2.1, §2.5).
-  cadenceSelect.addEventListener('change', syncAnchor);
-  syncAnchor();
+  // An irregular commitment predicts nothing, so it carries no anchor (§2.1, §2.5); and because it
+  // generates no due dates there is nothing to remind before, so a manual payment is not offered
+  // (§5). Both are driven off the cadence.
+  cadenceSelect.addEventListener('change', syncCadence);
+  syncCadence();
+  manualInput.addEventListener('change', syncCadence);
 
-  function syncAnchor() {
+  function syncCadence() {
     const isRegular = cadenceSelect.value !== 'irregular';
     anchorRow.hidden = !isRegular;
     if (isRegular && !anchorInput.value) {
       anchorInput.value = todayIso();
     }
+    manualRow.hidden = !isRegular;
+    if (!isRegular) manualInput.checked = false;
+    remindRow.hidden = !isRegular || !manualInput.checked;
+    if (manualInput.checked && !remindInput.value) remindInput.value = '5';
   }
 
   function close() {
@@ -138,11 +152,21 @@ export function openDeclare(ctx, prefill, onDone) {
       toast('An end date is required', 'bad');
       return;
     }
+    // An irregular commitment generates no due dates, so it is never manual (§5) — the control is
+    // hidden for it; this guard keeps a re-declare of a stale form from sending the pair anyway.
+    const manually = cadence !== 'irregular' && manualInput.checked;
+    const payment = manually ? 'manual' : 'auto';
+    const remindDays = manually ? Number(remindInput.value) : null;
+    if (manually && (!Number.isInteger(remindDays) || remindDays < 1 || remindDays > 60)) {
+      toast('Reminder must be a whole number from 1 to 60 days', 'bad');
+      return;
+    }
     close();
     try {
       const batch = [decisions.declareCommitment(ctx, {
         commitmentId, name, direction: directionSelect.value, cadence,
         amountKind: amountKindSelect.value, kind: kindSelect.value, matches, amount, anchor,
+        payment, remindDays,
         fromCandidate: p.fromCandidate || null, comment: commentInput.value.trim() || null,
       })];
       if (p.retireAt) {
@@ -503,6 +527,8 @@ function reDeclarePrefill(c) {
     amount: c.currentAmount == null ? null : Math.abs(c.currentAmount),
     anchor: c.anchorDate || '',
     matches: c.rules || [],
+    payment: c.payment || 'auto',
+    remindDays: c.remindDays == null ? 5 : c.remindDays,
     fromCandidate: null,
     idLocked: true,
   };

@@ -7,6 +7,7 @@ import trex.v2.core.Decision;
 import trex.v2.core.Fact;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
+import trex.v2.core.Payment;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
 import trex.v2.core.config.DeriveConfig;
@@ -446,7 +447,8 @@ class IndexerTest {
                 fact(2, "acme-2", "ing-savings", LocalDate.of(2026, 9, 15), -10000, "ACME BILL"),
                 new Decision.DeclareCommitment(3, "acme", "Acme", "out", Cadence.MONTHLY,
                     AmountKind.FIXED, CommitmentKind.BILL, List.of(new Decision.Match("ACME", null)),
-                    10000L, LocalDate.of(2026, 8, 15), null, null, Actor.USER, "ron", ASOF),
+                    10000L, LocalDate.of(2026, 8, 15), null, null, Actor.USER, "ron",
+                    Payment.MANUAL, 10, ASOF),
                 new Decision.NoteCommitment(4, "acme", "check the price", Actor.USER, "ron", ASOF)));
         }
         try (Indexer indexer = Indexer.open(db, config())) {
@@ -458,6 +460,8 @@ class IndexerTest {
             assertEquals(1L, indexer.counts().get("commitment"));
             assertEquals("declared", string(db, "SELECT origin FROM commitment WHERE commitment_id='acme'"));
             assertEquals("monthly", string(db, "SELECT cadence FROM commitment WHERE commitment_id='acme'"));
+            assertEquals("manual", string(db, "SELECT payment FROM commitment WHERE commitment_id='acme'"));
+            assertEquals("10", string(db, "SELECT remind_days FROM commitment WHERE commitment_id='acme'"));
             assertEquals("ACME", string(db, "SELECT match FROM commitment_rule WHERE commitment_id='acme'"));
             assertEquals("check the price",
                 string(db, "SELECT text FROM commitment_note WHERE commitment_id='acme'"));
@@ -470,6 +474,8 @@ class IndexerTest {
             assertEquals(incremental, indexer.derivedFingerprint());
             assertEquals(1, count(db, "commitment"));
             assertEquals(1, count(db, "commitment_note"));
+            assertEquals("manual", string(db, "SELECT payment FROM commitment WHERE commitment_id='acme'"));
+            assertEquals("10", string(db, "SELECT remind_days FROM commitment WHERE commitment_id='acme'"));
         }
     }
 

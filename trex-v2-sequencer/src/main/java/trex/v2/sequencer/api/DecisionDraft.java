@@ -11,6 +11,7 @@ import java.util.List;
  *
  * <p>The commitment actions (V2-COMMITMENTS-PLAN.md §2.6) reuse the flat shape: a declaration
  * carries {@code commitmentId}, {@code name}, the faces, {@code matches} and its optional fields;
+ * manual-payment declarations additionally carry {@code payment} and {@code remindDays};
  * {@code PIN_COMMITMENT}/{@code UNPIN_COMMITMENT} and
  * {@code EXCLUDE_COMMITMENT}/{@code INCLUDE_COMMITMENT} reuse {@code externalIds},
  * {@code NOTE_COMMITMENT} reuses {@code text}, and {@code SETTLE_OCCURRENCE} reuses
@@ -68,7 +69,10 @@ public record DecisionDraft(
     // IGNORE_RECURRING
     String candidate,
     // SETTLE_OCCURRENCE
-    List<LocalDate> dueDates
+    List<LocalDate> dueDates,
+    // DECLARE_COMMITMENT
+    String payment,
+    Integer remindDays
 ) {
 
     /** One {@code DECLARE_COMMITMENT} match rule; {@code account} is optional. */
@@ -86,6 +90,23 @@ public record DecisionDraft(
         this(action, actor, user, at, comment, legA, legB, externalId, pendingId, postedId, item,
             externalIds, category, fromId, toId, reason, target, configRevision, deriveVersion,
             hashVersion, stateHash, text, account, null, null, null, null, null, null, null, null,
-            null, null, null, null, null);
+            null, null, null, null, null, null, null);
+    }
+
+    /** Previous full action shape, retained for callers that do not set manual-payment fields. */
+    public DecisionDraft(String action, String actor, String user, Instant at, String comment,
+                         String legA, String legB, String externalId, String pendingId, String postedId,
+                         String item, List<String> externalIds, String category, String fromId, String toId,
+                         String reason, Long target, String configRevision, String deriveVersion,
+                         String hashVersion, String stateHash, String text, String account,
+                         String commitmentId, String name, String direction, String cadence,
+                         String amountKind, String kind, List<MatchDraft> matches, Long amount,
+                         LocalDate anchor, String fromCandidate, LocalDate endedAt, String candidate,
+                         List<LocalDate> dueDates) {
+        this(action, actor, user, at, comment, legA, legB, externalId, pendingId, postedId, item,
+            externalIds, category, fromId, toId, reason, target, configRevision, deriveVersion,
+            hashVersion, stateHash, text, account, commitmentId, name, direction, cadence,
+            amountKind, kind, matches, amount, anchor, fromCandidate, endedAt, candidate, dueDates,
+            null, null);
     }
 }

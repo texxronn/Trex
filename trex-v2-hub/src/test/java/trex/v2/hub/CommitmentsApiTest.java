@@ -20,6 +20,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -309,6 +312,162 @@ class CommitmentsApiTest {
             assertTrue(dueThisWeek >= 1, "the weekly Netflix anchor is due this week");
             assertEquals(dueThisWeek, statusBody.get("expectedDueThisWeek").asInt(),
                 statusBody.toPrettyString());
+        }
+    }
+
+    @Test
+    void manualToPayRowsMatchStatusCountsAndUseInclusiveWindows(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now();
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        Files.createFile(journal);
+        Path index = dir.resolve("trex.sqlite");
+
+        try (HubService hub = HubService.start(new HubConfig(journal, index, configDir,
+                "127.0.0.1", 0, 50))) {
+            // Wait for the asynchronous initial materialisation before changing the disposable test
+            // projection below.
+            await(() -> indexedAsOf(index));
+            // Seed the disposable read model to exercise every status/boundary predicate directly.
+            // These rows are not log data; the hub's test index is thrown away with the temp dir.
+            try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + index)) {
+                insertManualFixtures(connection, today);
+            }
+
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+            JsonNode status = json(get(client, base, "/api/status"));
+            JsonNode counts = status.get("manualToPay");
+            assertEquals(3, counts.get("upcoming").asInt());
+            assertEquals(4, counts.get("overdue").asInt());
+            assertEquals(today.toString(), status.get("today").asText(),
+                "the hub publishes its own day so the UI never guesses");
+
+            for (String window : List.of("today", "week", "month")) {
+                JsonNode expected = json(get(client, base,
+                    "/api/expected?window=" + window + "&asOf=" + today));
+                JsonNode toPay = expected.get("toPay");
+                long upcoming = 0;
+                long overdue = 0;
+                boolean todayIsInclusive = false;
+                boolean yesterdayIsNotUpcoming = true;
+                boolean sawUpcoming = false;
+                for (JsonNode row : toPay) {
+                    String bucket = row.get("bucket").asText();
+                    LocalDate due = LocalDate.parse(row.get("dueDate").asText());
+                    if ("upcoming".equals(bucket)) {
+                        sawUpcoming = true;
+                        upcoming++;
+                        todayIsInclusive |= due.equals(today);
+                        yesterdayIsNotUpcoming &= !due.equals(today.minusDays(1));
+                    } else {
+                        assertFalse(sawUpcoming, "overdue rows precede upcoming rows");
+                        overdue++;
+                    }
+                    assertEquals("manual", row.get("payment").asText());
+                    assertTrue(row.get("remindDays").asInt() >= 1);
+                }
+                assertEquals(3, upcoming, window);
+                assertEquals(4, overdue, window);
+                assertEquals(counts.get("upcoming").asLong(), upcoming, window);
+                assertEquals(counts.get("overdue").asLong(), overdue, window);
+                assertTrue(todayIsInclusive, "today is included in the upcoming lower bound");
+                assertTrue(yesterdayIsNotUpcoming, "the day before today is never upcoming");
+                JsonNode manualInRegistry = find(json(get(client, base, "/api/commitments")),
+                    "commitmentId", "manual-today");
+                assertEquals("manual", manualInRegistry.get("payment").asText());
+                assertEquals(5, manualInRegistry.get("remindDays").asInt(),
+                    "the registry must return the effective value needed to preserve an edit");
+                JsonNode todayOccurrence = null;
+                for (JsonNode occurrence : expected.get("occurrences")) {
+                    if ("manual-today".equals(occurrence.get("commitmentId").asText())
+                        && today.toString().equals(occurrence.get("dueDate").asText())) {
+                        todayOccurrence = occurrence;
+                    }
+                }
+                assertNotNull(todayOccurrence);
+                assertEquals("manual", todayOccurrence.get("payment").asText());
+            }
+
+            JsonNode toPay = json(get(client, base, "/api/expected?window=month&asOf=" + today))
+                .get("toPay");
+            assertNotNull(find(toPay, "commitmentId", "manual-upper-bound"));
+            JsonNode nullLead = find(toPay, "commitmentId", "manual-null-lead");
+            assertNotNull(nullLead, "a manual row with a NULL stored lead time still reminds");
+            assertEquals(5, nullLead.get("remindDays").asInt(),
+                "the effective default surfaces, never NULL or 0");
+            assertTrue(find(toPay, "commitmentId", "manual-outside-lead") == null);
+            assertNotNull(find(toPay, "commitmentId", "manual-overdue-30"));
+            assertTrue(find(toPay, "commitmentId", "manual-overdue-31") == null);
+            assertNotNull(find(toPay, "commitmentId", "manual-awaiting"));
+            assertNotNull(find(toPay, "commitmentId", "manual-missed"));
+            assertTrue(find(toPay, "commitmentId", "manual-occurred") == null);
+            assertTrue(find(toPay, "commitmentId", "manual-settled") == null);
+            assertTrue(find(toPay, "commitmentId", "auto-due") == null);
+            assertTrue(find(toPay, "commitmentId", "retired-manual") == null);
+        }
+    }
+
+    private static void insertManualFixtures(Connection connection, LocalDate today) throws Exception {
+        String commitmentSql = "INSERT INTO commitment (commitment_id, name, origin, direction, cadence, "
+            + "amount_kind, kind, status, occurrence_count, variable, arrears_count, retired_n, payment, remind_days) "
+            + "VALUES (?, ?, 'declared', 'out', 'monthly', 'fixed', 'bill', 'active', 1, 0, 0, ?, ?, ?)";
+        String occurrenceSql = "INSERT INTO commitment_occurrence (commitment_id, due_date, status, "
+            + "window_start, window_end, off_schedule, amount) VALUES (?, ?, ?, ?, ?, 0, NULL)";
+        List<ManualFixture> fixtures = List.of(
+            new ManualFixture("manual-today", today, "due", false, "manual", 5),
+            new ManualFixture("manual-upper-bound", today.plusDays(5), "due", false, "manual", 5),
+            new ManualFixture("manual-null-lead", today.plusDays(3), "due", false, "manual", null),
+            new ManualFixture("manual-outside-lead", today.plusDays(6), "due", false, "manual", 5),
+            new ManualFixture("manual-yesterday", today.minusDays(1), "due", false, "manual", 5),
+            new ManualFixture("manual-overdue-30", today.minusDays(30), "missed", false, "manual", 5),
+            new ManualFixture("manual-overdue-31", today.minusDays(31), "missed", false, "manual", 5),
+            new ManualFixture("manual-awaiting", today.minusDays(10), "awaiting", false, "manual", 5),
+            new ManualFixture("manual-missed", today.minusDays(5), "missed", false, "manual", 5),
+            new ManualFixture("manual-occurred", today.minusDays(2), "occurred", false, "manual", 5),
+            new ManualFixture("manual-settled", today.minusDays(2), "settled", false, "manual", 5),
+            new ManualFixture("auto-due", today, "due", false, "auto", null),
+            new ManualFixture("retired-manual", today, "due", true, "manual", 5));
+        try (PreparedStatement commitment = connection.prepareStatement(commitmentSql);
+             PreparedStatement occurrence = connection.prepareStatement(occurrenceSql)) {
+            for (ManualFixture fixture : fixtures) {
+                commitment.setString(1, fixture.id());
+                commitment.setString(2, fixture.id());
+                if (fixture.retired()) {
+                    commitment.setLong(3, 999);
+                } else {
+                    commitment.setNull(3, java.sql.Types.INTEGER);
+                }
+                commitment.setString(4, fixture.payment());
+                if (fixture.remindDays() == null) {
+                    commitment.setNull(5, java.sql.Types.INTEGER);
+                } else {
+                    commitment.setInt(5, fixture.remindDays());
+                }
+                commitment.executeUpdate();
+
+                occurrence.setString(1, fixture.id());
+                occurrence.setString(2, fixture.due().toString());
+                occurrence.setString(3, fixture.status());
+                occurrence.setString(4, fixture.due().minusDays(2).toString());
+                occurrence.setString(5, fixture.due().plusDays(2).toString());
+                occurrence.executeUpdate();
+            }
+        }
+    }
+
+    private record ManualFixture(String id, LocalDate due, String status, boolean retired,
+                                 String payment, Integer remindDays) {}
+
+    private static boolean indexedAsOf(Path index) {
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + index);
+             PreparedStatement statement = connection.prepareStatement(
+                 "SELECT value FROM meta WHERE key = 'as_of'");
+             var result = statement.executeQuery()) {
+            return result.next() && result.getString(1) != null;
+        } catch (Exception e) {
+            return false;
         }
     }
 

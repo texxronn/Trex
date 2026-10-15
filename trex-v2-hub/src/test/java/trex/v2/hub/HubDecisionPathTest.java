@@ -86,6 +86,17 @@ class HubDecisionPathTest {
                 List.of("ghost"));
             assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n).add(dismissGhost).json())
                 .statusCode());
+
+            // The manual-payment fields are prechecked (V2-SPEC.md §5): a bad value is a named 422
+            // here, never a 200 with a Rejected row from the writer.
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declarePayment("nbn", "monthly", "sometimes", null)).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declarePayment("nbn", "monthly", "manual", 90)).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declarePayment("nbn", "monthly", "auto", 5)).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declarePayment("nbn", "irregular", "manual", 5)).json()).statusCode());
         }
 
         try (HubService readOnly = HubService.start(new HubConfig(journal, index, configDir, "127.0.0.1", 0, 50))) {
@@ -353,6 +364,16 @@ class HubDecisionPathTest {
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             commitmentId, "Netflix", "out", cadence, "fixed", "subscription", matches, null, null,
             null, null, null, null);
+    }
+
+    /** A declaration carrying the manual-payment fields, to exercise the hub's precheck. */
+    private static DecisionDraft declarePayment(String commitmentId, String cadence, String payment,
+                                                Integer remindDays) {
+        return new DecisionDraft("DECLARE_COMMITMENT", "user", "ron", AT, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, commitmentId, "Netflix", "out", cadence, "fixed",
+            "subscription", List.of(match("NETFLIX")), null, null, null, null, null, null,
+            payment, remindDays);
     }
 
     private static DecisionDraft settle(String commitmentId, List<LocalDate> dueDates) {
