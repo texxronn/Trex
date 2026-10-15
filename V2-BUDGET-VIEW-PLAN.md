@@ -83,13 +83,20 @@ One new endpoint, `GET /api/budget?month=YYYY-MM` (default: the hub's current mo
 
 ```
 { month, through, accounts[],
-  income: { posted, due, movedIn,
-            lines: [ { category, group, amount } ] },
+  income: { posted, due, movedIn, total,
+            lines: [ { category, amount } ] },
   spend:  { posted, due, unrecorded, movedOut, total,
-            groups: [ { group, amount } ] },
+            slices: [ { group, amount } ] },
   outside: [ { from, to, amount } ],
   missed, unpaired, left }
 ```
+
+- `income.lines` is the **posted** income per category; `due` and `movedIn` are fields, shown by the
+  view as their own rows.
+- `spend.slices` is the posted spend rolled into its primary group, then the synthetic `Due`
+  (committed-due), `Saved` (`movedOut`) and `Unrecorded` slices, each only when non-zero. The group
+  slices alone sum to `spend.posted`; every slice sums to `spend.total`.
+- `outside` is counted once per transfer, by its paying leg.
 
 - **Reuse, not a second implementation.** The row-walk is factored out of `HubQueries.headroom()`
   into one helper that both call; `headroom`'s fields and the §9.2 arithmetic are unchanged, and a
@@ -108,15 +115,16 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
 - **Toolbar.** A month stepper: `‹  October 2026  ›` and a jump date, exactly Eyeball's month case
   (`eyeball.js`, `boundsOf`/`step`) with the day/week grains removed. The choice lives in the URL
   (`#budget?month=YYYY-MM`), so a month is linkable and survives a reload.
-- **Money In.** A small table: one row per income category (posted + due), then "from your other
-  accounts" when `movedIn` is non-zero, then the total.
-- **Money Out.** A table with one row per primary group, then "Saved / moved out" (D-2), then
-  "Unrecorded cash" when non-zero, then the total. `missed` and `unpaired` ride as muted notes, as
-  they do today.
+- **Money In.** A small table: one row per income category (posted), then a `Due` line when
+  `income.due` is non-zero, then "from your other accounts" when `movedIn` is non-zero, then the
+  total.
+- **Money Out.** A table with one row per slice — the primary groups, then the synthetic `Due`,
+  `Saved` (D-2) and `Unrecorded` rows — then the total. `missed` and `unpaired` ride as muted notes,
+  as they do today.
 - **Money Left Over.** The bar the image ends on: `left`, red when negative.
-- **The donut.** One arc per group plus the "Saved" arc (D-2), a legend with amounts and shares, and
-  the centre holding the Money Out total. Slices below a threshold fold into "Other" so a long tail
-  cannot shred the ring.
+- **The donut.** One arc per slice (the groups plus the synthetic `Due`/`Saved`/`Unrecorded`, the
+  latter three styled apart), a legend with amounts and shares, and the centre holding the Money Out
+  total. Slices below a threshold fold into "Other" so a long tail cannot shred the ring.
 - **Outside the budget.** The muted D-3 section under the tables: one line per pair, "ING Loan Offset
   → ING Mortgage Simplifier · $2,400", with a sentence saying why it is not in the figures.
 - **Empty.** A month with nothing reads as an empty sheet, not an error.

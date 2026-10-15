@@ -80,6 +80,13 @@ final class HubHttpApi {
                 sendError(ex, 422, e.getMessage());
             }
         });
+        route(server, "/api/budget", "GET", ex -> {
+            try {
+                write(ex, 200, api.budget(param(ex.getRequestURI().getQuery(), "month")));
+            } catch (IllegalArgumentException e) {
+                sendError(ex, 400, e.getMessage());
+            }
+        });
         route(server, "/api/transfers", "GET", ex -> write(ex, 200, api.transfers()));
         route(server, "/api/notes", "GET",
             ex -> write(ex, 200, api.notes(param(ex.getRequestURI().getQuery(), "externalId"))));

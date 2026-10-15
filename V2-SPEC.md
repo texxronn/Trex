@@ -569,7 +569,10 @@ uncommittedSpend + unrecordedCash + movedOut`), and **Money Left Over** (`left` 
 Money Out row is rolled into its **primary group** (§11.2; an expense category the map does not name
 falls back to one `Expense` bucket) so the sheet and the ezbookkeeping charts slice a category the
 same way; `movedOut` is a distinct **Saved** slice, so the donut sums to Money Out without calling a
-move spending. A muted **outside the budget** section lists the month's transfers between two accounts
+move spending. A paid occurrence rolls into the group of the category its claimed fact carried. Money
+that carries no category — the still-**due** commitments and the month's unrecorded cash — is its own
+slice (`Due`, `Unrecorded`), so the group slices alone sum to Money Out already seen and every slice
+sums to Money Out. A muted **outside the budget** section lists the month's transfers between two accounts
 that are **both** outside the budget (the offset → loan repayments) by pair, counted once, and they
 never enter In/Out/Left — they never touch the budget, and booking the principal as spending would
 double-count it against the falling loan balance (§12, `accounts.yaml`). The row-walk is the one

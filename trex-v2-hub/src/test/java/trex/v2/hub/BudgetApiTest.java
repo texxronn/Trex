@@ -1,0 +1,258 @@
+package trex.v2.hub;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import trex.v2.core.Actor;
+import trex.v2.core.Decision;
+import trex.v2.core.Fact;
+import trex.v2.core.Observation;
+import trex.v2.core.Provenance;
+import trex.v2.core.derive.AmountKind;
+import trex.v2.core.derive.Cadence;
+import trex.v2.core.derive.CommitmentKind;
+import trex.v2.log.Json;
+import trex.v2.log.JsonlJournal;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * The month's budget sheet (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §4): Money In/Out/Left over the
+ * budget accounts, sharing headroom's row-walk so the two agree; the out rows rolled into their
+ * primary groups; the savings move as the Saved slice; the loan repayment parked outside the
+ * budget.
+ */
+class BudgetApiTest {
+
+    private static final Instant AT = Instant.parse("2026-10-01T00:00:00Z");
+
+    @Test
+    void theSheetReconcilesWithHeadroomAndRollsUpTheSpend(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate first = today.withDayOfMonth(1);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "sal", "everyday", 500000, "SALARY ACME", first),
+                fact(2, "rent", "everyday", -200000, "RENT PAYMENT", first),
+                fact(3, "shop", "card", -3000, "COLES 1234", today),
+                // A card repayment: both sides in the budget, so it moves nothing and appears nowhere.
+                fact(4, "rep-a", "everyday", -10000, "PAY CARD", today),
+                fact(5, "rep-b", "card", 10000, "PAYMENT RECEIVED", today),
+                // A deposit to savings (outside the budget): money moved out, the Saved slice.
+                fact(6, "sav-a", "everyday", -50000, "TO SAVINGS", today),
+                fact(7, "sav-b", "savings", 50000, "FROM EVERYDAY", today),
+                // A loan repayment between two accounts both outside the budget (D-3).
+                fact(8, "off-a", "offset", -30000, "TO LOAN", today),
+                fact(9, "off-b", "loan", 30000, "FROM OFFSET", today),
+                declare(10, "salary", "Salary", "in", "SALARY", 500000L, first),
+                declare(11, "rent", "Rent", "out", "RENT PAYMENT", 200000L, first),
+                // An out commitment due this month with nothing seen: the Due slice.
+                declare(12, "insurance", "Insurance", "out", "INSURANCE", 20000L, today),
+                new Decision.Pair(13, "rep-a", "rep-b", null, Actor.USER, "ron", AT),
+                new Decision.Pair(14, "sav-a", "sav-b", null, Actor.USER, "ron", AT),
+                new Decision.Pair(15, "off-a", "off-b", null, Actor.USER, "ron", AT)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(hub);
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+
+            JsonNode budget = json(client, base, "/api/budget?month=" + YearMonth.from(today));
+            // The same month through the Expected view's headroom: the invariant this read exists for.
+            JsonNode headroom = json(client, base, "/api/expected?window=month&asOf=" + today)
+                .get("headroom");
+
+            assertEquals(YearMonth.from(today).toString(), budget.get("month").asText());
+            assertEquals(headroom.get("left").asLong(), budget.get("left").asLong(),
+                "the sheet's left must equal headroom's: " + budget.toPrettyString());
+            assertEquals(today.toString(), budget.get("through").asText());
+            assertEquals(List.of("card", "cash-ron", "everyday"),
+                Json.mapper().convertValue(budget.get("accounts"), List.class));
+            assertEquals(0, budget.get("missed").asLong());
+            assertEquals(headroom.get("missed").asLong(), budget.get("missed").asLong());
+
+            // ---- Money In: the salary, posted; its category is the one it was derived with ------
+            JsonNode income = budget.get("income");
+            assertEquals(500000, income.get("posted").asLong(), income.toPrettyString());
+            assertEquals(0, income.get("due").asLong());
+            assertEquals(0, income.get("movedIn").asLong(), "a move in is never income");
+            assertEquals(500000, income.get("total").asLong());
+            assertEquals(1, income.get("lines").size(), income.toPrettyString());
+            assertEquals("UNCATEGORIZED", income.get("lines").get(0).get("category").asText());
+            long linesSum = 0;
+            for (JsonNode line : income.get("lines")) {
+                linesSum += line.get("amount").asLong();
+            }
+            assertEquals(income.get("total").asLong() - income.get("movedIn").asLong(), linesSum,
+                "the income lines reconcile to the total less the moves: " + income.toPrettyString());
+
+            // ---- Money Out: the group roll-up, then the synthetic slices -------------------------
+            JsonNode spend = budget.get("spend");
+            assertEquals(203000, spend.get("posted").asLong(), "the rent paid plus the Coles shop");
+            assertEquals(20000, spend.get("due").asLong(), "the due out-commitment");
+            assertEquals(0, spend.get("unrecorded").asLong());
+            assertEquals(50000, spend.get("movedOut").asLong(), "the savings deposit");
+            assertEquals(273000, spend.get("total").asLong());
+
+            Map<String, Long> slices = slices(spend.get("slices"));
+            assertEquals(200000, slices.get("Home"),
+                "the declared rent's paid amount, grouped by its fact's category");
+            assertEquals(3000, slices.get("Living"), "the Coles shop, via GROCERIES -> Living");
+            assertEquals(20000, slices.get("Due"), "a due occurrence carries no category");
+            assertEquals(50000, slices.get("Saved"), "the savings deposit is a move, not spending");
+            assertEquals(4, slices.size(), spend.toPrettyString());
+            assertFalse(slices.containsKey("Unrecorded"), "no wallet movement: " + spend.toPrettyString());
+            // The groups are the posted spend; the synthetic slices are the rest, so the donut sums
+            // to Money Out.
+            assertEquals(spend.get("posted").asLong(),
+                slices.getOrDefault("Home", 0L) + slices.getOrDefault("Living", 0L),
+                "the group slices sum to posted: " + spend.toPrettyString());
+            assertEquals(spend.get("total").asLong(),
+                slices.values().stream().mapToLong(Long::longValue).sum(),
+                "every slice sums to the Money Out total: " + spend.toPrettyString());
+            assertEquals(List.of("Home", "Living", "Due", "Saved"), groupsInOrder(spend.get("slices")),
+                "groups amount-descending, then the synthetic slices Due, Saved");
+            // The card repayment is internal to the budget: neither leg is spending.
+            assertFalse(slices.containsValue(10000L), "the card repayment appears nowhere: " + spend);
+
+            // ---- outside the budget (D-3) -------------------------------------------------------
+            assertEquals(1, budget.get("outside").size(), budget.toPrettyString());
+            JsonNode outside = budget.get("outside").get(0);
+            assertEquals("offset", outside.get("from").asText());
+            assertEquals("loan", outside.get("to").asText());
+            assertEquals(30000, outside.get("amount").asLong());
+            assertEquals(227000, budget.get("left").asLong(),
+                "the outside repayment changes nothing in In/Out/Left: " + budget.toPrettyString());
+
+            // ---- a malformed month is refused -----------------------------------------------
+            HttpResponse<String> bad = client.send(HttpRequest.newBuilder(
+                base.resolve("/api/budget?month=2026-13")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, bad.statusCode(), bad.body());
+        }
+    }
+
+    private static Map<String, Long> slices(JsonNode array) {
+        Map<String, Long> out = new TreeMap<>();
+        for (JsonNode slice : array) {
+            out.put(slice.get("group").asText(), slice.get("amount").asLong());
+        }
+        return out;
+    }
+
+    private static List<String> groupsInOrder(JsonNode array) {
+        List<String> out = new ArrayList<>();
+        for (JsonNode slice : array) {
+            out.add(slice.get("group").asText());
+        }
+        return out;
+    }
+
+    private static JsonNode json(HttpClient client, URI base, String path) throws Exception {
+        HttpResponse<String> response = client.send(HttpRequest.newBuilder(base.resolve(path)).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), response.body());
+        return Json.mapper().readTree(response.body());
+    }
+
+    private static void await(HubService hub) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline && hub.status().counts().getOrDefault("commitment", 0L) < 3L) {
+            Thread.sleep(50);
+        }
+        assertTrue(hub.status().counts().getOrDefault("commitment", 0L) >= 3L, "the index never caught up");
+    }
+
+    private static Decision.DeclareCommitment declare(long n, String id, String name, String direction,
+                                                       String match, Long amount, LocalDate anchor) {
+        return new Decision.DeclareCommitment(n, id, name, direction, Cadence.MONTHLY, AmountKind.FIXED,
+            CommitmentKind.BILL, List.of(new Decision.Match(match, null)), amount, anchor,
+            null, null, Actor.USER, "ron", AT);
+    }
+
+    private static Fact fact(long n, String id, String account, long amount, String raw, LocalDate date) {
+        return new Fact(n, id, account, date, amount, 0, raw, null, 0, Observation.POSTED,
+            "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
+    }
+
+    private static void config(Path configDir) throws Exception {
+        Files.createDirectories(configDir);
+        Files.writeString(configDir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "everyday"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "card"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "savings"
+                currency: "AUD"
+                balanceSource: declared
+                budget: false
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: declared
+              - ref: "offset"
+                currency: "AUD"
+                balanceSource: declared
+                budget: false
+              - ref: "loan"
+                currency: "AUD"
+                balanceSource: declared
+                budget: false
+            """);
+        Files.writeString(configDir.resolve("users.yaml"), """
+            users:
+              - id: "ron"
+                name: "Ron"
+                active: true
+            """);
+        Files.writeString(configDir.resolve("categories.yaml"), """
+            categories: [GROCERIES, RENT]
+            rules:
+              - category: GROCERIES
+                when:
+                  match: "COLES"
+              - category: RENT
+                when:
+                  match: "RENT PAYMENT"
+            """);
+        Files.writeString(configDir.resolve("transfers.yaml"), """
+            windowDays: 4
+            transferPatterns:
+              everyday:
+                # An ATM withdrawal is a transfer to the declared wallet (V2-CASH-PLAN.md §4.1).
+                - { match: 'ATM', rail: BANK_TRANSFER, clearing: cash-ron }
+            """);
+        // The view-only roll-up the Money Out donut reads (V2-BUDGET-VIEW-PLAN.md D-5).
+        Files.writeString(configDir.resolve("ezb.yaml"), """
+            zone: "Australia/Sydney"
+            categories:
+              GROCERIES: Living
+              RENT: Home
+              BILLS: "Bills & Subscriptions"
+            """);
+    }
+}
