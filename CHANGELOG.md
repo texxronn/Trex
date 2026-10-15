@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-15
+
 ### Added
 
 - **`UNDECIDED` category** (`deploy/config/categories.yaml`). A declared, rule-less, hand-PINned
