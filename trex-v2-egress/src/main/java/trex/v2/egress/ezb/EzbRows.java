@@ -101,20 +101,17 @@ public final class EzbRows {
     }
 
     /**
-     * The declared wallet's opening: {@code latestCount − Σ units dated ≤ latestAt} (§11.2). The
-     * attested count already folds in the movements up to its date, so the opening is the count
-     * minus the wallet's <em>signed</em> movement — an ATM inflow adds, a cash spend or an outgoing
-     * transfer subtracts. Without this, ezbookkeeping would show the count minus every movement
-     * again, i.e. the wallet's unrecorded spend rather than its attested balance. A wallet with no
-     * attestation opens at 0.
+     * The wallet's <em>signed</em> movement over {@code units}: an EXTERNAL fact on {@code ref}
+     * contributes its signed amount; a TRANSFER contributes {@code −|amount|} when {@code ref} is
+     * the paying leg ({@code accountRef}) and {@code +|amount|} when it receives
+     * ({@code toAccountRef}). With {@code upToInclusiveOrNull} non-null only units dated on or
+     * before it count; null means every unit. The single source of the sign rule — both the declared
+     * opening and {@code verify}'s expectation read it, so the two can never drift (§11.2).
      */
-    public static long declaredOpening(String ref, long latestCount, LocalDate latestAt, List<HubUnit> units) {
-        if (latestAt == null) {
-            return 0;
-        }
+    public static long movement(String ref, List<HubUnit> units, LocalDate upToInclusiveOrNull) {
         long movement = 0;
         for (HubUnit unit : units) {
-            if (unit.date().isAfter(latestAt)) {
+            if (upToInclusiveOrNull != null && unit.date().isAfter(upToInclusiveOrNull)) {
                 continue;
             }
             if ("TRANSFER".equals(unit.unitKind())) {
@@ -124,10 +121,25 @@ public final class EzbRows {
                     movement += Math.abs(unit.amount()); // the wallet receives
                 }
             } else if (ref.equals(unit.accountRef())) {
-                movement += unit.amount(); // an EXTERNAL cash fact is signed
+                movement += unit.amount(); // an EXTERNAL fact is signed
             }
         }
-        return latestCount - movement;
+        return movement;
+    }
+
+    /**
+     * The declared wallet's opening: {@code latestCount − movement up to latestAt} (§11.2). The
+     * attested count already folds in the movements up to its date, so the opening is the count
+     * minus the wallet's movement — an ATM inflow adds, a cash spend or an outgoing transfer
+     * subtracts. Without this, ezbookkeeping would show the count minus every movement again, i.e.
+     * the wallet's unrecorded spend rather than its attested balance. A wallet with no attestation
+     * opens at 0. Delegates to {@link #movement} so verify's expectation cannot drift from it.
+     */
+    public static long declaredOpening(String ref, long latestCount, LocalDate latestAt, List<HubUnit> units) {
+        if (latestAt == null) {
+            return 0;
+        }
+        return latestCount - movement(ref, units, latestAt);
     }
 
     /** The unit's date at 12:00 in the view's zone, as unix seconds (§11.2). */
