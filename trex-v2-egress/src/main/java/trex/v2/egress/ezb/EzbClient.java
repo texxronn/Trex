@@ -34,6 +34,9 @@ public final class EzbClient {
 
     private static final Logger log = LoggerFactory.getLogger(EzbClient.class);
 
+    /** ezbookkeeping's "nothing will be updated": a modify whose payload equals the current state. */
+    private static final int NOTHING_TO_UPDATE = 200004;
+
     private final HttpClient http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NEVER)
@@ -144,6 +147,43 @@ public final class EzbClient {
         return posted("/api/v1/transaction/categories/add.json", body).path("id").asText();
     }
 
+    /**
+     * Re-parent a category, keeping its id, so a saved exploration survives the move (§11.2).
+     * {@code modify} is a full replace: the name, icon/iconType, colour, comment and hidden flag go
+     * with the new parent (we send the same defaults {@code addCategory} uses). ezbookkeeping takes
+     * the category <em>type</em> from the existing row, not the request, so the {@code type} we send
+     * is ignored — it is there for symmetry with the add route.
+     *
+     * <p>A {@code modify} whose payload equals the current state is not a 200: the instance answers
+     * {@code 400 200004 "nothing will be updated"}. That specific code is a success here; the caller
+     * also skips the call when the parent already matches, so the no-op is rare anyway.
+     */
+    public void moveCategory(String id, String name, int categoryType, String parentId)
+            throws IOException, InterruptedException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", id);
+        body.put("name", name);
+        body.put("type", categoryType);
+        body.put("parentId", parentId);
+        body.put("icon", "1");
+        body.put("color", "607D8B");
+        HttpResponse<String> r = send("POST", "/api/v1/transaction/categories/modify.json", bytes(body));
+        if (r.statusCode() / 100 == 2) {
+            return;
+        }
+        if (errorCode(r) == NOTHING_TO_UPDATE) {
+            log.debug("categories/modify {} was already in place", id);
+            return;
+        }
+        throw new IllegalStateException("ezbookkeeping POST /api/v1/transaction/categories/modify.json answered "
+            + r.statusCode() + ": " + body(r));
+    }
+
+    /** Delete a duplicate category leaf — the one place a category is ever removed (§11.2). */
+    public void deleteCategory(String id) throws IOException, InterruptedException {
+        send("/api/v1/transaction/categories/delete.json", Map.of("id", id));
+    }
+
     /** Every transaction id, for the clear (V2-SPEC.md §11.2). */
     public List<String> transactionIds() throws IOException, InterruptedException {
         List<String> out = new ArrayList<>();
@@ -250,6 +290,15 @@ public final class EzbClient {
     private static String body(HttpResponse<String> r) {
         String text = r.body();
         return text == null ? "" : text.substring(0, Math.min(200, text.length()));
+    }
+
+    /** The ezbookkeeping {@code errorCode} a failure body carries, or 0 when it names none. */
+    private static int errorCode(HttpResponse<String> r) {
+        try {
+            return Json.mapper().readTree(r.body() == null ? "{}" : r.body()).path("errorCode").asInt(0);
+        } catch (IOException e) {
+            return 0;
+        }
     }
 
     /** The zone's offset in minutes from its own rules — never a constant, never "now" pinned once. */

@@ -70,6 +70,9 @@ final class FakeEzb implements AutoCloseable {
     final AtomicInteger gets = new AtomicInteger();
     final AtomicInteger importProcessGets = new AtomicInteger();
     final AtomicInteger deletes = new AtomicInteger();
+    /** Category re-parents and duplicate-leaf deletes (§11.2), so a test can tell a move from a create. */
+    final AtomicInteger categoryMoves = new AtomicInteger();
+    final AtomicInteger categoryDeletes = new AtomicInteger();
 
     volatile boolean importInProgress;
     /** One short import: the next import drops this many trailing rows, then forgets (test-only). */
@@ -98,6 +101,8 @@ final class FakeEzb implements AutoCloseable {
                     case "/api/v1/accounts/add.json" -> accountsAdd(exchange);
                     case "/api/v1/transaction/categories/list.json" -> categoriesList(exchange);
                     case "/api/v1/transaction/categories/add.json" -> categoriesAdd(exchange);
+                    case "/api/v1/transaction/categories/modify.json" -> categoriesModify(exchange);
+                    case "/api/v1/transaction/categories/delete.json" -> categoriesDelete(exchange);
                     case "/api/v1/transactions/list/all.json" -> transactionsList(exchange);
                     case "/api/v1/transactions/delete.json" -> transactionsDelete(exchange);
                     case "/api/v1/data/clear/transactions.json" -> dataClear(exchange);
@@ -234,6 +239,41 @@ final class FakeEzb implements AutoCloseable {
             String.valueOf(body.get("parentId"))));
         createdCategoryNames.add(name);
         respond(exchange, 200, "{\"result\":{\"id\":\"" + id + "\"}}");
+    }
+
+    /**
+     * {@code categories/modify.json} re-parents an existing leaf and keeps its id. The real instance
+     * answers {@code 400 200004 "nothing will be updated"} when the payload equals the current state,
+     * so the fake does too (measured on 2.0.1).
+     */
+    private void categoriesModify(HttpExchange exchange) throws Exception {
+        Map<String, Object> body = read(exchange);
+        String id = String.valueOf(body.get("id"));
+        Category updated = new Category(id, String.valueOf(body.get("name")), asInt(body.get("type")),
+            String.valueOf(body.get("parentId")));
+        for (int i = 0; i < categories.size(); i++) {
+            if (!categories.get(i).id().equals(id)) {
+                continue;
+            }
+            if (categories.get(i).equals(updated)) {
+                respond(exchange, 400,
+                    "{\"success\":false,\"errorCode\":200004,\"errorMessage\":\"nothing will be updated\"}");
+                return;
+            }
+            categories.set(i, updated);
+            categoryMoves.incrementAndGet();
+            respond(exchange, 200, "{\"result\":true}");
+            return;
+        }
+        respond(exchange, 400, "{\"success\":false,\"errorCode\":200005,\"errorMessage\":\"category not found\"}");
+    }
+
+    private void categoriesDelete(HttpExchange exchange) throws Exception {
+        Map<String, Object> body = read(exchange);
+        String id = String.valueOf(body.get("id"));
+        categories.removeIf(c -> c.id().equals(id));
+        categoryDeletes.incrementAndGet();
+        respond(exchange, 200, "{\"result\":true}");
     }
 
     private void transactionsList(HttpExchange exchange) throws Exception {

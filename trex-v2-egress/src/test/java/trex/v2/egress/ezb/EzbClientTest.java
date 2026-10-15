@@ -135,4 +135,37 @@ class EzbClientTest {
             assertEquals(0, client.transactionIds().size());
         }
     }
+
+    @Test
+    void moveCategoryReparentsAndAPlainNoOpIsNotAnError() throws Exception {
+        try (FakeEzb fake = new FakeEzb()) {
+            fake.seedCategory("p1", "trex-expense", 2, "0");
+            fake.seedCategory("p2", "Living", 2, "0");
+            fake.seedCategory("c1", "GROCERIES", 2, "p1");
+            EzbClient client = new EzbClient(fake.url(), "token", SYD);
+
+            client.moveCategory("c1", "GROCERIES", 2, "p2");
+            assertEquals("p2", fake.categories().stream().filter(c -> c.id().equals("c1"))
+                .findFirst().orElseThrow().parentId(), "re-parented in place, id kept");
+            assertEquals(1, fake.categoryMoves.get());
+
+            // The real instance answers 400 200004 when the payload equals the current state.
+            client.moveCategory("c1", "GROCERIES", 2, "p2");
+            assertEquals(1, fake.categoryMoves.get(), "the no-op modify changed nothing");
+        }
+    }
+
+    @Test
+    void deleteCategoryRemovesTheLeaf() throws Exception {
+        try (FakeEzb fake = new FakeEzb()) {
+            fake.seedCategory("p1", "trex-expense", 2, "0");
+            fake.seedCategory("c1", "GROCERIES", 2, "p1");
+            EzbClient client = new EzbClient(fake.url(), "token", SYD);
+
+            client.deleteCategory("c1");
+
+            assertEquals(0, fake.categories().stream().filter(c -> c.id().equals("c1")).count());
+            assertEquals(1, fake.categoryDeletes.get());
+        }
+    }
 }

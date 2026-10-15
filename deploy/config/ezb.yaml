@@ -18,8 +18,52 @@
 #
 # `zone` is the IANA zone the view stamps onto every row: a unit date maps to 12:00 local, with the
 # offset taken per date so DST cannot shift a day (§11.2).
+#
+# `categories` (optional) groups the EXPENSE secondaries under several primary categories, so the
+# charts can aggregate by them: keyed by the trex master category, the value is the ezbookkeeping
+# PRIMARY it sits under. An expense category with no entry falls back to `trex-expense`. It applies
+# to the expense side only — income (category type 1) and transfer (type 3) keep their single
+# `trex-income` / `trex-transfer` primary. View-only, like the rest of this file: never hashed into
+# configRevision (§11.2).
 
 zone: "Australia/Sydney"
+categories:
+  BILLS: "Bills & Subscriptions"
+  SUBSCRIPTIONS: "Bills & Subscriptions"
+  INSURANCE: "Bills & Subscriptions"
+  GROCERIES: Living
+  FOOD: Living
+  DISCRETIONARY: Living
+  SHOPPING: Living
+  PERSONAL_CARE: Living
+  SPORT_AND_LEISURE: Living
+  HOBBY: Living
+  CELEBRATIONS: Living
+  HOUSE_WORKS: Home
+  HOME_IMPROVEMENT: Home
+  FUEL: Transport
+  TRANSPORT: Transport
+  VEHICLE: Transport
+  TRAVEL: Travel
+  FLIGHTS: Travel
+  HEALTH: Health
+  HEALTH_SUPPLIES: Health
+  CHILDCARE: Family
+  SCHOOL_FEES: Family
+  FEES: "Fees & tax"
+  TAXES: "Fees & tax"
+  VISA_FEES: "Fees & tax"
+  LEGAL: "Fees & tax"
+  INTEREST_PAID: "Fees & tax"
+  PROFESSIONAL_DEVELOPMENT: Work
+  SAVINGS: "Savings & investments"
+  INVESTMENTS: "Savings & investments"
+  CHARITY: Giving
+  GIFTS_GIVEN: Giving
+  BIG_TICKET_PURCHASES: One-offs
+  CASH_WITHDRAW: One-offs
+  UNCATEGORIZED: Unsorted
+  UNDECIDED: Unsorted
 accounts:
   ing-savings:             { name: "ING Savings",              category: 8 }
   ing-orange:              { name: "ING Orange Everyday",      category: 2 }

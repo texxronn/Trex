@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,14 +24,16 @@ import java.util.UUID;
  * feed Firefly uses; there is no external id, no ownership tag, no fingerprint, no projection state.
  * Every apply clears the transactions and re-imports the whole view — every unit plus every opening —
  * so the next apply heals a half-written one. Accounts and categories are <em>ensured</em> (created
- * when missing, never deleted), so a saved chart or exploration keeps its ids.
+ * when missing, never deleted except a duplicate category leaf), so a saved chart or exploration
+ * keeps its ids.
  */
 public final class EzbView {
 
     public enum Mode { PLAN, APPLY, VERIFY }
 
     public record Outcome(int openings, int expenses, int incomes, int transfers, int accountsCreated,
-                          int categoriesCreated, int cleared, int imported, List<String> mismatches) {}
+                          int categoriesCreated, int categoriesRemoved, int cleared, int imported,
+                          List<String> mismatches) {}
 
     /** ezbookkeeping refused something, or a count did not close: the CLI turns this into exit 1. */
     public static final class Refused extends RuntimeException {
@@ -47,6 +50,21 @@ public final class EzbView {
             case EzbRows.CATEGORY_TRANSFER -> "trex-transfer";
             default -> throw new IllegalArgumentException("no ezbookkeeping category type " + categoryType);
         };
+    }
+
+    /**
+     * The primary a needed {@code (type, name)} sits under: an expense category with a mapping in
+     * {@link EzbMap#categoryGroups()} uses the mapped group primary, everything else the type's
+     * single {@code trex-*} primary. Income and transfer are never grouped (§11.2).
+     */
+    private String targetPrimary(int categoryType, String name) {
+        if (categoryType == EzbRows.CATEGORY_EXPENSE) {
+            String group = map.categoryGroups().get(name);
+            if (group != null && !group.isBlank()) {
+                return group;
+            }
+        }
+        return primaryName(categoryType);
     }
 
     private static final int IMPORT_BATCH = 500;
@@ -143,7 +161,7 @@ public final class EzbView {
         out.println("  unmapped refs: none");
         accountsToCreate.forEach(name -> out.println("  ACCOUNT  " + name));
         categories.planned().forEach(line -> out.println("  CATEGORY " + line));
-        return new Outcome(openingList.size(), expenses, incomes, transfers, 0, 0, 0, 0, List.of());
+        return new Outcome(openingList.size(), expenses, incomes, transfers, 0, 0, 0, 0, 0, List.of());
     }
 
     private Outcome apply(TreeSet<String> refs, List<EzbRows.Row> openingList, List<EzbRows.Row> unitList,
@@ -162,10 +180,7 @@ public final class EzbView {
         }
         accounts = ezb.accountsByName();
 
-        // (2) ensure the primary + child categories, reusing every id that already exists.
-        Categories categories = ensureCategories(unitList, true);
-
-        // (3) clear — the fast one-call route (data/clear/transactions) when login credentials are
+        // (2) clear — the fast one-call route (data/clear/transactions) when login credentials are
         // configured, else delete each id with the API token, storing no password. Both keep accounts,
         // categories, tags and explorations; both reset every balance to 0, so openings are re-posted.
         List<String> stale = ezb.transactionIds();
@@ -176,6 +191,12 @@ public final class EzbView {
                 ezb.deleteTransaction(id);
             }
         }
+
+        // (3) ensure the primary/group + child categories, reusing every id that already exists,
+        // re-parenting a child to its mapped primary and collapsing duplicate leaves. After the
+        // clear: the API allows a move or delete under a live transaction, but doing it here means
+        // no transaction ever names a category that is momentarily dangling (§11.2).
+        Categories categories = ensureCategories(unitList, true);
 
         Map<String, String> accountIds = new TreeMap<>();
         accounts.forEach((name, info) -> accountIds.put(name, info.id()));
@@ -213,11 +234,12 @@ public final class EzbView {
         }
 
         out.printf("APPLY: %d opening(s), %d expense(s), %d income(s), %d transfer(s); %d account(s), "
-                + "%d categor(ies) created; %d cleared %s; %d imported%n", openingList.size(), expenses,
-            incomes, transfers, accountsCreated, categories.created(), stale.size(),
+                + "%d categor(ies) created, %d duplicate categor(ies) removed; %d cleared %s; "
+                + "%d imported%n", openingList.size(), expenses, incomes, transfers, accountsCreated,
+            categories.created(), categories.removed(), stale.size(),
             credentials != null ? "(one call)" : "(by id)", imported);
         return new Outcome(openingList.size(), expenses, incomes, transfers, accountsCreated,
-            categories.created(), stale.size(), imported, List.of());
+            categories.created(), categories.removed(), stale.size(), imported, List.of());
     }
 
     private Outcome verify(TreeSet<String> refs, List<HubUnit> units, Map<String, Long> openings,
@@ -243,7 +265,7 @@ public final class EzbView {
         out.printf("VERIFY: %d opening(s), %d expense(s), %d income(s), %d transfer(s), %d mismatch(es)%n",
             openingList.size(), expenses, incomes, transfers, mismatches.size());
         mismatches.forEach(m -> out.println("  MISMATCH " + m));
-        return new Outcome(openingList.size(), expenses, incomes, transfers, 0, 0, 0, found, mismatches);
+        return new Outcome(openingList.size(), expenses, incomes, transfers, 0, 0, 0, 0, found, mismatches);
     }
 
     /** The accounts a used, mapped ref names but ezbookkeeping lacks, in sorted-ref order. */
@@ -259,51 +281,111 @@ public final class EzbView {
     }
 
     /**
-     * The primary {@code trex-*} and child categories the rows need. A primary per category type and
-     * a child named exactly the trex category under it, reusing any that already exists. With
-     * {@code write} false nothing is created; the returned ids are then only the ones already known.
+     * The primary and child categories the rows need. A primary per needed name and category type;
+     * an expense category with a mapping in {@link EzbMap#categoryGroups()} sits under its mapped
+     * group primary, everything else under the type's single {@code trex-*} primary. A child named
+     * exactly the trex category is reused wherever it already sits: the canonical one (already under
+     * the target primary, else the lowest id) is re-parented there and keeps its id; any other leaf
+     * with the same {@code (type, name)} is a duplicate and is deleted. With {@code write} false
+     * nothing is created, moved or deleted; {@code created}/{@code removed} then count what the plan
+     * <em>would</em> do, and {@code planned} lists it.
      */
     private Categories ensureCategories(List<EzbRows.Row> rows, boolean write)
             throws IOException, InterruptedException {
+        // (1) the distinct (categoryType, category) pairs the rows need, in deterministic order.
         TreeMap<Integer, TreeSet<String>> byType = new TreeMap<>();
         for (EzbRows.Row row : rows) {
-            byType.computeIfAbsent(row.categoryType(), k -> new TreeSet<>()).add(row.category());
+            if (row.category() != null && row.categoryType() != null) {
+                byType.computeIfAbsent(row.categoryType(), k -> new TreeSet<>()).add(row.category());
+            }
         }
+        TreeMap<Integer, TreeSet<String>> primariesByType = new TreeMap<>();
+        for (Map.Entry<Integer, TreeSet<String>> type : byType.entrySet()) {
+            for (String name : type.getValue()) {
+                primariesByType.computeIfAbsent(type.getKey(), k -> new TreeSet<>())
+                    .add(targetPrimary(type.getKey(), name));
+            }
+        }
+
         List<EzbClient.CategoryInfo> existing = new ArrayList<>(ezb.categories());
         Map<String, String> childIds = new TreeMap<>();
         List<String> planned = new ArrayList<>();
         int created = 0;
+        int removed = 0;
 
-        for (Map.Entry<Integer, TreeSet<String>> type : byType.entrySet()) {
+        // (2) every needed primary, created in write mode; ids keyed by (type|name).
+        Map<String, String> primaryIds = new TreeMap<>();
+        for (Map.Entry<Integer, TreeSet<String>> type : primariesByType.entrySet()) {
             int categoryType = type.getKey();
-            String primaryName = primaryName(categoryType);
-            String primaryId = find(existing, primaryName, categoryType, "0");
-            if (primaryId == null) {
-                created++;
-                planned.add(primaryName + " (primary, type " + categoryType + ")");
-                if (write) {
-                    primaryId = ezb.addCategory(primaryName, categoryType, "0");
-                    existing.add(new EzbClient.CategoryInfo(primaryId, primaryName, categoryType, "0"));
-                }
-            }
             for (String name : type.getValue()) {
-                String key = categoryType + "|" + name;
-                String id = primaryId == null ? null : find(existing, name, categoryType, primaryId);
-                if (id != null) {
-                    childIds.put(key, id);
-                    continue;
+                String id = find(existing, name, categoryType, "0");
+                if (id == null) {
+                    created++;
+                    planned.add(name + " (primary, type " + categoryType + ")");
+                    if (write) {
+                        id = ezb.addCategory(name, categoryType, "0");
+                        existing.add(new EzbClient.CategoryInfo(id, name, categoryType, "0"));
+                    }
                 }
-                created++;
-                planned.add(name + " (child of " + primaryName + ", type " + categoryType + ")");
-                if (write) {
-                    String parent = primaryId == null ? "0" : primaryId;
-                    id = ezb.addCategory(name, categoryType, parent);
-                    existing.add(new EzbClient.CategoryInfo(id, name, categoryType, parent));
-                    childIds.put(key, id);
+                if (id != null) {
+                    primaryIds.put(categoryType + "|" + name, id);
                 }
             }
         }
-        return new Categories(created, childIds, planned);
+
+        // (3) every needed child, re-parented or created under its target primary; duplicates collapse.
+        for (Map.Entry<Integer, TreeSet<String>> type : byType.entrySet()) {
+            int categoryType = type.getKey();
+            for (String name : type.getValue()) {
+                String key = categoryType + "|" + name;
+                String primaryName = targetPrimary(categoryType, name);
+                String primaryId = primaryIds.get(categoryType + "|" + primaryName);
+
+                // Every existing leaf with this (name, type), wherever it sits, lowest id first.
+                List<EzbClient.CategoryInfo> leaves = existing.stream()
+                    .filter(c -> c.name().equals(name) && c.categoryType() == categoryType
+                        && !"0".equals(c.parentId()))
+                    .sorted(Comparator.comparing(EzbClient.CategoryInfo::id))
+                    .toList();
+                // One is canonical: the one already under the target primary, else the lowest id.
+                EzbClient.CategoryInfo canonical = leaves.stream()
+                    .filter(c -> c.parentId().equals(primaryId)).findFirst()
+                    .orElse(leaves.isEmpty() ? null : leaves.get(0));
+
+                if (canonical == null) {
+                    created++;
+                    planned.add(name + " (child of " + primaryName + ", type " + categoryType + ")");
+                    if (write) {
+                        String parent = primaryId == null ? "0" : primaryId;
+                        String id = ezb.addCategory(name, categoryType, parent);
+                        existing.add(new EzbClient.CategoryInfo(id, name, categoryType, parent));
+                        childIds.put(key, id);
+                    }
+                    continue;
+                }
+
+                childIds.put(key, canonical.id());
+                if (write && !canonical.parentId().equals(primaryId)) {
+                    ezb.moveCategory(canonical.id(), canonical.name(), categoryType, primaryId);
+                    existing.set(existing.indexOf(canonical),
+                        new EzbClient.CategoryInfo(canonical.id(), canonical.name(), categoryType, primaryId));
+                }
+                for (EzbClient.CategoryInfo duplicate : leaves) {
+                    if (duplicate.id().equals(canonical.id())) {
+                        continue;
+                    }
+                    removed++;
+                    if (write) {
+                        ezb.deleteCategory(duplicate.id());
+                        existing.remove(duplicate);
+                    }
+                }
+                if (leaves.size() > 1) {
+                    planned.add(name + " (" + leaves.size() + " duplicate leaf(ves) to remove)");
+                }
+            }
+        }
+        return new Categories(created, removed, childIds, planned);
     }
 
     private static String find(List<EzbClient.CategoryInfo> existing, String name, int categoryType,
@@ -369,5 +451,6 @@ public final class EzbView {
         return UUID.randomUUID().toString();
     }
 
-    private record Categories(int created, Map<String, String> childIds, List<String> planned) {}
+    private record Categories(int created, int removed, Map<String, String> childIds,
+                              List<String> planned) {}
 }
