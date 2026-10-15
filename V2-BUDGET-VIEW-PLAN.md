@@ -119,12 +119,16 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
   `income.due` is non-zero, then "from your other accounts" when `movedIn` is non-zero, then the
   total.
 - **Money Out.** A table with one row per slice — the primary groups, then the synthetic `Due`,
-  `Saved` (D-2) and `Unrecorded` rows — then the total. `missed` and `unpaired` ride as muted notes,
-  as they do today.
+  `Saved` (D-2) and `Unrecorded` rows — then the total. A **group row opens into its leaves** (the
+  trex categories inside it, which the read carries) so the compact total can be read first and the
+  distribution only when wanted; the synthetic rows are muted and do not open. `missed` and
+  `unpaired` ride as muted notes, as they do today.
 - **Money Left Over.** The bar the image ends on: `left`, red when negative.
 - **The donut.** One arc per slice (the groups plus the synthetic `Due`/`Saved`/`Unrecorded`, the
-  latter three styled apart), a legend with amounts and shares, and the centre holding the Money Out
-  total. Slices below a threshold fold into "Other" so a long tail cannot shred the ring.
+  latter three styled apart), the Money Out total whole-dollar in the centre, and a **compact boxed
+  legend table** (name left, amount and share right, a thin dark rule around it and between the
+  rows). The palette is the reference sheet's (magenta, blue, green, amber, red, grey). Slices below
+  a threshold fold into "Other" so a long tail cannot shred the ring.
 - **Outside the budget.** The muted D-3 section under the tables: one line per pair, "ING Loan Offset
   → ING Mortgage Simplifier · $2,400", with a sentence saying why it is not in the figures.
 - **Empty.** A month with nothing reads as an empty sheet, not an error.
