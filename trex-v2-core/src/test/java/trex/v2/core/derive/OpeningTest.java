@@ -43,6 +43,7 @@ class OpeningTest {
         assertEquals(1000, forward.backwardOpening());
         assertEquals(1000, forward.forwardOpening());
         assertEquals(0, forward.gap());
+        assertEquals(LocalDate.of(2026, 9, 2), forward.latestAt(), "the latest fact's date");
     }
 
     @Test
@@ -66,5 +67,6 @@ class OpeningTest {
         assertEquals(1000, account.backwardOpening());
         assertEquals(700, account.latestBalance());
         assertEquals(-100, account.gap());
+        assertEquals(LocalDate.of(2026, 9, 3), account.latestAt(), "the latest attestation's date");
     }
 }
