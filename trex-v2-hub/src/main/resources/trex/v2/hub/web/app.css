@@ -381,6 +381,29 @@ tbody tr.noop:hover td { opacity: .8; }
 .x-section .series { font-size: 11px; margin-top: 0.15rem; }
 .manual-payments { scroll-margin-top: 6rem; }
 .manual-pay-marker { white-space: nowrap; }
+
+/* Occurrences split IN | OUT: two panels sharing one height, so the pair reads as one table.
+   `align-items: stretch` gives the shorter panel the taller one's height; either side may be empty
+   and the columns are identical on both. */
+.occ-split { display: flex; gap: 0.7rem; align-items: stretch; }
+.occ-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.occ-panel > .occ-panel-head { margin: 0 0 0.3rem; color: var(--fg); }
+.occ-panel-in > .occ-panel-head { color: var(--good); }
+.occ-panel-out > .occ-panel-head { color: #ef4444; }
+.occ-panel > .scroll { flex: 1; }
+.occ-panel td.empty { padding: 0.55rem 0.45rem; color: var(--muted); }
+/* The window's totals: one status line above both panels, each half aligned to its panel. */
+.occ-totals {
+  display: flex; flex-wrap: wrap; gap: 0.7rem;
+  margin: 0 0 0.35rem; padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.occ-totals > span { flex: 1 1 0; min-width: 0; }
+.occ-totals > span:last-child { text-align: right; }
+.occ-total-in { color: var(--good); }
+.occ-total-out { color: #ef4444; }
+.occ-totals b { font-weight: 700; }
 .bucket { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
 
@@ -397,6 +420,7 @@ tbody tr.noop:hover td { opacity: .8; }
   .x-section > summary { min-height: 2.25rem; }
   th, td { padding: 0.35rem 0.5rem; }
   td.desc { max-width: none; }
+  .occ-split { flex-direction: column; }
   .toast { right: 0.6rem; bottom: 0.6rem; }
 }
 
