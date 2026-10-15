@@ -624,21 +624,28 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-table tbody tr.total td:first-child { color: var(--fg); }
 /* The synthetic rows (Due / Saved / Unrecorded) are not spending: mute them so they read apart. */
 .budget-table tr.synthetic td { color: var(--muted); }
+/* A group row opens into the categories inside it (the read carries the leaves). */
+.budget-table tr.expandable { cursor: pointer; }
+.budget-table .twisty { color: var(--muted); font-size: 10px; }
+.budget-table tr.leaf td { color: var(--muted); }
+.budget-table tr.leaf td:first-child { padding-left: 1.5rem; }
 
-/* The donut: a fixed 200×200 ring, the Money Out total in its centre. */
-.budget-donut { display: block; width: 200px; height: 200px; margin: 0 auto; }
-.budget-donut .donut-total { fill: var(--fg); font-size: 25px; font-weight: 600; }
-.budget-donut .donut-word { fill: var(--muted); font-size: 11px; letter-spacing: 0.12em;
+/* The donut: twice the old size, but never wider than its column. It carries a viewBox, so the whole
+   ring scales, text included. */
+.budget-donut { display: block; width: 100%; max-width: 400px; height: auto; margin: 0 auto; }
+.budget-donut .donut-total { fill: var(--fg); font-size: 22px; font-weight: 600; }
+.budget-donut .donut-word { fill: var(--muted); font-size: 10px; letter-spacing: 0.12em;
   text-transform: uppercase; }
-.budget-legend { list-style: none; margin: 0.6rem 0 0; padding: 0; font-size: 12px; }
-.budget-legend li { display: flex; align-items: baseline; gap: 0.45rem; padding: 0.08rem 0; }
-.budget-legend .swatch { display: inline-block; flex: none; width: 10px; height: 10px;
-  border-radius: 2px; align-self: center; }
-.budget-legend .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
-.budget-legend .amt { font-variant-numeric: tabular-nums; }
-.budget-legend .share { color: var(--muted); width: 2.6rem; text-align: right;
-  font-variant-numeric: tabular-nums; }
+/* The legend is a compact boxed table: the name left, the amount and share right, a thin dark rule
+   around it and between the rows. */
+.budget-legend { width: auto; margin: 0.7rem auto 0; font-size: 12px;
+  border: 1px solid var(--line-strong); }
+.budget-legend td { padding: 0.12rem 0.5rem; }
+.budget-legend .name { text-align: left; }
+.budget-legend .amt { text-align: right; font-variant-numeric: tabular-nums; }
+.budget-legend .share { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.budget-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 0.45rem; vertical-align: -1px; }
 
 /* Outside the budget (D-3): the loan repayments, muted, one line per pair. */
 .budget-outside { color: var(--muted); }

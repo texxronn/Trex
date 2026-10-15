@@ -24,12 +24,13 @@ const DONUT_RADIUS = 70;
 const DONUT_STROKE = 36;
 const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 
-// A spread of mid-tone colours that hold up on the light, grey and dark surfaces. The palette is
-// presentation only: nothing reads a colour back, so it is fixed and assigned by arc index. The
-// synthetic arcs take neutral greys so a move or a due never reads as spending.
-const PALETTE = ['#4c8bf5', '#f59e0b', '#10b981', '#a855f7', '#ef4444', '#06b6d4',
-  '#eab308', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#84cc16'];
-const SYNTHETIC_COLOR = { Due: '#94a3b8', Saved: '#a1a1aa', Unrecorded: '#78716c' };
+// The palette of the operator's reference budget sheet (budget_image.webp), sampled from it:
+// magenta, blue, green, amber, red, then grey, and a few more in the same family so a month with
+// many groups does not repeat a colour. Presentation only — nothing reads a colour back — and
+// assigned by arc index, which is amount-descending, so the biggest slice takes the first colour.
+const PALETTE = ['#c43074', '#479ff8', '#82d553', '#eebb42', '#e94025', '#929292',
+  '#6c7ae0', '#00b0a8', '#b46cd6', '#a9683c'];
+const SYNTHETIC_COLOR = { Due: '#94a3b8', Saved: '#a8a29e', Unrecorded: '#78716c' };
 const OTHER_COLOR = '#6b7280';
 
 let host;
@@ -170,18 +171,43 @@ function moneyIn() {
   return section('Money In', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
 }
 
+/**
+ * Money Out, one row per slice. A group row opens into its leaves — the trex categories inside it
+ * (the read carries them, §4) — so the compact total can be read first and the distribution only
+ * when wanted. The synthetic Due/Saved/Unrecorded rows are muted, have no leaves, and do not open.
+ */
 function moneyOut() {
-  const rows = data.spend.slices.map((slice) => {
+  const rows = [];
+  for (const slice of data.spend.slices) {
     const synthetic = SYNTHETIC.has(slice.group);
-    return el('tr', { class: synthetic ? 'synthetic' : '' },
-      el('td', {}, slice.group, slice.group === 'Saved'
+    const leaves = synthetic ? [] : slice.leaves;
+    let twisty = null;
+    const leafRows = leaves.length
+      ? leaves.map((leaf) => el('tr', { class: 'leaf', hidden: true },
+          el('td', {}, leaf.category),
+          el('td', { class: 'amount' }, money(leaf.amount))))
+      : [];
+    if (leaves.length) {
+      twisty = el('span', { class: 'twisty' }, '\u25b8 ');
+    }
+    rows.push(el('tr', {
+        class: (synthetic ? 'synthetic' : '') + (leaves.length ? ' expandable' : ''),
+        title: leaves.length ? 'click for the categories inside this group' : null,
+        onclick: leaves.length ? () => {
+          const open = leafRows[0].hidden;
+          for (const row of leafRows) row.hidden = !open;
+          twisty.textContent = open ? '\u25be ' : '\u25b8 ';
+        } : null,
+      },
+      el('td', {}, twisty, slice.group, slice.group === 'Saved'
         // D-2: a move to one of your own accounts outside the budget. It is a slice so the donut
         // sums to Money Out, but the row says plainly that it is not spending.
         ? el('span', { class: 'muted', title: 'money moved to one of your own accounts outside the budget' },
           ' · a move, not spending')
         : null),
-      el('td', { class: 'amount' }, money(slice.amount)));
-  });
+      el('td', { class: 'amount' }, money(slice.amount))));
+    rows.push(...leafRows);
+  }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.spend.total))));
   return section('Money Out', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
@@ -214,14 +240,16 @@ function donutSection() {
   const ring = svgEl('svg', { class: 'budget-donut', viewBox: '0 0 200 200', role: 'img' },
     ...rings,
     svgEl('text', { class: 'donut-total', x: 100, y: 97, 'text-anchor': 'middle' },
-      money(data.spend.total)),
+      moneyWhole(data.spend.total)),
     svgEl('text', { class: 'donut-word', x: 100, y: 115, 'text-anchor': 'middle' }, 'out'));
-  const legend = el('ul', { class: 'budget-legend' }, ...drawn.map((slice, index) =>
-    el('li', {},
-      el('span', { class: 'swatch', style: 'background:' + colorOf(slice, index) }),
-      el('span', { class: 'name' }, slice.group),
-      el('span', { class: 'amt' }, money(slice.amount)),
-      el('span', { class: 'share' }, `${Math.round((slice.amount / drawnTotal) * 100)}%`))));
+  // A compact table, not a loose list: the name left, the amount and share right, boxed by a thin
+  // rule so the eye can run down it.
+  const legend = el('table', { class: 'budget-legend' }, el('tbody', {},
+    ...drawn.map((slice, index) => el('tr', {},
+      el('td', { class: 'name' },
+        el('span', { class: 'swatch', style: 'background:' + colorOf(slice, index) }), slice.group),
+      el('td', { class: 'amt' }, money(slice.amount)),
+      el('td', { class: 'share' }, `${Math.round((slice.amount / drawnTotal) * 100)}%`)))));
   return section('Money Out by group', ring, legend);
 }
 
@@ -334,4 +362,13 @@ function section(title, ...children) {
 
 function button(label, onClick) {
   return el('button', { type: 'button', onclick: onClick }, label);
+}
+
+/**
+ * The donut centre's whole-dollar form: the hole is narrow, and the exact dollars and cents are
+ * already in the Money Out table and the legend beside it, so the centre only has to read at a
+ * glance.
+ */
+function moneyWhole(cents) {
+  return money(cents).replace(/\.\d\d$/, '');
 }
