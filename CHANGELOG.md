@@ -27,8 +27,8 @@ everything is under **Unreleased**.
 ### Changed
 
 - **Expected → Occurrences is split IN | OUT** (`V2-SPEC.md` §9.3). The window's occurrences render
-  as two panels — **IN** left, **OUT** right — with the same columns on both, a totals status line
-  above them (count and summed amount per side), and the shorter panel stretched to the taller one's
+  as two panels — **IN** left, **OUT** right — with the same columns on both, each panel's header
+  carrying its row count and its summed amount, and the shorter panel stretched to the taller one's
   height; under 720px the panels stack. Either side may be empty. The commitment registry now starts
   filtered to `active` (dormant and ended rows are one click away).
 - **Cards and loans are Firefly asset accounts** (`V2-SPEC.md` §11.1). `deploy/config/firefly.yaml`
@@ -40,6 +40,13 @@ everything is under **Unreleased**.
 
 ### Fixed
 
+- **`/api/expected` no longer scans the ledger once per claimed fact** (`V2-SPEC.md` §9.2). The
+  headroom read resolves each claimed fact's and each month row's transfer counterpart with a
+  correlated `WHERE transfer_id = ?` subquery, and `txn_current` had no index on `transfer_id` — so
+  SQLite scanned all ~6,600 rows per row of the query (~7.6 M row visits), leaving the endpoint
+  CPU-bound at ~4.5 s whatever the window, and stalling `/api/brief` with it. `schema.sql` now
+  declares `txn_current_transfer`; the dominant query drops from ~1.0 s to ~2 ms. No derived content
+  changes, so no `deriveVersion` bump.
 - **A fact landing on a settled occurrence no longer double-counts** (`V2-SPEC.md` §6.5). When a
   claimed fact attaches inside the window of a `settled` occurrence, the derived row becomes
   `occurred` with the fact's amount and provenance and clears its `settleN`; previously the fact's

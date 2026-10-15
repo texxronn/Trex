@@ -110,6 +110,10 @@ CREATE TABLE IF NOT EXISTS txn_current (
 );
 CREATE INDEX IF NOT EXISTS txn_current_date ON txn_current(date);
 CREATE INDEX IF NOT EXISTS txn_current_account ON txn_current(account_ref);
+-- The headroom read joins each claimed fact and each month row to its transfer counterpart with a
+-- correlated `WHERE transfer_id = ?` subquery; without this index SQLite scans all of txn_current
+-- once per row (V2-SPEC.md §9.2).
+CREATE INDEX IF NOT EXISTS txn_current_transfer ON txn_current(transfer_id);
 
 CREATE TABLE IF NOT EXISTS transfer (
   transfer_id TEXT PRIMARY KEY,
