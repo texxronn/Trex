@@ -568,19 +568,24 @@ month — an absolute month, unlike headroom's "the month of `asOf`" — as a sh
 uncommittedSpend + unrecordedCash + movedOut`), and **Money Left Over** (`left` = In − Out). Each
 Money Out row is rolled into its **primary group** (§11.2; an expense category the map does not name
 falls back to one `Expense` bucket) so the sheet and the ezbookkeeping charts slice a category the
-same way; `movedOut` is a distinct **Saved** slice, so the donut sums to Money Out without calling a
-move spending. A paid occurrence rolls into the group of the category its claimed fact carried. Each group slice
-carries its **leaves** — the trex categories inside it, amount descending — so the view can open a
-group into the distribution that made it up; a leaf's amounts sum to its slice. Money
-that carries no category — the still-**due** commitments and the month's unrecorded cash — is its own
-slice (`Due`, `Unrecorded`), so the group slices alone sum to Money Out already seen and every slice
-sums to Money Out. A muted **outside the budget** section lists the month's transfers between two accounts
-that are **both** outside the budget (the offset → loan repayments) by pair, counted once, and they
-never enter In/Out/Left — they never touch the budget, and booking the principal as spending would
-double-count it against the falling loan balance (§12, `accounts.yaml`). The row-walk is the one
-`headroom` uses, factored out so the two reads cannot drift: the sheet's `left` equals
-`/api/expected`'s `headroom.left` for the same month. A **past** month is actuals (its `due`
-occurrences have become `missed` by then); the month of the hub's `today` carries the projection.
+same way; `movedOut` is a distinct **Moved out** slice — named for what it is, a move to one of your
+own accounts outside the budget and not saving — so the donut sums to Money Out without calling a
+move spending, and it carries its **destinations** (the account each part went to, amount
+descending). A paid occurrence rolls into the group of the category its claimed fact carried. Each
+group slice carries its **parts** — the trex categories inside it, amount descending — so the view
+can open a group into the distribution that made it up; a slice's parts sum to its amount. Money
+that carries no category — the still-**due** commitments and the month's unrecorded cash — is its
+own slice (`Due`, `Unrecorded`), so the group slices alone sum to Money Out already seen and every
+slice sums to Money Out. A muted **outside the budget** section lists the month's transfers between
+two accounts that are **both** outside the budget (the offset → loan repayments), **aggregated per
+pair with a count** of the payments behind it, and alongside them the month's **external** rows on
+those outside accounts — no transfer, e.g. the loan interest or the income a savings account
+receives — signed, by account and category; none of it enters In/Out/Left, because the budget
+accounts cannot see these rows and booking the principal as spending would double-count it against
+the falling loan balance (§12, `accounts.yaml`). The row-walk is the one `headroom` uses, factored
+out so the two reads cannot drift: the sheet's `left` equals `/api/expected`'s `headroom.left` for
+the same month. A **past** month is actuals (its `due` occurrences have become `missed` by then);
+the month of the hub's `today` carries the projection.
 
 ### 9.3 The UI modes
 
@@ -591,7 +596,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
 | **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction, split into **IN** (left) and **OUT** (right) panels with the same columns, each panel's header carrying its row count and its summed amount (the shorter panel takes the taller one's height, and the panels stack under 720px); inside Occurrences, a window-independent Manual payments group lists the `toPay` rows and opens the existing Settle action as **Mark paid** (a decision only: it writes no fact and does not change a transaction); the same occurrences remain in the window tables; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu, filtered to `active` by default; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md`, `V2-MANUAL-PAY-PLAN.md` |
-| **Budget** | the month's **budget sheet** (§9.2): Money In, Money Out and Money Left Over over the `budget` accounts, with a Money Out donut by primary group, a distinct **Saved** slice for moves to your own accounts outside the budget, and a muted **outside the budget** section for the loan repayments that never touch it; a month stepper (calendar months only, the month in the URL) | `V2-REVIEW-FIXES-PLAN.md` §10, `V2-BUDGET-VIEW-PLAN.md` |
+| **Budget** | the month's **budget sheet** (§9.2): Money In, Money Out and Money Left Over over the `budget` accounts, with a Money Out donut by primary group, a distinct **Moved out** slice for moves to your own accounts outside the budget (with its destinations), and a muted **outside the budget** section for the loan repayments and the outside accounts' own rows (the interest, income into a savings account) that never touch it; a month stepper (calendar months only, the month in the URL) | `V2-REVIEW-FIXES-PLAN.md` §10, `V2-BUDGET-VIEW-PLAN.md` |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |

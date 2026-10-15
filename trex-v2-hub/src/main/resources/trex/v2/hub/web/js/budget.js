@@ -16,7 +16,7 @@ import { date, money } from './format.js';
 // The synthetic slices the hub appends after the rolled-up groups: money still due, money moved to
 // one of your own accounts outside the budget (D-2, a move) and the wallet's unrecorded cash. They
 // are not spending, so the tables mark them muted and the donut keeps them apart from the groups.
-const SYNTHETIC = new Set(['Due', 'Saved', 'Unrecorded']);
+const SYNTHETIC = new Set(['Due', 'Moved out', 'Unrecorded']);
 
 // The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
 // one <circle> per slice with a dash pattern of its arc length, which needs no trigonometry.
@@ -30,7 +30,7 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 // assigned by arc index, which is amount-descending, so the biggest slice takes the first colour.
 const PALETTE = ['#c43074', '#479ff8', '#82d553', '#eebb42', '#e94025', '#929292',
   '#6c7ae0', '#00b0a8', '#b46cd6', '#a9683c'];
-const SYNTHETIC_COLOR = { Due: '#94a3b8', Saved: '#a8a29e', Unrecorded: '#78716c' };
+const SYNTHETIC_COLOR = { Due: '#94a3b8', 'Moved out': '#a8a29e', Unrecorded: '#78716c' };
 const OTHER_COLOR = '#6b7280';
 
 let host;
@@ -155,6 +155,11 @@ function sheetGrid() {
   return grid;
 }
 
+/**
+ * Money In: the posted income per category, then the Due line when non-zero, then — when money came
+ * from one of your own accounts outside the budget (D-2) — the move-in row, which opens into the
+ * accounts it came from.
+ */
 function moneyIn() {
   const rows = data.income.lines.map((line) =>
     el('tr', {}, el('td', {}, line.category), el('td', { class: 'amount' }, money(line.amount))));
@@ -163,8 +168,8 @@ function moneyIn() {
       el('td', { class: 'amount' }, money(data.income.due))));
   }
   if (data.income.movedIn) {
-    rows.push(el('tr', {}, el('td', {}, 'from your other accounts'),
-      el('td', { class: 'amount' }, money(data.income.movedIn))));
+    rows.push(...expandableRow('', ['from your other accounts'], data.income.movedIn,
+      data.income.movedInParts || [], true, 'click for the accounts this move came from'));
   }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.income.total))));
@@ -172,41 +177,27 @@ function moneyIn() {
 }
 
 /**
- * Money Out, one row per slice. A group row opens into its leaves — the trex categories inside it
- * (the read carries them, §4) — so the compact total can be read first and the distribution only
- * when wanted. The synthetic Due/Saved/Unrecorded rows are muted, have no leaves, and do not open.
+ * Money Out, one row per slice. A group row opens into its parts — the trex categories inside it
+ * (the read carries them, §4) — and the Moved out row opens into the accounts the money went to, so
+ * the compact total can be read first and the distribution only when wanted. The synthetic
+ * Due/Unrecorded rows are muted and do not open.
  */
 function moneyOut() {
   const rows = [];
   for (const slice of data.spend.slices) {
     const synthetic = SYNTHETIC.has(slice.group);
-    const leaves = synthetic ? [] : slice.leaves;
-    let twisty = null;
-    const leafRows = leaves.length
-      ? leaves.map((leaf) => el('tr', { class: 'leaf', hidden: true },
-          el('td', {}, leaf.category),
-          el('td', { class: 'amount' }, money(leaf.amount))))
-      : [];
-    if (leaves.length) {
-      twisty = el('span', { class: 'twisty' }, '\u25b8 ');
-    }
-    rows.push(el('tr', {
-        class: (synthetic ? 'synthetic' : '') + (leaves.length ? ' expandable' : ''),
-        title: leaves.length ? 'click for the categories inside this group' : null,
-        onclick: leaves.length ? () => {
-          const open = leafRows[0].hidden;
-          for (const row of leafRows) row.hidden = !open;
-          twisty.textContent = open ? '\u25be ' : '\u25b8 ';
-        } : null,
-      },
-      el('td', {}, twisty, slice.group, slice.group === 'Saved'
-        // D-2: a move to one of your own accounts outside the budget. It is a slice so the donut
-        // sums to Money Out, but the row says plainly that it is not spending.
-        ? el('span', { class: 'muted', title: 'money moved to one of your own accounts outside the budget' },
-          ' · a move, not spending')
-        : null),
-      el('td', { class: 'amount' }, money(slice.amount))));
-    rows.push(...leafRows);
+    // A Moved out slice's parts are account refs, not categories, so they render as chips (D-2).
+    const chip = slice.group === 'Moved out';
+    const note = chip
+      // D-2: a move to one of your own accounts outside the budget. It is a slice so the donut
+      // sums to Money Out, but the row says plainly that it is not saving.
+      ? el('span', { class: 'muted', title: 'money moved to one of your own accounts outside the budget' },
+          ' \u00b7 a move, not spending')
+      : null;
+    rows.push(...expandableRow(synthetic ? 'synthetic' : '', [slice.group, note], slice.amount,
+      slice.parts || [], chip,
+      chip ? 'click for the accounts this move went to'
+        : 'click for the categories inside this group'));
   }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.spend.total))));
@@ -214,9 +205,34 @@ function moneyOut() {
 }
 
 /**
+ * One row that opens into its parts: a group into the trex categories inside it, a move into the
+ * accounts it went to or came from (D-2). {@code chip} says the part labels are account refs and
+ * renders them as account chips; otherwise they are plain category text. {@code classes} is extra
+ * row styling (the synthetic rows are muted). An empty distribution yields just the row, no twisty.
+ */
+function expandableRow(classes, labelChildren, amount, parts, chip, title) {
+  const twisty = parts.length ? el('span', { class: 'twisty' }, '\u25b8 ') : null;
+  const partRows = parts.map((part) => el('tr', { class: 'leaf', hidden: true },
+    el('td', {}, chip ? accountChip(ctx.refdata, part.label) : part.label),
+    el('td', { class: 'amount' }, money(part.amount))));
+  const row = el('tr', {
+      class: (classes + (parts.length ? ' expandable' : '')).trim() || null,
+      title: parts.length ? title : null,
+      onclick: parts.length ? () => {
+        const open = partRows[0].hidden;
+        for (const partRow of partRows) partRow.hidden = !open;
+        twisty.textContent = open ? '\u25be ' : '\u25b8 ';
+      } : null,
+    },
+    el('td', {}, twisty, ...labelChildren),
+    el('td', { class: 'amount' }, money(amount)));
+  return [row, ...partRows];
+}
+
+/**
  * The Money Out donut: one arc per slice, the centre carrying the Money Out total. A slice below 2%
  * of Money Out would shred the ring on a long tail, so the small groups fold into one Other arc;
- * the synthetic Due/Saved/Unrecorded stay separate because they are not spending.
+ * the synthetic Due/Moved&nbsp;out/Unrecorded stay separate because they are not spending.
  */
 function donutSection() {
   const drawn = arcs().filter((slice) => slice.amount > 0);
@@ -275,26 +291,38 @@ function colorOf(slice, index) {
 }
 
 /**
- * Outside the budget (D-3): the transfers between two accounts that are both outside it, the loan
- * repayments. They never touch the budget accounts, so they are not in In/Out/Left — only here, by
- * pair, and the Mortgage tab owns the detail.
+ * Outside the budget (D-3): the transfers between two accounts that are both outside it — the loan
+ * repayments, one line per pair with the count of payments behind it — and those accounts' own rows,
+ * which the budget cannot see (the loan interest, income into a savings account, its interest
+ * earned). None of it is in In/Out/Left: it never touches a budget account, and the Mortgage tab
+ * owns the detail.
  */
 function outsideSection() {
-  if (!data.outside.length) return null;
-  const lines = data.outside.map((entry) =>
-    el('div', { class: 'budget-outside-line' },
-      accountChip(ctx.refdata, entry.from), ' \u2192 ', accountChip(ctx.refdata, entry.to),
-      ' · ', money(entry.amount)));
+  const moves = data.outside || [];
+  const externals = data.outsideExternal || [];
+  if (!moves.length && !externals.length) return null;
+  const rows = moves.map((entry) =>
+    el('tr', {},
+      el('td', {}, accountChip(ctx.refdata, entry.from), ' \u2192 ', accountChip(ctx.refdata, entry.to)),
+      el('td', { class: 'note muted' }, entry.count > 1 ? `${entry.count} payments` : ''),
+      el('td', { class: 'amount' }, money(entry.amount))));
+  for (const entry of externals) {
+    // Signed: negative is money out. The category names the row the outside account carries.
+    rows.push(el('tr', {},
+      el('td', {}, accountChip(ctx.refdata, entry.account)),
+      el('td', { class: 'note muted' }, entry.category),
+      el('td', { class: 'amount' }, money(entry.amount))));
+  }
   return el('section', { class: 'mode-section budget-outside' },
     el('h4', {}, 'Outside the budget'),
-    ...lines,
+    el('table', { class: 'budget-outside-table' }, el('tbody', {}, ...rows)),
     el('p', { class: 'muted' },
-      'Transfers between accounts that are both outside the budget never touch it, so they are not in the figures above.'));
+      'These accounts are not in the budget, so none of this is in the figures above.'));
 }
 
 function hasRows(sheet) {
   return Boolean(sheet.income.lines.length || sheet.income.due || sheet.income.movedIn
-    || sheet.spend.slices.length || sheet.outside.length);
+    || sheet.spend.slices.length || sheet.outside.length || sheet.outsideExternal.length);
 }
 
 // ---- the month stepper -------------------------------------------------------------------------
