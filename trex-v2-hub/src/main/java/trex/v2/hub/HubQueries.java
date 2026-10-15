@@ -981,14 +981,24 @@ public final class HubQueries implements AutoCloseable {
         return read(conn -> {
             Walk w = walk(conn, month, today, budget, statementBudget);
 
-            Map<String, Long> byGroup = new java.util.TreeMap<>();
+            // Each group keeps its leaves — the trex categories inside it — so the view can open a
+            // group into the distribution that made it up (V2-BUDGET-VIEW-PLAN.md §5).
+            Map<String, Map<String, Long>> byGroup = new java.util.TreeMap<>();
             w.spendByCategory().forEach((category, amount) ->
-                byGroup.merge(groupOf(category, groups), amount, Long::sum));
+                byGroup.computeIfAbsent(groupOf(category, groups), k -> new java.util.TreeMap<>())
+                    .merge(category, amount, Long::sum));
             List<BudgetResponse.Slice> slices = new ArrayList<>();
-            byGroup.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
-                    .thenComparing(Map.Entry.comparingByKey()))
-                .forEach(e -> slices.add(new BudgetResponse.Slice(e.getKey(), e.getValue())));
+            byGroup.forEach((group, categories) -> {
+                List<BudgetResponse.Leaf> leaves = categories.entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
+                        .thenComparing(Map.Entry.comparingByKey()))
+                    .map(e -> new BudgetResponse.Leaf(e.getKey(), e.getValue()))
+                    .toList();
+                long amount = leaves.stream().mapToLong(BudgetResponse.Leaf::amount).sum();
+                slices.add(new BudgetResponse.Slice(group, amount, leaves));
+            });
+            slices.sort(java.util.Comparator.comparingLong(BudgetResponse.Slice::amount).reversed()
+                .thenComparing(BudgetResponse.Slice::group));
             long posted = w.committedPaid() + w.uncommittedSpend();
             long due = w.committedDue();
             long total = posted + due + w.movedOut() + w.unrecordedCash();
