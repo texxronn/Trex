@@ -19,19 +19,23 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
     }
 
     /**
-     * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10) over the accounts in the budget: what came in
-     * and is still expected in, minus what the commitments took and still will, minus everything else
-     * spent. A read over the derived tables, not a budget: nothing is planned or stored. Every field
-     * is a positive magnitude except {@code left}. {@code movedOut}/{@code movedIn} are transfers
-     * between a budget account and one of your own accounts outside it (the offset, savings, a loan):
-     * they move {@code left} like any outflow or inflow, but they are not spending or income. {@code missed} (out-commitments whose window
-     * closed with nothing seen) and {@code unpaired} (transfer legs still waiting for their other
-     * side) are shown, never folded into {@code left}. {@code through} is the oldest statement
-     * frontier among the budget accounts: the figure knows nothing after it. {@code unrecordedCash}
-     * is the month's unrecorded cash (V2-CASH-PLAN.md §4.2, V2-SPEC.md §9.2) over the declared
-     * wallets in the budget — the {@code cash_month} figure, signed: a positive month is spend nobody
-     * recorded, a negative one is cash that appeared unrecorded, and it moves {@code left} like other
-     * spend and income.
+     * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10, V2-SPEC.md §9.2) as the month's real flows:
+     * income and spend are <b>every</b> account's external rows — whatever its {@code budget} flag —
+     * plus every commitment's occurrences, and a move between two of your own accounts is never
+     * income or spend. {@code left} is {@code incomeIn + incomeDue + movedIn − committedPaid −
+     * committedDue − uncommittedSpend − unrecordedCash − movedOut}. A read over the derived tables,
+     * not a budget: nothing is planned or stored. Every field is a positive magnitude except
+     * {@code left}. {@code movedOut}/{@code movedIn} are the moves that cross the budget boundary —
+     * to or from one of your own accounts outside it (the offset, savings, a loan): they move
+     * {@code left} like any outflow or inflow, but they are not spending or income. A move between
+     * two accounts both outside the budget moves {@code left} not at all. {@code missed}
+     * (out-commitments whose window closed with nothing seen) and {@code unpaired} (transfer legs
+     * still waiting for their other side) are shown, never folded into {@code left}. {@code through}
+     * is the oldest statement frontier among the budget accounts: the figure knows nothing after it.
+     * {@code unrecordedCash} is the month's unrecorded cash (V2-CASH-PLAN.md §4.2, V2-SPEC.md §9.2)
+     * over the declared wallets in the budget — the {@code cash_month} figure, signed: a positive
+     * month is spend nobody recorded, a negative one is cash that appeared unrecorded, and it moves
+     * {@code left} like other spend and income.
      */
     public record Headroom(LocalDate month, long left, long incomeIn, long incomeDue, long committedPaid,
                            long committedDue, long uncommittedSpend, long unrecordedCash, long movedOut,

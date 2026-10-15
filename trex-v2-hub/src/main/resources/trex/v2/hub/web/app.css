@@ -622,7 +622,7 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-table td { white-space: normal; }
 .budget-table tbody tr.total td { font-weight: 600; border-top: 1px solid var(--line-strong); }
 .budget-table tbody tr.total td:first-child { color: var(--fg); }
-/* The synthetic rows (Due / Moved out / Unrecorded) are not spending: mute them so they read apart. */
+/* The synthetic rows (Due / Unrecorded) are not posted spending: mute them so they read apart. */
 .budget-table tr.synthetic td { color: var(--muted); }
 /* A group row opens into the categories inside it (the read carries the leaves). */
 .budget-table tr.expandable { cursor: pointer; }

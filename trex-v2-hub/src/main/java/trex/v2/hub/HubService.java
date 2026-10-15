@@ -385,7 +385,9 @@ public final class HubService implements HubApi, AutoCloseable {
             statementBudget(refresher.config().registry()));
     }
 
-    /** The {@code budget} account refs, exactly as headroom and the budget sheet both read them. */
+    /** The {@code budget} account refs: the accounts whose moves sit inside the budget, exactly as
+     *  headroom and the budget sheet both read them. It is the boundary a move crosses, not a gate on
+     *  which rows count — income and spend are every account's external rows (V2-SPEC.md §9.2). */
     private Set<String> budgetAccounts() {
         Set<String> budget = new TreeSet<>();
         for (var account : refresher.config().registry().accounts().values()) {
@@ -397,8 +399,9 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
-     * The month's budget sheet (§9.2, V2-BUDGET-VIEW-PLAN.md §4): a read of the derived index over
-     * the budget accounts, sharing headroom's row-walk so its {@code left} equals the figure
+     * The month's budget sheet (§9.2, V2-BUDGET-VIEW-PLAN.md §4): a read of the derived index as the
+     * month's real flows — Money In and Money Out over every account, with the moves between your own
+     * accounts carried apart — sharing headroom's row-walk so its {@code left} equals the figure
      * {@code /api/expected} prints. {@code month} is any {@code YYYY-MM}; null or blank is the hub's
      * current month. Measured at the hub's today exactly as headroom: the current month carries its
      * still-due projection, and a past month's due has become {@code missed} by then, so it reads as

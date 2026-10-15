@@ -76,14 +76,16 @@ class HeadroomApiTest {
             JsonNode headroom = Json.mapper().readTree(response.body()).get("headroom");
 
             assertEquals(first.toString(), headroom.get("month").asText(), "always the month, whatever the window");
-            assertEquals(500000, headroom.get("incomeIn").asLong(), headroom.toPrettyString());
+            assertEquals(500100, headroom.get("incomeIn").asLong(),
+                "the salary plus the savings interest, which is now real income: " + headroom.toPrettyString());
             assertEquals(200000, headroom.get("committedPaid").asLong(), headroom.toPrettyString());
             assertEquals(3000, headroom.get("uncommittedSpend").asLong(),
                 "the shop; never the card repayment: " + headroom.toPrettyString());
             assertEquals(0, headroom.get("unrecordedCash").asLong(),
                 "no wallet movement: " + headroom.toPrettyString());
             assertEquals(50000, headroom.get("movedOut").asLong(), "the savings deposit is moved, not spent");
-            assertEquals(247000, headroom.get("left").asLong(), headroom.toPrettyString());
+            assertEquals(247100, headroom.get("left").asLong(),
+                "500100 in less 200000 committed, 3000 shop and 50000 moved: " + headroom.toPrettyString());
             assertEquals(List.of("card", "cash-ron", "everyday"),
                 Json.mapper().convertValue(headroom.get("accounts"), List.class));
             assertEquals(today.toString(), headroom.get("through").asText());
@@ -189,6 +191,122 @@ class HeadroomApiTest {
         }
     }
 
+    /**
+     * The OOSH fix (operator, verified against the live journal): a fact a commitment claims but
+     * never attaches — its rule reaches back further than the commitment's first materialised
+     * occurrence — is ordinary spend, not swallowed. The commitment is anchored in the next month,
+     * so this month's fact predates its first window and binds to no occurrence.
+     */
+    @Test
+    void aClaimedFactWithNoOccurrenceStaysSpend(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate first = today.withDayOfMonth(1);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                // Four September-style direct debits, claimed by a commitment declared afterwards.
+                fact(1, "oosh-1", "everyday", -42200, "HOLY FAMILY OOSH", first),
+                declare(2, "oosh", "OOSH", "out", "HOLY FAMILY", 42200L, first.plusMonths(1))));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            awaitCommitments(hub, 1);
+            JsonNode headroom = headroom(hub, today);
+
+            assertEquals(42200, headroom.get("uncommittedSpend").asLong(),
+                "the claimed but unattached fact is ordinary spend: " + headroom.toPrettyString());
+            assertEquals(0, headroom.get("committedPaid").asLong(),
+                "no occurrence of its commitment falls in this month: " + headroom.toPrettyString());
+            assertEquals(-42200, headroom.get("left").asLong(), headroom.toPrettyString());
+        }
+    }
+
+    /**
+     * The new model (V2-SPEC.md §9.2): income and spend are every account's external rows, whatever
+     * the account's {@code budget} flag, and a move between two of your own accounts is never income
+     * or spend. A move changes {@code left} only where it crosses the budget boundary.
+     */
+    @Test
+    void everyAccountsExternalsCountAndMovesDoNot(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate first = today.withDayOfMonth(1);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                // Salary paid into a budget:false savings account: real income all the same.
+                fact(1, "sal-sav", "savings", 200000, "SALARY MEL", first),
+                // A loan account's interest charge: real spend, though the account is outside the budget.
+                fact(2, "int-loan", "loan", -50000, "INTEREST CHARGE", first),
+                // A card repayment: both legs in the budget, so it moves nothing and counts nothing.
+                fact(3, "card-a", "everyday", -9000, "PAY CARD", today),
+                fact(4, "card-b", "card", 9000, "PAYMENT RECEIVED", today),
+                // A deposit to savings crosses the boundary: a move out, not spend.
+                fact(5, "sav-a", "everyday", -10000, "TO SAVINGS", today),
+                fact(6, "sav-b", "savings", 10000, "FROM EVERYDAY", today),
+                // Two offset -> loan repayments: both legs outside the budget, so they change nothing.
+                fact(7, "off-a", "offset", -30000, "TO LOAN", today),
+                fact(8, "off-b", "loan", 30000, "FROM OFFSET", today),
+                fact(9, "off2-a", "offset", -30000, "TO LOAN", today),
+                fact(10, "off2-b", "loan", 30000, "FROM OFFSET", today),
+                new Decision.Pair(11, "card-a", "card-b", null, Actor.USER, "ron", AT),
+                new Decision.Pair(12, "sav-a", "sav-b", null, Actor.USER, "ron", AT),
+                new Decision.Pair(13, "off-a", "off-b", null, Actor.USER, "ron", AT),
+                new Decision.Pair(14, "off2-a", "off2-b", null, Actor.USER, "ron", AT)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            awaitPairs(hub, today);
+            JsonNode headroom = headroom(hub, today);
+
+            assertEquals(200000, headroom.get("incomeIn").asLong(),
+                "salary into a budget:false account counts: " + headroom.toPrettyString());
+            assertEquals(50000, headroom.get("uncommittedSpend").asLong(),
+                "the loan interest counts: " + headroom.toPrettyString());
+            assertEquals(10000, headroom.get("movedOut").asLong(),
+                "only the savings deposit crosses the boundary: " + headroom.toPrettyString());
+            assertEquals(0, headroom.get("movedIn").asLong(), headroom.toPrettyString());
+            assertEquals(0, headroom.get("unpaired").asLong(), headroom.toPrettyString());
+            assertEquals(140000, headroom.get("left").asLong(),
+                "200000 in less 50000 interest less 10000 moved: " + headroom.toPrettyString());
+        }
+    }
+
+    /**
+     * A commitment whose facts are all transfers between your own accounts (a loan repayment) is a
+     * move: its occurrence adds no spend, because its rows already carry the move.
+     */
+    @Test
+    void aTransferOnlyCommitmentAddsNoSpend(@TempDir Path dir) throws Exception {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "rep-a", "offset", -30000, "LOAN REPAYMENT", today),
+                fact(2, "rep-b", "loan", 30000, "FROM OFFSET", today),
+                declare(3, "loan-repay", "Loan repayment", "out", "LOAN REPAYMENT", 30000L, today),
+                new Decision.Pair(4, "rep-a", "rep-b", null, Actor.USER, "ron", AT)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            awaitCommitments(hub, 1);
+            JsonNode headroom = headroom(hub, today);
+
+            assertEquals(0, headroom.get("committedPaid").asLong(),
+                "the transfer-only commitment is a move, not spend: " + headroom.toPrettyString());
+            assertEquals(0, headroom.get("uncommittedSpend").asLong(), headroom.toPrettyString());
+            assertEquals(0, headroom.get("left").asLong(), headroom.toPrettyString());
+        }
+    }
+
     private static JsonNode headroom(HubService hub, LocalDate today) throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         URI base = URI.create("http://127.0.0.1:" + hub.port());
@@ -209,11 +327,24 @@ class HeadroomApiTest {
     }
 
     private static void await(HubService hub) throws InterruptedException {
+        awaitCommitments(hub, 2);
+    }
+
+    private static void awaitCommitments(HubService hub, long n) throws InterruptedException {
         long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
-        while (System.nanoTime() < deadline && hub.status().counts().getOrDefault("commitment", 0L) < 2L) {
+        while (System.nanoTime() < deadline && hub.status().counts().getOrDefault("commitment", 0L) < n) {
             Thread.sleep(50);
         }
-        assertTrue(hub.status().counts().getOrDefault("commitment", 0L) >= 2L, "the index never caught up");
+        assertTrue(hub.status().counts().getOrDefault("commitment", 0L) >= n, "the index never caught up");
+    }
+
+    /** Wait for the derived transfer rows to appear (a pair binds when both legs are indexed). */
+    private static void awaitPairs(HubService hub, LocalDate today) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline && hub.transfers().isEmpty()) {
+            Thread.sleep(50);
+        }
+        assertTrue(!hub.transfers().isEmpty(), "the transfers never appeared");
     }
 
     private static Decision.DeclareCommitment declare(long n, String id, String name, String direction,
@@ -245,6 +376,14 @@ class HeadroomApiTest {
                 currency: "AUD"
                 balanceSource: statement
               - ref: "savings"
+                currency: "AUD"
+                balanceSource: declared
+                budget: false
+              - ref: "offset"
+                currency: "AUD"
+                balanceSource: declared
+                budget: false
+              - ref: "loan"
                 currency: "AUD"
                 balanceSource: declared
                 budget: false

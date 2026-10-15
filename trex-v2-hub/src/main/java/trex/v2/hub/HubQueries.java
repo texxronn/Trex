@@ -932,20 +932,20 @@ public final class HubQueries implements AutoCloseable {
     /**
      * Everything the headroom figure and the budget sheet share, from one row-walk (§9.2,
      * V2-BUDGET-VIEW-PLAN.md §3–4). The two reads call {@link #walk} so they cannot drift; the
-     * sheet's {@code left} equals headroom's for the same month. {@code incomeByCategory} and
-     * {@code spendByCategory} are the per-category amounts the sheet rolls up, keyed by trex
-     * category; {@code movedOutBy} and {@code movedInBy} are the month's moves keyed by the account
-     * on the other side of the transfer; {@code outside} is the month's transfers between two
-     * accounts both outside the budget, one entry per transfer; {@code externalByAccountCategory} is
-     * the month's non-transfer rows on those outside accounts, signed, keyed by account and category.
+     * sheet's {@code left} equals headroom's for the same month. The amounts are the month's real
+     * flows — every account's external rows and every commitment's occurrences — with
+     * {@code movedOut}/{@code movedIn} carrying only the moves that cross the budget boundary;
+     * {@code incomeByCategory} and {@code spendByCategory} are the per-category amounts the sheet
+     * rolls up, keyed by trex category; {@code movedOutBy} and {@code movedInBy} are the month's
+     * boundary-crossing moves keyed by the account on the other side; {@code outside} is the
+     * month's moves between two accounts both outside the budget, one entry per transfer.
      */
     private record Walk(long incomeIn, long incomeDue, long committedPaid, long committedDue,
                         long uncommittedSpend, long unrecordedCash, long movedOut, long movedIn,
                         long missed, long unpaired, LocalDate through, List<String> accounts,
                         Map<String, Long> incomeByCategory, Map<String, Long> spendByCategory,
                         Map<String, Long> movedOutBy, Map<String, Long> movedInBy,
-                        List<BudgetResponse.Outside> outside,
-                        Map<ExternalKey, Long> externalByAccountCategory) {
+                        List<BudgetResponse.Outside> outside) {
 
         /** Headroom's formula (§9.2): the sheet's Money Left Over. */
         long left() {
@@ -954,18 +954,19 @@ public final class HubQueries implements AutoCloseable {
         }
     }
 
-    /** The key a non-budget account's external rows aggregate by (D-3): account and trex category. */
-    private record ExternalKey(String account, String category) {}
-
     /** The from/to pair an outside transfer aggregates by (D-3). */
     private record Pair(String from, String to) {}
 
     /**
-     * The headroom of one calendar month over the budget accounts (V2-REVIEW-FIXES-PLAN.md §10). A
-     * transfer is internal — and skipped — when both sides are budget accounts; one that crosses the
-     * boundary (to savings, to the mortgage) is money in or out. A claimed fact is counted through
-     * its commitment's occurrence, never again as spend; a commitment that lands only outside the
-     * budget, or only ever moves money between budget accounts, is left out.
+     * The headroom of one calendar month (V2-REVIEW-FIXES-PLAN.md §10, V2-SPEC.md §9.2): income and
+     * spend as the month's real flows — every account's external rows and every commitment's
+     * occurrences, whatever the account's {@code budget} flag — with a move between two of your own
+     * accounts never income or spend. A move changes {@code left} only where it crosses into or out
+     * of a budget account ({@code movedOut}/{@code movedIn}); between two accounts both outside the
+     * budget it changes nothing. A claimed fact counts through its commitment's occurrence only
+     * when it is attached to one; a fact claimed but unattached is ordinary income or spend. A
+     * commitment whose facts are all transfers between your own accounts is a move; its occurrences
+     * are not counted.
      */
     public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, java.util.Set<String> budget,
                                              java.util.Set<String> statementBudget) {
@@ -982,11 +983,12 @@ public final class HubQueries implements AutoCloseable {
      * presented as Money In / Money Out / Left, with each out row rolled into its primary group.
      * {@code groups} maps a trex category to its ezbookkeeping primary (§11.2); an unmapped or blank
      * category falls back to one {@code Expense} group. Income is never grouped. The synthetic
-     * slices — {@code Due}, {@code Moved out}, {@code Unrecorded} — sit after the groups and are not
-     * spending; the group slices alone sum to {@code spend.posted} and every slice to
-     * {@code spend.total}, so the donut reconciles with {@code left}. The muted outside list is
-     * aggregated per pair with its payment count, and the outside accounts' external rows are
-     * carried apart; neither enters In/Out/Left (D-3).
+     * slices — {@code Due}, {@code Unrecorded} — sit after the groups and are not posted spending;
+     * the group slices alone sum to {@code spend.posted} and every slice to {@code spend.total}, so
+     * the donut reconciles with {@code left}. A move is never a slice: it rides {@code moved}, whose
+     * {@code outside} list holds the moves between two non-budget accounts, aggregated per pair with
+     * its payment count; the budget-boundary moves ride {@code moved.out}/{@code moved.in} with
+     * their parts (D-2, D-3).
      */
     public BudgetResponse budgetSheet(Period.Range month, LocalDate today, java.util.Set<String> budget,
                                       java.util.Set<String> statementBudget, Map<String, String> groups) {
@@ -1009,13 +1011,9 @@ public final class HubQueries implements AutoCloseable {
                 .thenComparing(BudgetResponse.Slice::group));
             long posted = w.committedPaid() + w.uncommittedSpend();
             long due = w.committedDue();
-            long total = posted + due + w.movedOut() + w.unrecordedCash();
+            long total = posted + due + w.unrecordedCash();
             if (due != 0) {
                 slices.add(new BudgetResponse.Slice("Due", due));
-            }
-            if (w.movedOut() != 0) {
-                // Moved out is not saving: its parts name the accounts the money went to (D-2).
-                slices.add(new BudgetResponse.Slice("Moved out", w.movedOut(), parts(w.movedOutBy())));
             }
             if (w.unrecordedCash() != 0) {
                 slices.add(new BudgetResponse.Slice("Unrecorded", w.unrecordedCash()));
@@ -1027,18 +1025,20 @@ public final class HubQueries implements AutoCloseable {
                 .map(e -> new BudgetResponse.Line(e.getKey(), e.getValue()))
                 .toList();
 
+            BudgetResponse.Moved moved = new BudgetResponse.Moved(w.movedOut(), w.movedIn(),
+                w.movedIn() - w.movedOut(), parts(w.movedOutBy()), parts(w.movedInBy()),
+                aggregateOutside(w.outside()));
+
             return new BudgetResponse(YearMonth.from(month.from()).toString(), w.through(), w.accounts(),
-                new BudgetResponse.Income(w.incomeIn(), w.incomeDue(), w.movedIn(),
-                    w.incomeIn() + w.incomeDue() + w.movedIn(), lines, parts(w.movedInBy())),
-                new BudgetResponse.Spend(posted, due, w.unrecordedCash(), w.movedOut(), total, slices),
-                aggregateOutside(w.outside()), externals(w.externalByAccountCategory()),
-                w.missed(), w.unpaired(), w.left());
+                new BudgetResponse.Income(w.incomeIn(), w.incomeDue(), w.incomeIn() + w.incomeDue(), lines),
+                new BudgetResponse.Spend(posted, due, w.unrecordedCash(), total, slices),
+                moved, w.missed(), w.unpaired(), w.left());
         });
     }
 
     /**
-     * One slice's parts, amount descending then label: a group's trex categories, {@code Moved out}'s
-     * destination accounts, or {@code movedIn}'s source accounts.
+     * One slice's parts, amount descending then label: a group's trex categories, a {@code Moved}
+     * out's destination accounts, or the move in's source accounts.
      */
     private static List<BudgetResponse.Part> parts(Map<String, Long> amounts) {
         return amounts.entrySet().stream()
@@ -1068,70 +1068,42 @@ public final class HubQueries implements AutoCloseable {
     }
 
     /**
-     * The month's external rows on the outside accounts (D-3), signed: the loan interest, income into
-     * a savings account, its interest earned. Sorted by amount ascending (biggest outflow first) then
-     * account then category.
-     */
-    private static List<BudgetResponse.External> externals(Map<ExternalKey, Long> byAccountCategory) {
-        return byAccountCategory.entrySet().stream()
-            .map(e -> new BudgetResponse.External(e.getKey().account(), e.getKey().category(),
-                e.getValue()))
-            .sorted(Comparator.comparingLong(BudgetResponse.External::amount)
-                .thenComparing(BudgetResponse.External::account)
-                .thenComparing(BudgetResponse.External::category))
-            .toList();
-    }
-
-    /**
      * The one row-walk the headroom figure and the budget sheet share (§9.2). It reads the month's
      * facts ({@link HubSql#HEADROOM_ROWS}) and its commitments' occurrences
      * ({@link HubSql#EXPECTED_OCCURRENCES}) and returns every amount the two reads need, plus the
      * sheet's per-category detail: the category of the fact each commitment claimed (so a paid
-     * occurrence rolls into that category's group), the category of every uncommitted out row, the
-     * moves to and from your own accounts outside the budget (keyed by the contra account), and the
-     * rows on those outside accounts — the transfers between two of them (D-3) and their own
-     * external rows, signed. The budget sheet and headroom read the same walk.
+     * occurrence rolls into that category's group), the category of every uncommitted out row, and
+     * the month's moves between your own accounts — those crossing the budget boundary (keyed by the
+     * contra account) and those between two non-budget accounts (D-2, D-3). The budget sheet and
+     * headroom read the same walk.
      */
     private Walk walk(Connection conn, Period.Range month, LocalDate today, java.util.Set<String> budget,
                       java.util.Set<String> statementBudget) throws SQLException {
-        // Where each commitment lands, and whether it is only ever an internal move.
-        Map<String, java.util.Set<String>> landsOn = new java.util.TreeMap<>();
+        // A commitment whose claimed facts are only ever internal moves between budget accounts (a
+        // card repayment), and one whose facts are only ever transfers at all (a loan repayment):
+        // both are moves, never income or spend, so their occurrences are not counted (§9.2).
         Map<String, Boolean> internalOnly = new java.util.TreeMap<>();
+        Map<String, Boolean> transferOnly = new java.util.TreeMap<>();
         try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACT_ACCOUNTS);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 String id = rs.getString(1);
-                landsOn.computeIfAbsent(id, k -> new java.util.TreeSet<>()).add(rs.getString(2));
                 boolean internal = rs.getString(3) != null && budget.contains(rs.getString(2))
                     && budget.contains(rs.getString(4));
                 internalOnly.merge(id, internal, Boolean::logicalAnd);
-            }
-        }
-        Map<String, java.util.Set<String>> ruleAccounts = new java.util.TreeMap<>();
-        java.util.Set<String> unscoped = new java.util.TreeSet<>();
-        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULE_ACCOUNTS);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String account = rs.getString(2);
-                if (account == null || account.isBlank()) {
-                    unscoped.add(rs.getString(1));
-                } else {
-                    ruleAccounts.computeIfAbsent(rs.getString(1), k -> new java.util.TreeSet<>()).add(account);
-                }
+                transferOnly.merge(id, rs.getInt(5) != 0, Boolean::logicalAnd);
             }
         }
 
         // The month's rows first: they carry the category of the fact each commitment claimed, so
-        // a paid occurrence below can roll into that category, and they carry the moves that never
-        // touch the budget (D-3). Collected before the occurrences because of the first of those.
+        // a paid occurrence below can roll into that category, and they carry every move between
+        // your own accounts (D-2, D-3). Collected before the occurrences because of the first.
         Map<String, String> commitmentCategory = new java.util.TreeMap<>();
         Map<String, Long> incomeByCategory = new java.util.TreeMap<>();
         Map<String, Long> spendByCategory = new java.util.TreeMap<>();
         Map<String, Long> movedOutBy = new java.util.TreeMap<>();
         Map<String, Long> movedInBy = new java.util.TreeMap<>();
         List<BudgetResponse.Outside> outside = new ArrayList<>();
-        Map<ExternalKey, Long> externalByAccountCategory = new java.util.TreeMap<>(
-            Comparator.comparing(ExternalKey::account).thenComparing(ExternalKey::category));
         long uncommittedSpend = 0;
         long movedOut = 0;
         long movedIn = 0;
@@ -1148,48 +1120,47 @@ public final class HubQueries implements AutoCloseable {
                     String commitmentId = rs.getString(6);
                     String other = rs.getString(7);
                     String category = rs.getString(8);
+                    boolean attached = rs.getString(9) != null;
                     if (commitmentId != null && category != null) {
                         commitmentCategory.putIfAbsent(commitmentId, category);
                     }
-                    if (!budget.contains(account)) {
-                        String transferId = rs.getString(5);
-                        // Acted on before the walk's own early continue: a transfer whose legs are
-                        // both outside the budget (the offset → loan repayment) is reported once,
-                        // by its paying leg, and never enters In/Out/Left (D-3).
-                        if (!"noop".equals(role) && transferId != null && other != null
-                            && !budget.contains(other) && amount < 0) {
-                            outside.add(new BudgetResponse.Outside(account, other, -amount, 1));
-                        } else if (!"noop".equals(role) && transferId == null && amount != 0) {
-                            // The outside account's own rows, which the budget cannot see: the loan
-                            // interest, income into a savings account, its interest earned. Signed,
-                            // and reported apart (D-3).
-                            externalByAccountCategory.merge(
-                                new ExternalKey(account, categoryOf(category)), amount, Long::sum);
+                    if ("noop".equals(role)) {
+                        continue; // not a posting
+                    }
+                    String transferId = rs.getString(5);
+                    if (transferId != null && other != null) {
+                        // A transfer between two of your own accounts is a move, never income or
+                        // spend. It moves `left` only from the budget side of a boundary crossing;
+                        // between two accounts both outside the budget it changes nothing and is
+                        // reported once, by its paying leg (D-3); between two budget accounts it
+                        // moves nothing at all.
+                        boolean accountIn = budget.contains(account);
+                        boolean otherIn = budget.contains(other);
+                        if (!accountIn && !otherIn) {
+                            if (amount < 0) {
+                                outside.add(new BudgetResponse.Outside(account, other, -amount, 1));
+                            }
+                        } else if (accountIn && !otherIn) {
+                            if (amount < 0) {
+                                movedOut += -amount;
+                                movedOutBy.merge(other, -amount, Long::sum);
+                            } else {
+                                movedIn += amount;
+                                movedInBy.merge(other, amount, Long::sum);
+                            }
                         }
                         continue;
                     }
-                    if ("noop".equals(role) || commitmentId != null) {
-                        continue; // not a posting, or counted by its commitment
+                    if (attached) {
+                        continue; // counted through its commitment's occurrence, never twice
                     }
                     if ("HELD".equals(rs.getString(4))) {
                         unpaired += Math.abs(amount);
                         continue;
                     }
-                    if (rs.getString(5) != null && budget.contains(other)) {
-                        continue; // a transfer between two budget accounts moves nothing
-                    }
-                    if (rs.getString(5) != null && other != null) {
-                        // To or from one of your own accounts outside the budget: moved, not spent.
-                        // The contra account is the move's destination or source (D-2).
-                        if (amount < 0) {
-                            movedOut += -amount;
-                            movedOutBy.merge(other, -amount, Long::sum);
-                        } else {
-                            movedIn += amount;
-                            movedInBy.merge(other, amount, Long::sum);
-                        }
-                        continue;
-                    }
+                    // Every other row counts as income or spend, whatever the account's budget
+                    // flag: a salary paid into a savings account or an interest charge on a loan is
+                    // real money in or out (§9.2).
                     if (amount < 0) {
                         uncommittedSpend += -amount;
                         spendByCategory.merge(categoryOf(category), -amount, Long::sum);
@@ -1213,11 +1184,9 @@ public final class HubQueries implements AutoCloseable {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String id = rs.getString(1);
-                    java.util.Set<String> accounts = !unscoped.contains(id) && ruleAccounts.containsKey(id)
-                        ? ruleAccounts.get(id) : landsOn.getOrDefault(id, java.util.Set.of());
                     if (Boolean.TRUE.equals(internalOnly.get(id))
-                        || (!accounts.isEmpty() && accounts.stream().noneMatch(budget::contains))) {
-                        continue;
+                        || Boolean.TRUE.equals(transferOnly.get(id))) {
+                        continue; // a move between your own accounts, never income or spend
                     }
                     boolean in = "in".equals(rs.getString(3));
                     Long expected = nullableLong(rs, 5);
@@ -1275,7 +1244,7 @@ public final class HubQueries implements AutoCloseable {
             unrecordedCash, movedOut, movedIn, missed, unpaired, through,
             List.copyOf(new java.util.TreeSet<>(budget)), Map.copyOf(incomeByCategory),
             Map.copyOf(spendByCategory), Map.copyOf(movedOutBy), Map.copyOf(movedInBy),
-            List.copyOf(outside), Map.copyOf(externalByAccountCategory));
+            List.copyOf(outside));
     }
 
     /** A row's trex category, or {@code UNCATEGORIZED} for a blank one (a structural transfer leg). */

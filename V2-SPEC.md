@@ -454,7 +454,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, payment method and effective reminder lead time, current price, next due, arrears, notes |
 | GET | `/api/commitments/activity?id=` | a candidate's series, or a declared commitment's claimed facts over all history |
 | GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, the window-independent `toPay` occurrences, committed totals, and the month's **headroom** (§9.2) |
-| GET | `/api/budget?month=YYYY-MM` | the month's **budget sheet** (§9.2): Money In, Money Out and Left over the `budget` accounts, each expense row rolled into its primary group; the same walk as `headroom`, which its `left` must equal |
+| GET | `/api/budget?month=YYYY-MM` | the month's **budget sheet** (§9.2): Money In, Money Out and Left as the month's **real flows** — every account's external rows plus commitments, whatever the `budget` flag — with the moves between your own accounts carried apart, each expense row rolled into its primary group; the same walk as `headroom`, which its `left` must equal |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
@@ -550,42 +550,46 @@ browser; the endpoint is a read of the disposable index.
 
 ### 9.2 Headroom ("left this month")
 
-Presented by the **Budget** mode (§9.3); the calculation is unchanged. Always the calendar month of
-`asOf`, over the `budget` accounts:
+Presented by the **Budget** mode (§9.3); always the calendar month of `asOf`:
 `left = income in + income due + moved in − commitments paid − commitments due − other spend − moved out`.
-Commitments count through their occurrences (`occurred`/`settled` as paid, `due`/`awaiting` at the
-current price as due); every other row counts as spend or income, except: a transfer between two
-budget accounts is skipped; a transfer to or from one of your own accounts outside the budget is
-*moved*; a commitment that only ever claims internal transfers, or lands only outside the budget, is
-skipped. `missed` commitments and unpaired (`HELD`) legs are reported apart, never folded in.
-The month's unrecorded cash (§9.4) is added as one line, `Unrecorded cash`, signed — a negative month
-reduces spend. A declared wallet is a `budget` account, so an ATM withdrawal is a transfer between
-two budget accounts, which headroom already skips.
 
-**The budget sheet** (`V2-BUDGET-VIEW-PLAN.md`). `GET /api/budget?month=YYYY-MM` presents the same
-month — an absolute month, unlike headroom's "the month of `asOf`" — as a sheet: **Money In**
-(`incomeIn + incomeDue`, plus `movedIn`), **Money Out** (`committedPaid + committedDue +
-uncommittedSpend + unrecordedCash + movedOut`), and **Money Left Over** (`left` = In − Out). Each
+Income and spend are the month's **real money in and out**: every account's **external** rows — a
+row with no contra leg among your own accounts, whatever the account's `budget` flag (a salary paid
+into a savings account and the interest a loan charges are each real money) — plus every
+commitment's occurrences. A **move** between two of your own accounts is never income or spend: it
+changes `left` only where it crosses into or out of a `budget` account (`moved out`/`moved in`); a
+move between two accounts both outside the budget changes nothing. Commitments count through their
+occurrences (`occurred`/`settled`/`partial` as paid, `due`/`awaiting` at the current price as due);
+a commitment whose facts are **all transfers** between your own accounts (a loan repayment) is a
+**move**, so its occurrences are not counted — its rows already carry the move. A fact a commitment
+claims counts through the commitment's occurrence **only when it is attached to one** (the
+occurrence's `matched_external_id`): a fact claimed but attached to no occurrence — a rule that
+reaches back further than the commitment's first materialised window — is ordinary income or spend,
+never swallowed. `missed` commitments and unpaired (`HELD`) legs are reported apart, never folded
+in. The month's unrecorded cash (§9.4) is added as one line, `Unrecorded cash`, signed — a negative
+month reduces spend. A declared wallet is a `budget` account, so an ATM withdrawal is a transfer
+between two budget accounts, which headroom skips.
+
+**The budget sheet** (`V2-BUDGET-VIEW-PLAN.md` D-6). `GET /api/budget?month=YYYY-MM` presents the
+same month — an absolute month, unlike headroom's "the month of `asOf`" — as a sheet: **Money In**
+(`income.posted + income.due`), **Money Out** (`spend.posted + spend.due + spend.unrecorded`) and
+**Money Left Over** (`left` = In − Out + `moved.net`, with `moved.net = moved.in − moved.out`). Money
+In and Money Out are the same real flows as headroom's income and spend, so **their totals hold no
+move**: a move between your own accounts rides a separate **Moved** block — the boundary-crossing
+`out`/`in` (each carrying the **parts** naming the account on the other side, amount descending) and
+their `net`, plus the moves between two accounts that are **both** outside the budget (`outside`, the
+offset → loan repayments, **aggregated per pair with a count** of the payments behind it). Each
 Money Out row is rolled into its **primary group** (§11.2; an expense category the map does not name
 falls back to one `Expense` bucket) so the sheet and the ezbookkeeping charts slice a category the
-same way; `movedOut` is a distinct **Moved out** slice — named for what it is, a move to one of your
-own accounts outside the budget and not saving — so the donut sums to Money Out without calling a
-move spending, and it carries its **destinations** (the account each part went to, amount
-descending). A paid occurrence rolls into the group of the category its claimed fact carried. Each
+same way; the donut is real spending only, so it slices `spend.posted` by group plus the still-**due**
+commitments and the month's unrecorded cash as their own `Due`/`Unrecorded` slices (money that carries
+no category) — and the group slices alone sum to Money Out already seen, every slice to
+`spend.total`. A paid occurrence rolls into the group of the category its claimed fact carried. Each
 group slice carries its **parts** — the trex categories inside it, amount descending — so the view
-can open a group into the distribution that made it up; a slice's parts sum to its amount. Money
-that carries no category — the still-**due** commitments and the month's unrecorded cash — is its
-own slice (`Due`, `Unrecorded`), so the group slices alone sum to Money Out already seen and every
-slice sums to Money Out. A muted **outside the budget** section lists the month's transfers between
-two accounts that are **both** outside the budget (the offset → loan repayments), **aggregated per
-pair with a count** of the payments behind it, and alongside them the month's **external** rows on
-those outside accounts — no transfer, e.g. the loan interest or the income a savings account
-receives — signed, by account and category; none of it enters In/Out/Left, because the budget
-accounts cannot see these rows and booking the principal as spending would double-count it against
-the falling loan balance (§12, `accounts.yaml`). The row-walk is the one `headroom` uses, factored
-out so the two reads cannot drift: the sheet's `left` equals `/api/expected`'s `headroom.left` for
-the same month. A **past** month is actuals (its `due` occurrences have become `missed` by then);
-the month of the hub's `today` carries the projection.
+can open a group into the distribution that made it up; a slice's parts sum to its amount. The
+row-walk is the one `headroom` uses, factored out so the two reads cannot drift: the sheet's `left`
+equals `/api/expected`'s `headroom.left` for the same month. A **past** month is actuals (its `due`
+occurrences have become `missed` by then); the month of the hub's `today` carries the projection.
 
 ### 9.3 The UI modes
 
@@ -596,7 +600,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
 | **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction, split into **IN** (left) and **OUT** (right) panels with the same columns, each panel's header carrying its row count and its summed amount (the shorter panel takes the taller one's height, and the panels stack under 720px); inside Occurrences, a window-independent Manual payments group lists the `toPay` rows and opens the existing Settle action as **Mark paid** (a decision only: it writes no fact and does not change a transaction); the same occurrences remain in the window tables; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu, filtered to `active` by default; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md`, `V2-MANUAL-PAY-PLAN.md` |
-| **Budget** | the month's **budget sheet** (§9.2): Money In, Money Out and Money Left Over over the `budget` accounts, with a Money Out donut by primary group, a distinct **Moved out** slice for moves to your own accounts outside the budget (with its destinations), and a muted **outside the budget** section for the loan repayments and the outside accounts' own rows (the interest, income into a savings account) that never touch it; a month stepper (calendar months only, the month in the URL) | `V2-REVIEW-FIXES-PLAN.md` §10, `V2-BUDGET-VIEW-PLAN.md` |
+| **Budget** | the month's **budget sheet** (§9.2): Money In, Money Out and Money Left Over as the month's **real flows** over every account, a Money Out donut by primary group, a **Moved** bridge for the moves between your own accounts (the boundary-crossing out/in, each with its destinations/sources) and a muted **outside the budget** list for the moves between two non-budget accounts that change nothing; a month stepper (calendar months only, the month in the URL) | `V2-REVIEW-FIXES-PLAN.md` §10, `V2-BUDGET-VIEW-PLAN.md` |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
@@ -863,8 +867,10 @@ Firefly unit.
 (the statement-age nudge, §9.1 — presentation only: default 31 for a statement account, none for
 declared/clearing, `0` off), `chip_color` — the hub
 chip colour, presentation only — `budget` (default true, never for a clearing account: whether the
-account is in Budget's "left this month"; a declared wallet stays `budget: true`, so its transfers
-to and from the bank are skipped by headroom, §9.2; presentation only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
+account's **moves** sit inside the budget — income and spend count on **every** account now, so the
+flag only decides which side of the boundary a transfer crosses; a declared wallet stays
+`budget: true`, so its transfers to and from the bank are skipped by headroom, §9.2; presentation
+only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
