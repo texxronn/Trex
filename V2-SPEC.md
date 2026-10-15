@@ -454,7 +454,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, payment method and effective reminder lead time, current price, next due, arrears, notes |
 | GET | `/api/commitments/activity?id=` | a candidate's series, or a declared commitment's claimed facts over all history |
 | GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, the window-independent `toPay` occurrences, committed totals, and the month's **headroom** (§9.2) |
-| GET | `/api/budget?month=YYYY-MM` | the month's **budget sheet** (§9.2): Money In, Money Out and Left as the month's **real flows** — every account's external rows plus commitments, whatever the `budget` flag — with the moves between your own accounts carried apart, each expense row rolled into its primary group; the same walk as `headroom`, which its `left` must equal |
+| GET | `/api/budget?month=YYYY-MM&principal=include` | the month's **budget sheet** (§9.2): Money In, Money Out and Left as the month's **real flows** — every account's external rows plus commitments, whatever the `budget` flag — with the moves between your own accounts carried apart, each expense row rolled into its primary group; the same walk as `headroom`, which its `left` must equal; `principal=include` (default off) counts the loan principal repayments as Money Out, so `left` then falls below the strip's by exactly that principal (§9.2) |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
@@ -590,6 +590,22 @@ can open a group into the distribution that made it up; a slice's parts sum to i
 row-walk is the one `headroom` uses, factored out so the two reads cannot drift: the sheet's `left`
 equals `/api/expected`'s `headroom.left` for the same month. A **past** month is actuals (its `due`
 occurrences have become `missed` by then); the month of the hub's `today` carries the projection.
+
+**The principal option** (`V2-BUDGET-VIEW-PLAN.md` D-7). The sheet takes one operator option, **off by
+default**, to count the month's **loan principal repayments** as Money Out. A **principal repayment**
+is a transfer whose **paying** leg's contra account is one of the **declared loan accounts** — every
+facility's `loans[].account` in `mortgages.yaml` (§12); the other direction (a redraw the other way)
+is not one, and neither is a card repayment. `GET /api/budget` reads the option from
+`?principal=include` — any other value, or absent, is off. The month's principal is **always
+reported** (`principal.total` and its parts, the loan accounts, amount descending); with the option
+**on** it also becomes a **`Loan principal`** Money Out slice — placed after the group slices and
+before `Due`, opening into its loan-account parts as the moved parts are — and enters `spend.total`
+(`total = posted + due + unrecorded + principal.total`; `posted` is unchanged, so the group slices
+still sum to it and every slice to the total). With the option on the sheet's `left` is therefore
+**lower than the status strip's `headroom.left` by exactly the principal**: the strip never counts
+it. With the option **off** a principal repayment stays what it is today — a move between your own
+accounts (the offset → loan transfers, in `moved.outside`) — and the sheet's `left` still equals
+headroom's.
 
 ### 9.3 The UI modes
 

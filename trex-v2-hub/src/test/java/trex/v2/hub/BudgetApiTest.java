@@ -38,6 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * month's real flows over every account, sharing headroom's row-walk so the two agree; the out rows
  * rolled into their primary groups; the moves between your own accounts carried on a Moved bridge
  * (the boundary-crossing out/in and the moves between two non-budget accounts, aggregated per pair).
+ * D-7 adds the operator's {@code includePrincipal} option: the month's loan principal repayments are
+ * always reported, and, with the option on, become a Money Out slice that lowers {@code left} below
+ * the status strip's headroom — which never counts them.
  */
 class BudgetApiTest {
 
@@ -199,6 +202,50 @@ class BudgetApiTest {
             assertEquals("loan", outside.get("to").asText());
             assertEquals(90000, outside.get("amount").asLong(), "three 300.00 repayments");
             assertEquals(3, outside.get("count").asInt());
+
+            // ---- the principal option (D-7): always reported, a slice only when asked ------------
+            // The three offset -> loan repayments are the month's loan principal, keyed by the loan
+            // account, whether or not the option counts them.
+            JsonNode principal = budget.get("principal");
+            assertEquals(90000, principal.get("total").asLong(), budget.toPrettyString());
+            assertEquals(List.of("loan"), partNames(principal.get("parts")), principal.toString());
+            assertEquals(90000, principal.get("parts").get(0).get("amount").asLong(), principal.toString());
+            // By default it is not a slice and not in Money Out: it stays a move, so the sheet still
+            // agrees with the status strip's headroom.
+            assertFalse(slices.containsKey("Loan principal"),
+                "the principal is not a slice by default: " + budget.toPrettyString());
+            assertEquals(spend.get("total").asLong(),
+                slices.values().stream().mapToLong(Long::longValue).sum(), spend.toPrettyString());
+            assertEquals(headroom.get("left").asLong(), budget.get("left").asLong(),
+                "by default the sheet still equals headroom: " + budget.toPrettyString());
+
+            JsonNode withPrincipal = json(client, base,
+                "/api/budget?month=" + YearMonth.from(today) + "&principal=include");
+            JsonNode pSpend = withPrincipal.get("spend");
+            Map<String, Long> pSlices = slices(pSpend.get("slices"));
+            // The option turns the principal into a Money Out slice, after the groups and before Due,
+            // opening into its loan accounts like the move bridge's parts.
+            JsonNode loanSlice = sliceFor(pSpend.get("slices"), "Loan principal");
+            assertEquals(90000, loanSlice.get("amount").asLong(), withPrincipal.toPrettyString());
+            assertEquals(List.of("loan"), partNames(loanSlice.get("parts")), loanSlice.toString());
+            assertEquals(90000, loanSlice.get("parts").get(0).get("amount").asLong(), loanSlice.toString());
+            assertEquals(List.of("Home", "Expense", "Living", "Loan principal", "Due"),
+                groupsInOrder(pSpend.get("slices")), pSpend.toPrettyString());
+            // It is gone from the outside moves: it is Money Out now, not a move between your own
+            // accounts, so it is counted once and only once.
+            assertEquals(0, withPrincipal.get("moved").get("outside").size(),
+                withPrincipal.toPrettyString());
+            // spend.posted is unchanged; the principal is added on top; every slice sums to total.
+            assertEquals(spend.get("posted").asLong(), pSpend.get("posted").asLong(),
+                "the option moves no posted spend: " + pSpend.toPrettyString());
+            assertEquals(spend.get("total").asLong() + 90000, pSpend.get("total").asLong(),
+                pSpend.toPrettyString());
+            assertEquals(pSpend.get("total").asLong(),
+                pSlices.values().stream().mapToLong(Long::longValue).sum(), pSpend.toPrettyString());
+            // The status strip never counts the principal, so the sheet's left falls below headroom's
+            // by exactly that amount (the Javadoc invariant).
+            assertEquals(headroom.get("left").asLong() - 90000, withPrincipal.get("left").asLong(),
+                withPrincipal.toPrettyString());
 
             // ---- a malformed month is refused -----------------------------------------------
             HttpResponse<String> bad = client.send(HttpRequest.newBuilder(
@@ -387,6 +434,18 @@ class BudgetApiTest {
               GROCERIES: Living
               RENT: Home
               BILLS: "Bills & Subscriptions"
+            """);
+        // The declared facility whose loan accounts the principal option reads (D-7): a transfer
+        // paying `loan` is loan principal, not ordinary spend.
+        Files.writeString(configDir.resolve("mortgages.yaml"), """
+            mortgages:
+              - name: "Fixture"
+                offset: "offset"
+                loans:
+                  - account: "loan"
+                    label: "Loan"
+                    repaymentCommitment: "loan-repay"
+                    interestCommitment: "loan-interest"
             """);
     }
 }

@@ -938,19 +938,24 @@ public final class HubQueries implements AutoCloseable {
      * {@code incomeByCategory} and {@code spendByCategory} are the per-category amounts the sheet
      * rolls up, keyed by trex category; {@code movedOutBy} and {@code movedInBy} are the month's
      * boundary-crossing moves keyed by the account on the other side; {@code outside} is the
-     * month's moves between two accounts both outside the budget, one entry per transfer.
+     * month's moves between two accounts both outside the budget, one entry per transfer;
+     * {@code principalBy} is every repayment to a declared loan account, keyed by that account, and
+     * {@code principal} the part of it the operator chose to count as Money Out (D-7; zero when the
+     * option is off, so the sheet's {@code left} still equals headroom's by default).
      */
     private record Walk(long incomeIn, long incomeDue, long committedPaid, long committedDue,
                         long uncommittedSpend, long unrecordedCash, long movedOut, long movedIn,
                         long missed, long unpaired, LocalDate through, List<String> accounts,
                         Map<String, Long> incomeByCategory, Map<String, Long> spendByCategory,
                         Map<String, Long> movedOutBy, Map<String, Long> movedInBy,
-                        List<BudgetResponse.Outside> outside) {
+                        List<BudgetResponse.Outside> outside, long principal,
+                        Map<String, Long> principalBy) {
 
-        /** Headroom's formula (§9.2): the sheet's Money Left Over. */
+        /** Headroom's formula (§9.2), now the sheet's Money Left Over: {@code principal} is what the
+         *  operator asked to count as Money Out, so it is already zero when the option is off. */
         long left() {
             return incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend
-                - movedOut - unrecordedCash;
+                - movedOut - unrecordedCash - principal;
         }
     }
 
@@ -971,7 +976,9 @@ public final class HubQueries implements AutoCloseable {
     public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, java.util.Set<String> budget,
                                              java.util.Set<String> statementBudget) {
         return read(conn -> {
-            Walk w = walk(conn, month, today, budget, statementBudget);
+            // The status strip never counts loan principal as Money Out (D-7): an empty loan set and
+            // the option off, so this walk is exactly what it was before the feature.
+            Walk w = walk(conn, month, today, budget, statementBudget, Set.of(), false);
             return new ExpectedResponse.Headroom(month.from(), w.left(), w.incomeIn(), w.incomeDue(),
                 w.committedPaid(), w.committedDue(), w.uncommittedSpend(), w.unrecordedCash(),
                 w.movedOut(), w.movedIn(), w.missed(), w.unpaired(), w.through(), w.accounts());
@@ -989,11 +996,18 @@ public final class HubQueries implements AutoCloseable {
      * {@code outside} list holds the moves between two non-budget accounts, aggregated per pair with
      * its payment count; the budget-boundary moves ride {@code moved.out}/{@code moved.in} with
      * their parts (D-2, D-3).
+     *
+     * <p>{@code loans} is the declared loan accounts ({@code mortgages.yaml}) and {@code
+     * includePrincipal} the operator's option (D-7): a transfer paying one of those accounts is
+     * always reported as {@link BudgetResponse.Principal}, and, only when the option is on, it also
+     * becomes a {@code Loan principal} slice (after the groups, before {@code Due}), enters {@code
+     * spend.total} and lowers {@code left}; when the option is off it stays a move in {@code moved}.
      */
     public BudgetResponse budgetSheet(Period.Range month, LocalDate today, java.util.Set<String> budget,
-                                      java.util.Set<String> statementBudget, Map<String, String> groups) {
+                                      java.util.Set<String> statementBudget, Map<String, String> groups,
+                                      Set<String> loans, boolean includePrincipal) {
         return read(conn -> {
-            Walk w = walk(conn, month, today, budget, statementBudget);
+            Walk w = walk(conn, month, today, budget, statementBudget, loans, includePrincipal);
 
             // Each group keeps its parts — the trex categories inside it — so the view can open a
             // group into the distribution that made it up (V2-BUDGET-VIEW-PLAN.md §5).
@@ -1011,7 +1025,14 @@ public final class HubQueries implements AutoCloseable {
                 .thenComparing(BudgetResponse.Slice::group));
             long posted = w.committedPaid() + w.uncommittedSpend();
             long due = w.committedDue();
-            long total = posted + due + w.unrecordedCash();
+            // The principal is always reported; it is only Money Out (a slice, in the total, in
+            // `left`) when the operator asked for it (D-7).
+            List<BudgetResponse.Part> principalParts = parts(w.principalBy());
+            long principal = w.principalBy().values().stream().mapToLong(Long::longValue).sum();
+            long total = posted + due + w.unrecordedCash() + (includePrincipal ? principal : 0);
+            if (includePrincipal && principal != 0) {
+                slices.add(new BudgetResponse.Slice("Loan principal", principal, principalParts));
+            }
             if (due != 0) {
                 slices.add(new BudgetResponse.Slice("Due", due));
             }
@@ -1032,7 +1053,8 @@ public final class HubQueries implements AutoCloseable {
             return new BudgetResponse(YearMonth.from(month.from()).toString(), w.through(), w.accounts(),
                 new BudgetResponse.Income(w.incomeIn(), w.incomeDue(), w.incomeIn() + w.incomeDue(), lines),
                 new BudgetResponse.Spend(posted, due, w.unrecordedCash(), total, slices),
-                moved, w.missed(), w.unpaired(), w.left());
+                moved, new BudgetResponse.Principal(principal, principalParts),
+                w.missed(), w.unpaired(), w.left());
         });
     }
 
@@ -1076,9 +1098,16 @@ public final class HubQueries implements AutoCloseable {
      * the month's moves between your own accounts — those crossing the budget boundary (keyed by the
      * contra account) and those between two non-budget accounts (D-2, D-3). The budget sheet and
      * headroom read the same walk.
+     *
+     * <p>{@code loans} is the declared loan accounts and {@code includePrincipal} the operator's
+     * option (D-7): a paying transfer to a loan account is always collected into {@code principalBy},
+     * keyed by that loan account; only when the option is on is it skipped as a move (so it is not
+     * also in {@code outside}/{@code movedOut}) and subtracted from {@code left} via {@code
+     * principal}. Headroom passes an empty set and {@code false}, so the strip is untouched.
      */
     private Walk walk(Connection conn, Period.Range month, LocalDate today, java.util.Set<String> budget,
-                      java.util.Set<String> statementBudget) throws SQLException {
+                      java.util.Set<String> statementBudget, Set<String> loans, boolean includePrincipal)
+            throws SQLException {
         // A commitment whose claimed facts are only ever internal moves between budget accounts (a
         // card repayment), and one whose facts are only ever transfers at all (a loan repayment):
         // both are moves, never income or spend, so their occurrences are not counted (§9.2).
@@ -1103,6 +1132,7 @@ public final class HubQueries implements AutoCloseable {
         Map<String, Long> spendByCategory = new java.util.TreeMap<>();
         Map<String, Long> movedOutBy = new java.util.TreeMap<>();
         Map<String, Long> movedInBy = new java.util.TreeMap<>();
+        Map<String, Long> principalBy = new java.util.TreeMap<>();
         List<BudgetResponse.Outside> outside = new ArrayList<>();
         long uncommittedSpend = 0;
         long movedOut = 0;
@@ -1129,6 +1159,16 @@ public final class HubQueries implements AutoCloseable {
                     }
                     String transferId = rs.getString(5);
                     if (transferId != null && other != null) {
+                        // A transfer whose paying leg went to a declared loan account is a principal
+                        // repayment (D-7): always collected into `principal`, and — only when the
+                        // operator asked — skipped as a move so it is not also in outside/movedOut.
+                        boolean principal = amount < 0 && loans.contains(other);
+                        if (principal) {
+                            principalBy.merge(other, -amount, Long::sum);
+                            if (includePrincipal) {
+                                continue;
+                            }
+                        }
                         // A transfer between two of your own accounts is a move, never income or
                         // spend. It moves `left` only from the budget side of a boundary crossing;
                         // between two accounts both outside the budget it changes nothing and is
@@ -1240,11 +1280,15 @@ public final class HubQueries implements AutoCloseable {
                 }
             }
         }
+        // The principal counts toward `left` only when it is Money Out, so headroom's walk (empty
+        // loans, option off) keeps the exact figure it always had (D-7).
+        long principal = includePrincipal
+            ? principalBy.values().stream().mapToLong(Long::longValue).sum() : 0;
         return new Walk(incomeIn, incomeDue, committedPaid, committedDue, uncommittedSpend,
             unrecordedCash, movedOut, movedIn, missed, unpaired, through,
             List.copyOf(new java.util.TreeSet<>(budget)), Map.copyOf(incomeByCategory),
             Map.copyOf(spendByCategory), Map.copyOf(movedOutBy), Map.copyOf(movedInBy),
-            List.copyOf(outside));
+            List.copyOf(outside), principal, Map.copyOf(principalBy));
     }
 
     /** A row's trex category, or {@code UNCATEGORIZED} for a blank one (a structural transfer leg). */

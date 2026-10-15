@@ -45,6 +45,15 @@ moves between your own accounts carried on a **Moved** bridge that is neither in
   *(operator, 2026-10-16, verified against the live journal: "Transfers should not be added";
   "Salary needs to be both mine & Mels (in cba-netsaver)"; "Mortgage interest needs to [be] in Money
   Out"; "include all commitments in the money out".)*
+- **D-7** The sheet takes one operator option, **off by default**, to count the month's **loan
+  principal repayments** as Money Out. A principal repayment is a transfer whose **paying** leg's
+  contra account is one of the **declared loan accounts** (every facility's `loans[].account` in
+  `mortgages.yaml`); `?principal=include` turns them into a **`Loan principal`** slice and lowers
+  `left`, so the sheet's `left` is then below the status strip's `headroom.left` by exactly the
+  principal — the strip never counts it. Off, they stay what they are today: a move between the
+  operator's own accounts (the offset → loan transfers, in `moved.outside`). The month's principal is
+  reported either way. *(operator, 2026-10-16: "Add a checkbox for Money Out (Includes Principal
+  Repayments?) — in which case adds Principal repayments as money out".)*
 
 **Authority:** `V2-SPEC.md` §9.2 (headroom), §9.3 (the UI modes), §12 (config), §11.2 (the ezb
 roll-up map); `V2-REVIEW-FIXES-PLAN.md` §10; `AGENTS.md`.
@@ -118,6 +127,7 @@ One new endpoint, `GET /api/budget?month=YYYY-MM` (default: the hub's current mo
   moved:  { out, in, net,
             outParts: [ { label, amount } ], inParts: [ { label, amount } ],
             outside: [ { from, to, amount, count } ] },
+  principal: { total, parts: [ { label, amount } ] },
   missed, unpaired, left }
 ```
 
@@ -135,10 +145,19 @@ One new endpoint, `GET /api/budget?month=YYYY-MM` (default: the hub's current mo
 - `budget: false` now means only *this account's moves sit outside*; the account's own external rows
   count like any other. `outsideExternal` is gone: the loan interest is ordinary Money Out, the
   salary and interest ordinary Money In.
+- `principal` (D-7) is the month's loan principal repayments — transfers paying a declared loan
+  account (`mortgages.yaml` `loans[].account`) — **always present**: `total` and `parts` (the loan
+  accounts, amount descending). The endpoint takes `?principal=include` (anything else, or absent, is
+  off); with it **on** the walk skips those rows as moves, a **`Loan principal`** slice joins
+  `spend.slices` **after the groups and before `Due`**, `spend.total` includes it
+  (`total = posted + due + unrecorded + principal.total`; `posted` is unchanged), and `left` is lower
+  than headroom's by exactly `principal.total` — the status strip never counts it. With it **off** a
+  repayment stays in `moved.outside` and the sheet's `left` still equals headroom's.
 
 - **Reuse, not a second implementation.** The row-walk is factored out of `HubQueries.headroom()`
   into one helper that both call; `headroom`'s fields keep their names (only the values change per
-  D-6) and the sheet's `left` equals headroom's, which a test asserts on the same month.
+  D-6, plus D-7's principal which headroom never sets) and the sheet's `left` equals headroom's, which
+  a test asserts on the same month.
 - `month` may be any `YYYY-MM`; the read is `asOf`-free (a month is absolute), unlike headroom, which
   measures "the month of `asOf`". `through` is the oldest statement frontier among the budget
   accounts, exactly as headroom reports it.
@@ -159,7 +178,12 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
   `Unrecorded` rows — then the total; real spending only (D-6), holding no move. A **group row opens
   into its parts** (the trex categories inside it), so the compact total can be read first and the
   distribution only when wanted; the `Due`/`Unrecorded` rows are muted and do not open. `missed` and
-  `unpaired` ride as muted notes, as they do today.
+  `unpaired` ride as muted notes, as they do today. The header carries the operator's **"Include
+  principal repayments"** checkbox (D-7) with the month's principal beside it, **hidden entirely when
+  `principal.total` is 0**: on, the `Loan principal` row joins the table (opening into its loan
+  accounts, rendered as account chips like the moved parts) and lowers Left; off, it is a move in the
+  section below. The choice lives in the URL (`#budget?month=YYYY-MM&principal=include`), read on
+  mount, preserved by the stepper and rewritten with `history.replaceState`.
 - **The Moved bridge (D-6).** Under the two tables: the boundary-crossing moves `out` and `in`, each
   opening into the accounts on the other side (render as account chips), and the net. A sentence says
   the bridge is neither income nor spend but moves Left.
@@ -248,3 +272,8 @@ change to `derive()`, the log or the ezbookkeeping view (the sheet is a read of 
   `left` only across the budget boundary; a claimed but unattached fact counts as spend; a
   transfer-only commitment is a move; the donut is real spending only.
   *(operator, 2026-10-16, verified against the live journal.)*
+- **D-7** Money Out gains an **off-by-default operator option** to count the month's loan principal
+  repayments (a transfer paying a declared `mortgages.yaml` loan account) as Money Out: on, a `Loan
+  principal` slice and a `left` below the status strip's headroom by exactly that principal (the strip
+  never counts it); off, they stay a move between the operator's own accounts. The month's principal
+  is reported either way. *(operator, 2026-10-16: "Add a checkbox for Money Out".)*

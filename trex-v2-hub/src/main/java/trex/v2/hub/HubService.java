@@ -399,16 +399,33 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
+     * The declared loan accounts ({@code mortgages.yaml}): the accounts a principal repayment pays
+     * into (V2-BUDGET-VIEW-PLAN.md D-7). A transfer paying one of these is loan principal, never
+     * ordinary spend — whether or not the operator's {@code includePrincipal} option counts it.
+     */
+    private Set<String> loanAccounts() {
+        Set<String> loans = new TreeSet<>();
+        for (RefdataResponse.MortgageJson facility : mortgages) {
+            for (RefdataResponse.LoanJson loan : facility.loans()) {
+                loans.add(loan.account());
+            }
+        }
+        return loans;
+    }
+
+    /**
      * The month's budget sheet (§9.2, V2-BUDGET-VIEW-PLAN.md §4): a read of the derived index as the
      * month's real flows — Money In and Money Out over every account, with the moves between your own
      * accounts carried apart — sharing headroom's row-walk so its {@code left} equals the figure
      * {@code /api/expected} prints. {@code month} is any {@code YYYY-MM}; null or blank is the hub's
      * current month. Measured at the hub's today exactly as headroom: the current month carries its
      * still-due projection, and a past month's due has become {@code missed} by then, so it reads as
-     * actuals without a special case (D-4).
+     * actuals without a special case (D-4). With {@code includePrincipal} the month's loan principal
+     * repayments (D-7) become a Money Out slice and lower {@code left}, so it falls below headroom's
+     * by exactly that much — the status strip never counts them.
      */
     @Override
-    public BudgetResponse budget(String month) {
+    public BudgetResponse budget(String month, boolean includePrincipal) {
         YearMonth ym;
         if (month == null || month.isBlank()) {
             ym = YearMonth.now();
@@ -420,7 +437,8 @@ public final class HubService implements HubApi, AutoCloseable {
             }
         }
         return reads.budgetSheet(Period.bounds(ym.toString()), LocalDate.now(), budgetAccounts(),
-            statementBudget(refresher.config().registry()), categoryGroups());
+            statementBudget(refresher.config().registry()), categoryGroups(), loanAccounts(),
+            includePrincipal);
     }
 
     /**
