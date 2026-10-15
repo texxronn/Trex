@@ -20,12 +20,38 @@ import java.util.Map;
  *
  * <p>{@code env} is the deployment's {@code TREX_ENV} — the same label the sequencer stamps into
  * the log envelope — so the UI header can say which instance (Dev/Prod) a screen belongs to.
+ *
+ * <p>{@code today} is the hub's own calendar day, the one every "today"-relative read uses
+ * ({@code expectedDueThisWeek}, {@code manualToPay}, {@code stale}). It is published so a client
+ * renders "N days left" from the server's day rather than its own clock (§9.1).
  */
 public record StatusResponse(long n, long offset, long journalHead, long lagBytes,
                              Map<String, Long> counts, Map<String, Long> reviewByKind,
                              String configRevision, String deriveVersion, String hashVersion,
                              LocalDate through, List<Stale> stale, int expectedDueThisWeek,
-                             String env) {
+                             ManualToPay manualToPay, String env, LocalDate today) {
+
+    /** Manual-payment occurrence counts for the reminder window and recent unpaid backlog (§9.1). */
+    public record ManualToPay(long upcoming, long overdue) {}
+
+    /** Retains the former constructor for small status fixtures and external test doubles. */
+    public StatusResponse(long n, long offset, long journalHead, long lagBytes,
+                          Map<String, Long> counts, Map<String, Long> reviewByKind,
+                          String configRevision, String deriveVersion, String hashVersion,
+                          LocalDate through, List<Stale> stale, int expectedDueThisWeek, String env) {
+        this(n, offset, journalHead, lagBytes, counts, reviewByKind, configRevision, deriveVersion,
+            hashVersion, through, stale, expectedDueThisWeek, new ManualToPay(0, 0), env, null);
+    }
+
+    /** Retains the manual-pay constructor for fixtures that predate the published {@code today}. */
+    public StatusResponse(long n, long offset, long journalHead, long lagBytes,
+                          Map<String, Long> counts, Map<String, Long> reviewByKind,
+                          String configRevision, String deriveVersion, String hashVersion,
+                          LocalDate through, List<Stale> stale, int expectedDueThisWeek,
+                          ManualToPay manualToPay, String env) {
+        this(n, offset, journalHead, lagBytes, counts, reviewByKind, configRevision, deriveVersion,
+            hashVersion, through, stale, expectedDueThisWeek, manualToPay, env, null);
+    }
 
     /**
      * One account past its {@code fetchEveryDays} cadence: the frontier it has reached, the age of

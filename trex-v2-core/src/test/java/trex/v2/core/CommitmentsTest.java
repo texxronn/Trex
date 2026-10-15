@@ -22,6 +22,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -417,6 +418,8 @@ class CommitmentsTest {
         assertEquals("cand|".length() + 16, commitment.commitmentId().length());
         assertEquals("sha256:".length() + 64, commitment.stateHash().length());
         assertEquals(CommitmentKind.OTHER, commitment.kind(), "detection does not guess a kind");
+        assertEquals(Payment.AUTO, commitment.payment());
+        assertNull(commitment.remindDays());
     }
 
     @Test

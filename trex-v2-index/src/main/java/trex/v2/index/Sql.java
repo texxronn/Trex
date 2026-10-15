@@ -137,7 +137,8 @@ final class Sql {
     static final String INSERT_COMMITMENT = "INSERT INTO commitment(commitment_id, candidate_key, name, origin, direction, "
         + "cadence, amount_kind, kind, status, first_date, last_date, anchor_date, current_amount, "
         + "previous_amount, change_pct, change_date, occurrence_count, outliers, regularity, variable, arrears_count, "
-        + "arrears_amount, declared_n, retired_n, ended_at, state_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        + "arrears_amount, declared_n, retired_n, ended_at, payment, remind_days, state_hash) "
+        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String INSERT_COMMITMENT_RULE = "INSERT INTO commitment_rule(commitment_id, match, "
         + "account_ref, decision_n) VALUES(?,?,?,?)";
     static final String INSERT_COMMITMENT_OCCURRENCE = "INSERT INTO commitment_occurrence(commitment_id, "

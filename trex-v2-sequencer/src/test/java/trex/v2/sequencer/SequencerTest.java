@@ -95,6 +95,8 @@ class SequencerTest {
         private LocalDate endedAt;
         private String candidate;
         private List<LocalDate> dueDates;
+        private String payment;
+        private Integer remindDays;
 
         D(String action, String actor) {
             this.action = action;
@@ -128,13 +130,15 @@ class SequencerTest {
         D endedAt(LocalDate v) { endedAt = v; return this; }
         D candidate(String v) { candidate = v; return this; }
         D dueDates(List<LocalDate> v) { dueDates = v; return this; }
+        D payment(String v) { payment = v; return this; }
+        D remindDays(Integer v) { remindDays = v; return this; }
 
         DecisionDraft build() {
             return new DecisionDraft(action, actor, user, at, comment, legA, legB, externalId, pendingId,
                 postedId, item, externalIds, category, fromId, toId, reason, target,
                 configRevision, deriveVersion, hashVersion, stateHash, text, null,
                 commitmentId, name, direction, cadence, amountKind, kind, matches, amount, anchor,
-                fromCandidate, endedAt, candidate, dueDates);
+                fromCandidate, endedAt, candidate, dueDates, payment, remindDays);
         }
     }
 
@@ -437,9 +441,22 @@ class SequencerTest {
             assertEquals(RowResult.REJECTED, outcome(s, declare().matches(List.of())));
             assertEquals(RowResult.REJECTED,
                 outcome(s, declare().matches(List.of(new DecisionDraft.MatchDraft(" ", null)))));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().remindDays(5)));
+            assertEquals(RowResult.REJECTED, outcome(s, declare().payment("manual").remindDays(0)));
             assertEquals(RowResult.RESOLVED, outcome(s, declare().amount(999L)
                 .anchor(LocalDate.of(2025, 9, 15)).fromCandidate("PAYPAL NETFLIX AUS")));
         }
+    }
+
+    @Test
+    void manualPaymentFieldsPassThroughTheWriterIntoTheLog(@TempDir Path dir) throws Exception {
+        try (Sequencer s = sequencer(dir)) {
+            assertEquals(RowResult.RESOLVED,
+                outcome(s, declare().payment("manual").remindDays(10)));
+        }
+        String line = java.nio.file.Files.readString(dir.resolve("trex.jsonl"));
+        assertTrue(line.contains("\"payment\":\"manual\""));
+        assertTrue(line.contains("\"remindDays\":10"));
     }
 
     @Test

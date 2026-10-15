@@ -389,6 +389,29 @@ class CommitmentMatchTest {
     }
 
     @Test
+    void aClaimedFactInASettledWindowReplacesTheExpectedAmountAndSettleOnTheRow() {
+        Commitment bill = declared("bill", Commitment.OUT, Cadence.MONTHLY,
+            LocalDate.of(2026, 1, 15), -10000L, 1);
+        CurrentFact payment = fact(1, "bw-credit-card", LocalDate.of(2026, 1, 16), -9500L,
+            "ACME BILL");
+
+        CommitmentMatch match = matched(List.of(bill), List.of(rule("bill", "ACME")),
+            List.of(payment), List.of(),
+            List.of(new CommitmentSettle("bill", LocalDate.of(2026, 1, 15), 7)), ASOF);
+
+        CommitmentOccurrence january = at(match, "bill", LocalDate.of(2026, 1, 15));
+        assertEquals(OccurrenceStatus.OCCURRED, january.status());
+        assertEquals("id-1", january.matchedExternalId());
+        assertEquals(LocalDate.of(2026, 1, 16), january.matchedDate());
+        assertEquals("rule", january.matchedBy());
+        assertEquals(-9500L, january.amount().longValue(),
+            "the fact replaces the settled expectation instead of being added to it");
+        assertNull(january.settleN(), "the derived row no longer presents the historical settle");
+        assertEquals(-9500L, payment.fact().amount(), "matching does not rewrite the fact");
+        assertEquals("id-1", match.facts().getFirst().externalId(), "the fact remains bound");
+    }
+
+    @Test
     void anIrregularCommitmentRecordsEachMatchingFactAtItsOwnDate() {
         Commitment notice = declared("notice", Commitment.OUT, Cadence.IRREGULAR,
             LocalDate.of(2026, 1, 7), -5000L, 1);
@@ -557,8 +580,15 @@ class CommitmentMatchTest {
                 new CommitmentSettle("bill", LocalDate.of(2026, 2, 15), 8)),
             Instant.parse("2026-04-05T00:00:00Z"));
 
-        assertEquals(OccurrenceStatus.SETTLED, at(match, "bill", LocalDate.of(2026, 1, 15)).status());
-        assertEquals(OccurrenceStatus.SETTLED, at(match, "bill", LocalDate.of(2026, 2, 15)).status());
+        CommitmentOccurrence january = at(match, "bill", LocalDate.of(2026, 1, 15));
+        assertEquals(OccurrenceStatus.SETTLED, january.status());
+        assertEquals(-10000L, january.amount().longValue());
+        assertEquals(7L, january.settleN().longValue());
+        assertNull(january.matchedExternalId(), "the out-of-window fact does not change the settle");
+        CommitmentOccurrence february = at(match, "bill", LocalDate.of(2026, 2, 15));
+        assertEquals(OccurrenceStatus.SETTLED, february.status());
+        assertEquals(-10000L, february.amount().longValue());
+        assertEquals(8L, february.settleN().longValue());
         assertEquals(OccurrenceStatus.MISSED, at(match, "bill", LocalDate.of(2026, 3, 15)).status(),
             "March 30 is outside the March 8–22 window: a hole, not a late match");
         CommitmentOccurrence off = at(match, "bill", LocalDate.of(2026, 3, 30));

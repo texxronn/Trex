@@ -9,6 +9,7 @@ import trex.v2.core.IngestEvent;
 import trex.v2.core.Ids;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
+import trex.v2.core.Payment;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
 import trex.v2.core.config.BalanceSource;
@@ -576,9 +577,10 @@ public final class Sequencer implements AutoCloseable {
             case DECLARE_COMMITMENT -> new Decision.DeclareCommitment(envelope,
                 require(d.commitmentId(), "commitmentId"), require(d.name(), "name"),
                 requireDirection(d.direction()), requireCadence(d.cadence()),
-                requireAmountKind(d.amountKind()), requireCommitmentKind(d.kind()),  // wire field "kind"
-                requireMatches(d.matches()), d.amount(), d.anchor(), d.fromCandidate(), d.comment(),
-                actor, user);
+                 requireAmountKind(d.amountKind()), requireCommitmentKind(d.kind()),  // wire field "kind"
+                 requireMatches(d.matches()), d.amount(), d.anchor(), d.fromCandidate(), d.comment(),
+                actor, user, d.payment() == null ? Payment.AUTO : Payment.fromWire(d.payment()),
+                d.remindDays());
             case RETIRE_COMMITMENT -> new Decision.RetireCommitment(envelope,
                 require(d.commitmentId(), "commitmentId"), require(d.endedAt(), "endedAt"),
                 require(d.reason(), "reason"), actor, user);

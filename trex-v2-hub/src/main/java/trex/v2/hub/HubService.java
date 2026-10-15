@@ -249,7 +249,7 @@ public final class HubService implements HubApi, AutoCloseable {
             oldestFrontier(frontiers, statementBudget(registry)),
             staleAccounts(registry, frontiers, today),
             Math.toIntExact(reads.expectedDueThisWeek(Period.bounds(Period.weekKey(today)))),
-            env());
+            reads.manualToPay(today), env(), today);
     }
 
     /**
@@ -366,9 +366,11 @@ public final class HubService implements HubApi, AutoCloseable {
             default -> throw new IllegalArgumentException(
                 "window must be today, week or month, not '" + win + "'");
         };
-        ExpectedResponse base = reads.expected(win, range);
+        // The manual-pay toPay read is measured at the same day as the window: the explicit asOf when
+        // given, else the hub's today. So the strip and the list never disagree for a given asOf.
+        ExpectedResponse base = reads.expected(win, range, at);
         return new ExpectedResponse(base.window(), base.from(), base.to(), base.occurrences(), base.arrears(),
-            base.totals(), monthHeadroom(at));
+            base.totals(), monthHeadroom(at), base.toPay());
     }
 
     /**
@@ -1455,7 +1457,34 @@ public final class HubService implements HubApi, AutoCloseable {
         if (e == null && d.fromCandidate() != null && d.fromCandidate().isBlank()) {
             e = "fromCandidate must not be blank";
         }
+        if (e == null) {
+            e = checkPayment(d.payment(), d.remindDays(), d.cadence());
+        }
         return e;
+    }
+
+    /**
+     * The manual-payment fields (V2-SPEC.md §5): a known wire value, a 1–60 day lead time, a lead
+     * time only for a manual declaration, and no manual payment on an irregular commitment (it
+     * generates no due dates, so there is nothing to remind before). Mirrors {@code Decision}'s own
+     * structural rules, so a malformed declaration is a named {@code 422} here rather than a
+     * silent {@code 200} with a {@code Rejected} row from the writer.
+     */
+    private static String checkPayment(String payment, Integer remindDays, String cadenceWire) {
+        String wire = payment == null ? "auto" : payment;
+        if (!"auto".equals(wire) && !"manual".equals(wire)) {
+            return "payment must be 'auto' or 'manual', not '" + payment + "'";
+        }
+        if (remindDays != null && (remindDays < 1 || remindDays > 60)) {
+            return "remindDays must be between 1 and 60";
+        }
+        if (remindDays != null && !"manual".equals(wire)) {
+            return "remindDays is only valid for manual payments";
+        }
+        if ("manual".equals(wire) && "irregular".equals(cadenceWire)) {
+            return "a manual payment needs due dates; an irregular commitment generates none";
+        }
+        return null;
     }
 
     private static String checkWire(String name, String wire, java.util.function.Function<String, ?> parse) {

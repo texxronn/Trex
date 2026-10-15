@@ -9,6 +9,7 @@ import trex.v2.core.Fact;
 import trex.v2.core.IngestEvent;
 import trex.v2.core.LogLine;
 import trex.v2.core.Observation;
+import trex.v2.core.Payment;
 import trex.v2.core.Provenance;
 import trex.v2.core.Unknown;
 import trex.v2.core.derive.AmountKind;
@@ -105,6 +106,33 @@ class LogCodecTest {
         assertTrue(json.contains("\"comment\":null"), json);
         assertEquals(declare, LogCodec.parse(LogCodec.encode(declare)));
 
+        String oldAutoLine = "{\"n\":30,\"kind\":\"trex.decision\",\"v\":1,"
+            + "\"atMs\":1790670660000,\"env\":\"DEV1    \",\"source\":\"TST_0001\","
+            + "\"target\":\"        \",\"at\":\"2026-09-29T08:31:00Z\","
+            + "\"action\":\"DECLARE_COMMITMENT\",\"commitmentId\":\"netflix\","
+            + "\"name\":\"Netflix\",\"direction\":\"out\",\"cadence\":\"monthly\","
+            + "\"amountKind\":\"fixed\",\"commitmentKind\":\"subscription\","
+            + "\"matches\":[{\"match\":\"NETFLIX\",\"account\":null}],\"amount\":null,"
+            + "\"anchor\":null,\"fromCandidate\":null,\"comment\":null,\"actor\":\"user\","
+            + "\"user\":\"ron\"}";
+        assertEquals(oldAutoLine, LogCodec.encodeString(declare), "the old auto line format is unchanged");
+        Decision decodedOldAuto = (Decision) LogCodec.parse(oldAutoLine.getBytes(
+            java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals(Payment.AUTO, ((Decision.DeclareCommitment) decodedOldAuto).payment());
+        assertEquals(oldAutoLine, LogCodec.encodeString(decodedOldAuto),
+            "an old auto declaration must re-encode byte-identically");
+        assertFalse(oldAutoLine.contains("\"payment\""), oldAutoLine);
+        assertFalse(oldAutoLine.contains("\"remindDays\""), oldAutoLine);
+
+        Decision.DeclareCommitment manual = new Decision.DeclareCommitment(30, "netflix", "Netflix",
+            "out", Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+            List.of(new Decision.Match("NETFLIX", null)), null, null, null, null,
+            Actor.USER, "ron", Payment.MANUAL, 10, AT);
+        String manualJson = LogCodec.encodeString(manual);
+        assertTrue(manualJson.contains("\"payment\":\"manual\""), manualJson);
+        assertTrue(manualJson.contains("\"remindDays\":10"), manualJson);
+        assertEquals(manual, LogCodec.parse(LogCodec.encode(manual)));
+
         Decision.RetireCommitment retire = new Decision.RetireCommitment(31, "agl",
             LocalDate.of(2026, 8, 1), "provider move", Actor.USER, "ron", AT);
         assertTrue(LogCodec.encodeString(retire).contains("\"endedAt\":\"2026-08-01\""),
@@ -129,6 +157,29 @@ class LogCodecTest {
         Decision.UnpinCommitment unpin = new Decision.UnpinCommitment(36, List.of("a"), "release",
             Actor.USER, "ron", AT);
         assertEquals(unpin, LogCodec.parse(LogCodec.encode(unpin)));
+    }
+
+    @Test
+    void paymentAndReminderValidationIsStructural() {
+        assertEquals(Payment.AUTO, new Decision.DeclareCommitment(30, "netflix", "Netflix", "out",
+            Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+            List.of(new Decision.Match("NETFLIX", null)), null, null, null, null,
+            Actor.USER, "ron", null, null, AT).payment());
+        assertThrows(IllegalArgumentException.class, () -> new Decision.DeclareCommitment(30, "netflix",
+            "Netflix", "out", Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+            List.of(new Decision.Match("NETFLIX", null)), null, null, null, null, Actor.USER, "ron",
+            Payment.AUTO, 5, AT));
+        for (int invalid : List.of(0, 61)) {
+            assertThrows(IllegalArgumentException.class, () -> new Decision.DeclareCommitment(30, "netflix",
+                "Netflix", "out", Cadence.MONTHLY, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+                List.of(new Decision.Match("NETFLIX", null)), null, null, null, null, Actor.USER, "ron",
+                Payment.MANUAL, invalid, AT));
+        }
+        // An irregular commitment generates no due dates, so it has nothing to remind before (§5).
+        assertThrows(IllegalArgumentException.class, () -> new Decision.DeclareCommitment(30, "netflix",
+            "Netflix", "out", Cadence.IRREGULAR, AmountKind.FIXED, CommitmentKind.SUBSCRIPTION,
+            List.of(new Decision.Match("NETFLIX", null)), null, null, null, null, Actor.USER, "ron",
+            Payment.MANUAL, 5, AT));
     }
 
     @Test

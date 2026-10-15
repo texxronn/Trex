@@ -7,6 +7,7 @@ import trex.v2.core.Hashes;
 import trex.v2.core.Ids;
 import trex.v2.core.MerchantStem;
 import trex.v2.core.Observation;
+import trex.v2.core.Payment;
 import trex.v2.core.Rail;
 import trex.v2.core.config.Account;
 import trex.v2.core.config.BalanceSource;
@@ -1406,7 +1407,9 @@ public final class Derive {
                 arrears.amount(),
                 d.declaredN(),
                 d.retiredN(),
-                d.endedAt());
+                d.endedAt(),
+                d.payment(),
+                d.remindDays());
         }
 
         /**
@@ -2298,12 +2301,13 @@ public final class Derive {
      */
     private record DeclaredCommitment(String commitmentId, String name, String direction, Cadence cadence,
                                       AmountKind amountKind, CommitmentKind kind, List<Decision.Match> matches,
-                                      Long amount, LocalDate anchor, String fromCandidate, long declaredN,
-                                      Long retiredN, LocalDate endedAt) {
+                                      Long amount, LocalDate anchor, String fromCandidate, Payment payment,
+                                      Integer remindDays, long declaredN, Long retiredN, LocalDate endedAt) {
 
         DeclaredCommitment(Decision.DeclareCommitment dc, Long retiredN, LocalDate endedAt) {
             this(dc.commitmentId(), dc.name(), dc.direction(), dc.cadence(), dc.amountKind(),
-                dc.commitmentKind(), dc.matches(), dc.amount(), dc.anchor(), dc.fromCandidate(),
+                dc.commitmentKind(), dc.matches(), dc.amount(), dc.anchor(), dc.fromCandidate(), dc.payment(),
+                dc.remindDays() == null && dc.payment() == Payment.MANUAL ? Integer.valueOf(5) : dc.remindDays(),
                 dc.n(), retiredN, endedAt);
         }
 
@@ -2313,7 +2317,7 @@ public final class Derive {
 
         DeclaredCommitment ended(long n, LocalDate at) {
             return new DeclaredCommitment(commitmentId, name, direction, cadence, amountKind, kind,
-                matches, amount, anchor, fromCandidate, declaredN, n, at);
+                matches, amount, anchor, fromCandidate, payment, remindDays, declaredN, n, at);
         }
 
         /** The declaration-shaped row the matcher needs: the declared amount is the expectation. */
@@ -2323,7 +2327,8 @@ public final class Derive {
             return new Commitment(commitmentId, null, name, CommitmentOrigin.DECLARED, direction,
                 cadence, amountKind, kind, retired() ? CommitmentStatus.ENDED : CommitmentStatus.ACTIVE,
                 null, null, anchor, signed, null, null, null, List.of(), null, null, 0, 0, null,
-                amountKind == AmountKind.VARIABLE, 0, null, declaredN, retiredN, endedAt);
+                amountKind == AmountKind.VARIABLE, 0, null, declaredN, retiredN, endedAt,
+                payment, remindDays);
         }
     }
 

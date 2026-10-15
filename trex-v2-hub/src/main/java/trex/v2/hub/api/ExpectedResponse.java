@@ -10,7 +10,13 @@ import java.util.List;
  */
 public record ExpectedResponse(String window, LocalDate from, LocalDate to,
                                List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
-                               Headroom headroom) {
+                               Headroom headroom, List<ToPay> toPay) {
+
+    public ExpectedResponse(String window, LocalDate from, LocalDate to,
+                            List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
+                            Headroom headroom) {
+        this(window, from, to, occurrences, arrears, totals, headroom, List.of());
+    }
 
     /**
      * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10) over the accounts in the budget: what came in
@@ -44,7 +50,15 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
                              String cadence, LocalDate dueDate, LocalDate windowStart,
                              LocalDate windowEnd, String status, Long amount,
                              String matchedExternalId, LocalDate matchedDate, String matchedBy,
-                             boolean offSchedule, Long settleN) {}
+                             boolean offSchedule, Long settleN, String payment) {}
+
+    /** A window-independent occurrence needing manual payment, in the status strip's bucket order. */
+    public record ToPay(String commitmentId, String commitmentName, String direction,
+                        String cadence, LocalDate dueDate, LocalDate windowStart,
+                        LocalDate windowEnd, String status, Long amount,
+                        String matchedExternalId, LocalDate matchedDate, String matchedBy,
+                        boolean offSchedule, Long settleN, String payment, String bucket,
+                        int remindDays) {}
 
     /**
      * One hole in arrears: a {@code missed} occurrence, oldest first. {@code expected} is the

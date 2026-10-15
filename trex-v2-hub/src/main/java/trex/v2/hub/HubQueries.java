@@ -11,6 +11,7 @@ import trex.v2.hub.api.NoteJson;
 import trex.v2.hub.api.ReviewMember;
 import trex.v2.hub.api.ReviewRow;
 import trex.v2.hub.api.SinceResponse;
+import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
@@ -366,6 +367,36 @@ public final class HubQueries implements AutoCloseable {
     public long expectedDueThisWeek(Period.Range week) {
         return read(conn -> count(conn, HubSql.EXPECTED_DUE_THIS_WEEK,
             week.from().toString(), week.to().toString()));
+    }
+
+    /** Manual-payment occurrence counts at the hub's explicit calendar day (§9.1). */
+    public StatusResponse.ManualToPay manualToPay(LocalDate today) {
+        return read(conn -> new StatusResponse.ManualToPay(
+            count(conn, HubSql.MANUAL_TO_PAY_UPCOMING, today.toString(), today.toString()),
+            count(conn, HubSql.MANUAL_TO_PAY_OVERDUE, today.toString(), today.toString())));
+    }
+
+    /** The exact rows behind {@link #manualToPay}, independent of Expected's selected calendar window. */
+    private List<ExpectedResponse.ToPay> manualToPayRows(Connection conn, LocalDate today) throws SQLException {
+        List<ExpectedResponse.ToPay> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.MANUAL_TO_PAY_ROWS)) {
+            ps.setString(1, today.toString()); // bucket label
+            ps.setString(2, today.toString()); // upcoming lower bound
+            ps.setString(3, today.toString()); // upcoming reminder upper bound
+            ps.setString(4, today.toString()); // overdue lower bound
+            ps.setString(5, today.toString()); // overdue exclusive upper bound
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    rows.add(new ExpectedResponse.ToPay(rs.getString(1), rs.getString(2), rs.getString(3),
+                        rs.getString(4), LocalDate.parse(rs.getString(6)), nullableDate(rs.getString(7)),
+                        nullableDate(rs.getString(8)), rs.getString(9), nullableLong(rs, 10),
+                        rs.getString(11), nullableDate(rs.getString(12)), rs.getString(13),
+                        rs.getInt(14) != 0, nullableLong(rs, 15), rs.getString(16), rs.getString(18),
+                        rs.getInt(17)));
+                }
+            }
+        }
+        return rows;
     }
 
     // ---- blotter ----------------------------------------------------------------------------
@@ -739,7 +770,8 @@ public final class HubQueries implements AutoCloseable {
                         rs.getInt(17), nullableDouble(rs, 18), rs.getInt(19) != 0, rs.getInt(20),
                         nullableLong(rs, 21), nullableLong(rs, 22), nullableLong(rs, 23),
                         nullableDate(rs.getString(24)), rules.getOrDefault(id, List.of()),
-                        nullableDate(rs.getString(26)), notes.getOrDefault(id, List.of())));
+                        nullableDate(rs.getString(26)), notes.getOrDefault(id, List.of()), rs.getString(27),
+                        nullableInteger(rs, 28)));
                 }
             }
             return out;
@@ -846,7 +878,7 @@ public final class HubQueries implements AutoCloseable {
      * window once a fact landed, the commitment's current price while nothing has — so a settled
      * row contributes its expectation and a due or missed row its current price.
      */
-    public ExpectedResponse expected(String window, Period.Range range) {
+    public ExpectedResponse expected(String window, Period.Range range, LocalDate today) {
         return read(conn -> {
             List<ExpectedResponse.Occurrence> occurrences = new ArrayList<>();
             long out = 0;
@@ -864,7 +896,7 @@ public final class HubQueries implements AutoCloseable {
                             LocalDate.parse(rs.getString(6)), nullableDate(rs.getString(7)),
                             nullableDate(rs.getString(8)), rs.getString(9), amount,
                             rs.getString(11), nullableDate(rs.getString(12)), rs.getString(13),
-                            rs.getInt(14) != 0, nullableLong(rs, 15)));
+                            rs.getInt(14) != 0, nullableLong(rs, 15), rs.getString(16)));
                         long committed = amount != null ? Math.abs(amount)
                             : currentAmount == null ? 0 : Math.abs(currentAmount);
                         if ("out".equals(direction)) {
@@ -891,7 +923,7 @@ public final class HubQueries implements AutoCloseable {
                 }
             }
             return new ExpectedResponse(window, range.from(), range.to(), occurrences, arrears,
-                new ExpectedResponse.Totals(out, in), null);
+                new ExpectedResponse.Totals(out, in), null, manualToPayRows(conn, today));
         });
     }
 
@@ -1456,6 +1488,12 @@ public final class HubQueries implements AutoCloseable {
     /** A nullable INTEGER column; SQLite's {@code getLong} would coerce NULL to 0. */
     private static Long nullableLong(ResultSet rs, int column) throws SQLException {
         long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    /** A nullable INTEGER column represented as {@link Integer}. */
+    private static Integer nullableInteger(ResultSet rs, int column) throws SQLException {
+        int value = rs.getInt(column);
         return rs.wasNull() ? null : value;
     }
 

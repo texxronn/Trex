@@ -72,6 +72,8 @@ class HubStatusApiTest {
 
             // The all-clear date is untouched: still the oldest frontier of the budget accounts.
             assertEquals(today.minusDays(100).toString(), body.get("through").asText(), body.toPrettyString());
+            // The hub publishes its own calendar day, the one every today-relative read uses (§9.1).
+            assertEquals(today.toString(), body.get("today").asText(), body.toPrettyString());
         }
     }
 

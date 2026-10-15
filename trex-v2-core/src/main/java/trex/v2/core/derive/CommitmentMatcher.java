@@ -331,9 +331,9 @@ final class CommitmentMatcher {
     // ---- pins, rules and allocation -----------------------------------------------------------
 
     /**
-     * Apply the effective settles before any matching: a settled occurrence is not open for
-     * allocation and a later fact skips it (§2.9). The amount is the expected price — a person
-     * concluded the expectation was met, so the row states the expectation, not a fabricated fact.
+     * Apply the effective settles before matching. Until a claimed fact attaches within its window,
+     * a settled occurrence states the expected price; attachment later replaces that derived state
+     * with the observed fact(s). The settle decision remains in the log (§2.9).
      */
     private static void applySettles(Commitment commitment, Map<LocalDate, Long> settled,
                                      List<Slot> slots) {
@@ -368,8 +368,14 @@ final class CommitmentMatcher {
                 offSchedule(assigned, slots, Math.abs(fact.fact().amount()));
                 continue;
             }
-            // The first fact on the row names it; later facts in the same window only sum.
+            // The first fact on the row names it; later facts in the same window only sum. A fact
+            // inside a settled window replaces the expected amount and clears the row's settle
+            // reference. This changes only the derived row; the historical decision stays in the log.
             if (window.matchedExternalId == null) {
+                if (window.status == OccurrenceStatus.SETTLED) {
+                    window.amount = null;
+                    window.settleN = null;
+                }
                 window.matchedExternalId = fact.externalId();
                 window.matchedDate = date;
                 window.matchedBy = assigned.matchedBy;
@@ -560,8 +566,8 @@ final class CommitmentMatcher {
 
     /**
      * One occurrence while it is being built. {@code amount} is the summed movement of the facts
-     * attached to the window (or the expected amount on a settled row), and the window is null for
-     * irregular and off-schedule rows.
+     * attached to the window (or, before a fact attaches, the expected amount on a settled row), and
+     * the window is null for irregular and off-schedule rows.
      */
     private static final class Slot {
         final LocalDate dueDate;

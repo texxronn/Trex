@@ -231,6 +231,8 @@ CREATE TABLE IF NOT EXISTS commitment (
   declared_n       INTEGER,
   retired_n        INTEGER,
   ended_at         TEXT,
+  payment          TEXT NOT NULL DEFAULT 'auto',
+  remind_days      INTEGER,
   state_hash       TEXT
 );
 
