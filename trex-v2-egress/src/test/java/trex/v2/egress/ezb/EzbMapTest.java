@@ -103,6 +103,57 @@ class EzbMapTest {
     }
 
     @Test
+    void loadsTheOptionalCategoryGroupMap() throws Exception {
+        EzbMap map = EzbMap.load(yaml("""
+            zone: "Australia/Sydney"
+            accounts:
+              ing-savings: { name: "ING Savings", category: 8 }
+            categories:
+              GROCERIES: Living
+              BILLS: "Bills & Subscriptions"
+            """));
+        assertEquals("Living", map.categoryGroups().get("GROCERIES"));
+        assertEquals("Bills & Subscriptions", map.categoryGroups().get("BILLS"));
+    }
+
+    @Test
+    void theCategoryGroupMapIsEmptyWhenAbsent() throws Exception {
+        EzbMap map = EzbMap.load(yaml("""
+            zone: "Australia/Sydney"
+            accounts:
+              ing-savings: { name: "ING Savings", category: 8 }
+            """));
+        assertTrue(map.categoryGroups().isEmpty());
+    }
+
+    @Test
+    void rejectsABlankGroupValueNamingTheFile() throws Exception {
+        Path file = yaml("""
+            zone: "Australia/Sydney"
+            accounts:
+              ing-savings: { name: "ING Savings", category: 8 }
+            categories:
+              GROCERIES: " "
+            """);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> EzbMap.load(file));
+        assertTrue(e.getMessage().contains("ezb.yaml"), e.getMessage());
+        assertTrue(e.getMessage().contains("GROCERIES"), e.getMessage());
+    }
+
+    @Test
+    void rejectsABlankGroupKeyNamingTheFile() throws Exception {
+        Path file = yaml("""
+            zone: "Australia/Sydney"
+            accounts:
+              ing-savings: { name: "ING Savings", category: 8 }
+            categories:
+              "": Living
+            """);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> EzbMap.load(file));
+        assertTrue(e.getMessage().contains("ezb.yaml"), e.getMessage());
+    }
+
+    @Test
     void missingIsDeduplicatedAndSorted() throws Exception {
         EzbMap map = EzbMap.load(yaml("""
             zone: "Australia/Sydney"

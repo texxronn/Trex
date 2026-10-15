@@ -732,8 +732,9 @@ day-to-day reconciliation; nobody edits ezbookkeeping, so there is no external i
 no fingerprint, no `projection_state` and no `--validate`. Every sync **clears the transactions and
 re-imports the whole current view** — every unit plus every opening — and the next apply heals a
 half-written one: it is the invariant "every derived table is disposable" applied downstream.
-Accounts and categories are **ensured** (created when missing, never deleted), so the operator's
-saved charts and explorations, which reference stable ids, survive every sync. ezbookkeeping is
+Accounts and categories are **ensured** (created when missing; a category is deleted only as a
+duplicate leaf, below), so the operator's saved charts and explorations, which reference stable ids,
+survive every sync. ezbookkeeping is
 reached over its HTTP API only; the egress is JDK-only Java in `trex-v2-egress`.
 
 **Input** is the same `/api/units` feed as §11.1: posted EXTERNAL transactions and TRANSFER units
@@ -758,9 +759,17 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
   `destinationAccountId`; `sourceAccountId` is the trex account, `sourceAmount` its magnitude.
 - **TRANSFER** → transfer (4); `sourceAmount` = `destinationAmount` = the magnitude;
   `sourceAccountId`/`destinationAccountId` are the unit's `accountRef`/`toAccountRef`.
-- **Category:** the trex master category becomes an ezbookkeeping **secondary** category under one
-  primary per category type (`trex-income`/`trex-expense`/`trex-transfer`); a primary is refused as
-  a row's category, so the child is mandatory. `UNCATEGORIZED` is a real category.
+- **Category:** the trex master category becomes an ezbookkeeping **secondary** category under a
+  **primary**; a primary is refused as a row's category, so the child is mandatory. Income and
+  transfer keep one primary per category type (`trex-income`/`trex-transfer`). The **expense** side
+  may use several primaries: an optional `categories:` map in `ezb.yaml` (trex category →
+  ezbookkeeping primary; view-only like the rest of that file, §12) names the primary an expense
+  category sits under, and an unmapped expense category falls back to `trex-expense`. A row still
+  names only its **secondary**, so the row mapping is unchanged; it is the charts that aggregate over
+  the primaries. A child that already exists elsewhere is **re-parented** to its primary and
+  **keeps its id**, so a saved exploration survives the move; a second leaf with the same
+  `(type, name)` is a **duplicate** and is deleted, keeping the id already under the target primary
+  (else the lowest id) — the one place a category is ever deleted. `UNCATEGORIZED` is a real category.
 - **Opening:** every account's opening is a **type-1 row, in every import**, dated before the first
   unit. It cannot be a creation-only field (the clear deletes it) and `accounts/modify` refuses a
   balance change. A type-1 row may only be posted while its account has **no other transaction**
@@ -778,9 +787,11 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
 
 **Run modes** (`plan` / `apply` / `verify`, §11.1's vocabulary):
 
-- **plan:** fetch the units; report unmapped refs, the accounts and categories to create, and the row
-  counts per type. No writes.
-- **apply:** ensure accounts and categories, clear, then import openings first and the units in
+- **plan:** fetch the units; report unmapped refs, the accounts and categories to create (the group
+  primaries and duplicate leaves included), and the row counts per type. No writes.
+- **apply:** ensure accounts, clear, then ensure categories (re-parenting a child to its group
+  primary and deleting duplicate leaves after the clear, so no transaction ever names a category
+  mid-move), then import openings first and the units in
   batches, polling `transactions/import/process`. Every import call uses a **fresh `clientSessionId`**
   (a UUID): the duplicate checker keys on the id alone, so a reused one is treated as a repeat
   submission and every batch after the first is dropped (measured on 2.0.1: three calls sharing an id
@@ -832,7 +843,8 @@ to and from the bank are skipped by headroom, §9.2; presentation only), and for
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
 `clearing` account or a declared wallet, §6.3)),
 `firefly.yaml` (account mapping), `ezb.yaml` (the ezbookkeeping view's mapping — ref → name, its
-ezbookkeeping account category and the zone; **view-config**, read by `trex egress ezb` and never
+ezbookkeeping account category, the zone, and an optional category → primary `categories` map;
+**view-config**, read by `trex egress ezb` and never
 hashed into `configRevision`, §11.2), `mortgages.yaml` (optional **view-config**, not a derive input:
 each facility's offset account, the loan it shelters (`offsetAppliesTo` — the declaration the
 idle-offset insight rests on, never inferred from charges), its loans, and per loan the

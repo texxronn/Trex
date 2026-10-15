@@ -22,15 +22,25 @@ import java.util.Set;
  * <p>ezbookkeeping account categories: {@code 1} cash, {@code 2} checking, {@code 3} credit card,
  * {@code 4} virtual, {@code 5} debt, {@code 6} receivables, {@code 7} investment, {@code 8} savings,
  * {@code 9} CD (V2-EZB-VIEW-PLAN.md §2).
+ *
+ * <p>{@code categoryGroups} is the optional {@code categories} map: a trex master category to the
+ * ezbookkeeping <em>primary</em> its child sits under, so the charts aggregate the expense side over
+ * several primaries instead of one {@code trex-expense} (§11.2). Missing keys are the caller's
+ * default, never an error — the map is a grouping, not a coverage obligation.
  */
-public record EzbMap(Map<String, Entry> byRef, ZoneId zone) {
+public record EzbMap(Map<String, Entry> byRef, ZoneId zone, Map<String, String> categoryGroups) {
 
     /** A mapped account: its ezbookkeeping display name and its account category 1..9. */
     public record Entry(String name, int category) {}
 
-    record File(String zone, Map<String, AccountEntry> accounts) {}
+    record File(String zone, Map<String, AccountEntry> accounts, Map<String, String> categories) {}
 
     record AccountEntry(String name, int category) {}
+
+    /** Without a group map: every expense child under the type's default primary. */
+    public EzbMap(Map<String, Entry> byRef, ZoneId zone) {
+        this(byRef, zone, Map.of());
+    }
 
     public static EzbMap load(Path file) {
         File parsed = Yaml.read(file, File.class);
@@ -59,7 +69,20 @@ public record EzbMap(Map<String, Entry> byRef, ZoneId zone) {
             }
             out.put(e.getKey(), new Entry(a.name().strip(), a.category()));
         }
-        return new EzbMap(Map.copyOf(out), zone);
+        Map<String, String> groups = new LinkedHashMap<>();
+        if (parsed.categories() != null) {
+            for (Map.Entry<String, String> group : parsed.categories().entrySet()) {
+                if (group.getKey() == null || group.getKey().isBlank()) {
+                    throw new IllegalArgumentException(where + ": a 'categories' key must name a trex category");
+                }
+                if (group.getValue() == null || group.getValue().isBlank()) {
+                    throw new IllegalArgumentException(where + ": " + group.getKey()
+                        + " has no ezbookkeeping primary 'name'");
+                }
+                groups.put(group.getKey().strip(), group.getValue().strip());
+            }
+        }
+        return new EzbMap(Map.copyOf(out), zone, Map.copyOf(groups));
     }
 
     public Entry get(String ref) {

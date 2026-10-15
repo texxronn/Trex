@@ -34,9 +34,23 @@ class EzbViewTest {
         return new EzbMap(byRef, SYD);
     }
 
+    /** The same accounts, with GROCERIES and SHOPPING grouped under a "Living" expense primary. */
+    private static EzbMap groupedMap() {
+        Map<String, EzbMap.Entry> byRef = new LinkedHashMap<>();
+        byRef.put("ing-savings", new EzbMap.Entry("ING Savings", 8));
+        byRef.put("ing-orange", new EzbMap.Entry("ING Orange Everyday", 2));
+        byRef.put("cash-ron", new EzbMap.Entry("Cash (Ron)", 1));
+        return new EzbMap(byRef, SYD, Map.of("GROCERIES", "Living", "SHOPPING", "Living"));
+    }
+
     private static EzbView.Outcome run(FakeHub hub, FakeEzb fake, PrintStream out, EzbView.Mode mode)
             throws Exception {
-        return new EzbView(new HubClient(hub.url()), new EzbClient(fake.url(), "token", SYD), map(), out)
+        return run(hub, fake, map(), out, mode);
+    }
+
+    private static EzbView.Outcome run(FakeHub hub, FakeEzb fake, EzbMap map, PrintStream out,
+                                       EzbView.Mode mode) throws Exception {
+        return new EzbView(new HubClient(hub.url()), new EzbClient(fake.url(), "token", SYD), map, out)
             .run(mode);
     }
 
@@ -44,6 +58,12 @@ class EzbViewTest {
                                        EzbClient.Credentials credentials) throws Exception {
         return new EzbView(new HubClient(hub.url()), new EzbClient(fake.url(), "token", SYD), map(), out,
             credentials).run(mode);
+    }
+
+    /** The name of the category with {@code id}, for asserting where a child sits. */
+    private static String categoryName(FakeEzb fake, String id) {
+        return fake.categories().stream().filter(c -> c.id().equals(id)).findFirst()
+            .orElseThrow().name();
     }
 
     private static PrintStream quiet() {
@@ -287,6 +307,121 @@ class EzbViewTest {
             assertTrue(fake.createdCategoryNames.contains("trex-income"));
             assertTrue(fake.createdCategoryNames.contains("trex-expense"));
             assertTrue(fake.createdCategoryNames.contains("trex-transfer"));
+        }
+    }
+
+    @Test
+    void anExpenseCategoryWithAGroupLandsUnderThatPrimaryNotTrexExpense() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(FakeHub.unit("e1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1234, "GROCERIES", "COLES", "h1"));
+            hub.openings = List.of();
+
+            run(hub, fake, groupedMap(), quiet(), EzbView.Mode.APPLY);
+
+            FakeEzb.Category groceries = fake.categories().stream()
+                .filter(c -> c.name().equals("GROCERIES")).findFirst().orElseThrow();
+            assertEquals("Living", categoryName(fake, groceries.parentId()),
+                "the mapped group primary holds the expense child");
+            assertFalse(fake.createdCategoryNames.contains("trex-expense"),
+                "no expense child fell back to the default primary");
+        }
+    }
+
+    @Test
+    void anIncomeChildOfTheSameNameStaysUnderTrexIncome() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            hub.units = List.of(
+                FakeHub.unit("i1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01", 1234, "GROCERIES",
+                    "ACME", "h1"),
+                FakeHub.unit("e1", "EXTERNAL", 2, "ing-savings", null, "2026-09-02", -500, "GROCERIES",
+                    "COLES", "h2"));
+            hub.openings = List.of();
+
+            run(hub, fake, groupedMap(), quiet(), EzbView.Mode.APPLY);
+
+            // One child per category type: the income one under trex-income, the expense under Living.
+            FakeEzb.Category income = fake.categories().stream()
+                .filter(c -> c.name().equals("GROCERIES") && c.type() == 1).findFirst().orElseThrow();
+            FakeEzb.Category expense = fake.categories().stream()
+                .filter(c -> c.name().equals("GROCERIES") && c.type() == 2).findFirst().orElseThrow();
+            assertEquals("trex-income", categoryName(fake, income.parentId()),
+                "income is never grouped");
+            assertEquals("Living", categoryName(fake, expense.parentId()));
+        }
+    }
+
+    @Test
+    void duplicateExpenseLeavesCollapseToOneUnderTheGroup() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            fake.seedCategory("p-expense", "trex-expense", 2, "0");
+            fake.seedCategory("p-living", "Living", 2, "0");
+            fake.seedCategory("dup-a", "GROCERIES", 2, "p-expense");
+            fake.seedCategory("dup-b", "GROCERIES", 2, "p-living");
+            hub.units = List.of(FakeHub.unit("e1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1234, "GROCERIES", "COLES", "h1"));
+            hub.openings = List.of();
+
+            EzbView.Outcome outcome = run(hub, fake, groupedMap(), quiet(), EzbView.Mode.APPLY);
+
+            assertEquals(1, outcome.categoriesRemoved(), "one duplicate leaf was deleted");
+            assertEquals(1, fake.categories().stream()
+                .filter(c -> c.name().equals("GROCERIES")).count(), "collapsed to one");
+            assertEquals("dup-b", fake.categories().stream()
+                .filter(c -> c.name().equals("GROCERIES")).findFirst().orElseThrow().id(),
+                "the leaf already under the target primary survives");
+            assertEquals(0, fake.categoryMoves.get(), "it was already there");
+            assertEquals(1, fake.categoryDeletes.get());
+        }
+    }
+
+    @Test
+    void reparentingAnExistingChildKeepsItsId() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            // A "saved exploration" holds this id; the group primary already exists.
+            fake.seedCategory("p-expense", "trex-expense", 2, "0");
+            fake.seedCategory("p-living", "Living", 2, "0");
+            fake.seedCategory("saved-groceries", "GROCERIES", 2, "p-expense");
+            hub.units = List.of(FakeHub.unit("e1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1234, "GROCERIES", "COLES", "h1"));
+            hub.openings = List.of();
+
+            EzbView.Outcome outcome = run(hub, fake, groupedMap(), quiet(), EzbView.Mode.APPLY);
+
+            assertEquals(0, outcome.categoriesCreated(), "both the primary and the child exist");
+            assertEquals(0, outcome.categoriesRemoved());
+            assertEquals(1, fake.categoryMoves.get(), "it only moves");
+            FakeEzb.Category moved = fake.categories().stream()
+                .filter(c -> c.id().equals("saved-groceries")).findFirst().orElseThrow();
+            assertEquals("Living", categoryName(fake, moved.parentId()));
+            assertEquals("saved-groceries",
+                rowOf(fake, fake.accountIdByName().get("ING Savings"), 3).get("categoryId"),
+                "the row names the id the exploration holds");
+        }
+    }
+
+    @Test
+    void planReportsTheGroupsAndDuplicatesWithoutWriting() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            fake.seedCategory("p-expense", "trex-expense", 2, "0");
+            fake.seedCategory("dup-a", "GROCERIES", 2, "p-expense");
+            fake.seedCategory("dup-b", "GROCERIES", 2, "p-expense");
+            hub.units = List.of(FakeHub.unit("e1", "EXTERNAL", 1, "ing-savings", null, "2026-09-01",
+                -1234, "GROCERIES", "COLES", "h1"));
+            hub.openings = List.of();
+
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            EzbView.Outcome outcome = run(hub, fake, groupedMap(),
+                new PrintStream(bytes, true, StandardCharsets.UTF_8), EzbView.Mode.PLAN);
+
+            String text = bytes.toString(StandardCharsets.UTF_8);
+            assertTrue(text.contains("Living"), "the group primary is planned");
+            assertTrue(text.contains("duplicate leaf"), "the duplicate removal is planned");
+            assertTrue(fake.createdCategoryNames.isEmpty(), "plan creates no category");
+            assertEquals(0, fake.categoryMoves.get(), "plan moves nothing");
+            assertEquals(0, fake.categoryDeletes.get(), "plan deletes nothing");
+            assertEquals(0, outcome.categoriesCreated());
+            assertEquals(0, outcome.categoriesRemoved());
         }
     }
 }
