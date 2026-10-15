@@ -9,6 +9,12 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **`UNDECIDED` category** (`deploy/config/categories.yaml`). A declared, rule-less, hand-PINned
+  parking bucket for small rows looked at and deliberately left unclassified, so they leave the
+  `UNCATEGORIZED` worklist without being given a made-up purpose.
+
 ### Changed
 
 - **Cards and loans are Firefly asset accounts** (`V2-SPEC.md` §11.1). `deploy/config/firefly.yaml`
