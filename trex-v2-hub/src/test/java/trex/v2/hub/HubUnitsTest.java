@@ -129,6 +129,55 @@ class HubUnitsTest {
         }
     }
 
+    @Test
+    void aTransferUnitIsOrientedFromThePayingLegEvenWhenTheCreditLegComesFirst(@TempDir Path dir)
+            throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        // The matcher stores from/to in (date, n) order, not by sign: here the credit leg (n=1) is
+        // processed first. The unit must still point from the paying (negative) leg.
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "credit", "ing-orange", 500, "Transfer from Savings 1111", Observation.POSTED),
+                fact(2, "debit", "ing-savings", -500, "Transfer to Savings 1111", Observation.POSTED)));
+        }
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(() -> hub.units().units().size() == 1);
+            var unit = hub.units().units().getFirst();
+            assertEquals("TRANSFER", unit.unitKind());
+            assertEquals("ing-savings", unit.accountRef(), "the paying (negative) leg");
+            assertEquals("ing-orange", unit.toAccountRef(), "the receiving (positive) leg");
+            assertEquals(LocalDate.of(2026, 9, 1), unit.date(), "the matcher's canonical date");
+        }
+    }
+
+    @Test
+    void aManualPairWithNoNegativeLegKeepsTheMatcherOrder(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        Files.createDirectories(configDir);
+        config(configDir);
+        // A PAIR both legs positive: no payer to name, so the decision order (a -> b) stands.
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "pa", "ing-savings", 500, "Deposit A", Observation.POSTED),
+                fact(2, "pb", "ing-orange", 500, "Deposit B", Observation.POSTED),
+                new trex.v2.core.Decision.Pair(3, "pa", "pb", "internal", trex.v2.core.Actor.USER,
+                    "ron", AT)));
+        }
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(() -> hub.units().units().size() == 1);
+            var unit = hub.units().units().getFirst();
+            assertEquals("TRANSFER", unit.unitKind());
+            assertEquals("ing-savings", unit.accountRef(), "legA's account (no negative leg to name)");
+            assertEquals("ing-orange", unit.toAccountRef(), "legB's account");
+        }
+    }
+
     private static Fact fact(long n, String id, String account, long amount, String raw, Observation observation) {
         return new Fact(n, id, account, LocalDate.of(2026, 9, 1), amount, 0, raw, null, 0, observation,
             "ing-csv", Provenance.BANK, null, "ing-csv/1", AT);
