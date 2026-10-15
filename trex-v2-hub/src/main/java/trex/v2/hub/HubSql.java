@@ -160,13 +160,16 @@ final class HubSql {
      * The month's current rows for the headroom figure (V2-REVIEW-FIXES-PLAN.md §10): each with the
      * commitment that claimed it, if any, and the account of the other side of its transfer — the
      * other leg, or the derived clearing leg — so a transfer inside the budget can be told from one
-     * that leaves it.
+     * that leaves it. The row's category rides along as the eighth column (read by index 8; appended
+     * last so the earlier readers are unchanged) for the budget sheet's roll-up
+     * (V2-BUDGET-VIEW-PLAN.md §3).
      */
     static final String HEADROOM_ROWS = """
         SELECT t.account_ref, t.amount, t.role, t.leg, t.transfer_id, cf.commitment_id,
                (SELECT o.account_ref FROM txn_current o
                  WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
-                 ORDER BY o.external_id LIMIT 1) AS other_account
+                 ORDER BY o.external_id LIMIT 1) AS other_account,
+               t.category
         FROM txn_current t
         LEFT JOIN commitment_fact cf ON cf.external_id = t.external_id
         WHERE t.synthetic = 0 AND t.date >= ? AND t.date <= ?

@@ -2,6 +2,7 @@ package trex.v2.hub;
 
 import trex.v2.hub.api.ExpectedResponse;
 import com.sun.net.httpserver.HttpServer;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trex.v2.core.Action;
@@ -35,6 +36,7 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
+import trex.v2.hub.api.BudgetResponse;
 import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.CashResponse;
@@ -379,14 +381,75 @@ public final class HubService implements HubApi, AutoCloseable {
      * Expected view and the since-clear line share, so the two can never drift.
      */
     private ExpectedResponse.Headroom monthHeadroom(LocalDate at) {
-        java.util.Set<String> budget = new java.util.TreeSet<>();
+        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, budgetAccounts(),
+            statementBudget(refresher.config().registry()));
+    }
+
+    /** The {@code budget} account refs, exactly as headroom and the budget sheet both read them. */
+    private Set<String> budgetAccounts() {
+        Set<String> budget = new TreeSet<>();
         for (var account : refresher.config().registry().accounts().values()) {
             if (account.budget()) {
                 budget.add(account.ref());
             }
         }
-        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, budget,
-            statementBudget(refresher.config().registry()));
+        return budget;
+    }
+
+    /**
+     * The month's budget sheet (§9.2, V2-BUDGET-VIEW-PLAN.md §4): a read of the derived index over
+     * the budget accounts, sharing headroom's row-walk so its {@code left} equals the figure
+     * {@code /api/expected} prints. {@code month} is any {@code YYYY-MM}; null or blank is the hub's
+     * current month. Measured at the hub's today exactly as headroom: the current month carries its
+     * still-due projection, and a past month's due has become {@code missed} by then, so it reads as
+     * actuals without a special case (D-4).
+     */
+    @Override
+    public BudgetResponse budget(String month) {
+        YearMonth ym;
+        if (month == null || month.isBlank()) {
+            ym = YearMonth.now();
+        } else {
+            try {
+                ym = YearMonth.parse(month.strip());
+            } catch (java.time.format.DateTimeParseException e) {
+                throw new IllegalArgumentException("month must be YYYY-MM, not '" + month + "'");
+            }
+        }
+        return reads.budgetSheet(Period.bounds(ym.toString()), LocalDate.now(), budgetAccounts(),
+            statementBudget(refresher.config().registry()), categoryGroups());
+    }
+
+    /**
+     * The expense roll-up map from {@code ezb.yaml} (V2-SPEC.md §11.2, V2-BUDGET-VIEW-PLAN.md D-5):
+     * a trex category to the ezbookkeeping primary its Money Out roll-up sits under. Read here so
+     * the Budget donut and the charts slice a category the same way; view-only config, never hashed
+     * into {@code configRevision}. A missing file, an absent or non-object map, or an unreadable one
+     * is an empty map, and the sheet then falls back to one {@code Expense} group.
+     */
+    private Map<String, String> categoryGroups() {
+        Path file = config.configDir().resolve("ezb.yaml");
+        if (!Files.isRegularFile(file)) {
+            return Map.of();
+        }
+        try {
+            JsonNode categories = Yaml.mapper().readTree(Files.readString(file)).path("categories");
+            if (!categories.isObject()) {
+                return Map.of();
+            }
+            Map<String, String> out = new LinkedHashMap<>();
+            categories.fields().forEachRemaining(entry -> {
+                JsonNode value = entry.getValue();
+                if (entry.getKey() != null && !entry.getKey().isBlank() && value != null
+                    && value.isTextual() && !value.asText().isBlank()) {
+                    out.put(entry.getKey().strip(), value.asText().strip());
+                }
+            });
+            return Map.copyOf(out);
+        } catch (IOException e) {
+            log.warn("cannot read the budget roll-up map from {}", file, e);
+            return Map.of();
+        }
     }
 
     @Override

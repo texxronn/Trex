@@ -1,6 +1,7 @@
 package trex.v2.hub;
 
 import trex.v2.hub.api.ActivityJson;
+import trex.v2.hub.api.BudgetResponse;
 import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
@@ -15,6 +16,7 @@ import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.ProjectionUnit;
 import trex.v2.core.MerchantStem;
+import trex.v2.core.config.RuleSet;
 import trex.v2.core.config.TransferRules;
 import trex.v2.core.derive.CommitmentRule;
 import trex.v2.core.derive.CommitmentRules;
@@ -928,6 +930,27 @@ public final class HubQueries implements AutoCloseable {
     }
 
     /**
+     * Everything the headroom figure and the budget sheet share, from one row-walk (§9.2,
+     * V2-BUDGET-VIEW-PLAN.md §3–4). The two reads call {@link #walk} so they cannot drift; the
+     * sheet's {@code left} equals headroom's for the same month. {@code incomeByCategory} and
+     * {@code spendByCategory} are the per-category amounts the sheet rolls up, keyed by trex
+     * category; {@code outside} is the month's transfers between two accounts both outside the
+     * budget, counted once per transfer.
+     */
+    private record Walk(long incomeIn, long incomeDue, long committedPaid, long committedDue,
+                        long uncommittedSpend, long unrecordedCash, long movedOut, long movedIn,
+                        long missed, long unpaired, LocalDate through, List<String> accounts,
+                        Map<String, Long> incomeByCategory, Map<String, Long> spendByCategory,
+                        List<BudgetResponse.Outside> outside) {
+
+        /** Headroom's formula (§9.2): the sheet's Money Left Over. */
+        long left() {
+            return incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend
+                - movedOut - unrecordedCash;
+        }
+    }
+
+    /**
      * The headroom of one calendar month over the budget accounts (V2-REVIEW-FIXES-PLAN.md §10). A
      * transfer is internal — and skipped — when both sides are budget accounts; one that crosses the
      * boundary (to savings, to the mortgage) is money in or out. A claimed fact is counted through
@@ -937,141 +960,253 @@ public final class HubQueries implements AutoCloseable {
     public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, java.util.Set<String> budget,
                                              java.util.Set<String> statementBudget) {
         return read(conn -> {
-            // Where each commitment lands, and whether it is only ever an internal move.
-            Map<String, java.util.Set<String>> landsOn = new java.util.TreeMap<>();
-            Map<String, Boolean> internalOnly = new java.util.TreeMap<>();
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACT_ACCOUNTS);
-                 ResultSet rs = ps.executeQuery()) {
+            Walk w = walk(conn, month, today, budget, statementBudget);
+            return new ExpectedResponse.Headroom(month.from(), w.left(), w.incomeIn(), w.incomeDue(),
+                w.committedPaid(), w.committedDue(), w.uncommittedSpend(), w.unrecordedCash(),
+                w.movedOut(), w.movedIn(), w.missed(), w.unpaired(), w.through(), w.accounts());
+        });
+    }
+
+    /**
+     * The month's budget sheet (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §4): headroom's walk,
+     * presented as Money In / Money Out / Left, with each out row rolled into its primary group.
+     * {@code groups} maps a trex category to its ezbookkeeping primary (§11.2); an unmapped or blank
+     * category falls back to one {@code Expense} group. Income is never grouped. The synthetic
+     * slices — {@code Due}, {@code Saved}, {@code Unrecorded} — sit after the groups and are not
+     * spending; the group slices alone sum to {@code spend.posted} and every slice to
+     * {@code spend.total}, so the donut reconciles with {@code left}.
+     */
+    public BudgetResponse budgetSheet(Period.Range month, LocalDate today, java.util.Set<String> budget,
+                                      java.util.Set<String> statementBudget, Map<String, String> groups) {
+        return read(conn -> {
+            Walk w = walk(conn, month, today, budget, statementBudget);
+
+            Map<String, Long> byGroup = new java.util.TreeMap<>();
+            w.spendByCategory().forEach((category, amount) ->
+                byGroup.merge(groupOf(category, groups), amount, Long::sum));
+            List<BudgetResponse.Slice> slices = new ArrayList<>();
+            byGroup.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
+                    .thenComparing(Map.Entry.comparingByKey()))
+                .forEach(e -> slices.add(new BudgetResponse.Slice(e.getKey(), e.getValue())));
+            long posted = w.committedPaid() + w.uncommittedSpend();
+            long due = w.committedDue();
+            long total = posted + due + w.movedOut() + w.unrecordedCash();
+            if (due != 0) {
+                slices.add(new BudgetResponse.Slice("Due", due));
+            }
+            if (w.movedOut() != 0) {
+                slices.add(new BudgetResponse.Slice("Saved", w.movedOut()));
+            }
+            if (w.unrecordedCash() != 0) {
+                slices.add(new BudgetResponse.Slice("Unrecorded", w.unrecordedCash()));
+            }
+
+            List<BudgetResponse.Line> lines = w.incomeByCategory().entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
+                    .thenComparing(Map.Entry.comparingByKey()))
+                .map(e -> new BudgetResponse.Line(e.getKey(), e.getValue()))
+                .toList();
+
+            return new BudgetResponse(YearMonth.from(month.from()).toString(), w.through(), w.accounts(),
+                new BudgetResponse.Income(w.incomeIn(), w.incomeDue(), w.movedIn(),
+                    w.incomeIn() + w.incomeDue() + w.movedIn(), lines),
+                new BudgetResponse.Spend(posted, due, w.unrecordedCash(), w.movedOut(), total, slices),
+                w.outside(), w.missed(), w.unpaired(), w.left());
+        });
+    }
+
+    /**
+     * The one row-walk the headroom figure and the budget sheet share (§9.2). It reads the month's
+     * facts ({@link HubSql#HEADROOM_ROWS}) and its commitments' occurrences
+     * ({@link HubSql#EXPECTED_OCCURRENCES}) and returns every amount the two reads need, plus the
+     * sheet's per-category detail: the category of the fact each commitment claimed (so a paid
+     * occurrence rolls into that category's group), the category of every uncommitted out row, and
+     * the transfers between two accounts both outside the budget (D-3).
+     */
+    private Walk walk(Connection conn, Period.Range month, LocalDate today, java.util.Set<String> budget,
+                      java.util.Set<String> statementBudget) throws SQLException {
+        // Where each commitment lands, and whether it is only ever an internal move.
+        Map<String, java.util.Set<String>> landsOn = new java.util.TreeMap<>();
+        Map<String, Boolean> internalOnly = new java.util.TreeMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACT_ACCOUNTS);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String id = rs.getString(1);
+                landsOn.computeIfAbsent(id, k -> new java.util.TreeSet<>()).add(rs.getString(2));
+                boolean internal = rs.getString(3) != null && budget.contains(rs.getString(2))
+                    && budget.contains(rs.getString(4));
+                internalOnly.merge(id, internal, Boolean::logicalAnd);
+            }
+        }
+        Map<String, java.util.Set<String>> ruleAccounts = new java.util.TreeMap<>();
+        java.util.Set<String> unscoped = new java.util.TreeSet<>();
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULE_ACCOUNTS);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String account = rs.getString(2);
+                if (account == null || account.isBlank()) {
+                    unscoped.add(rs.getString(1));
+                } else {
+                    ruleAccounts.computeIfAbsent(rs.getString(1), k -> new java.util.TreeSet<>()).add(account);
+                }
+            }
+        }
+
+        // The month's rows first: they carry the category of the fact each commitment claimed, so
+        // a paid occurrence below can roll into that category, and they carry the moves that never
+        // touch the budget (D-3). Collected before the occurrences because of the first of those.
+        Map<String, String> commitmentCategory = new java.util.TreeMap<>();
+        Map<String, Long> incomeByCategory = new java.util.TreeMap<>();
+        Map<String, Long> spendByCategory = new java.util.TreeMap<>();
+        List<BudgetResponse.Outside> outside = new ArrayList<>();
+        long uncommittedSpend = 0;
+        long movedOut = 0;
+        long movedIn = 0;
+        long unpaired = 0;
+        long incomeIn = 0;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.HEADROOM_ROWS)) {
+            ps.setString(1, month.from().toString());
+            ps.setString(2, month.to().toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String account = rs.getString(1);
+                    long amount = rs.getLong(2);
+                    String role = rs.getString(3);
+                    String commitmentId = rs.getString(6);
+                    String other = rs.getString(7);
+                    String category = rs.getString(8);
+                    if (commitmentId != null && category != null) {
+                        commitmentCategory.putIfAbsent(commitmentId, category);
+                    }
+                    if (!budget.contains(account)) {
+                        // Acted on before the walk's own early continue: a transfer whose legs are
+                        // both outside the budget (the offset → loan repayment) is reported once,
+                        // by its paying leg, and never enters In/Out/Left (D-3).
+                        if (!"noop".equals(role) && rs.getString(5) != null && other != null
+                            && !budget.contains(other) && amount < 0) {
+                            outside.add(new BudgetResponse.Outside(account, other, -amount));
+                        }
+                        continue;
+                    }
+                    if ("noop".equals(role) || commitmentId != null) {
+                        continue; // not a posting, or counted by its commitment
+                    }
+                    if ("HELD".equals(rs.getString(4))) {
+                        unpaired += Math.abs(amount);
+                        continue;
+                    }
+                    if (rs.getString(5) != null && budget.contains(other)) {
+                        continue; // a transfer between two budget accounts moves nothing
+                    }
+                    if (rs.getString(5) != null && other != null) {
+                        // To or from one of your own accounts outside the budget: moved, not spent.
+                        if (amount < 0) {
+                            movedOut += -amount;
+                        } else {
+                            movedIn += amount;
+                        }
+                        continue;
+                    }
+                    if (amount < 0) {
+                        uncommittedSpend += -amount;
+                        spendByCategory.merge(categoryOf(category), -amount, Long::sum);
+                    } else {
+                        incomeIn += amount;
+                        incomeByCategory.merge(categoryOf(category), amount, Long::sum);
+                    }
+                }
+            }
+        }
+        outside.sort(Comparator.comparing(BudgetResponse.Outside::from)
+            .thenComparing(BudgetResponse.Outside::to));
+
+        long incomeDue = 0;
+        long committedPaid = 0;
+        long committedDue = 0;
+        long missed = 0;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.EXPECTED_OCCURRENCES)) {
+            ps.setString(1, month.from().toString());
+            ps.setString(2, month.to().toString());
+            try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String id = rs.getString(1);
-                    landsOn.computeIfAbsent(id, k -> new java.util.TreeSet<>()).add(rs.getString(2));
-                    boolean internal = rs.getString(3) != null && budget.contains(rs.getString(2))
-                        && budget.contains(rs.getString(4));
-                    internalOnly.merge(id, internal, Boolean::logicalAnd);
-                }
-            }
-            Map<String, java.util.Set<String>> ruleAccounts = new java.util.TreeMap<>();
-            java.util.Set<String> unscoped = new java.util.TreeSet<>();
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_RULE_ACCOUNTS);
-                 ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String account = rs.getString(2);
-                    if (account == null || account.isBlank()) {
-                        unscoped.add(rs.getString(1));
-                    } else {
-                        ruleAccounts.computeIfAbsent(rs.getString(1), k -> new java.util.TreeSet<>()).add(account);
+                    java.util.Set<String> accounts = !unscoped.contains(id) && ruleAccounts.containsKey(id)
+                        ? ruleAccounts.get(id) : landsOn.getOrDefault(id, java.util.Set.of());
+                    if (Boolean.TRUE.equals(internalOnly.get(id))
+                        || (!accounts.isEmpty() && accounts.stream().noneMatch(budget::contains))) {
+                        continue;
                     }
-                }
-            }
-
-            long incomeIn = 0;
-            long incomeDue = 0;
-            long committedPaid = 0;
-            long committedDue = 0;
-            long missed = 0;
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.EXPECTED_OCCURRENCES)) {
-                ps.setString(1, month.from().toString());
-                ps.setString(2, month.to().toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        String id = rs.getString(1);
-                        java.util.Set<String> accounts = !unscoped.contains(id) && ruleAccounts.containsKey(id)
-                            ? ruleAccounts.get(id) : landsOn.getOrDefault(id, java.util.Set.of());
-                        if (Boolean.TRUE.equals(internalOnly.get(id))
-                            || (!accounts.isEmpty() && accounts.stream().noneMatch(budget::contains))) {
-                            continue;
-                        }
-                        boolean in = "in".equals(rs.getString(3));
-                        Long expected = nullableLong(rs, 5);
-                        Long amount = nullableLong(rs, 10);
-                        long moved = amount != null ? Math.abs(amount) : 0;
-                        long owed = expected == null ? 0 : Math.abs(expected);
-                        switch (rs.getString(9)) {
-                            case "occurred", "settled", "partial" -> {
-                                if (in) {
-                                    incomeIn += moved;
-                                } else {
-                                    committedPaid += moved;
-                                }
-                            }
-                            case "due", "awaiting" -> {
-                                if (in) {
-                                    incomeDue += owed;
-                                } else {
-                                    committedDue += owed;
-                                }
-                            }
-                            case "missed" -> {
-                                if (!in) {
-                                    missed += owed;
-                                }
-                            }
-                            default -> { }
-                        }
-                    }
-                }
-            }
-
-            long uncommittedSpend = 0;
-            long movedOut = 0;
-            long movedIn = 0;
-            long unpaired = 0;
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.HEADROOM_ROWS)) {
-                ps.setString(1, month.from().toString());
-                ps.setString(2, month.to().toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        String account = rs.getString(1);
-                        long amount = rs.getLong(2);
-                        if (!budget.contains(account) || "noop".equals(rs.getString(3)) || rs.getString(6) != null) {
-                            continue; // outside the budget, not a posting, or counted by its commitment
-                        }
-                        if ("HELD".equals(rs.getString(4))) {
-                            unpaired += Math.abs(amount);
-                            continue;
-                        }
-                        if (rs.getString(5) != null && budget.contains(rs.getString(7))) {
-                            continue; // a transfer between two budget accounts moves nothing
-                        }
-                        if (rs.getString(5) != null && rs.getString(7) != null) {
-                            // To or from one of your own accounts outside the budget: moved, not spent.
-                            if (amount < 0) {
-                                movedOut += -amount;
+                    boolean in = "in".equals(rs.getString(3));
+                    Long expected = nullableLong(rs, 5);
+                    Long amount = nullableLong(rs, 10);
+                    long moved = amount != null ? Math.abs(amount) : 0;
+                    long owed = expected == null ? 0 : Math.abs(expected);
+                    // A paid occurrence carries the movement attached to it; its category is the
+                    // one the claimed fact carried, so it lands in the same slice as a direct
+                    // purchase would (§3).
+                    String category = categoryOf(commitmentCategory.get(id));
+                    switch (rs.getString(9)) {
+                        case "occurred", "settled", "partial" -> {
+                            if (in) {
+                                incomeIn += moved;
+                                incomeByCategory.merge(category, moved, Long::sum);
                             } else {
-                                movedIn += amount;
+                                committedPaid += moved;
+                                spendByCategory.merge(category, moved, Long::sum);
                             }
-                            continue;
                         }
-                        if (amount < 0) {
-                            uncommittedSpend += -amount;
-                        } else {
-                            incomeIn += amount;
+                        case "due", "awaiting" -> {
+                            if (in) {
+                                incomeDue += owed;
+                            } else {
+                                committedDue += owed;
+                            }
                         }
+                        case "missed" -> {
+                            if (!in) {
+                                missed += owed;
+                            }
+                        }
+                        default -> { }
                     }
                 }
             }
+        }
 
-            LocalDate through = oldestFrontier(conn, today, statementBudget);
-            // The month's unrecorded cash (§9.2): the cash_month figure over the wallets in the
-            // budget. cash_month only ever holds declared wallets, but a wallet with budget: false
-            // must still be left out, exactly as its spend is.
-            long unrecordedCash = 0;
-            try (PreparedStatement ps = conn.prepareStatement(HubSql.CASH_MONTH_UNRECORDED_SELECT)) {
-                ps.setString(1, YearMonth.from(month.from()).toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if (budget.contains(rs.getString(1))) {
-                            unrecordedCash += rs.getLong(2);
-                        }
+        LocalDate through = oldestFrontier(conn, today, statementBudget);
+        // The month's unrecorded cash (§9.2): the cash_month figure over the wallets in the
+        // budget. cash_month only ever holds declared wallets, but a wallet with budget: false
+        // must still be left out, exactly as its spend is.
+        long unrecordedCash = 0;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.CASH_MONTH_UNRECORDED_SELECT)) {
+            ps.setString(1, YearMonth.from(month.from()).toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    if (budget.contains(rs.getString(1))) {
+                        unrecordedCash += rs.getLong(2);
                     }
                 }
             }
-            long left = incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend
-                - movedOut - unrecordedCash;
-            return new ExpectedResponse.Headroom(month.from(), left, incomeIn, incomeDue, committedPaid,
-                committedDue, uncommittedSpend, unrecordedCash, movedOut, movedIn, missed, unpaired, through,
-                List.copyOf(new java.util.TreeSet<>(budget)));
-        });
+        }
+        return new Walk(incomeIn, incomeDue, committedPaid, committedDue, uncommittedSpend,
+            unrecordedCash, movedOut, movedIn, missed, unpaired, through,
+            List.copyOf(new java.util.TreeSet<>(budget)), Map.copyOf(incomeByCategory),
+            Map.copyOf(spendByCategory), List.copyOf(outside));
+    }
+
+    /** A row's trex category, or {@code UNCATEGORIZED} for a blank one (a structural transfer leg). */
+    private static String categoryOf(String category) {
+        return category == null || category.isBlank() ? RuleSet.UNCATEGORIZED : category;
+    }
+
+    /**
+     * The primary group an expense category belongs to (§11.2): its entry in the {@code ezb.yaml}
+     * map, or one {@code Expense} fallback when the map does not name it.
+     */
+    private static String groupOf(String category, Map<String, String> groups) {
+        String group = groups.get(category);
+        return group == null || group.isBlank() ? "Expense" : group;
     }
 
     /**
