@@ -1,20 +1,53 @@
-// Budget mode (V2-SPEC.md §9.2): the month's "left this month" figure, moved out of Expected. It is
-// the same headroom the Expected view once carried — income, commitments, other spend and the date
-// the statements reach, over the budget accounts — read from /api/expected so the calculation is
-// unchanged and no endpoint is added. Only its home moved.
+// Budget mode (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5): the month's sheet — Money In, Money Out
+// and Money Left Over — with a donut of Money Out by primary group and a muted "outside the budget"
+// section for the transfers that never touch a budget account. One read, /api/budget, over the
+// derived index: the sheet's `left` equals the status line's headroom for the same month, because
+// the hub shares headroom's row-walk (§9.2), not because the view computes anything of its own.
+//
+// The month lives in the URL (#budget?month=YYYY-MM) so a month is linkable and survives a reload.
+// Stepping rewrites it with history.replaceState, never location.hash: a hash assignment fires
+// `hashchange` and the router would remount the mode on every step.
 
 import { api } from './api.js';
-import { el, clear } from './dom.js';
+import { accountChip } from './account.js';
+import { el, clear, field, scroll, svgEl } from './dom.js';
 import { date, money } from './format.js';
 
+// The synthetic slices the hub appends after the rolled-up groups: money still due, money moved to
+// one of your own accounts outside the budget (D-2, a move) and the wallet's unrecorded cash. They
+// are not spending, so the tables mark them muted and the donut keeps them apart from the groups.
+const SYNTHETIC = new Set(['Due', 'Saved', 'Unrecorded']);
+
+// The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
+// one <circle> per slice with a dash pattern of its arc length, which needs no trigonometry.
+const DONUT_RADIUS = 70;
+const DONUT_STROKE = 36;
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
+
+// A spread of mid-tone colours that hold up on the light, grey and dark surfaces. The palette is
+// presentation only: nothing reads a colour back, so it is fixed and assigned by arc index. The
+// synthetic arcs take neutral greys so a move or a due never reads as spending.
+const PALETTE = ['#4c8bf5', '#f59e0b', '#10b981', '#a855f7', '#ef4444', '#06b6d4',
+  '#eab308', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#84cc16'];
+const SYNTHETIC_COLOR = { Due: '#94a3b8', Saved: '#a1a1aa', Unrecorded: '#78716c' };
+const OTHER_COLOR = '#6b7280';
+
 let host;
+let ctx;
+let month = null; // the YYYY-MM in the URL; the response's month is the truth once it arrives
 let data = null;
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
+let periodLabel;
+let jumpInput;
+let sheetHost;
 
 export function mount(container, context) {
   host = container;
-  render();
+  ctx = context;
+  month = (context.modeQuery && context.modeQuery.get('month')) || null;
+  buildShell();
+  renderSheet();
   load();
   return { refresh: load };
 }
@@ -22,63 +55,283 @@ export function mount(container, context) {
 async function load() {
   const generation = ++loadGeneration;
   try {
-    // The month's headroom rides on /api/expected (§9.2); Budget adds no request of its own.
-    data = await api.expected('month');
+    data = await api.budget(month || undefined);
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
+    month = data.month; // the hub names the month it read, whether or not the URL asked for one
     errorBar.hidden = true;
   } catch (error) {
     if (generation !== loadGeneration) return;
-    errorBar.textContent = error.message || 'failed to load the budget view';
+    // The sheet keeps the last month it did read; the stepper follows it rather than the failed
+    // query, so the toolbar and the tables never disagree about which month is on screen.
+    if (data) month = data.month;
+    errorBar.textContent = error.message || 'failed to load the budget sheet';
     errorBar.hidden = false;
     return;
   }
-  render();
+  renderSheet();
 }
 
-function render() {
+/** The toolbar and the sheet's host, built once: an SSE refresh re-renders the sheet, not the
+ *  toolbar, so the jump input never loses what the operator is typing into it. */
+function buildShell() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
-  host.append(errorBar);
+  periodLabel = el('span', { class: 'period muted' });
+  jumpInput = el('input', { type: 'date', onchange: jump });
+  sheetHost = el('div');
+  host.append(errorBar,
+    el('div', { class: 'toolbar' },
+      button('\u2039', () => step(-1)),
+      periodLabel,
+      button('\u203a', () => step(1)),
+      field('Jump', jumpInput)),
+    sheetHost);
+}
+
+function renderSheet() {
+  const key = currentMonth();
+  if (key) {
+    periodLabel.textContent = monthLabel(key);
+    jumpInput.value = key + '-01';
+  }
+  clear(sheetHost);
   if (!data) {
-    host.append(el('p', { class: 'muted' }, 'Loading…'));
+    sheetHost.append(el('p', { class: 'muted' }, 'Loading…'));
     return;
   }
-  host.append(headroom());
+  sheetHost.append(leftBar());
+  if (!hasRows(data)) {
+    // A month with nothing recorded is an empty sheet, not an error.
+    sheetHost.append(el('p', { class: 'muted' }, `Nothing recorded in ${monthName(data.month)}.`));
+    return;
+  }
+  sheetHost.append(sheetGrid());
+  const outside = outsideSection();
+  if (outside) sheetHost.append(outside);
 }
 
 /**
- * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10): one figure that answers "am I okay?", with the
- * arithmetic beside it and the date the statements reach, so a late statement reads as a late
- * statement and not as money.
+ * Money Left Over (V2-SPEC.md §9.2): one figure that answers "am I okay?", with the arithmetic beside
+ * it and the date the statements reach, so a late statement reads as a late statement and not as
+ * money. It is the sheet's header, and the same headroom the status line carries.
  */
-function headroom() {
-  const h = data.headroom;
-  if (!h) return el('div');
-  const month = new Date(h.month + 'T00:00:00Z')
-    .toLocaleString(undefined, { month: 'long', timeZone: 'UTC' });
-  const figure = el('b', { class: h.left < 0 ? 'occ-missed' : 'tick' },
-    money(h.left));
+function leftBar() {
+  const { income, spend, missed, unpaired, left, through, accounts } = data;
+  const figure = el('b', { class: left < 0 ? 'occ-missed' : 'tick' }, money(left));
+  // The arithmetic, in the shape the old single line used. The read rolls committed and uncommitted
+  // spend into one `posted` figure (they share a row-walk), so the old commitments/other-spend split
+  // is not available here; what is left is what came in against what went out.
   const parts = [
-    `in ${money(h.incomeIn)}` + (h.incomeDue ? ` + ${money(h.incomeDue)} due` : ''),
-    `commitments ${money(h.committedPaid)}` + (h.committedDue ? ` + ${money(h.committedDue)} due` : ''),
-    `other spend ${money(h.uncommittedSpend)}`,
+    `in ${money(income.posted)}` + (income.due ? ` + ${money(income.due)} due` : ''),
+    `out ${money(spend.posted)}` + (spend.due ? ` + ${money(spend.due)} due` : ''),
   ];
-  // The wallet's unrecorded cash (V2-CASH-PLAN.md §4.2): spend the bank movements imply but no
-  // fact records. Signed by the backend — positive is spend, so it moves `left` like any outflow.
-  if (h.unrecordedCash) parts.push(`unrecorded cash ${money(h.unrecordedCash)}`);
-  if (h.movedOut || h.movedIn) {
-    parts.push(`moved to your other accounts ${money(h.movedOut - h.movedIn)}`);
+  // The wallet's unrecorded cash (V2-CASH-PLAN.md §4.2): spend the bank movements imply but no fact
+  // records. Signed by the backend — positive is spend, so it moves `left` like any outflow.
+  if (spend.unrecorded) parts.push(`unrecorded cash ${money(spend.unrecorded)}`);
+  if (spend.movedOut || income.movedIn) {
+    parts.push(`moved to your other accounts ${money(spend.movedOut - income.movedIn)}`);
   }
   const notes = [];
-  if (h.missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(h.missed)}`));
-  if (h.unpaired) {
+  if (missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(missed)}`));
+  if (unpaired) {
     notes.push(el('span', { class: 'muted', title: 'transfer legs still waiting for their other side' },
-      `unpaired transfers: ${money(h.unpaired)}`));
+      `unpaired transfers: ${money(unpaired)}`));
   }
   return el('section', { class: 'headroom' },
-    el('div', {}, el('span', { class: 'muted' }, `Left in ${month} `), figure),
+    el('div', {}, el('span', { class: 'muted' }, `Left in ${monthName(data.month)} `), figure),
     el('div', { class: 'muted' }, parts.join(' · ')),
-    el('div', { class: 'muted', title: 'budget accounts: ' + (h.accounts || []).join(', ') },
-      h.through ? `through ${date(h.through)} — the statements say nothing after it` : 'no statements yet'),
+    el('div', { class: 'muted', title: 'budget accounts: ' + (accounts || []).join(', ') },
+      through ? `through ${date(through)} — the statements say nothing after it` : 'no statements yet'),
     notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '');
+}
+
+/** Money In and Money Out in one column, the donut beside them on a wide screen (§5). */
+function sheetGrid() {
+  const grid = el('div', { class: 'budget-sheet' },
+    el('div', { class: 'budget-col' }, moneyIn(), moneyOut()));
+  const donut = donutSection();
+  if (donut) grid.append(el('div', { class: 'budget-col' }, donut));
+  return grid;
+}
+
+function moneyIn() {
+  const rows = data.income.lines.map((line) =>
+    el('tr', {}, el('td', {}, line.category), el('td', { class: 'amount' }, money(line.amount))));
+  if (data.income.due) {
+    rows.push(el('tr', {}, el('td', {}, 'Due'),
+      el('td', { class: 'amount' }, money(data.income.due))));
+  }
+  if (data.income.movedIn) {
+    rows.push(el('tr', {}, el('td', {}, 'from your other accounts'),
+      el('td', { class: 'amount' }, money(data.income.movedIn))));
+  }
+  rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
+    el('td', { class: 'amount' }, money(data.income.total))));
+  return section('Money In', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
+}
+
+function moneyOut() {
+  const rows = data.spend.slices.map((slice) => {
+    const synthetic = SYNTHETIC.has(slice.group);
+    return el('tr', { class: synthetic ? 'synthetic' : '' },
+      el('td', {}, slice.group, slice.group === 'Saved'
+        // D-2: a move to one of your own accounts outside the budget. It is a slice so the donut
+        // sums to Money Out, but the row says plainly that it is not spending.
+        ? el('span', { class: 'muted', title: 'money moved to one of your own accounts outside the budget' },
+          ' · a move, not spending')
+        : null),
+      el('td', { class: 'amount' }, money(slice.amount)));
+  });
+  rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
+    el('td', { class: 'amount' }, money(data.spend.total))));
+  return section('Money Out', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
+}
+
+/**
+ * The Money Out donut: one arc per slice, the centre carrying the Money Out total. A slice below 2%
+ * of Money Out would shred the ring on a long tail, so the small groups fold into one Other arc;
+ * the synthetic Due/Saved/Unrecorded stay separate because they are not spending.
+ */
+function donutSection() {
+  const drawn = arcs().filter((slice) => slice.amount > 0);
+  if (!drawn.length) return null;
+  // The ring's denominator is what is drawn, so it always closes: normally that is spend.total, but
+  // a signed-negative Unrecorded (a refund) would otherwise make the positive arcs overrun the ring.
+  const drawnTotal = drawn.reduce((sum, slice) => sum + slice.amount, 0);
+  let offset = 0;
+  const rings = drawn.map((slice, index) => {
+    const length = (slice.amount / drawnTotal) * DONUT_CIRCUMFERENCE;
+    const circle = svgEl('circle', {
+      cx: 100, cy: 100, r: DONUT_RADIUS, fill: 'none',
+      stroke: colorOf(slice, index), 'stroke-width': DONUT_STROKE,
+      'stroke-dasharray': `${length} ${DONUT_CIRCUMFERENCE - length}`,
+      'stroke-dashoffset': `${-offset}`,
+      transform: 'rotate(-90 100 100)',
+    }, svgEl('title', {}, `${slice.group} · ${money(slice.amount)}`));
+    offset += length;
+    return circle;
+  });
+  const ring = svgEl('svg', { class: 'budget-donut', viewBox: '0 0 200 200', role: 'img' },
+    ...rings,
+    svgEl('text', { class: 'donut-total', x: 100, y: 97, 'text-anchor': 'middle' },
+      money(data.spend.total)),
+    svgEl('text', { class: 'donut-word', x: 100, y: 115, 'text-anchor': 'middle' }, 'out'));
+  const legend = el('ul', { class: 'budget-legend' }, ...drawn.map((slice, index) =>
+    el('li', {},
+      el('span', { class: 'swatch', style: 'background:' + colorOf(slice, index) }),
+      el('span', { class: 'name' }, slice.group),
+      el('span', { class: 'amt' }, money(slice.amount)),
+      el('span', { class: 'share' }, `${Math.round((slice.amount / drawnTotal) * 100)}%`))));
+  return section('Money Out by group', ring, legend);
+}
+
+function arcs() {
+  const groups = data.spend.slices.filter((slice) => !SYNTHETIC.has(slice.group));
+  const synthetics = data.spend.slices.filter((slice) => SYNTHETIC.has(slice.group));
+  const threshold = data.spend.total * 0.02;
+  const folded = [];
+  let tail = 0;
+  for (const slice of groups) {
+    if (slice.amount < threshold) tail += slice.amount;
+    else folded.push(slice);
+  }
+  if (tail) folded.push({ group: 'Other', amount: tail });
+  return [...folded, ...synthetics];
+}
+
+/** The arc's colour: the fixed palette by arc index, a neutral grey for the synthetic arcs. */
+function colorOf(slice, index) {
+  if (SYNTHETIC.has(slice.group)) return SYNTHETIC_COLOR[slice.group];
+  if (slice.group === 'Other') return OTHER_COLOR;
+  return PALETTE[index % PALETTE.length];
+}
+
+/**
+ * Outside the budget (D-3): the transfers between two accounts that are both outside it, the loan
+ * repayments. They never touch the budget accounts, so they are not in In/Out/Left — only here, by
+ * pair, and the Mortgage tab owns the detail.
+ */
+function outsideSection() {
+  if (!data.outside.length) return null;
+  const lines = data.outside.map((entry) =>
+    el('div', { class: 'budget-outside-line' },
+      accountChip(ctx.refdata, entry.from), ' \u2192 ', accountChip(ctx.refdata, entry.to),
+      ' · ', money(entry.amount)));
+  return el('section', { class: 'mode-section budget-outside' },
+    el('h4', {}, 'Outside the budget'),
+    ...lines,
+    el('p', { class: 'muted' },
+      'Transfers between accounts that are both outside the budget never touch it, so they are not in the figures above.'));
+}
+
+function hasRows(sheet) {
+  return Boolean(sheet.income.lines.length || sheet.income.due || sheet.income.movedIn
+    || sheet.spend.slices.length || sheet.outside.length);
+}
+
+// ---- the month stepper -------------------------------------------------------------------------
+
+function step(direction) {
+  const key = currentMonth();
+  if (!key) return;
+  const bounds = boundsOf(key);
+  if (!bounds) return;
+  const first = new Date(bounds.from.getTime());
+  first.setUTCMonth(first.getUTCMonth() + direction);
+  goTo(monthKey(first));
+}
+
+function jump(event) {
+  if (!event.target.value) return;
+  goTo(monthKey(parseIso(event.target.value)));
+}
+
+/** Stepping and jumping change one month, rewrite the URL in place, and re-read. */
+function goTo(key) {
+  month = key;
+  history.replaceState(null, '', '#budget?month=' + key);
+  load();
+}
+
+function currentMonth() {
+  return month || (data && data.month) || null;
+}
+
+// ---- month keys and labels ---------------------------------------------------------------------
+// The month case of eyeball.js's period maths, kept local rather than imported: this view needs one
+// grain only, and a shared period module would be an abstraction for a single caller.
+
+/** The first day a month key names, used only to step one calendar month at a time. */
+function boundsOf(key) {
+  const month = /^(\d{4})-(\d{2})$/.exec(key || '');
+  if (!month) return null;
+  return { from: new Date(Date.UTC(+month[1], +month[2] - 1, 1)) };
+}
+
+function monthKey(date) {
+  return date.toISOString().slice(0, 7);
+}
+
+function parseIso(value) {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function monthName(key) {
+  return new Date(key + '-01T00:00:00Z')
+    .toLocaleString(undefined, { month: 'long', timeZone: 'UTC' });
+}
+
+function monthLabel(key) {
+  return `${monthName(key)} ${key.slice(0, 4)}`;
+}
+
+// ---- helpers -----------------------------------------------------------------------------------
+
+function section(title, ...children) {
+  return el('section', { class: 'mode-section' }, el('h4', {}, title), ...children);
+}
+
+function button(label, onClick) {
+  return el('button', { type: 'button', onclick: onClick }, label);
 }

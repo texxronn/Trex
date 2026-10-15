@@ -45,6 +45,8 @@ export const api = {
   activity: (id) => request('GET', '/api/commitments/activity?' + new URLSearchParams({ id })),
   expected: (window) => request('GET', '/api/expected'
     + (window ? '?' + new URLSearchParams({ window }) : '')),
+  budget: (month) => request('GET', '/api/budget'
+    + (month ? '?' + new URLSearchParams({ month }) : '')),
   projection: () => request('GET', '/api/projection'),
   reconcile: () => request('GET', '/api/reconcile'),
   chains: (account) => request('GET', '/api/chains'

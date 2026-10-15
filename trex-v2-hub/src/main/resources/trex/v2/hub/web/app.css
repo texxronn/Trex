@@ -609,3 +609,41 @@ button.warn:hover { background: var(--warn-soft); }
 .amort-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 .amort-legend .swatch.interest { background: var(--bad); }
 .amort-legend .swatch.principal { background: var(--good); }
+
+/* ---- Budget: the month's sheet and its donut (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5) ---- */
+
+/* Money In and Money Out in one column, the donut beside them. Stacked on a phone, so the donut
+   follows the tables rather than squeezing them. */
+.budget-sheet { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.4rem 1.6rem; align-items: start; }
+.budget-col { min-width: 0; }
+
+/* A budget table is just names and amounts; the total is the one heavy row, closed off by a rule. */
+.budget-table td { white-space: normal; }
+.budget-table tbody tr.total td { font-weight: 600; border-top: 1px solid var(--line-strong); }
+.budget-table tbody tr.total td:first-child { color: var(--fg); }
+/* The synthetic rows (Due / Saved / Unrecorded) are not spending: mute them so they read apart. */
+.budget-table tr.synthetic td { color: var(--muted); }
+
+/* The donut: a fixed 200×200 ring, the Money Out total in its centre. */
+.budget-donut { display: block; width: 200px; height: 200px; margin: 0 auto; }
+.budget-donut .donut-total { fill: var(--fg); font-size: 25px; font-weight: 600; }
+.budget-donut .donut-word { fill: var(--muted); font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; }
+.budget-legend { list-style: none; margin: 0.6rem 0 0; padding: 0; font-size: 12px; }
+.budget-legend li { display: flex; align-items: baseline; gap: 0.45rem; padding: 0.08rem 0; }
+.budget-legend .swatch { display: inline-block; flex: none; width: 10px; height: 10px;
+  border-radius: 2px; align-self: center; }
+.budget-legend .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.budget-legend .amt { font-variant-numeric: tabular-nums; }
+.budget-legend .share { color: var(--muted); width: 2.6rem; text-align: right;
+  font-variant-numeric: tabular-nums; }
+
+/* Outside the budget (D-3): the loan repayments, muted, one line per pair. */
+.budget-outside { color: var(--muted); }
+.budget-outside-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
+
+@media (max-width: 720px) {
+  .budget-sheet { grid-template-columns: minmax(0, 1fr); }
+}
