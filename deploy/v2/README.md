@@ -58,6 +58,8 @@ docker compose -f deploy/v2/compose.yml --profile tools run --rm verify \
          --index /var/lib/trex/index/trex.sqlite
 TREX_FIREFLY_URL=http://firefly:8081 \
   docker compose -f deploy/v2/compose.yml --profile tools run --rm egress-firefly
+EZB_TOKEN=… TREX_EZB_URL=http://ezbookkeeping:8080 \
+  docker compose -f deploy/v2/compose.yml --profile tools run --rm egress-ezb
 ```
 
 Each role is one `command:` on the one image:
@@ -70,7 +72,8 @@ Each role is one `command:` on the one image:
 | index | `index … --rebuild` | offline; stops the hub first |
 | verify | `verify …` | framing, rebuild equivalence, status strip |
 | egress archive | `egress archive …` | byte mirror + evidence copy |
-| egress firefly | `egress firefly … --plan` | `--apply` on instruction only |
+| egress ezb | `egress ezb … --plan` | the live downstream view (V2-SPEC.md §11.2); `--apply` on instruction only |
+| egress firefly | `egress firefly … --plan` | dormant (V2-SPEC.md §11.1); `--apply` on instruction only |
 | runner | `runner --config … --staging … --statements … --evidence … --archive …` | on-demand jobs + the staging inbox; loopback; the hub proxies it |
 | snapshot | `snapshot --sequencer-url http://127.0.0.1:8080` | a dated gzip copy of the journal in the archive (V2-PROPOSAL.md §12.6) |
 
@@ -106,8 +109,9 @@ systemctl start 'trex-ingest@/data/statement.csv'
 ```
 
 `trex.target` brings up the sequencer, the hub and the runner. The archive mirror runs nightly on a
-timer; the Firefly pass and ingest run on demand from the hub's Jobs view through `trex runner`
-(V2-PROPOSAL.md §5.5). `trex.env` carries `JAVA_OPTS`, `TREX_FIREFLY_URL` and `FIREFLY_TOKEN`.
+timer; the ezbookkeeping view and ingest run on demand from the hub's Jobs view through `trex runner`
+(V2-PROPOSAL.md §5.5). `trex.env` carries `JAVA_OPTS`, `TREX_EZB_URL`, `EZB_TOKEN`, `TREX_FIREFLY_URL`
+and `FIREFLY_TOKEN`.
 
 ## Back up three things
 

@@ -863,7 +863,9 @@ One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runn
 ## 14. Operations and deployment
 
 - **Back up three things**: the journal, the evidence store, and the config (git). The index,
-  projection state, review queues and ACK copies are rebuilt, never backed up.
+  projection state, review queues and ACK copies are rebuilt, never backed up. **ezbookkeeping is a
+  rebuildable view too**: it holds nothing trex does not, so a lost instance is re-applied
+  (`trex egress ezb --apply`), never restored (§11.2).
 - **The archive** (`--archive`) holds the byte mirror (kept forever), dated **journal snapshots**
   (`journal/trex-<ts>.jsonl.gz`, a consistent copy taken from the live log — never a rotation), and
   the **source archive** (`sources/…`). Snapshots are pruned by an explicit `prune-archive`

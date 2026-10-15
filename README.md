@@ -2,9 +2,10 @@
 
 trex turns bank statement exports into one append-only, deterministic journal of transactions.
 It gives every transaction a stable identity, deduplicates re-imports, matches transfers between
-your own accounts, and parks anything uncertain for a human to resolve. The Firefly III projection
-and the SQLite index are derived from the journal; **the journal is the only truth**, and every
-derived table is rebuildable.
+your own accounts, and parks anything uncertain for a human to resolve. The SQLite index, the live
+ezbookkeeping chart view and the dormant Firefly III projection are derived from the journal;
+**the journal is the only truth**, and every derived table is rebuildable. ezbookkeeping is
+re-applied from trex, never migrated into.
 
 **v2 is the active system.** The v1 tree and its documents are archived in the sibling project
 [`../TrexV1`](../TrexV1) — reference only; v2 does not import them.
@@ -25,7 +26,7 @@ derived table is rebuildable.
                                          trex hub  ◄──── index ◄──── SQLite (disposable)
                                       (Blotter UI)                           │
                                                                              ▼
-                                                            egress firefly / analysis tools
+                                                      egress ezb (live) / firefly (dormant) / tools
 ```
 
 One writer, one log, one global `n`. Everything else reads or derives. Scale means more
@@ -39,7 +40,7 @@ sequencers, not a bigger one.
 | `trex-v2-sequencer` | the only writer |
 | `trex-v2-hub` | index owner, Blotter UI, decision path, Jobs |
 | `trex-v2-ingest` | statement adapters → facts (+ evidence) |
-| `trex-v2-egress` | the Firefly III projection |
+| `trex-v2-egress` | the downstream views (ezbookkeeping live; Firefly dormant) |
 | `trex-v2-runner` | the on-demand job runner and its scheduler |
 | `trex-v2-dist` | one shaded `trex.jar`, one image |
 
@@ -47,5 +48,5 @@ sequencers, not a bigger one.
 
 Java 25. `mvn test` is the gate; `mvn -DskipTests package` builds the shaded jar.
 
-The dev stack — sequencer + hub + runner against a local Firefly III — is `deploy/v2/dev.sh`
+The dev stack — sequencer + hub + runner against a local Firefly III and ezbookkeeping — is `deploy/v2/dev.sh`
 (`build`, `up`, `down`, `reset`, `ingest`); see [deploy/v2/README.md](deploy/v2/README.md).
