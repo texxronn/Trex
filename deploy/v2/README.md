@@ -110,8 +110,8 @@ systemctl start 'trex-ingest@/data/statement.csv'
 
 `trex.target` brings up the sequencer, the hub and the runner. The archive mirror runs nightly on a
 timer; the ezbookkeeping view and ingest run on demand from the hub's Jobs view through `trex runner`
-(V2-PROPOSAL.md §5.5). `trex.env` carries `JAVA_OPTS`, `TREX_EZB_URL`, `EZB_TOKEN`, `TREX_FIREFLY_URL`
-and `FIREFLY_TOKEN`.
+(V2-PROPOSAL.md §5.5). `trex.env` carries `JAVA_OPTS`, `TREX_EZB_URL`, `EZB_TOKEN`, `EZB_USER`,
+`EZB_PASSWORD`, `TREX_FIREFLY_URL` and `FIREFLY_TOKEN`.
 
 ## Back up three things
 

@@ -293,10 +293,17 @@ public final class EgressCommand implements Callable<Integer> {
             EzbClient ezb = new EzbClient(ezbUrl, token, map.zone(),
                 new EzbClient.Retry(retries, retryBaseMs, retryMaxMs));
             HubClient hub = new HubClient(hubUrl);
+            // The fast one-call clear needs a login (EZB_USER + EZB_PASSWORD, §11.2); without them
+            // the view clears by id and stores no password.
+            String ezbUser = System.getenv("EZB_USER");
+            String ezbPassword = System.getenv("EZB_PASSWORD");
+            EzbClient.Credentials credentials =
+                ezbUser != null && !ezbUser.isBlank() && ezbPassword != null && !ezbPassword.isBlank()
+                    ? new EzbClient.Credentials(ezbUser, ezbPassword) : null;
 
             EzbView.Outcome outcome;
             try {
-                outcome = new EzbView(hub, ezb, map, System.out).run(mode);
+                outcome = new EzbView(hub, ezb, map, System.out, credentials).run(mode);
             } catch (EzbView.Refused refused) {
                 System.err.println(refused.getMessage());
                 return 1;

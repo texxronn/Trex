@@ -222,6 +222,9 @@ services:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
       FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
       EZB_TOKEN: ${EZB_TOKEN:-}
+      # The fast one-call clear (V2-SPEC.md §11.2); absent -> the view clears by id, no password.
+      EZB_USER: ${EZB_USER:-}
+      EZB_PASSWORD: ${EZB_PASSWORD:-}
       TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
     volumes:
       - config:/etc/trex:ro
@@ -345,6 +348,8 @@ services:
       - --plan
     environment:
       EZB_TOKEN: ${EZB_TOKEN:-}
+      EZB_USER: ${EZB_USER:-}
+      EZB_PASSWORD: ${EZB_PASSWORD:-}
     volumes:
       - config:/etc/trex:ro
     depends_on:

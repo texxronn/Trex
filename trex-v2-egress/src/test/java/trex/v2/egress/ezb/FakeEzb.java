@@ -58,6 +58,13 @@ final class FakeEzb implements AutoCloseable {
     private final java.util.Set<String> seenSessions = ConcurrentHashMap.newKeySet();
     final AtomicInteger duplicateImports = new AtomicInteger();
 
+    /** The login the fast clear mints a session token from; a wrong pair is refused. */
+    volatile String loginName = "ron";
+    volatile String loginPassword = "secret";
+    final List<String> sessionTokens = new CopyOnWriteArrayList<>();
+    final AtomicInteger authorizeCalls = new AtomicInteger();
+    final AtomicInteger dataClearCalls = new AtomicInteger();
+
     final Deque<Integer> forcedStatuses = new ArrayDeque<>();
     final AtomicInteger attempts = new AtomicInteger();
     final AtomicInteger gets = new AtomicInteger();
@@ -93,10 +100,19 @@ final class FakeEzb implements AutoCloseable {
                     case "/api/v1/transaction/categories/add.json" -> categoriesAdd(exchange);
                     case "/api/v1/transactions/list/all.json" -> transactionsList(exchange);
                     case "/api/v1/transactions/delete.json" -> transactionsDelete(exchange);
+                    case "/api/v1/data/clear/transactions.json" -> dataClear(exchange);
                     case "/api/v1/transactions/import.json" -> transactionsImport(exchange);
                     case "/api/v1/transactions/import/process.json" -> importProcess(exchange);
                     default -> respond(exchange, 404, "{\"message\":\"no route " + path + "\"}");
                 }
+            } catch (Exception e) {
+                respond(exchange, 500, "{\"message\":\"" + e + "\"}");
+            }
+        });
+        // The login route lives OUTSIDE /api/v1; {loginName, password} -> a session token.
+        server.createContext("/api/authorize.json", exchange -> {
+            try {
+                authorize(exchange);
             } catch (Exception e) {
                 respond(exchange, 500, "{\"message\":\"" + e + "\"}");
             }
@@ -235,6 +251,37 @@ final class FakeEzb implements AutoCloseable {
         transactions.removeIf(t -> id.equals(String.valueOf(t.get("id"))));
         deletes.incrementAndGet();
         respond(exchange, 200, "{\"result\":true}");
+    }
+
+    /** The one-call clear: a valid session token AND the matching password, then every row goes. */
+    private void dataClear(HttpExchange exchange) throws Exception {        String auth = exchange.getRequestHeaders().getFirst("Authorization");
+        String bearer = auth == null ? "" : auth.replaceFirst("^Bearer\\s+", "");
+        Map<String, Object> body = read(exchange);
+        boolean okSession = sessionTokens.contains(bearer);
+        boolean okPassword = loginPassword.equals(String.valueOf(body.get("password")));
+        if (!okSession || !okPassword) {
+            respond(exchange, 400,
+                "{\"success\":false,\"errorCode\":202007,\"errorMessage\":\"token is invalid\"}");
+            return;
+        }
+        dataClearCalls.incrementAndGet();
+        transactions.clear();
+        respond(exchange, 200, "{\"result\":true,\"success\":true}");
+    }
+
+    /** {@code POST /api/authorize.json}: the login the fast clear mints its session token from. */
+    private void authorize(HttpExchange exchange) throws Exception {
+        authorizeCalls.incrementAndGet();
+        Map<String, Object> body = read(exchange);
+        if (loginName.equals(String.valueOf(body.get("loginName")))
+            && loginPassword.equals(String.valueOf(body.get("password")))) {
+            String tok = "session-" + nextId.getAndIncrement();
+            sessionTokens.add(tok);
+            respond(exchange, 200, "{\"success\":true,\"result\":{\"token\":\"" + tok + "\"}}");
+        } else {
+            respond(exchange, 400,
+                "{\"success\":false,\"errorCode\":202007,\"errorMessage\":\"incorrect username or password\"}");
+        }
     }
 
     @SuppressWarnings("unchecked")
