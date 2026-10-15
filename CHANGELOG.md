@@ -11,6 +11,15 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **Manual commitments and the manual-pay reminder** (`V2-SPEC.md` §5, §6.5, §9.1). A declaration
+  can say how it is paid: `payment: auto | manual` (absent = `auto`) with an optional `remindDays`
+  lead time (1–60 days; default 5 for a manual commitment). `/api/status` returns
+  `manualToPay: {upcoming, overdue}` — declared, unretired manual commitments' occurrences inside
+  their reminder window, or unpaid in the last 30 days — and `/api/expected` returns the exact rows
+  behind it as `toPay` (window-independent). Expected gains a **💳 Manual payments** group with
+  **Mark paid** (the existing `SETTLE_OCCURRENCE`), and the strip shows the 💳 nudge first among the
+  nudges. Nothing new is stored beyond the two declaration fields; the counts are a read of the
+  disposable index. `manual` is refused on an `irregular` commitment (it has no due dates).
 - **`UNDECIDED` category** (`deploy/config/categories.yaml`). A declared, rule-less, hand-PINned
   parking bucket for small rows looked at and deliberately left unclassified, so they leave the
   `UNCATEGORIZED` worklist without being given a made-up purpose.
@@ -23,6 +32,14 @@ everything is under **Unreleased**.
   but **a card payment or a loan repayment is an asset↔asset transfer** and no longer counts as
   spending in Firefly. A liability account made every repayment a `withdrawal` (an AUD 11,541 card
   slice, then an AUD 4,062 loan slice, in the 2026 reports); only loan *interest* stays an expense.
+
+### Fixed
+
+- **A fact landing on a settled occurrence no longer double-counts** (`V2-SPEC.md` §6.5). When a
+  claimed fact attaches inside the window of a `settled` occurrence, the derived row becomes
+  `occurred` with the fact's amount and provenance and clears its `settleN`; previously the fact's
+  amount was **added** to the settled expectation (an expected −$100 then a −$95 fact read −$195).
+  The historical settle decision stays in the log. `deriveVersion` moves to `derive/19`.
 
 ## [0.2.0] - 2026-10-14
 

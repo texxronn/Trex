@@ -159,7 +159,12 @@ content rows each take `0`.
 - **Commitment curation.** Nine actions curate commitments (§6.5). `DECLARE_COMMITMENT` declares
   one, or confirms a detected candidate (`fromCandidate`); the rules are embedded, and a re-declare
   with the same id replaces the curated fields and the rule set — the edit — while cadence and anchor
-  are not edited in place (a schedule change is retire + declare). `RETIRE_COMMITMENT` ends it at
+  are not edited in place (a schedule change is retire + declare). A declaration's `payment` is
+  `auto` or `manual` (absent means `auto`); `remindDays` is an optional 1–60 day lead time, valid
+  only for `manual`. A manual declaration with no `remindDays` uses 5 days. `manual` is not valid on
+  an `irregular` commitment, which generates no due dates and so has nothing to remind before. These
+  are curated fields and are replaced by re-declare like the other declaration fields.
+  `RETIRE_COMMITMENT` ends it at
   `endedAt`. `IGNORE_RECURRING` silences a detected candidate for good: newer facts do not reopen it,
   only `REVOKE` does. `PIN_COMMITMENT`/`UNPIN_COMMITMENT` place facts on a commitment or release them
   to its rules — the category `PIN` gesture, one fact each, latest effective wins, ids resolved
@@ -191,7 +196,7 @@ replay → effective decisions → supersession / chain resolution → current t
 (`note_current`) → clearing legs → projectable units → state hashes → per-user ACK validity.
 
 Every output list is ordered, so an unchanged input yields byte-identical tables. Versions are
-recorded alongside, never inside, a hash: `deriveVersion = "derive/17"`, `hashVersion = "statehash/4"`,
+recorded alongside, never inside, a hash: `deriveVersion = "derive/19"`, `hashVersion = "statehash/4"`,
 and `configRevision` = SHA-256 over the sorted config files that can move derived state. A change to
 derive's semantics — including any constant in §6.9 — bumps `deriveVersion`; a change to §6.8 bumps
 `hashVersion`.
@@ -277,6 +282,15 @@ insurance, fee, tax, income, interest_earned, interest_paid, loan, other). Its s
 categorisation**: it reads the same current facts and no category output, so their order is
 incidental. The nine curation decisions (§5) are folded first.
 
+A declaration carries `payment` (`auto` or `manual`; absent means `auto`) and optional `remindDays`.
+`remindDays` is valid only for `manual` and must be 1–60; a manual declaration that omits it has an
+effective value of 5. An `irregular` commitment cannot be `manual` (it generates no due dates). The
+effective values are copied onto the derived commitment; detected candidates are always `auto` and
+have no reminder lead time. Re-declaring the same commitment replaces these fields along with its
+other curated fields. The log codec omits default `auto` so old declaration lines remain
+byte-identical. A declaration that breaks these rules is refused at the writer and prechecked as a
+`422` by the hub (§5).
+
 **Detection** runs over the current facts (transfer legs included, `noop` excluded), grouped on the
 frozen `MerchantStem.stem`: enough occurrences, gaps within tolerance of a cadence bucket, enough
 regularity (§6.9); same-day repeats collapse into one occurrence; refunds net against the charge they
@@ -300,8 +314,12 @@ excluded `(commitment, fact)` pair is never claimed. A claimed fact **attaches t
 whose window contains its date**; several facts in one window sum; nothing is allocated across
 occurrences and nothing pre-pays; a claimed fact with no window is an `off_schedule` occurrence at its
 own date. An `irregular` commitment generates no dates and records each matching fact at its own
-date. **A commitment's frontier** is the newest frontier over its rule accounts when every rule names
-one, else over the accounts of its claimed facts.
+date. If a claimed fact attaches to a `settled` occurrence, that derived row becomes `occurred`: its
+settled expected amount is replaced by the attached fact amount (or the sum of all facts in that
+window), its `settleN` is cleared, and its fact id, date and match provenance are set as for any
+occurred row. The historical settle decision remains in the log. A fact that does not fall in that
+occurrence's window does not change its settled row. **A commitment's frontier** is the newest frontier
+over its rule accounts when every rule names one, else over the accounts of its claimed facts.
 
 | Status | When | Colour | Counts as a hole |
 |---|---|---|---|
@@ -426,15 +444,15 @@ unauthenticated and binds loopback by default.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through`, `stale` and `expectedDueThisWeek` (§9.1) |
+| GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through`, the hub's `today`, `stale`, `expectedDueThisWeek` and `manualToPay` (§9.1) |
 | GET | `/api/refdata` | accounts, users, declared categories, **mortgage facilities** (§9.3), revisions |
 | GET | `/api/ledger` | the blotter rows; filters include `role`, `leg`, account, category, dates |
 | GET | `/api/review` | the derived queue (§6.6); filters `kind`, `account` |
 | GET | `/api/dismissals` | effective `DISMISS` reasons (the item itself has left the queue) |
 | GET | `/api/notes?externalId=` | a row's `NOTE` thread |
-| GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, current price, next due, arrears, notes |
+| GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, payment method and effective reminder lead time, current price, next due, arrears, notes |
 | GET | `/api/commitments/activity?id=` | a candidate's series, or a declared commitment's claimed facts over all history |
-| GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, committed totals, and the month's **headroom** (§9.2) |
+| GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, the window-independent `toPay` occurrences, committed totals, and the month's **headroom** (§9.2) |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
@@ -466,6 +484,38 @@ non-zero the strip shows muted `N expectations due this week` **after** the revi
 clear` item and **before** the statement-age nudge; a click opens Expected on the week window
 (`#expected?window=week`). Tooltip: *"Declared commitments with an open occurrence window this ISO
 week. Missed expectations are in Review; awaiting-statement occurrences are excluded."*
+
+**The manual-pay nudge.** `/api/status` returns `manualToPay: {upcoming, overdue}`. These are
+occurrence counts for declared, unretired commitments with `payment = 'manual'`; candidates and
+automatic commitments are excluded. `upcoming` counts `due` occurrences with
+`today ≤ due_date ≤ today + remindDays` (inclusive). `overdue` counts `due`, `missed`, and `awaiting`
+occurrences with `today − 30 days ≤ due_date < today` (inclusive lower bound); `occurred` and
+`settled` occurrences are never counted. The hub computes these reads from the disposable index at
+its own calendar day — the same `today` `/api/status` publishes and every other today-relative read
+uses — not in `derive()`. When either count is non-zero, the strip shows a 💳 item first among
+the nudges: amber `N to pay`, or red `N to pay · M overdue` when `overdue > 0`; it is hidden at
+zero. A click opens Expected at `#expected?section=to-pay`, with Occurrences unfolded. Tooltip:
+*"Manual payments due within their reminder window, or unpaid in the last 30 days. Mark paid once
+you have paid; the transaction lands with the next statement."* `/api/expected` returns the exact
+occurrence rows behind these counts in `toPay`, independent of its `window` parameter, overdue first
+and then by due date; each row carries `bucket` (`overdue` or `upcoming`) and `remindDays`. `toPay`
+is measured at the same day as the window — the explicit `asOf` when given, else the hub's `today` —
+so the list and the strip agree for a given day. `/api/status`'s `today` is the hub's own calendar
+day (`LocalDate.now()` in the hub's zone); the strip and Expected render "N days left" from it rather
+than from the browser clock, so a client can never fall the other side of midnight from the bucket
+the server assigned.
+Commitment rows returned by `/api/commitments` carry `payment` and the effective `remindDays` (null
+for auto); this preserves all curated fields when a client re-declares a commitment. Occurrence rows
+returned by `/api/expected` carry their commitment's `payment` value, so clients can identify manual
+rows consistently.
+
+Expected places a **Manual payments** group inside the Occurrences fold, above the selected window's
+table. It is rendered from `toPay` for every window and hidden when empty; the Occurrences header
+adds `· N to pay` when non-zero even while folded. Each row shows commitment, due date, days left or
+days overdue, expected amount, account(s) from its rules, and **Mark paid**. That action opens the
+existing Settle decision for that due date only. The same occurrence remains in the window table,
+marked 💳, and manual commitments carry the same marker in the registry. `#expected?section=to-pay`
+opens Expected with Occurrences unfolded and scrolls to the group; it composes with the window query.
 
 **The statement-age nudge** (`V2-QOL-IMPROVEMENTS-PLAN.md` §2). `/api/status` also returns `stale`: every
 account whose frontier — the newest non-synthetic statement row at or before today — is older than
@@ -518,7 +568,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 |---|---|---|
 | **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
-| **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md` |
+| **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction; inside Occurrences, a window-independent Manual payments group lists the `toPay` rows and opens the existing Settle action as **Mark paid** (a decision only: it writes no fact and does not change a transaction); the same occurrences remain in the window table; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md`, `V2-MANUAL-PAY-PLAN.md` |
 | **Budget** | the month's **headroom** ("left this month"), moved out of Expected; the same read as `/api/expected`'s `headroom` field, calculation unchanged (§9.2) | `V2-REVIEW-FIXES-PLAN.md` §10 |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
@@ -580,7 +630,8 @@ A batch (`plan` / `apply` / `verify`), never a daemon; started from Jobs or the 
 **What is projected.** Resolved units from `/api/units`: posted EXTERNAL transactions and TRANSFER
 rows (a clearing pair included, carried by its real leg). Never a leg (a transfer and its legs
 double-count), never HELD/REVIEW, PENDING, an ATTESTATION (a $0 transaction forever) or a retired
-fact. Transaction notes and commitments are not projected (Firefly holds money that moved).
+fact. Transaction notes and commitments are not projected (Firefly holds money that moved); the
+manual-payment classification and reminder lead time therefore have no egress effect.
 
 **The Mortgage mode (§9.3) has no impact here.** It is a view over existing reads — balances,
 reconciliation and commitment activity — so it changes no unit, no account type and no balance, and
