@@ -14,11 +14,13 @@ and a Money Out donut — without touching the arithmetic behind it.
   (Living, Bills & Subscriptions, Travel, …), not the raw trex categories, so the Budget donut and the
   ezbookkeeping charts agree.
 - **D-2** Money moved to one of your own accounts outside the budget (savings, investments, the loan
-  offset) shows as a **distinct, differently-styled "Saved" slice**, labelled as a move and not as
-  spending, so the donut sums to Money Out. Internal transfers are still skipped entirely.
+  offset) shows as a **distinct, differently-styled "Moved out" slice** — named for what it is, a
+  move and not spending — carrying the **destination accounts** it went to, so the donut sums to
+  Money Out. Internal transfers are still skipped entirely.
 - **D-3** Loan/mortgage repayments (offset → loan; **both** accounts are outside the budget, so
   headroom never sees them) do **not** enter Money In/Out/Left; the view carries a single muted
-  **"outside the budget"** section that lists them by pair. The Mortgage tab owns the detail.
+  **"outside the budget"** section: the repayments aggregated per pair, and those accounts' own rows
+  (the loan interest, income into a savings account). The Mortgage tab owns the detail.
 - **D-4** The **current** month is posted **plus still-due** (headroom's projection, unchanged); a
   **past** month is pure actuals — its `due`/`awaiting` occurrences have become `missed` by then.
 - **D-5** The roll-up map stays in `ezb.yaml`, and the hub reads the same map for the donut, so the
@@ -70,12 +72,15 @@ never touch the budget**.
   with no entry falls back to one `Expense` bucket. Income rows are **not** grouped — there are only
   four income categories, so the Money In table lists them directly. A commitment's row is grouped by
   its category too, so a committed bill and a direct purchase in the same group land in one slice.
-- **Moved out → one "Saved" slice (D-2).** `movedOut` is money that left a budget account for one of
-  your own accounts outside it; it is a slice of the donut but is styled and labelled as a move.
+- **Moved out → one "Moved out" slice, with destinations (D-2).** `movedOut` is money that left a
+  budget account for one of your own accounts outside it; it is a slice of the donut but is styled
+  and labelled as a move, and its parts name the account each portion went to.
 - **Outside the budget (D-3).** The headroom walk skips a row whose account is outside the budget, so
   a transfer between two non-budget accounts (the offset → loan repayment) is invisible today.
-  The new read walks those rows too and reports them **once per transfer** (the paying leg), by pair,
-  in a muted section — never in In/Out/Left.
+  The new read walks those rows too and reports the transfers **once per transfer** (the paying leg),
+  which the sheet **aggregates per pair with a count**; it also reports the outside accounts' own
+  rows — the loan interest, the income a savings account receives, its interest earned — signed, by
+  account and category. All of it sits in a muted section, never in In/Out/Left.
 
 ## 4. The read
 
@@ -84,19 +89,27 @@ One new endpoint, `GET /api/budget?month=YYYY-MM` (default: the hub's current mo
 ```
 { month, through, accounts[],
   income: { posted, due, movedIn, total,
-            lines: [ { category, amount } ] },
+            lines: [ { category, amount } ],
+            movedInParts: [ { label, amount } ] },
   spend:  { posted, due, unrecorded, movedOut, total,
-            slices: [ { group, amount } ] },
-  outside: [ { from, to, amount } ],
+            slices: [ { group, amount, parts: [ { label, amount } ] } ] },
+  outside: [ { from, to, amount, count } ],
+  outsideExternal: [ { account, category, amount } ],
   missed, unpaired, left }
 ```
 
 - `income.lines` is the **posted** income per category; `due` and `movedIn` are fields, shown by the
-  view as their own rows.
+  view as their own rows, and `movedInParts` breaks the move in down by the account it came from, so
+  that row opens like a group.
 - `spend.slices` is the posted spend rolled into its primary group, then the synthetic `Due`
-  (committed-due), `Saved` (`movedOut`) and `Unrecorded` slices, each only when non-zero. The group
-  slices alone sum to `spend.posted`; every slice sums to `spend.total`.
-- `outside` is counted once per transfer, by its paying leg.
+  (committed-due), `Moved out` (`movedOut`, its parts naming the destination accounts, D-2) and
+  `Unrecorded` slices, each only when non-zero. A group slice's `parts` are the trex categories inside
+  it. The group slices alone sum to `spend.posted`; every slice sums to `spend.total`.
+- `outside` is the walk's one entry per transfer, aggregated by pair: `amount` is the summed magnitude
+  and `count` the payments behind it.
+- `outsideExternal` is the outside accounts' own rows (no transfer) — the loan interest, the income a
+  savings account receives — signed and aggregated by `(account, category)`. Neither list enters
+  In/Out/Left.
 
 - **Reuse, not a second implementation.** The row-walk is factored out of `HubQueries.headroom()`
   into one helper that both call; `headroom`'s fields and the §9.2 arithmetic are unchanged, and a
@@ -117,20 +130,24 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
   (`#budget?month=YYYY-MM`), so a month is linkable and survives a reload.
 - **Money In.** A small table: one row per income category (posted), then a `Due` line when
   `income.due` is non-zero, then "from your other accounts" when `movedIn` is non-zero, then the
-  total.
+  total. The move-in row opens into the accounts it came from (`movedInParts`), rendered as account
+  chips.
 - **Money Out.** A table with one row per slice — the primary groups, then the synthetic `Due`,
-  `Saved` (D-2) and `Unrecorded` rows — then the total. A **group row opens into its leaves** (the
-  trex categories inside it, which the read carries) so the compact total can be read first and the
-  distribution only when wanted; the synthetic rows are muted and do not open. `missed` and
-  `unpaired` ride as muted notes, as they do today.
+  `Moved out` (D-2) and `Unrecorded` rows — then the total. A **group row opens into its parts** (the
+  trex categories inside it) and the **Moved out row opens into the accounts it went to**, whose refs
+  render as account chips, so the compact total can be read first and the distribution only when
+  wanted; the `Due`/`Unrecorded` rows are muted and do not open. `missed` and `unpaired` ride as
+  muted notes, as they do today.
 - **Money Left Over.** The bar the image ends on: `left`, red when negative.
-- **The donut.** One arc per slice (the groups plus the synthetic `Due`/`Saved`/`Unrecorded`, the
+- **The donut.** One arc per slice (the groups plus the synthetic `Due`/`Moved out`/`Unrecorded`, the
   latter three styled apart), the Money Out total whole-dollar in the centre, and a **compact boxed
   legend table** (name left, amount and share right, a thin dark rule around it and between the
   rows). The palette is the reference sheet's (magenta, blue, green, amber, red, grey). Slices below
   a threshold fold into "Other" so a long tail cannot shred the ring.
-- **Outside the budget.** The muted D-3 section under the tables: one line per pair, "ING Loan Offset
-  → ING Mortgage Simplifier · $2,400", with a sentence saying why it is not in the figures.
+- **Outside the budget.** The muted D-3 section under the tables: a compact table whose first rows are
+  the aggregated moves, one per pair — "ING Loan Offset → ING Mortgage Simplifier", the amount, and
+  "N payments" when there is more than one — followed by the outside accounts' own rows (the account
+  chip, the category, the signed amount). A sentence says why none of it is in the figures.
 - **Empty.** A month with nothing reads as an empty sheet, not an error.
 
 ## 6. Stages
@@ -140,9 +157,10 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
 This file, plus the `V2-SPEC.md` edits in the same PR: a `GET /api/budget` row in the §9 table; §9.2
 gains the sheet (the same fields, now presented as Money In / Money Out / Left, and the rule that the
 two reads must agree); §9.3's **Budget** row is rewritten (the sheet, the month stepper, the donut,
-the Saved slice, the outside-the-budget section) and its Detail points here; §12's `ezb.yaml`
-sentence is amended for D-5; §11.2's category bullet notes that the same map drives the Budget
-donut. If D-5 is refused, the swap to a shared `groups.yaml` is folded in here, before any code.
+the Moved out slice with its destinations, the outside-the-budget section with the externals) and its
+Detail points here; §12's `ezb.yaml` sentence is amended for D-5; §11.2's category bullet notes that
+the same map drives the Budget donut. If D-5 is refused, the swap to a shared `groups.yaml` is folded
+in here, before any code.
 
 ### Stage 2 — the read (`trex-v2-hub`)
 
@@ -150,14 +168,16 @@ Factor the headroom walk into `HubQueries.budgetSheet(month)` (or a shared priva
 add `BudgetResponse`; add `GET /api/budget` to `HubApi`/`HubService`; a mapper from the `ezb.yaml`
 `categories:` map. Tests: the sheet reconciles with `headroom` for the same month; a group roll-up
 that lands rows in the right slice; a refund (income) is not netted; an internal transfer is absent;
-a savings move is `movedOut`/Saved; an outside-outside transfer appears once in `outside`, by pair;
+a savings move is `movedOut`/Moved out with its destination parts; an outside-outside transfer
+appears once in `outside` per transfer and the sheet aggregates it by pair with a count; an outside
+account's external row (an interest charge) appears in `outsideExternal` and nowhere in In/Out/Left;
 `missed`/`unpaired` are apart from `left`.
 
 ### Stage 3 — the view (`budget.js`, `app.css`)
 
-The month stepper and the URL query; the two tables, the Left bar, the donut, the Saved slice and the
-legend; the outside-the-budget section; a `dom.js`-built SVG donut with the fold-to-Other rule. The
-existing single line stays as the header of the sheet (it is the same figure).
+The month stepper and the URL query; the two tables, the Left bar, the donut, the Moved out slice and
+the legend; the outside-the-budget section; a `dom.js`-built SVG donut with the fold-to-Other rule.
+The existing single line stays as the header of the sheet (it is the same figure).
 
 ### Stage 4 — verify on Dev1
 
@@ -172,7 +192,7 @@ to confirm it is actuals. Rendered against the running hub.
   Stage 3 is checked by eye on Dev1).
 - The sheet's `left` **equals** `/api/expected`'s `headroom.left` for the same month — the assertion
   that keeps the new read honest.
-- Dev1: the donut's slices sum to Money Out; "Saved" is not counted as spending; the outside-the-
+- Dev1: the donut's slices sum to Money Out; "Moved out" is not counted as spending; the outside-the-
   budget lines name the real offset → loan pairs and change nothing in In/Out/Left.
 
 ## 8. Out of scope
@@ -185,10 +205,12 @@ change to `derive()`, the log or the ezbookkeeping view (the sheet is a read of 
 
 - **D-1** donut slices = the primary groups (`ezb.yaml`'s `categories:` map), so the Budget donut and
   the ezbookkeeping charts agree.
-- **D-2** moves to your own non-budget accounts = a distinct "Saved" slice, labelled as a move, so
-  the donut sums to Money Out without calling a move spending.
+- **D-2** moves to your own non-budget accounts = a distinct "Moved out" slice, labelled as a move
+  and carrying the destination accounts, so the donut sums to Money Out without calling a move
+  spending.
 - **D-3** loan repayments (both legs outside the budget) = a muted "outside the budget" section,
-  never in In/Out/Left; the Mortgage tab owns the detail.
+  aggregated per pair, alongside the outside accounts' own external rows (the interest, income into a
+  savings account); never in In/Out/Left; the Mortgage tab owns the detail.
 - **D-4** current month = posted + due (headroom's projection); a past month = actuals, because its
   `due` has become `missed`.
 - **D-5** the roll-up map stays in `ezb.yaml`, read by the hub too; §12's sentence is amended.

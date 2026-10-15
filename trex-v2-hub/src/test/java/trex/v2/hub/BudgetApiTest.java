@@ -36,8 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The month's budget sheet (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §4): Money In/Out/Left over the
  * budget accounts, sharing headroom's row-walk so the two agree; the out rows rolled into their
- * primary groups; the savings move as the Saved slice; the loan repayment parked outside the
- * budget.
+ * primary groups; the move to a non-budget account as the Moved out slice with its destinations; the
+ * loan repayments parked outside the budget, aggregated per pair; and the outside accounts' own
+ * rows, which never touch In/Out/Left.
  */
 class BudgetApiTest {
 
@@ -58,7 +59,7 @@ class BudgetApiTest {
                 // A card repayment: both sides in the budget, so it moves nothing and appears nowhere.
                 fact(4, "rep-a", "everyday", -10000, "PAY CARD", today),
                 fact(5, "rep-b", "card", 10000, "PAYMENT RECEIVED", today),
-                // A deposit to savings (outside the budget): money moved out, the Saved slice.
+                // A deposit to savings (outside the budget): money moved out, the Moved out slice.
                 fact(6, "sav-a", "everyday", -50000, "TO SAVINGS", today),
                 fact(7, "sav-b", "savings", 50000, "FROM EVERYDAY", today),
                 // A loan repayment between two accounts both outside the budget (D-3).
@@ -70,7 +71,24 @@ class BudgetApiTest {
                 declare(12, "insurance", "Insurance", "out", "INSURANCE", 20000L, today),
                 new Decision.Pair(13, "rep-a", "rep-b", null, Actor.USER, "ron", AT),
                 new Decision.Pair(14, "sav-a", "sav-b", null, Actor.USER, "ron", AT),
-                new Decision.Pair(15, "off-a", "off-b", null, Actor.USER, "ron", AT)));
+                new Decision.Pair(15, "off-a", "off-b", null, Actor.USER, "ron", AT),
+                // Two more offset → loan repayments, identical: the three fortnightly payments the
+                // sheet aggregates into one pair line with a count (D-3).
+                fact(16, "off2-a", "offset", -30000, "TO LOAN", today),
+                fact(17, "off2-b", "loan", 30000, "FROM OFFSET", today),
+                fact(18, "off3-a", "offset", -30000, "TO LOAN", today),
+                fact(19, "off3-b", "loan", 30000, "FROM OFFSET", today),
+                new Decision.Pair(20, "off2-a", "off2-b", null, Actor.USER, "ron", AT),
+                new Decision.Pair(21, "off3-a", "off3-b", null, Actor.USER, "ron", AT),
+                // The outside accounts' own rows, which the budget cannot see: the loan interest and
+                // the savings interest earned (D-3). Signed, and never in In/Out/Left.
+                fact(22, "loan-int", "loan", -168592, "INTEREST CHARGE", today),
+                fact(23, "sav-int", "savings", 2161, "INTEREST EARNED", today),
+                // Money moved from the offset (outside) into the everyday account: a move in, with
+                // its own source-account parts (D-2).
+                fact(24, "mid-a", "offset", -40000, "TO EVERYDAY", today),
+                fact(25, "mid-b", "everyday", 40000, "FROM OFFSET", today),
+                new Decision.Pair(26, "mid-a", "mid-b", null, Actor.USER, "ron", AT)));
         }
 
         try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
@@ -97,8 +115,8 @@ class BudgetApiTest {
             JsonNode income = budget.get("income");
             assertEquals(500000, income.get("posted").asLong(), income.toPrettyString());
             assertEquals(0, income.get("due").asLong());
-            assertEquals(0, income.get("movedIn").asLong(), "a move in is never income");
-            assertEquals(500000, income.get("total").asLong());
+            assertEquals(40000, income.get("movedIn").asLong(), "a move in is never income");
+            assertEquals(540000, income.get("total").asLong());
             assertEquals(1, income.get("lines").size(), income.toPrettyString());
             assertEquals("UNCATEGORIZED", income.get("lines").get(0).get("category").asText());
             long linesSum = 0;
@@ -107,6 +125,10 @@ class BudgetApiTest {
             }
             assertEquals(income.get("total").asLong() - income.get("movedIn").asLong(), linesSum,
                 "the income lines reconcile to the total less the moves: " + income.toPrettyString());
+            // The move in carries its own parts: the account it came from (D-2).
+            assertEquals(List.of("offset"), partNames(income.get("movedInParts")),
+                "the move in names its source account: " + income.toPrettyString());
+            assertEquals(40000, income.get("movedInParts").get(0).get("amount").asLong());
 
             // ---- Money Out: the group roll-up, then the synthetic slices -------------------------
             JsonNode spend = budget.get("spend");
@@ -121,21 +143,27 @@ class BudgetApiTest {
                 "the declared rent's paid amount, grouped by its fact's category");
             assertEquals(3000, slices.get("Living"), "the Coles shop, via GROCERIES -> Living");
             assertEquals(20000, slices.get("Due"), "a due occurrence carries no category");
-            assertEquals(50000, slices.get("Saved"), "the savings deposit is a move, not spending");
+            assertEquals(50000, slices.get("Moved out"), "the savings deposit is a move, not spending");
             assertEquals(4, slices.size(), spend.toPrettyString());
             assertFalse(slices.containsKey("Unrecorded"), "no wallet movement: " + spend.toPrettyString());
-            // A group carries its leaves — the trex categories inside it — so the view can open it
-            // into the distribution that made it up; a synthetic slice has none.
+            // A group carries its parts — the trex categories inside it — so the view can open it
+            // into the distribution that made it up; Moved out carries the accounts it went to, and
+            // Due/Unrecorded have none.
             JsonNode living = sliceFor(spend.get("slices"), "Living");
-            assertEquals(List.of("GROCERIES"), leafNames(living.get("leaves")),
-                "the group's leaves are its categories: " + living);
-            assertEquals(3000, living.get("leaves").get(0).get("amount").asLong(), living.toString());
+            assertEquals(List.of("GROCERIES"), partNames(living.get("parts")),
+                "the group's parts are its categories: " + living);
+            assertEquals(3000, living.get("parts").get(0).get("amount").asLong(), living.toString());
             JsonNode home = sliceFor(spend.get("slices"), "Home");
-            assertEquals(List.of("RENT"), leafNames(home.get("leaves")),
-                "the rent's leaf is the category its fact carried: " + home);
-            assertEquals(200000, home.get("leaves").get(0).get("amount").asLong(), home.toString());
-            assertTrue(sliceFor(spend.get("slices"), "Saved").get("leaves").isEmpty(),
-                "a synthetic slice has no distribution");
+            assertEquals(List.of("RENT"), partNames(home.get("parts")),
+                "the rent's part is the category its fact carried: " + home);
+            assertEquals(200000, home.get("parts").get(0).get("amount").asLong(), home.toString());
+            JsonNode movedOut = sliceFor(spend.get("slices"), "Moved out");
+            assertEquals(List.of("savings"), partNames(movedOut.get("parts")),
+                "Moved out names its destination account: " + movedOut);
+            assertEquals(movedOut.get("amount").asLong(), sumParts(movedOut.get("parts")),
+                "the Moved out parts sum to the slice: " + movedOut);
+            assertTrue(sliceFor(spend.get("slices"), "Due").get("parts").isEmpty(),
+                "a Due slice has no distribution");
             // The groups are the posted spend; the synthetic slices are the rest, so the donut sums
             // to Money Out.
             assertEquals(spend.get("posted").asLong(),
@@ -144,19 +172,38 @@ class BudgetApiTest {
             assertEquals(spend.get("total").asLong(),
                 slices.values().stream().mapToLong(Long::longValue).sum(),
                 "every slice sums to the Money Out total: " + spend.toPrettyString());
-            assertEquals(List.of("Home", "Living", "Due", "Saved"), groupsInOrder(spend.get("slices")),
-                "groups amount-descending, then the synthetic slices Due, Saved");
+            assertEquals(List.of("Home", "Living", "Due", "Moved out"),
+                groupsInOrder(spend.get("slices")),
+                "groups amount-descending, then the synthetic slices Due, Moved out");
             // The card repayment is internal to the budget: neither leg is spending.
             assertFalse(slices.containsValue(10000L), "the card repayment appears nowhere: " + spend);
 
             // ---- outside the budget (D-3) -------------------------------------------------------
+            // Three identical offset -> loan repayments aggregate into one line with a count.
             assertEquals(1, budget.get("outside").size(), budget.toPrettyString());
             JsonNode outside = budget.get("outside").get(0);
             assertEquals("offset", outside.get("from").asText());
             assertEquals("loan", outside.get("to").asText());
-            assertEquals(30000, outside.get("amount").asLong());
-            assertEquals(227000, budget.get("left").asLong(),
-                "the outside repayment changes nothing in In/Out/Left: " + budget.toPrettyString());
+            assertEquals(90000, outside.get("amount").asLong(), "three 300.00 repayments");
+            assertEquals(3, outside.get("count").asInt());
+            // The outside accounts' own rows ride here, signed, and are nowhere in In/Out/Left.
+            JsonNode externals = budget.get("outsideExternal");
+            assertEquals(2, externals.size(), budget.toPrettyString());
+            assertEquals("loan", externals.get(0).get("account").asText());
+            assertEquals("INTEREST_PAID", externals.get(0).get("category").asText());
+            assertEquals(-168592, externals.get(0).get("amount").asLong(),
+                "the loan interest is money out, signed, and the biggest outflow first");
+            assertEquals("savings", externals.get(1).get("account").asText());
+            assertEquals("INTEREST_EARNED", externals.get(1).get("category").asText());
+            assertEquals(2161, externals.get(1).get("amount").asLong());
+            // The interest is not folded into any figure above: left is In - Out exactly, and equals
+            // headroom's, so the external rows changed nothing.
+            assertEquals(540000 - 273000, budget.get("left").asLong(),
+                "the outside rows change nothing in In/Out/Left: " + budget.toPrettyString());
+            assertEquals(headroom.get("left").asLong(), budget.get("left").asLong());
+            assertFalse(slices.containsValue(168592L), "the loan interest is not a Money Out slice");
+            assertEquals(500000, income.get("posted").asLong(),
+                "the savings interest is not Money In income");
 
             // ---- a malformed month is refused -----------------------------------------------
             HttpResponse<String> bad = client.send(HttpRequest.newBuilder(
@@ -191,10 +238,18 @@ class BudgetApiTest {
         throw new AssertionError("no slice '" + group + "' in " + array);
     }
 
-    private static List<String> leafNames(JsonNode array) {
+    private static List<String> partNames(JsonNode array) {
         List<String> out = new ArrayList<>();
-        for (JsonNode leaf : array) {
-            out.add(leaf.get("category").asText());
+        for (JsonNode part : array) {
+            out.add(part.get("label").asText());
+        }
+        return out;
+    }
+
+    private static long sumParts(JsonNode array) {
+        long out = 0;
+        for (JsonNode part : array) {
+            out += part.get("amount").asLong();
         }
         return out;
     }
@@ -259,7 +314,7 @@ class BudgetApiTest {
                 active: true
             """);
         Files.writeString(configDir.resolve("categories.yaml"), """
-            categories: [GROCERIES, RENT]
+            categories: [GROCERIES, RENT, INTEREST_PAID, INTEREST_EARNED]
             rules:
               - category: GROCERIES
                 when:
@@ -267,6 +322,12 @@ class BudgetApiTest {
               - category: RENT
                 when:
                   match: "RENT PAYMENT"
+              - category: INTEREST_PAID
+                when:
+                  match: "INTEREST CHARGE"
+              - category: INTEREST_EARNED
+                when:
+                  match: "INTEREST EARNED"
             """);
         Files.writeString(configDir.resolve("transfers.yaml"), """
             windowDays: 4

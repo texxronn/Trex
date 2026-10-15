@@ -622,7 +622,7 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-table td { white-space: normal; }
 .budget-table tbody tr.total td { font-weight: 600; border-top: 1px solid var(--line-strong); }
 .budget-table tbody tr.total td:first-child { color: var(--fg); }
-/* The synthetic rows (Due / Saved / Unrecorded) are not spending: mute them so they read apart. */
+/* The synthetic rows (Due / Moved out / Unrecorded) are not spending: mute them so they read apart. */
 .budget-table tr.synthetic td { color: var(--muted); }
 /* A group row opens into the categories inside it (the read carries the leaves). */
 .budget-table tr.expandable { cursor: pointer; }
@@ -647,9 +647,13 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
   margin-right: 0.45rem; vertical-align: -1px; }
 
-/* Outside the budget (D-3): the loan repayments, muted, one line per pair. */
+/* Outside the budget (D-3): the loan repayments per pair and the outside accounts' own rows, a
+   compact muted table with the amount right-aligned. */
 .budget-outside { color: var(--muted); }
-.budget-outside-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
+.budget-outside-table { font-size: 12px; border-collapse: collapse; }
+.budget-outside-table td { padding: 0.12rem 0.6rem 0.12rem 0; white-space: nowrap; }
+.budget-outside-table td.note { color: var(--muted); }
+.budget-outside-table td.amount { text-align: right; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 720px) {
   .budget-sheet { grid-template-columns: minmax(0, 1fr); }
