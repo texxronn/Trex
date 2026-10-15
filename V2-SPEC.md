@@ -781,11 +781,12 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
 - **plan:** fetch the units; report unmapped refs, the accounts and categories to create, and the row
   counts per type. No writes.
 - **apply:** ensure accounts and categories, clear, then import openings first and the units in
-  batches, polling `transactions/import/process`. Every apply uses a **fresh `clientSessionId`** (a
-  UUID): the duplicate checker (`duplicate_submissions_interval`, default 300 s) refuses a reused one,
-  so a second apply inside five minutes would otherwise be dropped. The poll returning idle is not
-  success — apply ends by listing the transaction count and **fails (exit 1) unless it equals the
-  rows sent**. Idempotent: a second apply reproduces the same view.
+  batches, polling `transactions/import/process`. Every import call uses a **fresh `clientSessionId`**
+  (a UUID): the duplicate checker keys on the id alone, so a reused one is treated as a repeat
+  submission and every batch after the first is dropped (measured on 2.0.1: three calls sharing an id
+  landed only the first). The poll returning idle is not success — apply ends by listing the
+  transaction count and **fails (exit 1) unless it equals the rows sent**. Idempotent: a second apply
+  reproduces the same view.
 - **verify:** each mapped account balance against **`opening + Σ units`** — the backward opening, or
   the declared-wallet rule above — and the row counts; never `/api/opening`'s `latestBalance`, which
   is the whole statement chain and keeps facts dated after the units feed's `asOf` (measured: one such
@@ -793,8 +794,9 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
 
 **Clearing** uses the API token alone: `transactions/list/all.json` enumerates the ids and
 `transactions/delete.json` deletes each, so **no account password is stored** (`batch_delete` and
-`data/clear/*` both require it). The fresh `clientSessionId` and the post-import count check are the
-other guards the spike found.
+`data/clear/*` both require it). Every read carries the timezone headers too, not just the writes —
+`list/all` is refused without them. The per-call `clientSessionId` and the post-import count check are
+the other guards the spike found.
 
 **Failure.** Retry 5xx, 429 and dropped connections with backoff and jitter, like §11.1. There is no
 duplicate hash and no external id; the only re-submission guard is the in-memory `duplicate_checker`
