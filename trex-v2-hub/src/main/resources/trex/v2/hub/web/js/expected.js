@@ -26,8 +26,10 @@ let win = localStorage.getItem('trex.expected.window') || 'month';
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
 let stale = [];        // /api/status stale accounts, oldest first (V2-QOL-IMPROVEMENTS-PLAN.md §2)
+let serverToday = null; // /api/status today: the hub's own day, so "N days left" never guesses (§9.1)
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
+let scrollToPay = false;
 
 // The four foldable sections (§4); the open state is a device preference, like the window.
 const SECTIONS_KEY = 'trex.expected.sections';
@@ -49,6 +51,8 @@ export function mount(container, context) {
   // device preference for this visit, like the other modes' query params.
   const requested = context.modeQuery && context.modeQuery.get('window');
   if (requested && WINDOWS[requested]) win = requested;
+  scrollToPay = !!(context.modeQuery && context.modeQuery.get('section') === 'to-pay');
+  if (scrollToPay) openSections.occurrences = true;
   if (!WINDOWS[win]) win = 'month';
   render();
   load();
@@ -63,8 +67,15 @@ async function load() {
       api.expected(win), api.commitments(), api.status().catch(() => null)]);
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     data = expected;
-    registry = commitments;
+    registry = commitments.map((commitment) => ({
+      ...commitment,
+      // The registry API carries payment but not remindDays; toPay exposes the effective value
+      // for commitments currently in their reminder window.
+      remindDays: (expected.toPay || []).find((row) => row.commitmentId === commitment.commitmentId)
+        ?.remindDays ?? commitment.remindDays,
+    }));
     stale = (status && status.stale) || [];
+    serverToday = (status && status.today) || null;
     errorBar.hidden = true;
   } catch (error) {
     if (generation !== loadGeneration) return;
@@ -73,6 +84,11 @@ async function load() {
     return;
   }
   render();
+  if (scrollToPay) {
+    scrollToPay = false;
+    requestAnimationFrame(() => document.getElementById('manual-payments')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
 }
 
 function render() {
@@ -113,14 +129,77 @@ function occurrences() {
     .map((c) => c.commitmentId));
   const rows = (data.occurrences || []).filter((o) => declared.has(o.commitmentId));
   const head = ['Occurrences',
-    el('span', { class: 'muted' }, ` · ${WINDOWS[data.window] || data.window} · ${rows.length}`)];
-  const body = rows.length
-    ? [scroll(el('table', {}, el('thead', {}, el('tr', {},
+    el('span', { class: 'muted' }, ` · ${WINDOWS[data.window] || data.window} · ${rows.length}`),
+    (data.toPay || []).length
+      ? el('span', { class: 'occ-partial' }, ` · ${(data.toPay || []).length} to pay`) : null];
+  const body = [manualPayments(), rows.length
+    ? scroll(el('table', {}, el('thead', {}, el('tr', {},
         el('th', {}, 'Date'), el('th', {}, 'Commitment'), el('th', {}, 'Direction'),
         el('th', { class: 'amount' }, 'Amount'), el('th', {}, 'Status'),
-        el('th', {}, 'Matched'))), el('tbody', {}, ...rows.map(occurrenceRow))))]
-    : [el('p', { class: 'muted' }, 'Nothing due in this window.')];
+        el('th', {}, 'Matched'))), el('tbody', {}, ...rows.map(occurrenceRow))))
+    : el('p', { class: 'muted' }, 'Nothing due in this window.')];
   return fold('occurrences', head, body);
+}
+
+/** Window-independent actions, exactly the rows counted in the status strip (§9.1). */
+function manualPayments() {
+  const rows = data.toPay || [];
+  if (!rows.length) return null;
+  return el('section', { id: 'manual-payments', class: 'manual-payments' },
+    el('h4', {}, '💳 Manual payments'),
+    scroll(el('table', {},
+      el('thead', {}, el('tr', {},
+        el('th', {}, 'Commitment'), el('th', {}, 'Due'), el('th', {}, 'When'),
+        el('th', { class: 'amount' }, 'Expected amount'), el('th', {}, 'Account(s)'), el('th', {}, ''))),
+      el('tbody', {}, ...rows.map(toPayRow)))));
+}
+
+function toPayRow(o) {
+  const commitment = currentCommitment(o.commitmentId);
+  const due = daysUntil(o.dueDate);
+  const expected = o.amount != null ? Math.abs(o.amount)
+    : Math.abs((commitment && commitment.currentAmount) || 0);
+  const accounts = [...new Set(((commitment && commitment.rules) || [])
+    .map((rule) => rule.account || 'Any account'))];
+  const days = due < 0 ? el('span', { class: 'occ-missed' },
+    `${-due} day${due === -1 ? '' : 's'} overdue`)
+    : due === 0 ? 'Due today' : `${due} day${due === 1 ? '' : 's'} left`;
+  return el('tr', {},
+    el('td', {}, o.commitmentName || shortId(o.commitmentId)),
+    el('td', {}, date(o.dueDate)),
+    el('td', {}, days),
+    el('td', { class: 'amount' }, money(expected)),
+    el('td', { class: 'muted' }, accounts.join(', ') || 'Any account'),
+    el('td', {}, el('button', { type: 'button', class: 'ghost',
+      onclick: () => markManualPaid(o) }, 'Mark paid')));
+}
+
+function markManualPaid(o) {
+  openSettle(ctx, {
+    commitmentId: o.commitmentId,
+    name: o.commitmentName || o.commitmentId,
+    dueDates: [o.dueDate],
+  }, load);
+}
+
+function currentCommitment(commitmentId) {
+  return registry.find((c) => c.commitmentId === commitmentId);
+}
+
+/**
+ * Whole days from the hub's own calendar day to a due date. The hub publishes that day as
+ * `status.today`, so the figure matches the bucket the server assigned (a browser-clock day could
+ * fall the other side of midnight and label an `upcoming` row "overdue"). Falls back to the local
+ * day only if the status read failed.
+ */
+function daysUntil(dueDate) {
+  let today = serverToday;
+  if (!today) {
+    const now = new Date();
+    today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString().slice(0, 10);
+  }
+  const due = new Date(`${dueDate}T00:00:00Z`);
+  return Math.round((due - new Date(`${today}T00:00:00Z`)) / 86400000);
 }
 
 function occurrenceRow(o) {
@@ -128,7 +207,8 @@ function occurrenceRow(o) {
   const sign = o.amount != null ? o.amount : (o.direction === 'in' ? 1 : -1);
   return el('tr', {},
     el('td', {}, date(o.dueDate)),
-    el('td', {}, o.commitmentName || shortId(o.commitmentId)),
+    el('td', {}, o.commitmentName || shortId(o.commitmentId),
+      o.payment === 'manual' ? el('span', { class: 'manual-pay-marker', title: 'Manual payment' }, ' 💳') : null),
     el('td', {}, direction(sign)),
     el('td', { class: 'amount' }, o.amount != null
       ? money(Math.abs(o.amount))
@@ -343,6 +423,8 @@ function registryRow(c) {
   return el('tr', {},
     el('td', { class: 'desc' },
       el('span', { title: c.commitmentId }, labelOf(c)),
+      c.payment === 'manual'
+        ? el('span', { class: 'manual-pay-marker', title: 'Manual payment' }, ' 💳') : null,
       declared ? null : el('span', { class: 'muted' }, ' · candidate'),
       !declared && seriesLine(c) ? el('div', { class: 'muted series' }, seriesLine(c)) : null,
       c.notes && c.notes.length
