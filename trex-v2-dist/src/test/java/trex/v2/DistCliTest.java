@@ -32,7 +32,7 @@ class DistCliTest {
             List.of("sequencer", "hub", "index", "ingest", "egress", "reflow", "verify", "export", "import")),
             "every role is a subcommand: " + cli.getSubcommands().keySet());
         assertTrue(cli.getSubcommands().get("egress").getSubcommands().keySet().containsAll(
-            List.of("archive", "firefly")));
+            List.of("archive", "firefly", "ezb")));
     }
 
     @Test

@@ -93,6 +93,8 @@ final class McpResources {
             "The live transfers configuration", YAML, "transfers.yaml"));
         add(map, new Def("trex://config/firefly", "firefly.yaml",
             "The live firefly configuration", YAML, "firefly.yaml"));
+        add(map, new Def("trex://config/ezb", "ezb.yaml",
+            "The live ezbookkeeping view configuration", YAML, "ezb.yaml"));
         add(map, new Def("trex://config/profiles", "profiles.yaml",
             "The live profiles configuration", YAML, "profiles.yaml"));
         return java.util.Collections.unmodifiableMap(map);

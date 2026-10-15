@@ -21,7 +21,9 @@ public record RunnerConfig(
     String sequencerUrl,
     String hubUrl,
     String fireflyUrl,
+    String ezbUrl,
     Path accountsFile,
+    Path ezbAccounts,
     String token,
     boolean allowApply,
     Duration jobTimeout) {

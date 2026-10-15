@@ -24,6 +24,7 @@ public final class JobCatalogue {
     public static Map<String, JobSpec> of(RunnerConfig config, StatementsMap statements, StagingStore staging) {
         Map<String, JobSpec> jobs = new LinkedHashMap<>();
         jobs.put("egress-firefly", egressFirefly(config));
+        jobs.put("egress-ezb", egressEzb(config));
         jobs.put("ingest", ingest(config, statements, staging));
         jobs.put("ingest-inbox", ingestInbox(config, statements, staging, System::currentTimeMillis));
         jobs.put("reparse", reparse(config));
@@ -128,6 +129,40 @@ public final class JobCatalogue {
                 }
                 argv.add("--" + mode);
                 return List.of(new Step("egress firefly --" + mode, argv));
+            });
+    }
+
+    /**
+     * The ezbookkeeping view (V2-SPEC.md §11.2). Same plan / verify / apply vocabulary as Firefly,
+     * but a disposable projection: apply clears and re-imports, so there is nothing to seed, no
+     * orphan cleanup and no account checks. Applying is the egress gate, locked without
+     * {@code --allow-apply}.
+     */
+    static JobSpec egressEzb(RunnerConfig config) {
+        List<JobParam> params = List.of(
+            JobParam.choice("mode", List.of("plan", "verify", "apply"),
+                "plan reads, verify compares each balance against opening + units, apply re-imports the view"));
+        return new JobSpec("egress-ezb", "ezbookkeeping egress",
+            "Plan, verify or apply the disposable ezbookkeeping view (V2-SPEC.md §11.2).",
+            "write", params, p -> {
+                String mode = p.path("mode").asText("plan");
+                if (!List.of("plan", "verify", "apply").contains(mode)) {
+                    throw new IllegalArgumentException("mode must be plan, verify or apply");
+                }
+                if ("apply".equals(mode) && !config.allowApply()) {
+                    throw new IllegalArgumentException("apply is disabled; start the runner with --allow-apply");
+                }
+                require(config.hubUrl(), "--hub-url is not configured");
+                require(config.ezbUrl(), "--ezb-url is not configured");
+                if (config.ezbAccounts() == null) {
+                    throw new IllegalArgumentException("--ezb-accounts is not configured");
+                }
+                List<String> argv = new ArrayList<>(List.of("egress", "ezb",
+                    "--hub-url", config.hubUrl(),
+                    "--ezb-url", config.ezbUrl(),
+                    "--accounts", config.ezbAccounts().toString()));
+                argv.add("--" + mode);
+                return List.of(new Step("egress ezb --" + mode, argv));
             });
     }
 

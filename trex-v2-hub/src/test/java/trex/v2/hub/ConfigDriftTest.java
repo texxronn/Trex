@@ -86,7 +86,7 @@ class ConfigDriftTest {
 
         List<ConfigDrift.Row> rows = ConfigDrift.scan(dir);
         assertEquals(ConfigDrift.FILES, rows.stream().map(ConfigDrift.Row::file).toList());
-        assertEquals(12, rows.size());
+        assertEquals(13, rows.size());
         assertEquals("edited-here", row(rows, "accounts.yaml").state());
         assertEquals("unknown", row(rows, "profiles.yaml").state());
         assertEquals("same", row(rows, "users.yaml").state());

@@ -99,6 +99,7 @@ class JobRunnerServiceTest {
 
     private static RunnerConfig config(Path dir) {
         return new RunnerConfig("127.0.0.1", 0, dir, dir, dir, dir, dir, null, "http://seq", "http://hub",
-            "http://ff", dir.resolve("firefly.yaml"), null, true, Duration.ofMinutes(10));
+            "http://ff", "http://ezb", dir.resolve("firefly.yaml"), dir.resolve("ezb.yaml"), null, true,
+            Duration.ofMinutes(10));
     }
 }
