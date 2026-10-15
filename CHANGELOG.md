@@ -9,6 +9,12 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **`UNDECIDED` category** (`deploy/config/categories.yaml`). A declared, rule-less, hand-PINned
+  parking bucket for small rows looked at and deliberately left unclassified, so they leave the
+  `UNCATEGORIZED` worklist without being given a made-up purpose.
+
 ## [0.2.0] - 2026-10-14
 
 ### Changed
