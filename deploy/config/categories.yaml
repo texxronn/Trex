@@ -30,6 +30,11 @@
 #                          fragments collide with other descriptors ("Splash's Pools" contains
 #                          "lash", "Auto Spares" contains "spa", "Oliver Brown" contains "brow"),
 #                          so a merchant rule misfires; hand-PINned like the others.
+#   UNDECIDED              a parking bucket for small rows the operator has looked at and chosen not
+#                          to classify yet. It takes them off the UNCATEGORIZED worklist (which
+#                          means "no rule matched, nobody has looked") without inventing a purpose,
+#                          and keeps them findable for a later pass. A rule would park rows nobody
+#                          looked at, defeating the worklist, so it is hand-PINned only.
 #
 # Rule shape (first match wins, pins before rules):
 #   category: <declared name>
@@ -54,7 +59,7 @@ categories: [BIG_TICKET_PURCHASES, BILLS, BONUS, CASH_WITHDRAW, CELEBRATIONS, CH
              HEALTH_SUPPLIES, HOBBY, HOME_IMPROVEMENT, HOUSE_WORKS, INSURANCE, INTEREST_EARNED,
              INTEREST_PAID, INVESTMENTS, LEGAL, PERSONAL_CARE, PROFESSIONAL_DEVELOPMENT, REBATES,
              SALARY, SAVINGS, SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES,
-             TRANSPORT, TRAVEL, VEHICLE, VISA_FEES]
+             TRANSPORT, TRAVEL, UNDECIDED, VEHICLE, VISA_FEES]
 
 # One-off corrections live in pins.yaml (§6): same mechanism, different owner — this file is
 # hand-written and ordered, that one is written by trex-ws and order-independent.
