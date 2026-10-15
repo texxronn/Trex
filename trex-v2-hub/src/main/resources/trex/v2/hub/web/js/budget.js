@@ -1,8 +1,10 @@
 // Budget mode (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5): the month's sheet — Money In, Money Out
 // and Money Left Over — with a donut of Money Out by primary group and a muted "outside the budget"
-// section for the transfers that never touch a budget account. One read, /api/budget, over the
-// derived index: the sheet's `left` equals the status line's headroom for the same month, because
-// the hub shares headroom's row-walk (§9.2), not because the view computes anything of its own.
+// section for the moves that never touch a budget account. Money In and Money Out are the month's
+// real flows over every account; a move between your own accounts rides the bridge between them and
+// is never income or spend. One read, /api/budget, over the derived index: the sheet's `left` equals
+// the status line's headroom for the same month, because the hub shares headroom's row-walk (§9.2),
+// not because the view computes anything of its own.
 //
 // The month lives in the URL (#budget?month=YYYY-MM) so a month is linkable and survives a reload.
 // Stepping rewrites it with history.replaceState, never location.hash: a hash assignment fires
@@ -13,10 +15,10 @@ import { accountChip } from './account.js';
 import { el, clear, field, scroll, svgEl } from './dom.js';
 import { date, money } from './format.js';
 
-// The synthetic slices the hub appends after the rolled-up groups: money still due, money moved to
-// one of your own accounts outside the budget (D-2, a move) and the wallet's unrecorded cash. They
-// are not spending, so the tables mark them muted and the donut keeps them apart from the groups.
-const SYNTHETIC = new Set(['Due', 'Moved out', 'Unrecorded']);
+// The synthetic slices the hub appends after the rolled-up groups: money still due and the wallet's
+// unrecorded cash. They are not posted spending, so the tables mark them muted and the donut keeps
+// them apart from the groups. A move between your own accounts is never here: it rides `moved`.
+const SYNTHETIC = new Set(['Due', 'Unrecorded']);
 
 // The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
 // one <circle> per slice with a dash pattern of its arc length, which needs no trigonometry.
@@ -30,7 +32,7 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 // assigned by arc index, which is amount-descending, so the biggest slice takes the first colour.
 const PALETTE = ['#c43074', '#479ff8', '#82d553', '#eebb42', '#e94025', '#929292',
   '#6c7ae0', '#00b0a8', '#b46cd6', '#a9683c'];
-const SYNTHETIC_COLOR = { Due: '#94a3b8', 'Moved out': '#a8a29e', Unrecorded: '#78716c' };
+const SYNTHETIC_COLOR = { Due: '#94a3b8', Unrecorded: '#78716c' };
 const OTHER_COLOR = '#6b7280';
 
 let host;
@@ -107,6 +109,8 @@ function renderSheet() {
     return;
   }
   sheetHost.append(sheetGrid());
+  const moved = movedSection();
+  if (moved) sheetHost.append(moved);
   const outside = outsideSection();
   if (outside) sheetHost.append(outside);
 }
@@ -114,23 +118,20 @@ function renderSheet() {
 /**
  * Money Left Over (V2-SPEC.md §9.2): one figure that answers "am I okay?", with the arithmetic beside
  * it and the date the statements reach, so a late statement reads as a late statement and not as
- * money. It is the sheet's header, and the same headroom the status line carries.
+ * money. It is the sheet's header, and the same headroom the status line carries. Money In and Money
+ * Out are the month's real flows; a move between your own accounts rides the bridge in between.
  */
 function leftBar() {
-  const { income, spend, missed, unpaired, left, through, accounts } = data;
+  const { income, spend, moved, missed, unpaired, left, through, accounts } = data;
   const figure = el('b', { class: left < 0 ? 'occ-missed' : 'tick' }, money(left));
-  // The arithmetic, in the shape the old single line used. The read rolls committed and uncommitted
-  // spend into one `posted` figure (they share a row-walk), so the old commitments/other-spend split
-  // is not available here; what is left is what came in against what went out.
   const parts = [
-    `in ${money(income.posted)}` + (income.due ? ` + ${money(income.due)} due` : ''),
-    `out ${money(spend.posted)}` + (spend.due ? ` + ${money(spend.due)} due` : ''),
+    `in ${money(income.total)}`,
+    `out ${money(spend.total)}`,
   ];
-  // The wallet's unrecorded cash (V2-CASH-PLAN.md §4.2): spend the bank movements imply but no fact
-  // records. Signed by the backend — positive is spend, so it moves `left` like any outflow.
-  if (spend.unrecorded) parts.push(`unrecorded cash ${money(spend.unrecorded)}`);
-  if (spend.movedOut || income.movedIn) {
-    parts.push(`moved to your other accounts ${money(spend.movedOut - income.movedIn)}`);
+  // A move between your own accounts is never income or spend (V2-SPEC.md §9.2): it is shown apart,
+  // because it moves `left` without being either. Positive is money moved out.
+  if (moved.out || moved.in) {
+    parts.push(`moved ${money(moved.out - moved.in)}`);
   }
   const notes = [];
   if (missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(missed)}`));
@@ -156,9 +157,8 @@ function sheetGrid() {
 }
 
 /**
- * Money In: the posted income per category, then the Due line when non-zero, then — when money came
- * from one of your own accounts outside the budget (D-2) — the move-in row, which opens into the
- * accounts it came from.
+ * Money In: the posted income per category — every account's, real flows, whatever its `budget`
+ * flag — then the Due line when non-zero, then the total. A move is never here; it rides the bridge.
  */
 function moneyIn() {
   const rows = data.income.lines.map((line) =>
@@ -167,41 +167,50 @@ function moneyIn() {
     rows.push(el('tr', {}, el('td', {}, 'Due'),
       el('td', { class: 'amount' }, money(data.income.due))));
   }
-  if (data.income.movedIn) {
-    rows.push(...expandableRow('', ['from your other accounts'], data.income.movedIn,
-      data.income.movedInParts || [], true, 'click for the accounts this move came from'));
-  }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.income.total))));
   return section('Money In', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
 }
 
 /**
- * Money Out, one row per slice. A group row opens into its parts — the trex categories inside it
- * (the read carries them, §4) — and the Moved out row opens into the accounts the money went to, so
- * the compact total can be read first and the distribution only when wanted. The synthetic
- * Due/Unrecorded rows are muted and do not open.
+ * Money Out, one row per slice: the rolled-up groups and the synthetic Due/Unrecorded. A group row
+ * opens into its parts — the trex categories inside it (the read carries them, §4). A move is never
+ * a slice: it rides the bridge below, so the donut is real spending only.
  */
 function moneyOut() {
   const rows = [];
   for (const slice of data.spend.slices) {
     const synthetic = SYNTHETIC.has(slice.group);
-    // A Moved out slice's parts are account refs, not categories, so they render as chips (D-2).
-    const chip = slice.group === 'Moved out';
-    const note = chip
-      // D-2: a move to one of your own accounts outside the budget. It is a slice so the donut
-      // sums to Money Out, but the row says plainly that it is not saving.
-      ? el('span', { class: 'muted', title: 'money moved to one of your own accounts outside the budget' },
-          ' \u00b7 a move, not spending')
-      : null;
-    rows.push(...expandableRow(synthetic ? 'synthetic' : '', [slice.group, note], slice.amount,
-      slice.parts || [], chip,
-      chip ? 'click for the accounts this move went to'
-        : 'click for the categories inside this group'));
+    rows.push(...expandableRow(synthetic ? 'synthetic' : '', [slice.group], slice.amount,
+      slice.parts || [], false, 'click for the categories inside this group'));
   }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.spend.total))));
   return section('Money Out', scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
+}
+
+/**
+ * The move bridge (V2-SPEC.md §9.2): money that crossed the budget boundary between your own
+ * accounts. It is neither Money In nor Money Out — both totals above exclude it — but it moves
+ * `left`, so it sits between them. Each row opens into the accounts on the other side: the
+ * destinations of a move out, the sources of a move in.
+ */
+function movedSection() {
+  const { moved } = data;
+  if (!moved || (!moved.out && !moved.in)) return null;
+  const rows = [];
+  if (moved.out) {
+    rows.push(...expandableRow('', ['to your other accounts'], moved.out, moved.outParts || [], true,
+      'click for the accounts this move went to'));
+  }
+  if (moved.in) {
+    rows.push(...expandableRow('', ['from your other accounts'], moved.in, moved.inParts || [], true,
+      'click for the accounts this move came from'));
+  }
+  rows.push(el('tr', { class: 'total' }, el('td', { title: 'money in minus money out' }, 'Net moved in'),
+    el('td', { class: 'amount' }, money(moved.net))));
+  return section('Moved between your accounts',
+    scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
 }
 
 /**
@@ -232,7 +241,7 @@ function expandableRow(classes, labelChildren, amount, parts, chip, title) {
 /**
  * The Money Out donut: one arc per slice, the centre carrying the Money Out total. A slice below 2%
  * of Money Out would shred the ring on a long tail, so the small groups fold into one Other arc;
- * the synthetic Due/Moved&nbsp;out/Unrecorded stay separate because they are not spending.
+ * the synthetic Due/Unrecorded stay separate because they are not posted spending.
  */
 function donutSection() {
   const drawn = arcs().filter((slice) => slice.amount > 0);
@@ -291,38 +300,30 @@ function colorOf(slice, index) {
 }
 
 /**
- * Outside the budget (D-3): the transfers between two accounts that are both outside it — the loan
- * repayments, one line per pair with the count of payments behind it — and those accounts' own rows,
- * which the budget cannot see (the loan interest, income into a savings account, its interest
- * earned). None of it is in In/Out/Left: it never touches a budget account, and the Mortgage tab
- * owns the detail.
+ * Outside the budget (D-3): the moves between two accounts that are both outside it — the loan
+ * repayments, one line per pair with the count of payments behind it. They change nothing in the
+ * figures above: the move never crosses the boundary, and the Mortgage tab owns the detail.
  */
 function outsideSection() {
-  const moves = data.outside || [];
-  const externals = data.outsideExternal || [];
-  if (!moves.length && !externals.length) return null;
+  const moves = (data.moved && data.moved.outside) || [];
+  if (!moves.length) return null;
   const rows = moves.map((entry) =>
     el('tr', {},
       el('td', {}, accountChip(ctx.refdata, entry.from), ' \u2192 ', accountChip(ctx.refdata, entry.to)),
       el('td', { class: 'note muted' }, entry.count > 1 ? `${entry.count} payments` : ''),
       el('td', { class: 'amount' }, money(entry.amount))));
-  for (const entry of externals) {
-    // Signed: negative is money out. The category names the row the outside account carries.
-    rows.push(el('tr', {},
-      el('td', {}, accountChip(ctx.refdata, entry.account)),
-      el('td', { class: 'note muted' }, entry.category),
-      el('td', { class: 'amount' }, money(entry.amount))));
-  }
   return el('section', { class: 'mode-section budget-outside' },
     el('h4', {}, 'Outside the budget'),
     el('table', { class: 'budget-outside-table' }, el('tbody', {}, ...rows)),
     el('p', { class: 'muted' },
-      'These accounts are not in the budget, so none of this is in the figures above.'));
+      'Both accounts are outside the budget, so these moves change nothing in the figures above.'));
 }
 
 function hasRows(sheet) {
-  return Boolean(sheet.income.lines.length || sheet.income.due || sheet.income.movedIn
-    || sheet.spend.slices.length || sheet.outside.length || sheet.outsideExternal.length);
+  const moved = sheet.moved || {};
+  return Boolean(sheet.income.lines.length || sheet.income.due
+    || sheet.spend.slices.length
+    || moved.out || moved.in || (moved.outside || []).length);
 }
 
 // ---- the month stepper -------------------------------------------------------------------------

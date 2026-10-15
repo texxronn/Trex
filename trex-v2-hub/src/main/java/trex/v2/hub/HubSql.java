@@ -158,20 +158,25 @@ final class HubSql {
 
     /**
      * The month's current rows for the headroom figure (V2-REVIEW-FIXES-PLAN.md §10): each with the
-     * commitment that claimed it, if any, and the account of the other side of its transfer — the
-     * other leg, or the derived clearing leg — so a transfer inside the budget can be told from one
-     * that leaves it. The row's category rides along as the eighth column (read by index 8; appended
-     * last so the earlier readers are unchanged) for the budget sheet's roll-up
-     * (V2-BUDGET-VIEW-PLAN.md §3).
+     * commitment that claimed it, if any, the account of the other side of its transfer — the other
+     * leg, or the derived clearing leg — so a move that crosses the budget boundary can be told from
+     * one that stays inside or outside it, and (new columns, appended last so the earlier readers are
+     * unchanged) the row's category (index 8, for the budget sheet's roll-up) and whether the claimed
+     * fact is <b>attached</b> to one of its commitment's occurrences (index 9, the occurrence's
+     * {@code due_date}). A fact a commitment claims but never attaches — its rules reach back further
+     * than the materialised windows — is not counted through an occurrence, so it remains ordinary
+     * income or spend (V2-SPEC.md §9.2).
      */
     static final String HEADROOM_ROWS = """
         SELECT t.account_ref, t.amount, t.role, t.leg, t.transfer_id, cf.commitment_id,
                (SELECT o.account_ref FROM txn_current o
                  WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
                  ORDER BY o.external_id LIMIT 1) AS other_account,
-               t.category
+               t.category,
+               o.due_date AS matched_due
         FROM txn_current t
         LEFT JOIN commitment_fact cf ON cf.external_id = t.external_id
+        LEFT JOIN commitment_occurrence o ON o.matched_external_id = t.external_id
         WHERE t.synthetic = 0 AND t.date >= ? AND t.date <= ?
         ORDER BY t.external_id""";
 
@@ -183,20 +188,19 @@ final class HubSql {
         "SELECT account_ref, unrecorded FROM cash_month WHERE month = ?";
 
     /**
-     * Every claimed fact with its accounts, per commitment: where a commitment lands, and whether it
-     * only ever moves money between two accounts (a card repayment declared as a commitment).
+     * Every claimed fact with its accounts, per commitment: whether it only ever moves money
+     * between two budget accounts (a card repayment), and whether it is only ever a transfer at all
+     * (a loan repayment) — both are moves, never income or spend, so their occurrences are not
+     * counted (V2-SPEC.md §9.2). {@code is_transfer} is the explicit flag for the second.
      */
     static final String COMMITMENT_FACT_ACCOUNTS = """
         SELECT cf.commitment_id, t.account_ref, t.transfer_id,
                (SELECT o.account_ref FROM txn_current o
                  WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
-                 ORDER BY o.external_id LIMIT 1) AS other_account
+                 ORDER BY o.external_id LIMIT 1) AS other_account,
+               (t.transfer_id IS NOT NULL) AS is_transfer
         FROM commitment_fact cf JOIN txn_current t ON t.external_id = cf.external_id
         ORDER BY cf.commitment_id, t.external_id""";
-
-    /** Each commitment's rule accounts (null when a rule is unscoped). */
-    static final String COMMITMENT_RULE_ACCOUNTS =
-        "SELECT commitment_id, account_ref FROM commitment_rule ORDER BY commitment_id, match";
 
     /** The newest transaction date per account, at or before a day: the statements' frontier. */
     static final String ACCOUNT_FRONTIERS =

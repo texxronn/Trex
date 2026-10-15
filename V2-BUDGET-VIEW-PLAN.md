@@ -7,7 +7,9 @@
 **Status:** Stages 1–3 landed (spec + plan, the `/api/budget` read, the view); Stage 4 (verify on
 Dev1) remaining. The Budget mode existed (§9.3, `V2-REVIEW-FIXES-PLAN.md` §10) and
 showed one figure; this file expands it into the month's sheet — Money In, Money Out, Money Left Over
-and a Money Out donut — without touching the arithmetic behind it.
+and a Money Out donut. **D-6 (2026-10-16)** then rewrote the arithmetic it presents: Money In and
+Money Out are the month's **real flows over every account** (whatever the `budget` flag), with the
+moves between your own accounts carried on a **Moved** bridge that is neither income nor spend.
 
 **Decisions (operator, 2026-10-16).**
 - **D-1** The Money Out donut's slices are the **primary groups** the ezbookkeeping view already uses
@@ -16,16 +18,33 @@ and a Money Out donut — without touching the arithmetic behind it.
 - **D-2** Money moved to one of your own accounts outside the budget (savings, investments, the loan
   offset) shows as a **distinct, differently-styled "Moved out" slice** — named for what it is, a
   move and not spending — carrying the **destination accounts** it went to, so the donut sums to
-  Money Out. Internal transfers are still skipped entirely.
+  Money Out. Internal transfers are still skipped entirely. *(superseded by D-6: moves leave the
+  donut for a Moved bridge.)*
 - **D-3** Loan/mortgage repayments (offset → loan; **both** accounts are outside the budget, so
   headroom never sees them) do **not** enter Money In/Out/Left; the view carries a single muted
   **"outside the budget"** section: the repayments aggregated per pair, and those accounts' own rows
-  (the loan interest, income into a savings account). The Mortgage tab owns the detail.
+  (the loan interest, income into a savings account). The Mortgage tab owns the detail. *(amended by
+  D-6: those accounts' own rows are ordinary Money In/Out now.)*
 - **D-4** The **current** month is posted **plus still-due** (headroom's projection, unchanged); a
   **past** month is pure actuals — its `due`/`awaiting` occurrences have become `missed` by then.
 - **D-5** The roll-up map stays in `ezb.yaml`, and the hub reads the same map for the donut, so the
   sheet and the charts slice a category the same way; §12's "read by `trex egress ezb`" is amended to
   name the Budget roll-up. *(operator, 2026-10-16: accepted over a shared `groups.yaml`.)*
+- **D-6** Money In and Money Out are the month's **real flows**: every account's **external** rows
+  (a row with no contra leg among your own accounts) plus every commitment's occurrence, **whatever
+  the account's `budget` flag** — so the salary into `cba-netsaver` (Mel's, and the operator's on
+  `ing-salary`), the mortgage interest on `ing-mortgage-simplifier`, and the `holy-family-oosh`
+  debits all count. A **move** between two of your own accounts is **never** income or spend: it
+  rides a **Moved** bridge (`moved.out`/`moved.in` crossed the budget boundary; `moved.outside` is a
+  move between two non-budget accounts, reported per pair with a count) and moves `left` only across
+  the boundary. `budget: false` now means only *this account's moves sit outside*. A fact a
+  commitment claims counts through its occurrence only when attached to one — a claimed but
+  unattached fact (the OOSH case) is ordinary spend — and a commitment whose facts are all transfers
+  (a loan repayment) is a move. **The donut is real spending only**: the old `Moved out` slice left
+  `spend` and `outsideExternal` is gone, the loan interest now an ordinary Money Out row.
+  *(operator, 2026-10-16, verified against the live journal: "Transfers should not be added";
+  "Salary needs to be both mine & Mels (in cba-netsaver)"; "Mortgage interest needs to [be] in Money
+  Out"; "include all commitments in the money out".)*
 
 **Authority:** `V2-SPEC.md` §9.2 (headroom), §9.3 (the UI modes), §12 (config), §11.2 (the ezb
 roll-up map); `V2-REVIEW-FIXES-PLAN.md` §10; `AGENTS.md`.
@@ -44,22 +63,26 @@ moved in and out, unrecorded cash, `missed`, `unpaired`, and `left`. It is a rea
 tables — nothing planned, nothing stored. What the sheet needs beyond it is **one new arithmetic**
 (roll the expense rows up into the groups) and a **view**.
 
-## 2. The sheet's arithmetic (unchanged; every line is a field headroom already has)
+## 2. The sheet's arithmetic (revised by D-6; every line is a field headroom already has)
 
-Over the `budget` accounts, for one calendar month:
+Income and spend are the month's **real flows** over **every** account — the external rows plus the
+commitments' occurrences, whatever the account's `budget` flag:
 
 | sheet | = headroom |
 |---|---|
-| **Money In** | `incomeIn` + `incomeDue` (+ `movedIn` as its own line) |
-| **Money Out** | `committedPaid` + `committedDue` + `uncommittedSpend` + `unrecordedCash` + `movedOut` |
-| **Money Left Over** | `left` = Money In − Money Out |
+| **Money In** | `incomeIn` + `incomeDue` (holds no move) |
+| **Money Out** | `committedPaid` + `committedDue` + `uncommittedSpend` + `unrecordedCash` (holds no move) |
+| **Moved** | `movedIn` (in), `movedOut` (out), `net` = `movedIn` − `movedOut`; never income or spend |
+| **Money Left Over** | `left` = Money In − Money Out + Moved net |
 
-The existing rules carry over verbatim: a transfer between two budget accounts is skipped; a
-commitment counts through its occurrence, never twice as spend; a commitment that only ever claims
-internal moves, or lands only outside the budget, is skipped; `missed` and `unpaired` are shown
-**apart**, never folded in. The sheet must reconcile with the figure the status line already prints,
-so the two share one read (§3) — the same discipline that keeps Expected and the since-cleared line
-from drifting (`HubService.java:381`).
+A **move** between two of your own accounts changes `left` only where it crosses into or out of a
+`budget` account; between two non-budget accounts it changes nothing. The existing rules carry over
+with D-6: a commitment counts through its occurrence, never twice as spend; a commitment whose facts
+are all transfers (a loan repayment) is a move; a fact claimed by a commitment but attached to no
+occurrence counts as ordinary spend; `missed` and `unpaired` are shown **apart**, never folded in.
+The sheet must reconcile with the figure the status line already prints, so the two share one read
+(§3) — the same discipline that keeps Expected and the since-cleared line from drifting
+(`HubService.java:381`).
 
 ## 3. The one new arithmetic: the roll-up
 
@@ -72,15 +95,16 @@ never touch the budget**.
   with no entry falls back to one `Expense` bucket. Income rows are **not** grouped — there are only
   four income categories, so the Money In table lists them directly. A commitment's row is grouped by
   its category too, so a committed bill and a direct purchase in the same group land in one slice.
-- **Moved out → one "Moved out" slice, with destinations (D-2).** `movedOut` is money that left a
-  budget account for one of your own accounts outside it; it is a slice of the donut but is styled
-  and labelled as a move, and its parts name the account each portion went to.
-- **Outside the budget (D-3).** The headroom walk skips a row whose account is outside the budget, so
-  a transfer between two non-budget accounts (the offset → loan repayment) is invisible today.
-  The new read walks those rows too and reports the transfers **once per transfer** (the paying leg),
-  which the sheet **aggregates per pair with a count**; it also reports the outside accounts' own
-  rows — the loan interest, the income a savings account receives, its interest earned — signed, by
-  account and category. All of it sits in a muted section, never in In/Out/Left.
+- **Moves → a Moved bridge, not a slice (D-2, amended by D-6).** `movedOut`/`movedIn` are money that
+  crossed the budget boundary between your own accounts; nothing about them is income or spend, so
+  they ride a bridge that shows the boundary-crossing moves (with the account on the other side of
+  each, as parts) and their net.
+- **Outside the budget (D-3, amended by D-6).** The walk now reads **every** account's rows, so the
+  moves between two non-budget accounts (the offset → loan repayment) are reported **once per
+  transfer** (the paying leg), which the sheet **aggregates per pair with a count**, and the outside
+  accounts' own rows (the loan interest, a salary into a savings account) are ordinary Money In/Out
+  now rather than a separate list. The moves sit in a muted section, never in In/Out; only the
+  boundary-crossing net moves `left`.
 
 ## 4. The read
 
@@ -88,32 +112,33 @@ One new endpoint, `GET /api/budget?month=YYYY-MM` (default: the hub's current mo
 
 ```
 { month, through, accounts[],
-  income: { posted, due, movedIn, total,
-            lines: [ { category, amount } ],
-            movedInParts: [ { label, amount } ] },
-  spend:  { posted, due, unrecorded, movedOut, total,
+  income: { posted, due, total, lines: [ { category, amount } ] },
+  spend:  { posted, due, unrecorded, total,
             slices: [ { group, amount, parts: [ { label, amount } ] } ] },
-  outside: [ { from, to, amount, count } ],
-  outsideExternal: [ { account, category, amount } ],
+  moved:  { out, in, net,
+            outParts: [ { label, amount } ], inParts: [ { label, amount } ],
+            outside: [ { from, to, amount, count } ] },
   missed, unpaired, left }
 ```
 
-- `income.lines` is the **posted** income per category; `due` and `movedIn` are fields, shown by the
-  view as their own rows, and `movedInParts` breaks the move in down by the account it came from, so
-  that row opens like a group.
+- `income.total = posted + due`; `spend.total = posted + due + unrecorded`. **Neither holds a move**
+  (D-6): income and spend are every account's external rows plus the commitments' occurrences.
+- `income.lines` is the posted income per category; `income.due` is shown by the view as its own row.
 - `spend.slices` is the posted spend rolled into its primary group, then the synthetic `Due`
-  (committed-due), `Moved out` (`movedOut`, its parts naming the destination accounts, D-2) and
-  `Unrecorded` slices, each only when non-zero. A group slice's `parts` are the trex categories inside
-  it. The group slices alone sum to `spend.posted`; every slice sums to `spend.total`.
-- `outside` is the walk's one entry per transfer, aggregated by pair: `amount` is the summed magnitude
-  and `count` the payments behind it.
-- `outsideExternal` is the outside accounts' own rows (no transfer) — the loan interest, the income a
-  savings account receives — signed and aggregated by `(account, category)`. Neither list enters
-  In/Out/Left.
+  (committed-due) and `Unrecorded` slices, each only when non-zero. A group slice's `parts` are the
+  trex categories inside it. The group slices alone sum to `spend.posted`; every slice sums to
+  `spend.total`. The donut is real spending only — the old `Moved out` slice is gone.
+- `moved` is the move bridge (D-6): `out`/`in` crossed the budget boundary (each with the account on
+  the other side as `outParts`/`inParts`), `net = in − out`, and `outside` is the walk's moves between
+  two **non-budget** accounts, one entry per pair — `amount` is the summed magnitude and `count` the
+  payments behind it. **No part of `moved` enters Money In or Money Out**; only `net` moves `left`.
+- `budget: false` now means only *this account's moves sit outside*; the account's own external rows
+  count like any other. `outsideExternal` is gone: the loan interest is ordinary Money Out, the
+  salary and interest ordinary Money In.
 
 - **Reuse, not a second implementation.** The row-walk is factored out of `HubQueries.headroom()`
-  into one helper that both call; `headroom`'s fields and the §9.2 arithmetic are unchanged, and a
-  test asserts the two agree on the same month.
+  into one helper that both call; `headroom`'s fields keep their names (only the values change per
+  D-6) and the sheet's `left` equals headroom's, which a test asserts on the same month.
 - `month` may be any `YYYY-MM`; the read is `asOf`-free (a month is absolute), unlike headroom, which
   measures "the month of `asOf`". `through` is the oldest statement frontier among the budget
   accounts, exactly as headroom reports it.
@@ -129,25 +154,25 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
   (`eyeball.js`, `boundsOf`/`step`) with the day/week grains removed. The choice lives in the URL
   (`#budget?month=YYYY-MM`), so a month is linkable and survives a reload.
 - **Money In.** A small table: one row per income category (posted), then a `Due` line when
-  `income.due` is non-zero, then "from your other accounts" when `movedIn` is non-zero, then the
-  total. The move-in row opens into the accounts it came from (`movedInParts`), rendered as account
-  chips.
-- **Money Out.** A table with one row per slice — the primary groups, then the synthetic `Due`,
-  `Moved out` (D-2) and `Unrecorded` rows — then the total. A **group row opens into its parts** (the
-  trex categories inside it) and the **Moved out row opens into the accounts it went to**, whose refs
-  render as account chips, so the compact total can be read first and the distribution only when
-  wanted; the `Due`/`Unrecorded` rows are muted and do not open. `missed` and `unpaired` ride as
-  muted notes, as they do today.
-- **Money Left Over.** The bar the image ends on: `left`, red when negative.
-- **The donut.** One arc per slice (the groups plus the synthetic `Due`/`Moved out`/`Unrecorded`, the
-  latter three styled apart), the Money Out total whole-dollar in the centre, and a **compact boxed
-  legend table** (name left, amount and share right, a thin dark rule around it and between the
-  rows). The palette is the reference sheet's (magenta, blue, green, amber, red, grey). Slices below
-  a threshold fold into "Other" so a long tail cannot shred the ring.
-- **Outside the budget.** The muted D-3 section under the tables: a compact table whose first rows are
-  the aggregated moves, one per pair — "ING Loan Offset → ING Mortgage Simplifier", the amount, and
-  "N payments" when there is more than one — followed by the outside accounts' own rows (the account
-  chip, the category, the signed amount). A sentence says why none of it is in the figures.
+  `income.due` is non-zero, then the total — all real flows over every account (D-6), holding no move.
+- **Money Out.** A table with one row per slice — the primary groups, then the synthetic `Due` and
+  `Unrecorded` rows — then the total; real spending only (D-6), holding no move. A **group row opens
+  into its parts** (the trex categories inside it), so the compact total can be read first and the
+  distribution only when wanted; the `Due`/`Unrecorded` rows are muted and do not open. `missed` and
+  `unpaired` ride as muted notes, as they do today.
+- **The Moved bridge (D-6).** Under the two tables: the boundary-crossing moves `out` and `in`, each
+  opening into the accounts on the other side (render as account chips), and the net. A sentence says
+  the bridge is neither income nor spend but moves Left.
+- **Money Left Over.** The bar the image ends on: `left` = In − Out + Moved net, red when negative.
+- **The donut.** One arc per slice (the groups plus the synthetic `Due`/`Unrecorded`, styled apart),
+  the Money Out total whole-dollar in the centre, and a **compact boxed legend table** (name left,
+  amount and share right, a thin dark rule around it and between the rows). The palette is the
+  reference sheet's (magenta, blue, green, amber, red, grey). Slices below a threshold fold into
+  "Other" so a long tail cannot shred the ring.
+- **Outside the budget.** The muted D-3 section under the tables: the aggregated moves between two
+  non-budget accounts, one per pair — "ING Loan Offset → ING Mortgage Simplifier", the amount, and
+  "N payments" when there is more than one. A sentence says why none of it is in the figures (D-6:
+  the outside accounts' own rows are ordinary Money In/Out now, so they are no longer listed here).
 - **Empty.** A month with nothing reads as an empty sheet, not an error.
 
 ## 6. Stages
@@ -156,35 +181,37 @@ the donut is hand-drawn SVG, as `mortgage.js` and `commitment.js` already do (`s
 
 This file, plus the `V2-SPEC.md` edits in the same PR: a `GET /api/budget` row in the §9 table; §9.2
 gains the sheet (the same fields, now presented as Money In / Money Out / Left, and the rule that the
-two reads must agree); §9.3's **Budget** row is rewritten (the sheet, the month stepper, the donut,
-the Moved out slice with its destinations, the outside-the-budget section with the externals) and its
-Detail points here; §12's `ezb.yaml` sentence is amended for D-5; §11.2's category bullet notes that
-the same map drives the Budget donut. If D-5 is refused, the swap to a shared `groups.yaml` is folded
-in here, before any code.
+two reads must agree); §9.3's **Budget** row is rewritten and its Detail points here; §12's `ezb.yaml`
+sentence is amended for D-5; §11.2's category bullet notes that the same map drives the Budget donut.
+If D-5 is refused, the swap to a shared `groups.yaml` is folded in here, before any code. **D-6
+(2026-10-16)** amends the model again: Money In/Out are the month's real flows over every account,
+with the moves between your own accounts on a bridge (see the Decisions block and §9.2).
 
 ### Stage 2 — the read (`trex-v2-hub`)
 
 Factor the headroom walk into `HubQueries.budgetSheet(month)` (or a shared private helper both call);
 add `BudgetResponse`; add `GET /api/budget` to `HubApi`/`HubService`; a mapper from the `ezb.yaml`
 `categories:` map. Tests: the sheet reconciles with `headroom` for the same month; a group roll-up
-that lands rows in the right slice; a refund (income) is not netted; an internal transfer is absent;
-a savings move is `movedOut`/Moved out with its destination parts; an outside-outside transfer
-appears once in `outside` per transfer and the sheet aggregates it by pair with a count; an outside
-account's external row (an interest charge) appears in `outsideExternal` and nowhere in In/Out/Left;
-`missed`/`unpaired` are apart from `left`.
+that lands rows in the right slice; an internal transfer is absent; a savings move is the `moved.out`
+bridge line with its destination parts; an outside-outside transfer appears once in `moved.outside`
+per transfer and the sheet aggregates it by pair with a count; a `budget: false` account's external
+row counts in In/Out and moves `left` (D-6); a claimed-but-unattached fact (the OOSH case) is Money
+Out; a transfer-only commitment adds no spend; `missed`/`unpaired` are apart from `left`.
 
 ### Stage 3 — the view (`budget.js`, `app.css`)
 
-The month stepper and the URL query; the two tables, the Left bar, the donut, the Moved out slice and
+The month stepper and the URL query; the two tables, the Moved bridge, the Left bar, the donut and
 the legend; the outside-the-budget section; a `dom.js`-built SVG donut with the fold-to-Other rule.
 The existing single line stays as the header of the sheet (it is the same figure).
 
 ### Stage 4 — verify on Dev1
 
 Plan/verify against the real dev journal: a month with heavy transfers (the offset) to confirm the
-internal moves are skipped and the repayments appear only in the muted section; a month with a
-missing statement to confirm `missed`/`through` read as a late statement, not as money; a past month
-to confirm it is actuals. Rendered against the running hub.
+internal moves are skipped, the boundary-crossing moves sit on the bridge and the outside-outside
+repayments appear only in the muted section; a month with a missing statement to confirm
+`missed`/`through` read as a late statement, not as money; a past month to confirm it is actuals; and
+a month with the mortgage interest, both salaries and the OOSH debits to confirm they are real flows
+now (D-6). Rendered against the running hub.
 
 ## 7. Verification
 
@@ -192,8 +219,9 @@ to confirm it is actuals. Rendered against the running hub.
   Stage 3 is checked by eye on Dev1).
 - The sheet's `left` **equals** `/api/expected`'s `headroom.left` for the same month — the assertion
   that keeps the new read honest.
-- Dev1: the donut's slices sum to Money Out; "Moved out" is not counted as spending; the outside-the-
-  budget lines name the real offset → loan pairs and change nothing in In/Out/Left.
+- Dev1: the donut's slices sum to Money Out (real spending only, D-6); the Moved bridge's `net` is
+  the only move that touches `left`; the outside-the-budget moves name the real offset → loan pairs
+  and change nothing in In/Out/Left.
 
 ## 8. Out of scope
 
@@ -207,11 +235,16 @@ change to `derive()`, the log or the ezbookkeeping view (the sheet is a read of 
   the ezbookkeeping charts agree.
 - **D-2** moves to your own non-budget accounts = a distinct "Moved out" slice, labelled as a move
   and carrying the destination accounts, so the donut sums to Money Out without calling a move
-  spending.
+  spending. *(superseded by D-6: moves leave the donut for a Moved bridge.)*
 - **D-3** loan repayments (both legs outside the budget) = a muted "outside the budget" section,
-  aggregated per pair, alongside the outside accounts' own external rows (the interest, income into a
-  savings account); never in In/Out/Left; the Mortgage tab owns the detail.
+  aggregated per pair; never in In/Out/Left; the Mortgage tab owns the detail. *(amended by D-6: the
+  outside accounts' own external rows are ordinary Money In/Out now, not a separate list.)*
 - **D-4** current month = posted + due (headroom's projection); a past month = actuals, because its
   `due` has become `missed`.
 - **D-5** the roll-up map stays in `ezb.yaml`, read by the hub too; §12's sentence is amended.
   *(operator, 2026-10-16: accepted over a shared `groups.yaml`.)*
+- **D-6** Money In/Out = the month's **real flows** over every account (external rows + commitments,
+  whatever the `budget` flag); a move between your own accounts is never income or spend and changes
+  `left` only across the budget boundary; a claimed but unattached fact counts as spend; a
+  transfer-only commitment is a move; the donut is real spending only.
+  *(operator, 2026-10-16, verified against the live journal.)*
