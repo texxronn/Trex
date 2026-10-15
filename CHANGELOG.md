@@ -40,6 +40,12 @@ everything is under **Unreleased**.
   `occurred` with the fact's amount and provenance and clears its `settleN`; previously the fact's
   amount was **added** to the settled expectation (an expected −$100 then a −$95 fact read −$195).
   The historical settle decision stays in the log. `deriveVersion` moves to `derive/19`.
+- **A re-declare can no longer move a commitment's schedule** (`V2-SPEC.md` §5). Cadence and anchor
+  were declared not-edited-in-place (operator, 2026-10-08), but nothing enforced it: the derive fold
+  took the latest declaration wholesale, and the re-declare dialog offered both as editable. The hub
+  now prechecks against the index and answers `422` when a live commitment's cadence or anchor is
+  moved, and the dialog shows them fixed for a re-declare. A retired commitment is still revived with
+  a new schedule (that *is* retire + declare).
 
 ## [0.2.0] - 2026-10-14
 

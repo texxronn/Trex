@@ -378,7 +378,8 @@ final class HubSql {
     static final String LEG_OF = "SELECT leg FROM txn_current WHERE external_id = ?";
 
     /** A commitment's precheck faces (§2.6): declared (origin) and retired (retired_n set). */
-    static final String COMMITMENT_REF = "SELECT origin, retired_n FROM commitment WHERE commitment_id = ?";
+    static final String COMMITMENT_REF =
+        "SELECT origin, retired_n, cadence, anchor_date FROM commitment WHERE commitment_id = ?";
 
     static final String USER_ACK_SELECT = """
         SELECT user_id, external_id, state_hash, config_revision, derive_version, hash_version, acked_at
