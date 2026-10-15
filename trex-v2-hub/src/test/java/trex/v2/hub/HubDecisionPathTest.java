@@ -215,9 +215,25 @@ class HubDecisionPathTest {
                 .add(settle("netflix", List.of())).json()).statusCode());
 
             assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
-                .add(declare("netflix", "monthly", List.of(match("NETFLIX")))).json()).statusCode());
+                .add(declare("netflix", "monthly", LocalDate.of(2026, 9, 1),
+                    List.of(match("NETFLIX")))).json()).statusCode());
             assertTrue(forwarded.get().contains("\"action\":\"DECLARE_COMMITMENT\""), forwarded.get());
             assertTrue(forwarded.get().contains("\"commitmentId\":\"netflix\""), forwarded.get());
+
+            // Cadence and anchor are not edited in place (operator, 2026-10-08; V2-SPEC.md §5): a
+            // re-declare that moves the schedule is a 422 — a schedule change is retire + declare.
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "monthly", LocalDate.of(2026, 10, 1),
+                    List.of(match("NETFLIX")))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "weekly", LocalDate.of(2026, 9, 1),
+                    List.of(match("NETFLIX")))).json()).statusCode());
+            assertEquals(422, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("netflix", "monthly", List.of(match("NETFLIX")))).json()).statusCode());
+            // A retired commitment is revived by a declaration, so its schedule may move.
+            assertEquals(200, post(client, base, new DecisionRequestJson().asOf(n)
+                .add(declare("old", "weekly", LocalDate.of(2026, 10, 1),
+                    List.of(match("OLD BILL")))).json()).statusCode());
 
             // An unknown commitment target is a 422 for pin, note and settle; a pin also refuses
             // a retired one, while a note and a settle may name it (§2.6).
@@ -360,9 +376,14 @@ class HubDecisionPathTest {
 
     private static DecisionDraft declare(String commitmentId, String cadence,
                                          List<DecisionDraft.MatchDraft> matches) {
+        return declare(commitmentId, cadence, null, matches);
+    }
+
+    private static DecisionDraft declare(String commitmentId, String cadence, LocalDate anchor,
+                                         List<DecisionDraft.MatchDraft> matches) {
         return new DecisionDraft("DECLARE_COMMITMENT", "user", "ron", AT, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-            commitmentId, "Netflix", "out", cadence, "fixed", "subscription", matches, null, null,
+            commitmentId, "Netflix", "out", cadence, "fixed", "subscription", matches, null, anchor,
             null, null, null, null);
     }
 

@@ -41,12 +41,21 @@ export function openDeclare(ctx, prefill, onDone) {
   const kindSelect = selectOf(COMMITMENT_KINDS, p.kind || 'other');
   const directionSelect = selectOf(['out', 'in'], p.direction || 'out');
   const cadenceSelect = selectOf(CADENCES, p.cadence || 'monthly');
+  // Cadence and anchor are not edited in place (V2-SPEC.md §5): a schedule change is
+  // Retire + Declare, so a re-declare shows them fixed and the hub refuses a moved schedule.
+  if (p.idLocked) cadenceSelect.disabled = true;
   const amountKindSelect = selectOf(AMOUNT_KINDS, p.amountKind || 'fixed');
   const amountInput = el('input', { type: 'number', step: '0.01', min: '0',
     value: p.amount == null ? '' : (p.amount / 100).toFixed(2) });
   const regular = cadenceSelect.value !== 'irregular';
-  const anchorInput = el('input', { type: 'date', value: p.anchor || (regular ? todayIso() : '') });
+  const anchorInput = el('input', { type: 'date', readonly: !!p.idLocked,
+    value: p.anchor || (regular ? todayIso() : '') });
   const anchorRow = row('Anchor', anchorInput);
+  const scheduleHint = p.idLocked
+    ? el('p', { class: 'muted hint' },
+        'Cadence and anchor are fixed. To change the schedule, Retire this commitment and Declare '
+        + 'a new one.')
+    : null;
   // An ended candidate is declared and retired in one batch (§3.2): the end date defaults to the
   // detected last charge, so nothing has to be remembered.
   const retireInput = el('input', { type: 'date', value: p.retireAt || '' });
@@ -70,6 +79,7 @@ export function openDeclare(ctx, prefill, onDone) {
     row('Amount kind', amountKindSelect),
     row('Amount ($)', amountInput),
     anchorRow,
+    scheduleHint,
     retireRow,
     row('Rules', rulesInput),
     manualRow,

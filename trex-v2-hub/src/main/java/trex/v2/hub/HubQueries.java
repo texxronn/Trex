@@ -1441,14 +1441,20 @@ public final class HubQueries implements AutoCloseable {
                     }
                     boolean declared = "declared".equals(rs.getString(1));
                     long retiredN = rs.getLong(2);
-                    return new CommitmentRef(declared, !rs.wasNull());
+                    return new CommitmentRef(declared, !rs.wasNull(), rs.getString(3),
+                        nullableDate(rs.getString(4)));
                 }
             }
         });
     }
 
     /** The two faces a commitment precheck asks about (§2.6). */
-    public record CommitmentRef(boolean declared, boolean retired) {}
+    /**
+     * A commitment's routing state for a precheck: whether it is declared (not a detected
+     * candidate), whether it is retired, and the schedule a re-declare must not move
+     * ({@link #cadence()}/{@link #anchor()}, V2-SPEC.md §5).
+     */
+    public record CommitmentRef(boolean declared, boolean retired, String cadence, LocalDate anchor) {}
 
     private boolean exists(String sql, String value) {
         return read(conn -> {

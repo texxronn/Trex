@@ -1460,7 +1460,34 @@ public final class HubService implements HubApi, AutoCloseable {
         if (e == null) {
             e = checkPayment(d.payment(), d.remindDays(), d.cadence());
         }
+        if (e == null) {
+            e = checkScheduleUnchanged(d);
+        }
         return e;
+    }
+
+    /**
+     * Cadence and anchor are not edited in place (operator, 2026-10-08; V2-SPEC.md §5): a re-declare
+     * of a live commitment edits the other curated fields, and a genuine schedule change is
+     * retire + declare. A retired commitment is revived by a declaration, so its schedule may change
+     * — as may a brand-new id's, including a candidate's confirm.
+     */
+    private String checkScheduleUnchanged(DecisionDraft d) {
+        HubQueries.CommitmentRef ref = reads.commitmentRef(d.commitmentId());
+        if (ref == null || !ref.declared() || ref.retired()) {
+            return null;
+        }
+        String cadence = d.cadence();
+        if (cadence != null && !cadence.equals(ref.cadence())) {
+            return "cadence is not edited in place: '" + d.commitmentId() + "' is '" + ref.cadence()
+                + "'; a schedule change is retire + declare";
+        }
+        LocalDate anchor = d.anchor();
+        if (anchor == null ? ref.anchor() != null : !anchor.equals(ref.anchor())) {
+            return "anchor is not edited in place: '" + d.commitmentId() + "' is anchored on "
+                + ref.anchor() + "; a schedule change is retire + declare";
+        }
+        return null;
     }
 
     /**

@@ -159,7 +159,8 @@ content rows each take `0`.
 - **Commitment curation.** Nine actions curate commitments (§6.5). `DECLARE_COMMITMENT` declares
   one, or confirms a detected candidate (`fromCandidate`); the rules are embedded, and a re-declare
   with the same id replaces the curated fields and the rule set — the edit — while cadence and anchor
-  are not edited in place (a schedule change is retire + declare). A declaration's `payment` is
+  are not edited in place (a schedule change is retire + declare; the hub prechecks this against the
+  index and refuses a moved cadence or anchor with a `422`). A declaration's `payment` is
   `auto` or `manual` (absent means `auto`); `remindDays` is an optional 1–60 day lead time, valid
   only for `manual`. A manual declaration with no `remindDays` uses 5 days. `manual` is not valid on
   an `irregular` commitment, which generates no due dates and so has nothing to remind before. These
