@@ -15,6 +15,15 @@ everything is under **Unreleased**.
   parking bucket for small rows looked at and deliberately left unclassified, so they leave the
   `UNCATEGORIZED` worklist without being given a made-up purpose.
 
+### Changed
+
+- **Cards and loans are Firefly asset accounts** (`V2-SPEC.md` §11.1). `deploy/config/firefly.yaml`
+  maps `ing-credit-card`, `bw-credit-card`, `ing-mortgage-simplifier` and `ing-variable-rate` as
+  `asset` — each runs a negative balance, so a card purchase stays an expense (correctly categorised)
+  but **a card payment or a loan repayment is an asset↔asset transfer** and no longer counts as
+  spending in Firefly. A liability account made every repayment a `withdrawal` (an AUD 11,541 card
+  slice, then an AUD 4,062 loan slice, in the 2026 reports); only loan *interest* stays an expense.
+
 ## [0.2.0] - 2026-10-14
 
 ### Changed

@@ -590,6 +590,17 @@ the repayments and interest it shows are commitments, which are never projected.
 liability↔liability are `transfer`; asset→liability is `withdrawal`; liability→asset is `deposit`
 (Firefly refuses a `transfer` across the line).
 
+**Firefly *debt* — credit cards and loans — is modelled as *asset* accounts, not liabilities.**
+Firefly has no card-liability type, and a `transfer` cannot cross the asset/liability line (verified
+on 6.7.3), so `firefly.yaml` maps `ing-credit-card`, `bw-credit-card`, `ing-mortgage-simplifier` and
+`ing-variable-rate` as `asset` — each runs a negative balance. A purchase is a withdrawal from the
+card to an expense (the spend, correctly categorised); **paying a card or repaying a loan is an
+asset↔asset transfer**, so it never enters Firefly's expense reports, and only a loan's *interest*
+(an EXTERNAL charge) stays an expense. Mapping debt as a liability instead makes every repayment a
+`withdrawal` and counts debt repayment as spending (measured on 6.7.3: an AUD 11,541 "TRANSFER" slice
+from cards in one month, plus an AUD 4,062 loan-repayment slice that survived the first fix). Legacy
+and clearing accounts stay liabilities — they only ever carry historical one-sided rows.
+
 **Every posting carries** `external_id` = unit id (part of Firefly's duplicate hash, so a collision
 can only name the same row); `internal_reference` = account ref; tags `trex` and
 `trex-category:<CATEGORY>`; `category_name` (always, `UNCATEGORIZED` included); notes whose first

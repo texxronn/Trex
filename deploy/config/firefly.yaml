@@ -14,9 +14,9 @@
 # `type` must match what Firefly says, and startup refuses to run if it does not. It is not
 # decoration: it decides the transaction type, because Firefly rejects a `transfer` that crosses
 # between asset and liability (verified on 6.7.3).
-#     asset <-> asset          transfer
-#     asset  -> liability      withdrawal      (paying a card or a loan)
-#     liability -> asset       deposit         (drawing a loan, a card refund)
+#     asset <-> asset          transfer      (internal moves: a card or loan repayment, §11.1)
+#     asset  -> liability      withdrawal    (into a legacy/clearing liability)
+#     liability -> asset       deposit       (out of one)
 #
 # The ref is permanent (it is in the identity of receipt-keyed rows, §2.4). The name is a label
 # and costs one line to change.
@@ -29,12 +29,14 @@ accounts:
   cba-smartaccess:         { name: "CBA SmartAccess",       type: asset }
   cba-netsaver:            { name: "CBA NetBank Saver",     type: asset }
 
-  # Liabilities: money owed. A purchase is a withdrawal FROM the liability; a payment is a
-  # withdrawal from an asset INTO it.
-  ing-credit-card:         { name: "ING Credit Card",       type: liability }
-  bw-credit-card:          { name: "BankWest Credit Card",  type: liability }
-  ing-mortgage-simplifier: { name: "ING Mortgage Simplifier", type: liability }
-  ing-variable-rate:       { name: "ING Variable Rate Loan", type: liability }
+  # Credit cards AND loans are Firefly *asset* accounts (Firefly's idiom, V2-SPEC.md §11.1): each
+  # runs a negative balance, so a repayment is an asset <-> asset transfer and stays OUT of Firefly's
+  # expense reports. A liability account would make every repayment a withdrawal, counting debt
+  # repayment as spending. Only the loan *interest* (an EXTERNAL charge) is left as an expense.
+  ing-credit-card:         { name: "ING Credit Card",       type: asset }
+  bw-credit-card:          { name: "BankWest Credit Card",  type: asset }
+  ing-mortgage-simplifier: { name: "ING Mortgage Simplifier", type: asset }
+  ing-variable-rate:       { name: "ING Variable Rate Loan", type: asset }
 
   # The clearing accounts of V2-SPEC.md §6.7, plus cash. Which Firefly calls each an asset or a
   # liability is the egress's business (it decides the transaction type); the ref is permanent.
