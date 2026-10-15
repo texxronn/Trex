@@ -9,8 +9,6 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-10-14
-
 ### Changed
 
 - **Cards and loans are Firefly asset accounts** (`V2-SPEC.md` §11.1). `deploy/config/firefly.yaml`
@@ -19,6 +17,11 @@ everything is under **Unreleased**.
   but **a card payment or a loan repayment is an asset↔asset transfer** and no longer counts as
   spending in Firefly. A liability account made every repayment a `withdrawal` (an AUD 11,541 card
   slice, then an AUD 4,062 loan slice, in the 2026 reports); only loan *interest* stays an expense.
+
+## [0.2.0] - 2026-10-14
+
+### Changed
+
 - **Expected reframed; the strip's clear line renamed** (`V2-SPEC.md` §9.1–§9.3). Expected is now the
   **declared-expectations checklist**: only declared commitments' occurrences are shown (a detected
   candidate is a discovery, not an asserted expectation, §6.5), each amount an unsigned magnitude with
