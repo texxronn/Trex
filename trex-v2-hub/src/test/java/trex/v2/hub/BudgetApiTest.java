@@ -124,6 +124,18 @@ class BudgetApiTest {
             assertEquals(50000, slices.get("Saved"), "the savings deposit is a move, not spending");
             assertEquals(4, slices.size(), spend.toPrettyString());
             assertFalse(slices.containsKey("Unrecorded"), "no wallet movement: " + spend.toPrettyString());
+            // A group carries its leaves — the trex categories inside it — so the view can open it
+            // into the distribution that made it up; a synthetic slice has none.
+            JsonNode living = sliceFor(spend.get("slices"), "Living");
+            assertEquals(List.of("GROCERIES"), leafNames(living.get("leaves")),
+                "the group's leaves are its categories: " + living);
+            assertEquals(3000, living.get("leaves").get(0).get("amount").asLong(), living.toString());
+            JsonNode home = sliceFor(spend.get("slices"), "Home");
+            assertEquals(List.of("RENT"), leafNames(home.get("leaves")),
+                "the rent's leaf is the category its fact carried: " + home);
+            assertEquals(200000, home.get("leaves").get(0).get("amount").asLong(), home.toString());
+            assertTrue(sliceFor(spend.get("slices"), "Saved").get("leaves").isEmpty(),
+                "a synthetic slice has no distribution");
             // The groups are the posted spend; the synthetic slices are the rest, so the donut sums
             // to Money Out.
             assertEquals(spend.get("posted").asLong(),
@@ -166,6 +178,23 @@ class BudgetApiTest {
         List<String> out = new ArrayList<>();
         for (JsonNode slice : array) {
             out.add(slice.get("group").asText());
+        }
+        return out;
+    }
+
+    private static JsonNode sliceFor(JsonNode array, String group) {
+        for (JsonNode slice : array) {
+            if (group.equals(slice.get("group").asText())) {
+                return slice;
+            }
+        }
+        throw new AssertionError("no slice '" + group + "' in " + array);
+    }
+
+    private static List<String> leafNames(JsonNode array) {
+        List<String> out = new ArrayList<>();
+        for (JsonNode leaf : array) {
+            out.add(leaf.get("category").asText());
         }
         return out;
     }

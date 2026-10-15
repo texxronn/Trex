@@ -46,8 +46,22 @@ public record BudgetResponse(String month, LocalDate through, List<String> accou
     public record Spend(long posted, long due, long unrecorded, long movedOut, long total,
                         List<Slice> slices) {}
 
-    /** One Money Out slice: a primary group's posted spend, or the synthetic Due/Saved/Unrecorded. */
-    public record Slice(String group, long amount) {}
+    /**
+     * One Money Out slice: a primary group's posted spend, or the synthetic Due/Saved/Unrecorded.
+     * A group slice carries its {@code leaves} — the trex categories inside it (the distribution
+     * that made the group up), amount descending then name — so the view can open a group into its
+     * leaves; a synthetic slice has none. The leaves sum to the slice's {@code amount}.
+     */
+    public record Slice(String group, long amount, List<Leaf> leaves) {
+
+        /** A synthetic slice, which has no leaf distribution. */
+        public Slice(String group, long amount) {
+            this(group, amount, List.of());
+        }
+    }
+
+    /** One trex category inside a group slice: a leaf of the rolled-up amount. */
+    public record Leaf(String category, long amount) {}
 
     /**
      * One transfer between two accounts that are <b>both</b> outside the budget
