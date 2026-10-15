@@ -454,6 +454,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, payment method and effective reminder lead time, current price, next due, arrears, notes |
 | GET | `/api/commitments/activity?id=` | a candidate's series, or a declared commitment's claimed facts over all history |
 | GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, the window-independent `toPay` occurrences, committed totals, and the month's **headroom** (§9.2) |
+| GET | `/api/budget?month=YYYY-MM` | the month's **budget sheet** (§9.2): Money In, Money Out and Left over the `budget` accounts, each expense row rolled into its primary group; the same walk as `headroom`, which its `left` must equal |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
@@ -561,6 +562,21 @@ The month's unrecorded cash (§9.4) is added as one line, `Unrecorded cash`, sig
 reduces spend. A declared wallet is a `budget` account, so an ATM withdrawal is a transfer between
 two budget accounts, which headroom already skips.
 
+**The budget sheet** (`V2-BUDGET-VIEW-PLAN.md`). `GET /api/budget?month=YYYY-MM` presents the same
+month — an absolute month, unlike headroom's "the month of `asOf`" — as a sheet: **Money In**
+(`incomeIn + incomeDue`, plus `movedIn`), **Money Out** (`committedPaid + committedDue +
+uncommittedSpend + unrecordedCash + movedOut`), and **Money Left Over** (`left` = In − Out). Each
+Money Out row is rolled into its **primary group** (§11.2; an expense category the map does not name
+falls back to one `Expense` bucket) so the sheet and the ezbookkeeping charts slice a category the
+same way; `movedOut` is a distinct **Saved** slice, so the donut sums to Money Out without calling a
+move spending. A muted **outside the budget** section lists the month's transfers between two accounts
+that are **both** outside the budget (the offset → loan repayments) by pair, counted once, and they
+never enter In/Out/Left — they never touch the budget, and booking the principal as spending would
+double-count it against the falling loan balance (§12, `accounts.yaml`). The row-walk is the one
+`headroom` uses, factored out so the two reads cannot drift: the sheet's `left` equals
+`/api/expected`'s `headroom.left` for the same month. A **past** month is actuals (its `due`
+occurrences have become `missed` by then); the month of the hub's `today` carries the projection.
+
 ### 9.3 The UI modes
 
 Eleven modes; each one's detail lives in the plan that built it.
@@ -570,7 +586,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
 | **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction, split into **IN** (left) and **OUT** (right) panels with the same columns, each panel's header carrying its row count and its summed amount (the shorter panel takes the taller one's height, and the panels stack under 720px); inside Occurrences, a window-independent Manual payments group lists the `toPay` rows and opens the existing Settle action as **Mark paid** (a decision only: it writes no fact and does not change a transaction); the same occurrences remain in the window tables; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu, filtered to `active` by default; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md`, `V2-MANUAL-PAY-PLAN.md` |
-| **Budget** | the month's **headroom** ("left this month"), moved out of Expected; the same read as `/api/expected`'s `headroom` field, calculation unchanged (§9.2) | `V2-REVIEW-FIXES-PLAN.md` §10 |
+| **Budget** | the month's **budget sheet** (§9.2): Money In, Money Out and Money Left Over over the `budget` accounts, with a Money Out donut by primary group, a distinct **Saved** slice for moves to your own accounts outside the budget, and a muted **outside the budget** section for the loan repayments that never touch it; a month stepper (calendar months only, the month in the URL) | `V2-REVIEW-FIXES-PLAN.md` §10, `V2-BUDGET-VIEW-PLAN.md` |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
@@ -766,7 +782,8 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
   ezbookkeeping primary; view-only like the rest of that file, §12) names the primary an expense
   category sits under, and an unmapped expense category falls back to `trex-expense`. A row still
   names only its **secondary**, so the row mapping is unchanged; it is the charts that aggregate over
-  the primaries. A child that already exists elsewhere is **re-parented** to its primary and
+  the primaries, and the same map rolls a category into its primary for the Budget sheet's Money Out
+  donut (§9.2). A child that already exists elsewhere is **re-parented** to its primary and
   **keeps its id**, so a saved exploration survives the move; a second leaf with the same
   `(type, name)` is a **duplicate** and is deleted, keeping the id already under the target primary
   (else the lowest id) — the one place a category is ever deleted. `UNCATEGORIZED` is a real category.
@@ -844,7 +861,7 @@ per-account ordered `transferPatterns` with a `default` list — match, `rail`, 
 `clearing` account or a declared wallet, §6.3)),
 `firefly.yaml` (account mapping), `ezb.yaml` (the ezbookkeeping view's mapping — ref → name, its
 ezbookkeeping account category, the zone, and an optional category → primary `categories` map;
-**view-config**, read by `trex egress ezb` and never
+**view-config**, read by `trex egress ezb` **and by the hub's Budget roll-up** (§9.2) and never
 hashed into `configRevision`, §11.2), `mortgages.yaml` (optional **view-config**, not a derive input:
 each facility's offset account, the loan it shelters (`offsetAppliesTo` — the declaration the
 idle-offset insight rests on, never inferred from charges), its loans, and per loan the
