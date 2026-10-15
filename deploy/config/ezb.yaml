@@ -1,0 +1,46 @@
+# ezbookkeeping view mapping — V2-SPEC.md §11.2. Read by the ezb egress and nothing else.
+#
+# This file exists so that ezbookkeeping's vocabulary stays out of the spine. accounts.yaml is the
+# sequencer's registry; what a ref is *called in ezbookkeeping*, and which ezbookkeeping account
+# category it is, is the egress's business — a second egress gets its own file rather than another
+# column in accounts.yaml.
+#
+# The view is disposably re-imported, never edited, so this file holds no ids: an ezbookkeeping
+# rebuild is re-applied, not restored. It is therefore VIEW-ONLY and is never hashed into
+# configRevision — it can move no derived state, only what the chart instance shows.
+#
+# Keyed by the permanent ref (it is in the identity of receipt-keyed rows, §4). The name is a label
+# and costs one line to change.
+#
+# `category` is an ezbookkeeping ACCOUNT category, presentation only, never a trex category:
+#     1 cash          2 checking     3 credit card   4 virtual   5 debt
+#     6 receivables   7 investment   8 savings       9 CD
+#
+# `zone` is the IANA zone the view stamps onto every row: a unit date maps to 12:00 local, with the
+# offset taken per date so DST cannot shift a day (§11.2).
+
+zone: "Australia/Sydney"
+accounts:
+  ing-savings:             { name: "ING Savings",              category: 8 }
+  ing-orange:              { name: "ING Orange Everyday",      category: 2 }
+  ing-salary:              { name: "ING Salary",               category: 2 }
+  ing-loan-offset:         { name: "ING Loan Offset",          category: 8 }
+  cba-smartaccess:         { name: "CBA SmartAccess",          category: 2 }
+  cba-netsaver:            { name: "CBA NetBank Saver",        category: 8 }
+  ing-credit-card:         { name: "ING Credit Card",          category: 3 }
+  bw-credit-card:          { name: "BankWest Credit Card",     category: 3 }
+  ing-mortgage-simplifier: { name: "ING Mortgage Simplifier",  category: 5 }
+  ing-variable-rate:       { name: "ING Variable Rate Loan",   category: 5 }
+  westpac-card:            { name: "Westpac Card (closed)",    category: 5 }
+  nab-fixed:               { name: "NAB Fixed Loan (closed)",  category: 5 }
+  nab-variable:            { name: "NAB Variable Loan (closed)", category: 5 }
+  nab-offset:              { name: "NAB Offset (closed)",      category: 8 }
+  carryover:               { name: "Carryover",                category: 2 }
+  bw-card-legacy:          { name: "BankWest Card (pre-2024)", category: 5 }
+  cba-legacy:              { name: "CBA SmartAccess (pre-2024-10)", category: 5 }
+  cash-ron:                { name: "Cash (Ron)",               category: 1 }
+  westpac-legacy:          { name: "Westpac Offset (closed)",  category: 8 }
+  nab-mortgage-legacy:     { name: "NAB Mortgage (closed)",    category: 5 }
+  rams-savings:            { name: "RAMS Savings (closed)",    category: 8 }
+  sg-auriel:               { name: "St George (Auriel)",       category: 5 }
+  sg-blythe:               { name: "St George (Blythe)",       category: 5 }

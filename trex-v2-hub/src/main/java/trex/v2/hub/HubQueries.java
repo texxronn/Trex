@@ -1244,11 +1244,20 @@ public final class HubQueries implements AutoCloseable {
                         if (from == null || to == null) {
                             throw new IllegalStateException("transfer unit " + unitId + " has a leg that is not current");
                         }
+                        // A TRANSFER unit's accountRef is the paying (negative) leg's account
+                        // (V2-SPEC.md §11.2). The matcher stores from/to in iteration order, not by
+                        // sign, so orient here. Swap the refs only: date and rawDescription stay the
+                        // matcher's (canonical), so a pair whose legs are days apart keeps the date it
+                        // has today. A PAIR that names no negative leg (both legs the same sign) has no
+                        // payer to name, so the matcher order stands.
+                        boolean swap = from.amount() > 0 && to.amount() < 0;
+                        String payingRef = swap ? to.accountRef() : from.accountRef();
+                        String receivingRef = swap ? from.accountRef() : to.accountRef();
                         out.add(new trex.v2.hub.api.ProjectionUnit(unitId, "TRANSFER",
-                            Math.max(from.n(), to.n()), from.accountRef(), to.accountRef(), from.date(),
+                            Math.max(from.n(), to.n()), payingRef, receivingRef, from.date(),
                             Math.abs(from.amount()), currency, "TRANSFER", "STRUCTURAL", "MATCHED",
                             false, false, from.rawDescription(),
-                            unitHash(unitId, "TRANSFER", from.accountRef(), to.accountRef(), from.date(),
+                            unitHash(unitId, "TRANSFER", payingRef, receivingRef, from.date(),
                                 Math.abs(from.amount()), currency, "TRANSFER"), List.of(pair[0], pair[1])));
                     } else {
                         trex.v2.core.Fact fact = facts.get(unitId);

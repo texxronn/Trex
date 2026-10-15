@@ -30,6 +30,12 @@ if [ -z "${FIREFLY_TOKEN:-}" ] && [ -f "$HOME/.config/trex/firefly.env" ]; then
     set -a; . "$HOME/.config/trex/firefly.env"; set +a
 fi
 export TREX_FIREFLY_URL="${TREX_FIREFLY_URL:-http://host.docker.internal:8083}"
+# The dev ezbookkeeping (a local container, published on the host). A container reaches it through the
+# host gateway; the API token comes from ~/.config/trex/ezb.env and is never committed (§11.2).
+if [ -z "${EZB_TOKEN:-}" ] && [ -f "$HOME/.config/trex/ezb.env" ]; then
+    set -a; . "$HOME/.config/trex/ezb.env"; set +a
+fi
+export TREX_EZB_URL="${TREX_EZB_URL:-http://host.docker.internal:8095}"
 export TREX_IMAGE_TAG="${TREX_IMAGE_TAG:-$(sed -n 's|^  <version>\(.*\)</version>|\1|p' "$repo/pom.xml" | head -1)}"
 
 compose=(docker compose -f "$repo/deploy/v2/compose.yml" -f "$repo/deploy/v2/compose.dev.yml")

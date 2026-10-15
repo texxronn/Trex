@@ -20,11 +20,20 @@ public final class FakeHub implements AutoCloseable {
     public volatile String configRevision = "sha256:cfg1";
     public volatile List<Map<String, Object>> units = new ArrayList<>();
     public volatile Map<String, String> resolved = new java.util.HashMap<>();
+    public volatile List<Map<String, Object>> openings = new ArrayList<>();
+    public volatile Map<String, String> currencies = new java.util.HashMap<>();
 
     public FakeHub() throws Exception {
         server.createContext("/api/units", exchange -> respond(exchange, 200, Json.mapper().writeValueAsString(
             map("asOfN", 1, "configRevision", configRevision, "deriveVersion", "derive/1",
                 "hashVersion", "statehash/1", "units", units, "resolved", resolved))));
+        server.createContext("/api/opening", exchange -> respond(exchange, 200,
+            Json.mapper().writeValueAsString(map("accounts", openings))));
+        server.createContext("/api/refdata", exchange -> {
+            List<Map<String, Object>> accounts = new ArrayList<>();
+            currencies.forEach((ref, currency) -> accounts.add(map("ref", ref, "currency", currency)));
+            respond(exchange, 200, Json.mapper().writeValueAsString(map("accounts", accounts)));
+        });
         server.createContext("/api/projection", exchange -> {
             if (exchange.getRequestMethod().equals("POST")) {
                 Map<String, Object> body = Json.mapper().readValue(
@@ -63,6 +72,15 @@ public final class FakeHub implements AutoCloseable {
             "Transfer", "h-" + unitId);
         u.put("legs", List.of(fromLeg, toLeg));
         return u;
+    }
+
+    /** One {@code /api/opening} row, matching {@code HubClient.OpeningState} exactly (unknown keys fail). */
+    public static Map<String, Object> opening(String ref, boolean declared, long latestBalance,
+                                              String latestAt, long backwardOpening) {
+        return map("accountRef", ref, "currency", "AUD", "declared", declared,
+            "latestBalance", latestBalance, "backwardOpening", backwardOpening,
+            "forwardOpening", backwardOpening, "gap", 0, "openedAt", null, "latestAt", latestAt,
+            "clearing", false);
     }
 
     private static Map<String, Object> map(Object... kv) {

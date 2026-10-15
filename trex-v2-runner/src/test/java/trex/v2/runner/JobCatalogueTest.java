@@ -40,6 +40,29 @@ class JobCatalogueTest {
         assertTrue(apply.steps().build(mode("apply")).get(0).argv().contains("--apply"));
     }
 
+    @Test
+    void egressEzbPlanArgvAndApplyGate(@TempDir Path dir) throws Exception {
+        RunnerConfig locked = config(dir, false);
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        JobSpec egress = JobCatalogue.of(locked, StatementsMap.load(dir), staging).get("egress-ezb");
+
+        List<Step> plan = egress.steps().build(mode("plan"));
+        assertEquals(1, plan.size());
+        assertEquals(List.of("egress", "ezb",
+            "--hub-url", "http://hub:8090",
+            "--ezb-url", "http://ezb:8095",
+            "--accounts", dir.resolve("ezb.yaml").toString(),
+            "--plan"), plan.get(0).argv());
+
+        assertThrows(IllegalArgumentException.class, () -> egress.steps().build(mode("bogus")));
+        assertThrows(IllegalArgumentException.class, () -> egress.steps().build(mode("apply")),
+            "apply is refused without --allow-apply");
+
+        RunnerConfig unlocked = config(dir, true);
+        JobSpec apply = JobCatalogue.of(unlocked, StatementsMap.load(dir), staging).get("egress-ezb");
+        assertTrue(apply.steps().build(mode("apply")).get(0).argv().contains("--apply"));
+    }
+
     // ---- re-read evidence (V2-QOL-IMPROVEMENTS-PLAN.md §4) ------------------------------------------
 
     @Test
@@ -190,7 +213,7 @@ class JobCatalogueTest {
         return new RunnerConfig("127.0.0.1", 0, dir, dir.resolve("statements"),
             dir.resolve("staging"), dir.resolve("evidence"), dir.resolve("archive"),
             dir.resolve("journal.jsonl"),
-            "http://sequencer:8080", "http://hub:8090", "http://firefly:8081",
-            dir.resolve("firefly.yaml"), null, allowApply, Duration.ofMinutes(10));
+            "http://sequencer:8080", "http://hub:8090", "http://firefly:8081", "http://ezb:8095",
+            dir.resolve("firefly.yaml"), dir.resolve("ezb.yaml"), null, allowApply, Duration.ofMinutes(10));
     }
 }

@@ -3,6 +3,7 @@ package trex.v2.egress.firefly;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trex.v2.egress.Progress;
 import trex.v2.egress.hub.HubClient;
 import trex.v2.egress.hub.HubClient.HubUnit;
 import trex.v2.egress.hub.HubClient.ProjectionState;
@@ -479,41 +480,6 @@ public final class FireflyEgress {
                 case PRESERVED -> preserved++;
                 case UNCHANGED -> unchanged++;
                 case NOT_OURS -> { }
-            }
-        }
-    }
-
-    private static final class Progress {
-        private static final int EVERY = 50;
-        private final int total;
-        private final PrintStream out;
-        private final long startedAt = System.nanoTime();
-        private long windowAt = System.nanoTime();
-        private int seen;
-
-        Progress(int total, PrintStream out) {
-            this.total = total;
-            this.out = out;
-        }
-
-        void tick() {
-            seen++;
-            if (seen % EVERY != 0) {
-                return;
-            }
-            long now = System.nanoTime();
-            double windowSeconds = (now - windowAt) / 1e9;
-            double rate = EVERY / Math.max(windowSeconds, 0.001);
-            long remaining = Math.round((total - seen) / Math.max(rate, 0.001));
-            windowAt = now;
-            out.printf("  %d/%d  %.1f/s  about %d:%02d left%n", seen, total, rate,
-                remaining / 60, remaining % 60);
-            out.flush();
-        }
-
-        void done() {
-            if (seen >= EVERY) {
-                out.printf("  %d/%d in %.0fs%n", seen, total, (System.nanoTime() - startedAt) / 1e9);
             }
         }
     }

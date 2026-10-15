@@ -57,6 +57,7 @@ class McpResourcesTest {
         assertEquals("categories.yaml", byUri.get("trex://config/categories"));
         assertEquals("transfers.yaml", byUri.get("trex://config/transfers"));
         assertEquals("firefly.yaml", byUri.get("trex://config/firefly"));
+        assertEquals("ezb.yaml", byUri.get("trex://config/ezb"));
         assertEquals("profiles.yaml", byUri.get("trex://config/profiles"));
         assertTrue(byUri.containsKey("trex://status"), byUri.toString());
         assertTrue(byUri.containsKey("trex://reference"), byUri.toString());

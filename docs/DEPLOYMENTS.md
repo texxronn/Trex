@@ -58,7 +58,8 @@ low-level write tool (`trex_submit_decisions`) and the three intent-shaped actio
 (`trex_categorize`, `trex_note`, `trex_mark_paid`) each name an **`actingUser`** — a declared active
 user (`ron`/`mel`) or `agent`, never anything else. The contract the family bot and an MCP host both
 follow — the reads to prefer, the action payloads, the attribution rule and the safety posture — is
-`docs/ASSISTANT.md`. `egress-firefly` is never exposed; job orchestration stays in the Jobs UI.
+`docs/ASSISTANT.md`. The egress jobs — `egress-ezb` (live) and `egress-firefly` (dormant) — are never
+exposed; job orchestration stays in the Jobs UI.
 **`/mcp` has no authentication of its own** — it inherits the hub's listener — so keep the hub
 loopback-only (or behind the perimeter) whenever writes are enabled.
 
@@ -84,7 +85,7 @@ DOCKER_CONTEXT=trex deploy/bin/trex-v2-docker.sh build
 scp deploy/v2/compose.server.yml deploy@10.10.10.142:/tmp/compose.yml
 scp deploy/config/accounts.yaml deploy/config/users.yaml deploy/config/categories.yaml \
     deploy/config/transfers.yaml deploy/config/pins.yaml deploy/config/firefly.yaml \
-    deploy/config/profiles.yaml deploy/config/statements.yaml deploy/config/sources.yaml \
+    deploy/config/ezb.yaml deploy/config/profiles.yaml deploy/config/statements.yaml deploy/config/sources.yaml \
     deploy/config/schedule.yaml deploy/config/mortgages.yaml deploy/v2/sequencer.yaml \
     deploy@10.10.10.142:/tmp/
 # as root on the host: install into /opt/trex/config and `docker compose up -d`
@@ -186,8 +187,9 @@ first.
    `head + 1`, and is resumable — re-running skips what has already landed.
 6. **Verify**: `n` and counts match dev, `reconcile` and the review queue match, `trex verify`
    is green (framing, index, evidence hashes, egress plan).
-7. **Project** when ready: `egress firefly --plan` → review → `--apply` (locked without
-   `--allow-apply`).
+7. **Project** when ready: `egress ezb --plan` → review → `--apply` (locked without
+   `--allow-apply`) — the live downstream view (V2-SPEC.md §11.2). The Firefly projection
+   (`egress firefly`) stays in the tree but is dormant.
 
 While prod is still a replica, later deltas — more review, further curation — export with
 `trex stream export --since <n>` and ingest the suffix. Once prod starts ingesting on its
@@ -255,6 +257,9 @@ done
   piggy-bank links, your tags, hand-splits — is gone after a refeed. Assign budgets with a Firefly
   rule group ("budget from category") and re-run it from "apply rule group to transactions" after a
   refeed and after each sync; never assign budgets by hand.
+- **ezbookkeeping is re-applied, not restored (§11.2):** the view holds nothing trex does not, so a
+  lost instance is cleared and re-imported with `trex egress ezb --apply`, never backed up or
+  restored — it is a disposable view, like the index.
 - **A missing group stops the pass (D9):** a transaction deleted in Firefly stops the next pass that
   actually touches its unit (a planned retag or update), which then needs `--verify` then `--apply`
   (or retire the unit in trex); units that have not moved keep converging. That is the intended

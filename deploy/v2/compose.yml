@@ -43,6 +43,8 @@ configs:
     file: ../config/pins.yaml
   firefly.yaml:
     file: ../config/firefly.yaml
+  ezb.yaml:
+    file: ../config/ezb.yaml
   statements.yaml:
     file: ../config/statements.yaml
   sources.yaml:
@@ -79,7 +81,7 @@ services:
     command:
       - >-
         mkdir -p /etc/trex /etc/trex/.shipped /etc/trex/.base /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
-        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml mortgages.yaml; do
+        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml ezb.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml mortgages.yaml; do
           cp "/bootstrap/$$f" "/etc/trex/.shipped/$$f";
           if [ ! -e "/etc/trex/$$f" ]; then
             cp "/bootstrap/$$f" "/etc/trex/$$f";
@@ -97,6 +99,7 @@ services:
       - { source: transfers.yaml, target: /bootstrap/transfers.yaml }
       - { source: pins.yaml, target: /bootstrap/pins.yaml }
       - { source: firefly.yaml, target: /bootstrap/firefly.yaml }
+      - { source: ezb.yaml, target: /bootstrap/ezb.yaml }
       - { source: statements.yaml, target: /bootstrap/statements.yaml }
       - { source: sources.yaml, target: /bootstrap/sources.yaml }
       - { source: schedule.yaml, target: /bootstrap/schedule.yaml }
@@ -212,11 +215,16 @@ services:
       - ${TREX_FIREFLY_URL:?set TREX_FIREFLY_URL}
       - --accounts
       - /etc/trex/firefly.yaml
+      - --ezb-url
+      - ${TREX_EZB_URL:?set TREX_EZB_URL}
+      - --ezb-accounts
+      - /etc/trex/ezb.yaml
       - --journal
       - /var/lib/trex/journal/trex.jsonl
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
       FIREFLY_TOKEN: ${FIREFLY_TOKEN:-}
+      EZB_TOKEN: ${EZB_TOKEN:-}
       TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
     volumes:
       - config:/etc/trex:ro
@@ -316,6 +324,30 @@ services:
       - --accounts
       - /etc/trex/firefly.yaml
       - --plan
+    volumes:
+      - config:/etc/trex:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      hub:
+        condition: service_started
+
+  # The live view (V2-SPEC.md §11.2). EZB_TOKEN is the API token; --plan writes nothing.
+  egress-ezb:
+    <<: [*trex, *hardening]
+    profiles: ["tools"]
+    command:
+      - egress
+      - ezb
+      - --hub-url
+      - http://hub:8090
+      - --ezb-url
+      - ${TREX_EZB_URL:?set TREX_EZB_URL}
+      - --accounts
+      - /etc/trex/ezb.yaml
+      - --plan
+    environment:
+      EZB_TOKEN: ${EZB_TOKEN:-}
     volumes:
       - config:/etc/trex:ro
     depends_on:

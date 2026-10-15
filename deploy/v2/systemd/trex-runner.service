@@ -18,7 +18,9 @@ ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar runner \
   --sequencer-url http://127.0.0.1:8080 \
   --hub-url http://127.0.0.1:8090 \
   --firefly-url ${TREX_FIREFLY_URL} \
-  --accounts /etc/trex/firefly.yaml
+  --accounts /etc/trex/firefly.yaml \
+  --ezb-url ${TREX_EZB_URL} \
+  --ezb-accounts /etc/trex/ezb.yaml
 StateDirectory=trex/staging trex/evidence
 StateDirectoryMode=0750
 ReadWritePaths=/var/lib/trex/staging /var/lib/trex/evidence

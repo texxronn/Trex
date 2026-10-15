@@ -42,8 +42,8 @@ migrated from.
 | `trex-v2-sequencer` | service | the only writer: `POST /facts`, `/decisions`, `/ingest`, `/stream`, `GET /head`, `POST /maintenance/snapshot`, recovery, fsync. |
 | `trex-v2-hub` | service | index owner; blotter API + UI; decision precheck/forward; reflow; ACK; SSE; proxy to the runner. |
 | `trex-v2-ingest` | library/CLI | adapters → evidence + facts + ingest events; source archive; whole-file validation; day batching; feeds; re-parse. |
-| `trex-v2-egress` | library/CLI | archive byte mirror; Firefly projection; export. |
-| `trex-v2-runner` | service | on-demand job dispatcher + staging inbox: a loopback trigger API, `ingest`/`egress-firefly`/`journal-snapshot`/`stream`, sync/async. Never writes the log or the index. |
+| `trex-v2-egress` | library/CLI | archive byte mirror; the ezbookkeeping view; Firefly projection (dormant); export. |
+| `trex-v2-runner` | service | on-demand job dispatcher + staging inbox: a loopback trigger API, `ingest`/`egress-ezb`/`journal-snapshot`/`stream`, sync/async. Never writes the log or the index. |
 | `trex-v2-dist` | packaging | one shaded `trex-v2.jar`; picocli subcommands select the role. No logic. |
 
 `trex-v2-hub` depends on `trex-v2-sequencer` for shared wire DTOs only (a type-only dependency).
@@ -408,7 +408,7 @@ derived `role`, rail, and a `synthetic` flag — true only for a derived account
 `clearing_account`), `cash_month` (one row per declared account and calendar month; not a unit, §9.4), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
 `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note`,
 `commitment_exclusion`, `commitment_fact` (the fact → commitment reverse map, §6.5),
-`ineffective_decision`, `unit`, `projection_state`, `user_ack`, `source_cursor`, `evidence`, and the
+`ineffective_decision`, `unit`, `projection_state` (Firefly only, §11.2), `user_ack`, `source_cursor`, `evidence`, and the
 `ingest_batch` view (the markers paired). A derived column's shape change drops and recreates its
 table and clears the derived meta, so the next apply re-derives. Every table can be dropped;
 `trex index --rebuild` reproduces them. The hub holds one writer connection and a small read pool,
@@ -454,11 +454,11 @@ unauthenticated and binds loopback by default.
 | GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, payment method and effective reminder lead time, current price, next due, arrears, notes |
 | GET | `/api/commitments/activity?id=` | a candidate's series, or a declared commitment's claimed facts over all history |
 | GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, the window-independent `toPay` occurrences, committed totals, and the month's **headroom** (§9.2) |
-| GET | `/api/transfers`, `/api/units` | matched transfers; projectable units |
-| GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings |
+| GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
+| GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
 | GET | `/api/since?n=<n>&user=<id>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line (§9.1) |
-| GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly) |
+| GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly — Firefly only, §11.2 keeps no state) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
 | GET/POST | `/api/acks` | per-user `USER_ACK` rows and their validity |
 | POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer; a row-scoped batch's response also carries `patch` — the rows it moved (§6.6) |
@@ -577,7 +577,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Mortgage** | a declared facility: offset liquidity and each loan's balance with its own statement date; per loan the repayment and interest series (count, span, total); principal as a labelled estimate with its residual; the idle offset beyond the loan it shelters; and an **amortiser** — editable loan/offset/rate/repayment, defaulting to the facility's current figures, projecting the linked-offset payoff with an interest-vs-principal chart | `V2-MORTGAGE-PLAN.md` |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
 | **Cash** | a wallet's rows — transfers in/out, recorded spends/income and counts, newest first; a quick-add form for spend/income/count; the month's unrecorded figure at the top | `V2-CASH-PLAN.md` |
-| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), egress Plan/Verify/Apply, snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
+| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
 
 ### 9.4 Cash
 
@@ -624,7 +624,15 @@ month.
 
 ## 11. Egress and export (`trex-v2-egress`)
 
+**The live downstream is ezbookkeeping (§11.2).** Firefly (§11.1) is **dormant** — the operator's
+decision of 2026-10-15 — kept in the tree and unscheduled, not deleted; its section is the record of
+what it does. A change to derive, identity or units states its effect on **both** downstream views.
+
 ### 11.1 Firefly
+
+**Dormant.** Firefly is no longer the downstream: it owns no charts, no reports and no day-to-day
+read, and `schedule.yaml` ships no `egress-firefly` entry. The pass below still runs on demand and is
+still correct; it is simply not scheduled.
 
 A batch (`plan` / `apply` / `verify`), never a daemon; started from Jobs or the CLI.
 
@@ -716,6 +724,90 @@ account and date); exit non-zero. State is recorded as each write lands, so a re
 PUT each); unchanged rows keep a stale `rules=` in their notes by design. A first full apply on an empty Firefly is slow (measured ~0.6/s past a
 thousand creates) and safe to interrupt.
 
+### 11.2 ezbookkeeping view
+
+**A disposable projection, not a converging mirror** (operator decision, 2026-10-15). ezbookkeeping
+(`mayswind/ezbookkeeping`, v2.0.1) is a **view only**: trex owns ingest, categories, review and
+day-to-day reconciliation; nobody edits ezbookkeeping, so there is no external id, no ownership tag,
+no fingerprint, no `projection_state` and no `--validate`. Every sync **clears the transactions and
+re-imports the whole current view** — every unit plus every opening — and the next apply heals a
+half-written one: it is the invariant "every derived table is disposable" applied downstream.
+Accounts and categories are **ensured** (created when missing, never deleted), so the operator's
+saved charts and explorations, which reference stable ids, survive every sync. ezbookkeeping is
+reached over its HTTP API only; the egress is JDK-only Java in `trex-v2-egress`.
+
+**Input** is the same `/api/units` feed as §11.1: posted EXTERNAL transactions and TRANSFER units
+(a clearing or declared pair carried by its real leg), never a leg, HELD/REVIEW, PENDING, an
+ATTESTATION or a retired fact. No derive or identity change is involved.
+
+**Orientation.** A TRANSFER unit's `accountRef` is the **paying (negative) leg's** account and
+`toAccountRef` the receiving one, so the egress trusts the unit and reads no ledger. The matcher
+stores its legs in iteration order, not by sign — only a clearing pair is sign-ordered — so the hub
+orients each matched pair in `projectionUnits()` by swapping the two refs when the first leg is the
+credit side. **Only the refs move:** the unit's `date` and `rawDescription` stay the matcher's
+(canonical), so a pair whose legs are days apart keeps the date it had. A manual `PAIR` whose legs
+carry no negative leg (both the same sign) names no payer; there the matcher order stands.
+
+**The mapping** (pure: unit → `TransactionCreateRequest`). ezbookkeeping uses **two different
+enums**: the *transaction* type is 1 balance modification, 2 income, 3 expense, 4 transfer, while
+the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-Timezone-Name` and
+`X-Timezone-Offset` or every write is refused.
+
+- **EXTERNAL**, amount < 0 → expense (3); amount > 0 → income (2) — **a refund is income**, not netted
+  against its charge (operator decision); a zero-amount row is skipped. Both omit
+  `destinationAccountId`; `sourceAccountId` is the trex account, `sourceAmount` its magnitude.
+- **TRANSFER** → transfer (4); `sourceAmount` = `destinationAmount` = the magnitude;
+  `sourceAccountId`/`destinationAccountId` are the unit's `accountRef`/`toAccountRef`.
+- **Category:** the trex master category becomes an ezbookkeeping **secondary** category under one
+  primary per category type (`trex-income`/`trex-expense`/`trex-transfer`); a primary is refused as
+  a row's category, so the child is mandatory. `UNCATEGORIZED` is a real category.
+- **Opening:** every account's opening is a **type-1 row, in every import**, dated before the first
+  unit. It cannot be a creation-only field (the clear deletes it) and `accounts/modify` refuses a
+  balance change. A type-1 row may only be posted while its account has **no other transaction**
+  (`205010`), so openings are imported first, on the cleared accounts, and there is exactly one per
+  account. A **declared** wallet has no statement chain and no opening row; its opening is
+  `latestCount − Σ units dated ≤ latestAt`, the attested count minus the movements already folded
+  into it — *not* the count itself, which the later units would add to again — posted before the
+  first unit like any other; a declared wallet with no attestation opens at 0.
+- **Account category** per ref: cash (1) for `cash-ron`; credit card (3) for `*-credit-card`; debt
+  (5) for loans/facilities and any clearing ref whose computed opening is negative; savings (8) for
+  savings; checking (2) otherwise.
+- **Time:** the unit date at 12:00 in the configured zone (`Australia/Sydney`); `utcOffset` from that
+  date, never "now", so DST cannot shift a day.
+- **Comment:** `MerchantStem.stem(raw) — Clean.clean(raw)`, cut to 255.
+
+**Run modes** (`plan` / `apply` / `verify`, §11.1's vocabulary):
+
+- **plan:** fetch the units; report unmapped refs, the accounts and categories to create, and the row
+  counts per type. No writes.
+- **apply:** ensure accounts and categories, clear, then import openings first and the units in
+  batches, polling `transactions/import/process`. Every import call uses a **fresh `clientSessionId`**
+  (a UUID): the duplicate checker keys on the id alone, so a reused one is treated as a repeat
+  submission and every batch after the first is dropped (measured on 2.0.1: three calls sharing an id
+  landed only the first). The poll returning idle is not success — apply ends by listing the
+  transaction count and **fails (exit 1) unless it equals the rows sent**. Idempotent: a second apply
+  reproduces the same view.
+- **verify:** each mapped account balance against **`opening + Σ units`** — the backward opening, or
+  the declared-wallet rule above — and the row counts; never `/api/opening`'s `latestBalance`, which
+  is the whole statement chain and keeps facts dated after the units feed's `asOf` (measured: one such
+  row, a $250 gap). A non-empty diff exits 1. Nothing to repair but re-apply.
+
+**Clearing** uses the API token alone: `transactions/list/all.json` enumerates the ids and
+`transactions/delete.json` deletes each, so **no account password is stored** (`batch_delete` and
+`data/clear/*` both require it). Every read carries the timezone headers too, not just the writes —
+`list/all` is refused without them. The per-call `clientSessionId` and the post-import count check are
+the other guards the spike found.
+
+**Failure.** Retry 5xx, 429 and dropped connections with backoff and jitter, like §11.1. There is no
+duplicate hash and no external id; the only re-submission guard is the in-memory `duplicate_checker`
+keyed by `clientSessionId`, so the fresh id is what makes a rerun honest.
+
+**Firefly impact.** The orientation swap changes a flipped transfer's `unitHash` and Firefly content
+fingerprint, so the **dormant** Firefly projection (§11.1) would write one content UPDATE (a PUT) per
+flipped transfer on its next `--apply` — all 886 of the real book's transfers. Dormant means
+unscheduled, not a no-op. The declared-wallet `latestAt` field added to `/api/opening` changes no
+Firefly unit.
+
 - **Archive**: a byte mirror of the journal plus an evidence copy, verified by hash.
 - **Export**: `csv`, `json`, or a portable `sqlite` file.
 
@@ -734,7 +826,9 @@ to and from the bank are skipped by headroom, §9.2; presentation only), and for
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
 `clearing` account or a declared wallet, §6.3)),
-`firefly.yaml` (account mapping), `mortgages.yaml` (optional **view-config**, not a derive input:
+`firefly.yaml` (account mapping), `ezb.yaml` (the ezbookkeeping view's mapping — ref → name, its
+ezbookkeeping account category and the zone; **view-config**, read by `trex egress ezb` and never
+hashed into `configRevision`, §11.2), `mortgages.yaml` (optional **view-config**, not a derive input:
 each facility's offset account, the loan it shelters (`offsetAppliesTo` — the declaration the
 idle-offset insight rests on, never inferred from charges), its loans, and per loan the
 repayment/interest commitment ids, with an optional observed rate — §9.3; never hashed into
@@ -761,7 +855,7 @@ like any other; a sync re-seeds the file and a hub restart picks the new mapping
 ## 13. CLI
 
 One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runner`, `index`,
-`ingest`, `egress archive`, `egress firefly`, `snapshot`, `stream export`, `stream ingest`, `reflow`,
+`ingest`, `egress archive`, `egress firefly`, `egress ezb`, `snapshot`, `stream export`, `stream ingest`, `reflow`,
 `verify`, `export`, `import` (dev). Exit code `64` is `EX_USAGE`. No config is baked in.
 
 ---
@@ -769,7 +863,9 @@ One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runn
 ## 14. Operations and deployment
 
 - **Back up three things**: the journal, the evidence store, and the config (git). The index,
-  projection state, review queues and ACK copies are rebuilt, never backed up.
+  projection state, review queues and ACK copies are rebuilt, never backed up. **ezbookkeeping is a
+  rebuildable view too**: it holds nothing trex does not, so a lost instance is re-applied
+  (`trex egress ezb --apply`), never restored (§11.2).
 - **The archive** (`--archive`) holds the byte mirror (kept forever), dated **journal snapshots**
   (`journal/trex-<ts>.jsonl.gz`, a consistent copy taken from the live log — never a rotation), and
   the **source archive** (`sources/…`). Snapshots are pruned by an explicit `prune-archive`
@@ -804,7 +900,8 @@ equivalence ledger; `StatementsE2ETest` is the end-to-end run over real statemen
 ## 16. The runner and its schedule
 
 `trex-v2-runner` is a loopback service the hub proxies. A **job** is an invocation of an existing
-subcommand — `ingest`, `ingest-inbox`, `reparse`, `egress-firefly`, `journal-snapshot`, `stream` (mode
+subcommand — `ingest`, `ingest-inbox`, `reparse`, `egress-ezb`, `egress-firefly` (dormant),
+`journal-snapshot`, `stream` (mode
 `export | ingest`) — never new logic: the runner starts the process, streams its output and records the exit code. One serialized
 worker, a bounded in-memory run history, and a **staging inbox** for uploads. `ingest-inbox` is the
 one allowed composition: the `ingest` subcommand with its items resolved from `statements.yaml`
@@ -815,7 +912,7 @@ the batch recorded (`sourceType` and `account` are params the Jobs page fills fr
 history), defaulting to a preview; `apply` is gated by `--allow-apply` and by the UI — Apply unlocks
 only after a preview of the same evidence that found changes and no `RETIRE`, or after an explicit
 tick that accepts the retirements (`V2-QOL-IMPROVEMENTS-PLAN.md` §4). `reparse` is schedulable like
-`egress-firefly`: a schedule entry may carry its params (including `mode: apply`), and a scheduled
+`egress-ezb`: a schedule entry may carry its params (including `mode: apply`), and a scheduled
 apply is gated only by `--allow-apply` — the fresh-preview/`RETIRE` tick is the manual path's
 safeguard, not a scheduler rule. `POST /jobs/{name}/runs`
 is async (`202 {runId}`) or, with `?sync=true&timeoutMs=`, returns the terminal detail or the handle.
@@ -831,6 +928,11 @@ jobs:
     at: "02:30"              # local time of day — required (the phase)
     on: Sun                  # weekly only; required for 7d, refused otherwise
     zone: Australia/Sydney   # default UTC
+  - job: egress-ezb          # keep the ezbookkeeping view fresh (a re-apply is idempotent)
+    params: { mode: apply }
+    every: 24h
+    at: "03:00"
+    zone: Australia/Sydney
 ```
 
 - `at` pins the phase; `every` is the period. A period that is a whole number of days is a

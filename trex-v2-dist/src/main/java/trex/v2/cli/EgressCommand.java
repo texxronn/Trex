@@ -6,6 +6,9 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import trex.v2.core.config.DeriveConfig;
 import trex.v2.egress.archive.ArchiveMirror;
+import trex.v2.egress.ezb.EzbClient;
+import trex.v2.egress.ezb.EzbMap;
+import trex.v2.egress.ezb.EzbView;
 import trex.v2.egress.firefly.AccountChecks;
 import trex.v2.egress.firefly.AccountMap;
 import trex.v2.egress.firefly.AccountProvisioning;
@@ -23,13 +26,15 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 /**
- * {@code trex egress archive|firefly}: project trex outward (V2-PROPOSAL.md §11, §14). Archive is
- * the byte mirror; Firefly is a batch, never a daemon — {@code --plan}/{@code --verify} are
- * timer-safe and {@code --apply} runs on instruction.
+ * {@code trex egress archive|firefly|ezb}: project trex outward (V2-PROPOSAL.md §11, §14). Archive is
+ * the byte mirror; Firefly and ezbookkeeping are batches, never daemons — {@code --plan}/{@code
+ * --verify} are timer-safe and {@code --apply} runs on instruction. Firefly is dormant (§11.1); ezb
+ * is the live view (§11.2).
  */
 @Command(name = "egress", mixinStandardHelpOptions = true,
-    description = "Project trex outward: the archive mirror and the Firefly projection.",
-    subcommands = {EgressCommand.Archive.class, EgressCommand.Firefly.class})
+    description = "Project trex outward: the archive mirror, the Firefly projection and the "
+        + "ezbookkeeping view.",
+    subcommands = {EgressCommand.Archive.class, EgressCommand.Firefly.class, EgressCommand.Ezb.class})
 public final class EgressCommand implements Callable<Integer> {
 
     @Spec
@@ -233,6 +238,73 @@ public final class EgressCommand implements Callable<Integer> {
             CategorySeeding.Result result = CategorySeeding.seed(firefly, rules.declared(), comments);
             System.out.printf("categories seeded: %d created, %d annotated%n",
                 result.created(), result.annotated());
+        }
+    }
+
+    // ---- ezbookkeeping (V2-SPEC.md §11.2) ---------------------------------------------------
+
+    /**
+     * The disposable ezbookkeeping view. Simpler than Firefly: no external ids, ownership tags,
+     * fingerprints or orphans — every apply clears the transactions and re-imports the whole view.
+     * The token is the API token {@code EZB_TOKEN}; the clear uses it alone, so no account password
+     * is stored (§11.2).
+     */
+    @Command(name = "ezb", mixinStandardHelpOptions = true,
+        description = "ezbookkeeping view plan/apply/verify.")
+    static final class Ezb implements Callable<Integer> {
+
+        @Option(names = "--hub-url", required = true, description = "The hub base URL (the only feed).")
+        String hubUrl;
+
+        @Option(names = "--ezb-url", required = true, description = "The ezbookkeeping base URL.")
+        String ezbUrl;
+
+        @Option(names = "--accounts", required = true, description = "ezb.yaml account mapping.")
+        Path accountsFile;
+
+        @Option(names = "--plan", description = "Show the diff; write nothing.")
+        boolean plan;
+
+        @Option(names = "--apply", description = "Clear the view and re-import every unit plus its opening.")
+        boolean apply;
+
+        @Option(names = "--verify", description = "Compare each balance against opening + units; non-zero on a diff.")
+        boolean verify;
+
+        @Option(names = "--retries", defaultValue = "3", description = "Total tries for transient failures.")
+        int retries;
+
+        @Option(names = "--retry-base-ms", defaultValue = "500", description = "First backoff, ms.")
+        long retryBaseMs;
+
+        @Option(names = "--retry-max-ms", defaultValue = "30000", description = "Backoff ceiling, ms.")
+        long retryMaxMs;
+
+        @Override
+        public Integer call() throws Exception {
+            String token = System.getenv("EZB_TOKEN");
+            if (token == null || token.isBlank()) {
+                System.err.println("EZB_TOKEN is required in the environment (never a flag)");
+                return 64;
+            }
+            EzbView.Mode mode = verify ? EzbView.Mode.VERIFY
+                : apply ? EzbView.Mode.APPLY : EzbView.Mode.PLAN;
+            EzbMap map = EzbMap.load(accountsFile);
+            EzbClient ezb = new EzbClient(ezbUrl, token, map.zone(),
+                new EzbClient.Retry(retries, retryBaseMs, retryMaxMs));
+            HubClient hub = new HubClient(hubUrl);
+
+            EzbView.Outcome outcome;
+            try {
+                outcome = new EzbView(hub, ezb, map, System.out).run(mode);
+            } catch (EzbView.Refused refused) {
+                System.err.println(refused.getMessage());
+                return 1;
+            } catch (EzbClient.Unreachable unreachable) {
+                System.err.println(unreachable.getMessage());
+                return 1;
+            }
+            return mode == EzbView.Mode.VERIFY && !outcome.mismatches().isEmpty() ? 1 : 0;
         }
     }
 }

@@ -22,7 +22,7 @@ public final class ConfigDrift {
     /** The files the compose init service seeds, in the order the wire reports them. */
     public static final List<String> FILES = List.of(
         "sequencer.yaml", "accounts.yaml", "users.yaml", "categories.yaml", "transfers.yaml",
-        "pins.yaml", "firefly.yaml", "statements.yaml", "sources.yaml", "schedule.yaml",
+        "pins.yaml", "firefly.yaml", "ezb.yaml", "statements.yaml", "sources.yaml", "schedule.yaml",
         "profiles.yaml", "mortgages.yaml");
 
     /** One file's comparison, as served by {@code GET /api/config/drift}. */

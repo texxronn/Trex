@@ -69,7 +69,7 @@ class HubConfigDriftApiTest {
             assertEquals(200, response.statusCode(), response.body());
             JsonNode body = Json.mapper().readTree(response.body());
             assertTrue(body.isArray(), response.body());
-            assertEquals(12, body.size(), response.body());
+            assertEquals(13, body.size(), response.body());
 
             List<String> files = new ArrayList<>();
             Map<String, String> states = new HashMap<>();
@@ -79,7 +79,8 @@ class HubConfigDriftApiTest {
             }
             assertEquals(ConfigDrift.FILES, files, "declaration order");
             assertEquals(List.of("unknown", "both-changed", "unknown", "repo-newer", "same",
-                "edited-here", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"),
+                "edited-here", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown",
+                "unknown"),
                 ConfigDrift.FILES.stream().map(states::get).toList(), response.body());
         }
     }

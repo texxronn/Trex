@@ -25,9 +25,15 @@ import java.util.TreeMap;
  */
 public final class Opening {
 
+    /**
+     * @param latestAt the date the {@code latestBalance} was observed — for a declared wallet the
+     *                 date of its latest attestation (null when it has none), otherwise the latest
+     *                 fact's date. The egress anchors a declared wallet's opening here: the attested
+     *                 count minus the movements already folded into it (V2-SPEC.md §11.2).
+     */
     public record PerAccount(String accountRef, String currency, boolean declared, long latestBalance,
                              long backwardOpening, long forwardOpening, long gap,
-                             LocalDate openedAt, boolean clearing) {}
+                             LocalDate openedAt, LocalDate latestAt, boolean clearing) {}
 
     private Opening() {}
 
@@ -82,7 +88,7 @@ public final class Opening {
             long opening = account.closingBalance() + realSum.getOrDefault(account.ref(), 0L);
             LocalDate openedAt = earliest.getOrDefault(account.ref(), account.closedAt());
             out.add(new PerAccount(account.ref(), account.currency(), false, account.closingBalance(),
-                opening, opening, 0, openedAt, true));
+                opening, opening, 0, openedAt, openedAt, true));
         }
         out.sort(Comparator.comparing(PerAccount::accountRef));
         return out;
@@ -95,7 +101,7 @@ public final class Opening {
         Fact first = sorted.getFirst();
         long forward = first.balance() - first.amount();
         return new PerAccount(ref, currency, false, latest, backward, forward, backward - forward,
-            first.date(), false);
+            first.date(), sorted.getLast().date(), false);
     }
 
     private static PerAccount declared(String ref, String currency, List<Fact> sorted) {
@@ -104,15 +110,17 @@ public final class Opening {
         long latest = 0;
         boolean seenAttestation = false;
         long sumAfter = 0;
+        LocalDate latestAt = null;
         for (Fact f : sorted) {
             if (f.amount() == 0) {
                 if (!seenAttestation) {
                     opening = f.balance() - sumBefore;
                     seenAttestation = true;
-                } else {
-                    sumAfter += 0;   // attestations are anchors, not movements
                 }
+                // Attestations are anchors, not movements: the count sets the balance and the date
+                // the egress anchors on is the latest one, so a later count supersedes an earlier.
                 latest = f.balance();
+                latestAt = f.date();
             } else if (seenAttestation) {
                 sumAfter += f.amount();
             } else {
@@ -121,6 +129,6 @@ public final class Opening {
         }
         long gap = seenAttestation ? latest - (opening + sumAfter) : 0;
         java.time.LocalDate openedAt = sorted.getFirst().date();
-        return new PerAccount(ref, currency, true, latest, opening, opening, gap, openedAt, false);
+        return new PerAccount(ref, currency, true, latest, opening, opening, gap, openedAt, latestAt, false);
     }
 }

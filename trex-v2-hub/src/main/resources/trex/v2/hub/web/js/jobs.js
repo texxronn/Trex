@@ -16,7 +16,12 @@ let runs = [];
 let ingests = [];
 let drift = null;
 let configDrift = null;
-let lastPlan = null; // in-session plan counts; Apply stays locked until one exists
+/**
+ * The egress jobs that share the Plan/Verify/Apply card. Firefly (dormant) and ezbookkeeping both
+ * run the same three modes, but each keeps its own gate: a plan for one must not unlock the other.
+ */
+const EGRESS_JOBS = ['egress-firefly', 'egress-ezb'];
+const lastPlans = new Map(); // per egress job: in-session plan; Apply stays locked until one exists
 let lastPreview = null; // in-session reparse preview; Apply stays locked until a fresh one exists
 
 const selected = new Set();
@@ -164,16 +169,18 @@ function lastRun(jobName) {
     && (run.state === 'SUCCEEDED' || run.state === 'FAILED'));
 }
 
-function lastRunOf(mode) {
-  return runs.find((run) => run.job === 'egress-firefly' && run.params && run.params.mode === mode
+function lastRunOf(jobName, mode) {
+  return runs.find((run) => run.job === jobName && run.params && run.params.mode === mode
     && (run.state === 'SUCCEEDED' || run.state === 'FAILED'));
 }
 
 function renderOps() {
   if (!opsHost) return;
   clear(opsHost);
-  const plan = lastRunOf('plan');
-  const apply = lastRunOf('apply');
+  // The live egress (V2-SPEC.md §11.2); Firefly stays dormant and unscheduled. Both egress jobs
+  // still carry their own Plan/Apply gate on their card below.
+  const plan = lastRunOf('egress-ezb', 'plan');
+  const apply = lastRunOf('egress-ezb', 'apply');
   opsHost.append(
     chip('last plan', plan ? `${rel(plan.finishedAt || plan.queuedAt)} · exit ${plan.exit}` : 'never',
       plan && plan.exit === 0 ? 'good' : plan ? 'bad' : 'muted'),
@@ -355,15 +362,19 @@ function jobCard(job) {
   const last = lastRun(job.name);
   const nodes = [el('div', { class: 'muted' }, job.description)];
 
-  if (job.name === 'egress-firefly') {
-    const canApply = !busy && lastPlan != null && lastPlan.exit === 0;
-    nodes.push(lastPlan
-      ? el('div', { class: 'muted' }, 'planned: ' + planSummary(lastPlan))
+  if (EGRESS_JOBS.includes(job.name)) {
+    // Both egresses share this card (V2-SPEC.md §11.1 dormant, §11.2 live), but the plan that
+    // unlocks Apply is keyed by job name — a plan for one must not unlock the other.
+    const plan = lastPlans.get(job.name) || null;
+    const canApply = !busy && plan != null && plan.exit === 0;
+    nodes.push(plan
+      ? el('div', { class: 'muted' }, 'planned: ' + planSummary(plan))
       : el('div', { class: 'muted' }, 'Apply is locked until you run a Plan.'));
     const buttons = [
-      el('button', { class: 'primary', disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'plan' }) }, 'Plan'),
-      el('button', { disabled: busy, onclick: () => startRun('egress-firefly', { mode: 'verify' }) }, 'Verify'),
-      el('button', { class: 'warn', disabled: !canApply, onclick: confirmApply, title: canApply ? '' : 'Run Plan first' }, 'Apply'),
+      el('button', { class: 'primary', disabled: busy, onclick: () => startRun(job.name, { mode: 'plan' }) }, 'Plan'),
+      el('button', { disabled: busy, onclick: () => startRun(job.name, { mode: 'verify' }) }, 'Verify'),
+      el('button', { class: 'warn', disabled: !canApply, onclick: () => confirmApply(job.name),
+        title: canApply ? '' : 'Run Plan first' }, 'Apply'),
     ];
     if (busy && job.activeRun) {
       buttons.push(el('button', { class: 'ghost', onclick: () => cancel(job.activeRun) }, 'Cancel'));
@@ -434,18 +445,21 @@ function jobCard(job) {
   return nodes;
 }
 
+/** A finished plan's one-line summary; the run line already shaped it for this egress. */
 function planSummary(plan) {
-  const c = plan.counts;
-  if (!c) return `exit ${plan.exit} (no diff line)`;
-  return `${c.creates} create · ${c.retags} retag · ${c.orphans} orphan · ${c.preserved} human-owned`;
+  return plan.summary || `exit ${plan.exit} (no diff line)`;
 }
 
-async function confirmApply() {
-  if (!lastPlan || lastPlan.exit !== 0) return;
-  const message = `Apply the projection to Firefly?\n\nLast plan: ${planSummary(lastPlan)}.\n\n`
-    + 'Orphans are reported, not deleted (that needs --remove-orphans).';
+async function confirmApply(jobName) {
+  const plan = lastPlans.get(jobName);
+  if (!plan || plan.exit !== 0) return;
+  const target = jobName === 'egress-ezb' ? 'ezbookkeeping' : 'Firefly';
+  const note = jobName === 'egress-ezb'
+    ? 'The view is cleared and re-imported; a half-written apply heals on the next Plan/Apply.'
+    : 'Orphans are reported, not deleted (that needs --remove-orphans).';
+  const message = `Apply the projection to ${target}?\n\nLast plan: ${planSummary(plan)}.\n\n` + note;
   if (!window.confirm(message)) return;
-  await startRun('egress-firefly', { mode: 'apply' });
+  await startRun(jobName, { mode: 'apply' });
 }
 
 /** The reparse preview's one-line state for the job card. */
@@ -574,11 +588,11 @@ async function startRun(name, params) {
   try {
     const { runId } = await api.runJob(name, params);
     const run = await streamRun(runId);
-    if (name === 'egress-firefly' && params.mode === 'plan') {
-      await capturePlan(runId);
+    if (EGRESS_JOBS.includes(name) && params.mode === 'plan') {
+      await capturePlan(name, runId);
     }
-    if (name === 'egress-firefly' && params.mode === 'apply' && run.exit === 0) {
-      lastPlan = null; // consumed: Apply locks again until the next plan
+    if (EGRESS_JOBS.includes(name) && params.mode === 'apply' && run.exit === 0) {
+      lastPlans.delete(name); // consumed: this job's Apply locks again until its next plan
     }
     if (name === 'reparse') {
       const preview = await captureReparse(runId, params, run); // renders the summary for either mode
@@ -594,14 +608,35 @@ async function startRun(name, params) {
   }
 }
 
-async function capturePlan(runId) {
+async function capturePlan(name, runId) {
   try {
     const detail = await api.runDetail(runId);
-    const line = [...(detail.output || [])].reverse().find((l) => l.startsWith('done:'));
-    lastPlan = { at: detail.finishedAt || Date.now(), exit: detail.exit, counts: parseDone(line) };
+    lastPlans.set(name, { at: detail.finishedAt || Date.now(), exit: detail.exit,
+      summary: parsePlanSummary(name, detail.output) });
   } catch {
-    lastPlan = null;
+    lastPlans.delete(name);
   }
+}
+
+/**
+ * The plan's one-line summary, which differs by egress: Firefly prints a `done:` line (§11.1), the
+ * ezbookkeeping view a `PLAN:` line (§11.2). Null when the run refused before printing one.
+ */
+function parsePlanSummary(jobName, output) {
+  const lines = output || [];
+  if (jobName === 'egress-firefly') {
+    const line = [...lines].reverse().find((l) => l.startsWith('done:'));
+    const c = parseDone(line);
+    return c
+      ? `${c.creates} create · ${c.retags} retag · ${c.orphans} orphan · ${c.preserved} human-owned`
+      : null;
+  }
+  const line = [...lines].reverse().find((l) => l.startsWith('PLAN:'));
+  const m = /PLAN: (\d+) opening\(s\), (\d+) expense\(s\), (\d+) income\(s\), (\d+) transfer\(s\); (\d+) account\(s\) and (\d+) category\(ies\) to create/
+    .exec(line || '');
+  return m
+    ? `${m[2]} expense · ${m[3]} income · ${m[4]} transfer · ${m[5]} account(s) · ${m[6]} category(ies) to create`
+    : null;
 }
 
 function parseDone(line) {
