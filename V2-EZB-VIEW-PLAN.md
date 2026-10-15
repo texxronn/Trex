@@ -84,7 +84,7 @@ re-keying of clearing pairs and content edits never arise; each sync is a fresh 
 It is the invariant "every derived table is disposable" applied downstream.
 
 **Input** is `HubClient.units(0)`, the same feed Firefly uses (`HubClient.java:48`). Legs, HELD,
-PENDING and attestations are already excluded in `Derive.units()` (`Derive.java:2244`) and
+PENDING and attestations are already excluded in `Derive.units()` (`Derive.java:2242`) and
 `HubQueries.projectionUnits()` (`HubQueries.java:1191`). **No derive or identity change.** The one
 hub change is the transfer-direction fix in §4, a genuine hub-contract gap the spike exposed; it is
 settled first in Stage 2, with its Firefly impact stated.
@@ -109,12 +109,19 @@ Acceptable for a view, and the spec says so.
   PAIR decision, `:686` T1, `:698` T2; only `pairClearing`, `:676`, orders by sign), and
   `HubQueries.projectionUnits()` (`:1247`) copies that order into `accountRef`/`toAccountRef`. The
   spec never says which leg is "from". The spike's 7 wrong balances came from this (§9), and the
-  Firefly projection carries the same bug (`Projection.java:48`, `source_id = own`). **Fix in the hub,
-  Stage 2:** `projectionUnits()` orients each matched pair by sign (swap when `from.amount() > 0`),
-  and the spec records "a TRANSFER unit's `accountRef` is the paying leg's account". One read-model
-  line, no new field, no derive change; the egress then trusts the unit and needs no `/api/ledger`
-  read. *Firefly impact:* `unitHash` changes for every flipped transfer, so the dormant projection
-  would see them as content updates (which it does not yet write — see the Firefly egress gaps).
+  Firefly projection carries the same bug (`Projection.java:50`, `source_id = own`). **Fix in the hub,
+  Stage 2:** `projectionUnits()` orients each matched pair by sign — swap the two refs when
+  `from.amount() > 0` — and the spec records "a TRANSFER unit's `accountRef` is the paying leg's
+  account". Swap the refs **only**: the unit's `date` and `rawDescription` stay canonical (the
+  matcher's order), not the paying leg's, so a T3 pair whose legs are days apart keeps the date it
+  has today; `n` (`Math.max`, `:1248`), `amount` and `currency` are unaffected. A manual `PAIR` that
+  names no negative leg is not sign-checked (`Derive.java:478`), so the rule has no answer there:
+  keep the matcher order and record that fallback. One read-model line
+  (`HubQueries.projectionUnits()`), no new field, no derive change; the egress then trusts the unit
+  and needs no `/api/ledger` read. *Firefly impact:* `unitHash` covers both refs (`:1518`) and the
+  posting's `source_id`/`destination_id` move with them, so the dormant projection would report a
+  content move and **write** an UPDATE — a PUT (`FireflyEgress.java:249`, `:399`) — for every flipped
+  transfer on its next `--apply` (~886 rows). Dormant means unscheduled, not a no-op.
 - **Category:** trex master category → ezbookkeeping **secondary** category under one primary per
   category type (`trex-income`, `trex-expense`, `trex-transfer`). The child is mandatory; a primary
   is refused. `UNCATEGORIZED` is a real category.
@@ -133,7 +140,7 @@ Acceptable for a view, and the spec says so.
 - **Time:** the unit date at 12:00 in the configured zone (`Australia/Sydney`); `utcOffset` derived
   **per date** (not "now") so DST cannot shift a day.
 - **Comment:** `MerchantStem.stem(raw) — Clean.clean(raw)`, cut to 255.
-- **Reuse:** amount helpers (`firefly/Projection.java:144`), `MerchantStem`, `Clean`, the `AccountMap`
+- **Reuse:** amount helpers (`firefly/Projection.java:143`), `MerchantStem`, `Clean`, the `AccountMap`
   YAML shape (`firefly/AccountMap.java:30`), the preflight idea (refuse on an unmapped ref,
   `FireflyEgress.java:270`), the `Progress` printer, `FakeHub`, and the `FakeFirefly` pattern for a
   `FakeEzb`.
@@ -187,9 +194,11 @@ This file, plus the spike results. In order:
 
 1. **Transfer direction first** (§4), as its own commit or PR since it is a hub fix that stands
    without ezbookkeeping: the spec states "a TRANSFER unit's `accountRef` is the paying leg's
-   account"; `HubQueries.projectionUnits()` orients matched pairs by sign; a hub test pairs a
-   positive-first T1/T2/PAIR transfer and asserts the orientation; the Firefly impact (flipped
-   `unitHash`es) is stated.
+   account", that the unit's `date`/`rawDescription` stay canonical after the swap, and the fallback
+   when a `PAIR` names no negative leg; `HubQueries.projectionUnits()` orients matched pairs by sign;
+   a hub test pairs a positive-first T1/T2/PAIR transfer and asserts the orientation; the Firefly
+   impact is stated exactly — a flipped transfer's `unitHash` and fingerprint change, so the dormant
+   projection writes one content UPDATE per flipped row (~886) on its next `--apply`.
 2. **Refunds (S5)** — operator gate: income rows, or netted against the charge.
 3. `V2-SPEC.md` gets a new §11.2 "ezbookkeeping view" with §3–§5's rules (including "verify against
    the units view, not `latestBalance`", the declared-wallet opening, the fresh `clientSessionId` and
@@ -198,8 +207,10 @@ This file, plus the spike results. In order:
 `AGENTS.md`'s "Firefly egress impact" rule is reworded to "downstream view impact"; that
 is an invariant-file edit, so it needs operator OK in the PR. Touch-points beyond §11.1/§11.2: §12
 (`ezb.yaml` among the config files; view-only, **not** hashed into `configRevision`), §13 (the CLI
-list gains `egress ezb`), §16 (the job list and schedule example gain `egress-ezb`), §9.3 Jobs
-(Plan/Verify/Apply for ezb), and §7 (`projection_state` / `/api/projection` stay Firefly-only).
+list gains `egress ezb`), §16 (the job list and schedule example gain `egress-ezb`; the same section
+also names `egress-firefly` in the reparse paragraph, and `schedule.yaml`'s own comment lists the
+job names, so each of those names is edited too), §9.3 Jobs (Plan/Verify/Apply for ezb), and §7
+(`projection_state` / `/api/projection` stay Firefly-only).
 
 ### Stage 3 — mapping
 
@@ -217,10 +228,12 @@ verify), `FakeEzb` on the JDK `HttpServer`. End-to-end tests over `FakeHub` + `F
 
 `EgressCommand` subcommand `ezb` (`trex-v2-dist/.../EgressCommand.java:32`); runner job `egress-ezb` in
 `JobCatalogue.java:24` (apply behind `allowApply`); a `RunnerConfig` url field; Jobs UI buttons
-(`jobs.js`, currently hard-coded to `egress-firefly`); a `schedule.yaml` example; `ezb.yaml` added to
+(`jobs.js` hard-codes `egress-firefly` far beyond the buttons — `:168`, `:358`, `:448`, `:577-580` —
+so this is a refactor of that file, not a new button); a `schedule.yaml` example; `ezb.yaml` added to
 the compose `init` seed loop and `configs:` block (`deploy/v2/compose*.yml`), the hub config-drift
 list (`ConfigDrift.java:23`) and, if exposed, the MCP resource list (`HubService.java:133`).
-`egress-firefly` stays registered but its `schedule.yaml` entry is removed (unscheduled).
+`egress-firefly` stays registered but is already unscheduled (`schedule.yaml` ships `jobs: []`): its
+commented example (`:23`) and the job-name comment (`:7`) are dropped or retargeted to `egress-ezb`.
 
 ### Stage 6 — deploy and docs
 
