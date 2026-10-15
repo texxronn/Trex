@@ -792,9 +792,14 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
   is the whole statement chain and keeps facts dated after the units feed's `asOf` (measured: one such
   row, a $250 gap). A non-empty diff exits 1. Nothing to repair but re-apply.
 
-**Clearing** uses the API token alone: `transactions/list/all.json` enumerates the ids and
-`transactions/delete.json` deletes each, so **no account password is stored** (`batch_delete` and
-`data/clear/*` both require it). Every read carries the timezone headers too, not just the writes —
+**Clearing** has two modes. With `EZB_USER` and `EZB_PASSWORD` set, the view **clears in one call**:
+a login token from `/api/authorize.json` (outside `/api/v1`; body `{loginName, password}`) then
+`data/clear/transactions` with that token — it keeps accounts, categories, tags and saved
+explorations and deletes only transactions (measured: 0.02 s for the whole book). Without them it
+falls back to the API token alone: `transactions/list/all.json` enumerates the ids and
+`transactions/delete.json` deletes each, so **no account password is stored** — but it is one request
+per row (measured: ~42 s for 5718 rows; `batch_delete` is no faster, and `data/clear/*` refuses an API
+token). Both modes leave the same view. Every call carries the timezone headers, reads included —
 `list/all` is refused without them. The per-call `clientSessionId` and the post-import count check are
 the other guards the spike found.
 

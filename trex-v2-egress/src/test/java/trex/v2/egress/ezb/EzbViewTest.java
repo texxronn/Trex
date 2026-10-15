@@ -40,6 +40,12 @@ class EzbViewTest {
             .run(mode);
     }
 
+    private static EzbView.Outcome run(FakeHub hub, FakeEzb fake, PrintStream out, EzbView.Mode mode,
+                                       EzbClient.Credentials credentials) throws Exception {
+        return new EzbView(new HubClient(hub.url()), new EzbClient(fake.url(), "token", SYD), map(), out,
+            credentials).run(mode);
+    }
+
     private static PrintStream quiet() {
         return new PrintStream(PrintStream.nullOutputStream());
     }
@@ -49,6 +55,37 @@ class EzbViewTest {
             .filter(t -> type == ((Number) t.get("type")).intValue())
             .filter(t -> accountId.equals(t.get("sourceAccountId")))
             .findFirst().orElseThrow();
+    }
+
+    @Test
+    void theFastClearIsUsedWhenCredentialsAreConfigured() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            seedUnits(hub);                  // 4 rows, so the apply clears and re-imports in one call
+            EzbClient.Credentials creds = new EzbClient.Credentials("ron", "secret");
+
+            EzbView.Outcome first = run(hub, fake, quiet(), EzbView.Mode.APPLY, creds);
+            assertEquals(4, first.imported());
+            assertEquals(0, fake.deletes.get(), "no per-id delete in fast mode");
+            assertEquals(1, fake.dataClearCalls.get(), "one clear call per apply");
+
+            EzbView.Outcome second = run(hub, fake, quiet(), EzbView.Mode.APPLY, creds);
+            assertEquals(4, second.imported(), "idempotent");
+            assertEquals(2, fake.dataClearCalls.get(), "one call per apply, not per row");
+
+            assertTrue(run(hub, fake, quiet(), EzbView.Mode.VERIFY, creds).mismatches().isEmpty());
+        }
+    }
+
+    @Test
+    void theSlowClearDeletesByIdWithoutCredentials() throws Exception {
+        try (FakeEzb fake = new FakeEzb(); FakeHub hub = new FakeHub()) {
+            seedUnits(hub);
+            run(hub, fake, quiet(), EzbView.Mode.APPLY);   // populates 4 rows (nothing to clear yet)
+            run(hub, fake, quiet(), EzbView.Mode.APPLY);   // no credentials -> deletes each by id
+            assertTrue(fake.deletes.get() >= 4, "each row was deleted by id");
+            assertEquals(0, fake.dataClearCalls.get(), "the one-call clear is never reached");
+            assertTrue(fake.sessionTokens.isEmpty(), "no login was attempted");
+        }
     }
 
     @Test

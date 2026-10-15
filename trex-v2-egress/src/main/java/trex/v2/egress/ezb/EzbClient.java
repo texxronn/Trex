@@ -83,6 +83,9 @@ public final class EzbClient {
     /** An ezbookkeeping account, keyed by name. {@code balance} is in hundredths (its unit). */
     public record AccountInfo(String id, String name, long balance) {}
 
+    /** Login credentials for the one-call clear (§11.2). Without them the view clears by id. */
+    public record Credentials(String user, String password) {}
+
     /** One ezbookkeeping category; {@code categoryType} is its <em>category</em> enum (1/2/3). */
     public record CategoryInfo(String id, String name, int categoryType, String parentId) {}
 
@@ -155,6 +158,42 @@ public final class EzbClient {
         send("/api/v1/transactions/delete.json", Map.of("id", id));
     }
 
+    /**
+     * The one-call clear ({@code data/clear/transactions}, §11.2): mint a login token from the
+     * credentials, then clear. It keeps accounts, categories, tags and saved explorations and deletes
+     * only transactions — the same view as the per-id delete, in one request instead of thousands.
+     * The API token alone cannot reach this route, so it is the fast mode's reason to exist.
+     */
+    public void clearAll(Credentials credentials) throws IOException, InterruptedException {
+        String session = authorize(credentials.user(), credentials.password());
+        HttpResponse<String> r = send("POST", "/api/v1/data/clear/transactions.json",
+            bytes(Map.of("password", credentials.password())), session);
+        if (r.statusCode() / 100 != 2) {
+            throw new IllegalStateException("ezbookkeeping data/clear/transactions answered "
+                + r.statusCode() + ": " + body(r));
+        }
+    }
+
+    /**
+     * A normal login token from {@code /api/authorize.json} — outside {@code /api/v1} — whose body is
+     * {@code {loginName, password}} ({@code username} silently 401s). Needed only for the fast clear;
+     * the token is never persisted.
+     */
+    private String authorize(String user, String password) throws IOException, InterruptedException {
+        HttpResponse<String> r = send("POST", "/api/authorize.json",
+            bytes(Map.of("loginName", user, "password", password)), null);
+        if (r.statusCode() / 100 != 2) {
+            throw new IllegalStateException("ezbookkeeping /api/authorize.json answered "
+                + r.statusCode() + ": " + body(r));
+        }
+        JsonNode result = Json.mapper().readTree(r.body()).path("result");
+        String token = result.path("token").asText("");
+        if (token.isEmpty()) {
+            throw new IllegalStateException("ezbookkeeping login returned no token; check EZB_USER/EZB_PASSWORD");
+        }
+        return token;
+    }
+
     public void importRows(String clientSessionId, List<Map<String, Object>> rows)
             throws IOException, InterruptedException {
         Map<String, Object> body = new LinkedHashMap<>();
@@ -220,14 +259,25 @@ public final class EzbClient {
 
     private HttpResponse<String> send(String method, String path, byte[] body)
             throws IOException, InterruptedException {
+        return send(method, path, body, token);
+    }
+
+    /**
+     * @param bearer the token to send, or null for no {@code Authorization} header (the login route
+     *               needs none; {@code data/clear} needs the minted session token, not the API token)
+     */
+    private HttpResponse<String> send(String method, String path, byte[] body, String bearer)
+            throws IOException, InterruptedException {
         // Every call carries the timezone headers — the instance reads them for reads too, and
         // refuses a request without them (§11.2).
         HttpRequest.Builder b = HttpRequest.newBuilder(base.resolve(path))
             .timeout(Duration.ofSeconds(60))
-            .header("Authorization", "Bearer " + token)
             .header("Accept", "application/json")
             .header("X-Timezone-Name", zone.getId())
             .header("X-Timezone-Offset", String.valueOf(offsetMinutes()));
+        if (bearer != null) {
+            b.header("Authorization", "Bearer " + bearer);
+        }
         if (body == null) {
             b.method(method, HttpRequest.BodyPublishers.noBody());
         } else {

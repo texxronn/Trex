@@ -57,12 +57,20 @@ public final class EzbView {
     private final EzbClient ezb;
     private final EzbMap map;
     private final PrintStream out;
+    /** Login credentials for the one-call clear; null means clear by id with the API token (§11.2). */
+    private final EzbClient.Credentials credentials;
 
     public EzbView(HubClient hub, EzbClient ezb, EzbMap map, PrintStream out) {
+        this(hub, ezb, map, out, null);
+    }
+
+    public EzbView(HubClient hub, EzbClient ezb, EzbMap map, PrintStream out,
+                   EzbClient.Credentials credentials) {
         this.hub = hub;
         this.ezb = ezb;
         this.map = map;
         this.out = out;
+        this.credentials = credentials;
     }
 
     public Outcome run(Mode mode) throws IOException, InterruptedException {
@@ -157,10 +165,16 @@ public final class EzbView {
         // (2) ensure the primary + child categories, reusing every id that already exists.
         Categories categories = ensureCategories(unitList, true);
 
-        // (3) clear — list the ids and delete each; no account password is stored (§11.2).
+        // (3) clear — the fast one-call route (data/clear/transactions) when login credentials are
+        // configured, else delete each id with the API token, storing no password. Both keep accounts,
+        // categories, tags and explorations; both reset every balance to 0, so openings are re-posted.
         List<String> stale = ezb.transactionIds();
-        for (String id : stale) {
-            ezb.deleteTransaction(id);
+        if (credentials != null) {
+            ezb.clearAll(credentials);
+        } else {
+            for (String id : stale) {
+                ezb.deleteTransaction(id);
+            }
         }
 
         Map<String, String> accountIds = new TreeMap<>();
@@ -199,8 +213,9 @@ public final class EzbView {
         }
 
         out.printf("APPLY: %d opening(s), %d expense(s), %d income(s), %d transfer(s); %d account(s), "
-                + "%d categor(ies) created; %d cleared; %d imported%n", openingList.size(), expenses,
-            incomes, transfers, accountsCreated, categories.created(), stale.size(), imported);
+                + "%d categor(ies) created; %d cleared %s; %d imported%n", openingList.size(), expenses,
+            incomes, transfers, accountsCreated, categories.created(), stale.size(),
+            credentials != null ? "(one call)" : "(by id)", imported);
         return new Outcome(openingList.size(), expenses, incomes, transfers, accountsCreated,
             categories.created(), stale.size(), imported, List.of());
     }

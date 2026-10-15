@@ -259,7 +259,9 @@ done
   refeed and after each sync; never assign budgets by hand.
 - **ezbookkeeping is re-applied, not restored (§11.2):** the view holds nothing trex does not, so a
   lost instance is cleared and re-imported with `trex egress ezb --apply`, never backed up or
-  restored — it is a disposable view, like the index.
+  restored — it is a disposable view, like the index. Set `EZB_USER`/`EZB_PASSWORD` and the clear is
+  one call (`data/clear/transactions`); without them it deletes each transaction by id and stores no
+  password.
 - **A missing group stops the pass (D9):** a transaction deleted in Firefly stops the next pass that
   actually touches its unit (a planned retag or update), which then needs `--verify` then `--apply`
   (or retire the unit in trex); units that have not moved keep converging. That is the intended

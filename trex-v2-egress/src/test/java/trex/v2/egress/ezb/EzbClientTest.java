@@ -40,6 +40,36 @@ class EzbClientTest {
     }
 
     @Test
+    void theFastClearMintsASessionTokenAndClearsInOneCall() throws Exception {
+        try (FakeEzb fake = new FakeEzb()) {
+            fake.seedAccount("1", "ING Savings", 8, "AUD");
+            fake.drift("1", 1234);            // one transaction to clear
+            EzbClient client = new EzbClient(fake.url(), "token", SYD);
+
+            client.clearAll(new EzbClient.Credentials("ron", "secret"));
+
+            assertEquals(0, client.transactionIds().size(), "cleared");
+            assertEquals(1, fake.authorizeCalls.get());
+            assertEquals(1, fake.dataClearCalls.get());
+            assertEquals(0, fake.deletes.get(), "the per-id delete is never used in fast mode");
+        }
+    }
+
+    @Test
+    void aWrongPasswordFailsTheFastClearBeforeItDeletes() throws Exception {
+        try (FakeEzb fake = new FakeEzb()) {
+            fake.seedAccount("1", "ING Savings", 8, "AUD");
+            fake.drift("1", 1234);
+            EzbClient client = new EzbClient(fake.url(), "token", SYD);
+
+            assertThrows(IllegalStateException.class,
+                () -> client.clearAll(new EzbClient.Credentials("ron", "wrong")));
+            assertEquals(1, client.transactionIds().size(), "nothing was cleared");
+            assertEquals(0, fake.dataClearCalls.get());
+        }
+    }
+
+    @Test
     void aTransientFailureIsRetried() throws Exception {
         try (FakeEzb fake = new FakeEzb()) {
             fake.forcedStatuses.add(500);
