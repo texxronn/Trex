@@ -144,26 +144,9 @@ function occurrences() {
  * the shorter one the taller one's height and the pair reads as a single table.
  */
 function occurrencePanels(rows) {
-  const ins = rows.filter((o) => o.direction === 'in');
-  const outs = rows.filter((o) => o.direction === 'out');
-  return el('div', { class: 'occ-block' },
-    occurrenceTotals(ins, outs),
-    el('div', { class: 'occ-split' },
-      occurrencePanel('in', ins),
-      occurrencePanel('out', outs)));
-}
-
-/**
- * The window's totals, in a status line above the two panels and aligned to each (IN left, OUT
- * right): how many, and the summed Amount column. A row's figure is what it carries once a fact
- * landed, else the commitment's current price — exactly what the row shows — so the line never
- * disagrees with the panel below it.
- */
-function occurrenceTotals(ins, outs) {
-  const half = (dir, rows) => el('span', { class: `occ-total occ-total-${dir}` },
-    `${dir.toUpperCase()} `, el('b', {}, String(rows.length)), ' \u00b7 ',
-    el('b', {}, money(rows.reduce((sum, o) => sum + occurrenceAmount(o), 0))));
-  return el('div', { class: 'occ-totals' }, half('in', ins), half('out', outs));
+  return el('div', { class: 'occ-split' },
+    occurrencePanel('in', rows.filter((o) => o.direction === 'in')),
+    occurrencePanel('out', rows.filter((o) => o.direction === 'out')));
 }
 
 /** The magnitude the Amount column shows for one occurrence: what moved, else the current price. */
@@ -173,13 +156,21 @@ function occurrenceAmount(o) {
   return current == null ? 0 : Math.abs(current);
 }
 
+/**
+ * One panel: its header carries the side, how many rows it holds, and their summed Amount column —
+ * so the figure sits with the rows it totals and needs no separate status line. A row's figure is
+ * what it carries once a fact landed, else the commitment's current price, exactly what the row
+ * shows, so the header never disagrees with the table under it.
+ */
 function occurrencePanel(dir, rows) {
+  const total = rows.reduce((sum, o) => sum + occurrenceAmount(o), 0);
   const body = rows.length
     ? rows.map(occurrenceRow)
     : [el('tr', {}, el('td', { colspan: 6, class: 'empty' }, `Nothing ${dir}.`))];
   return el('section', { class: `occ-panel occ-panel-${dir}` },
     el('h4', { class: 'occ-panel-head' }, dir.toUpperCase(),
-      el('span', { class: 'muted' }, ` · ${rows.length}`)),
+      el('span', { class: 'muted' }, ` \u00b7 ${rows.length} \u00b7 `),
+      el('b', {}, money(total))),
     scroll(el('table', {},
       el('thead', {}, el('tr', {},
         el('th', {}, 'Date'), el('th', {}, 'Commitment'), el('th', {}, 'Direction'),

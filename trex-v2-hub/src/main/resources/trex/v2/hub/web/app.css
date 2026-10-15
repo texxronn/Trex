@@ -392,18 +392,6 @@ tbody tr.noop:hover td { opacity: .8; }
 .occ-panel-out > .occ-panel-head { color: #ef4444; }
 .occ-panel > .scroll { flex: 1; }
 .occ-panel td.empty { padding: 0.55rem 0.45rem; color: var(--muted); }
-/* The window's totals: one status line above both panels, each half aligned to its panel. */
-.occ-totals {
-  display: flex; flex-wrap: wrap; gap: 0.7rem;
-  margin: 0 0 0.35rem; padding: 0.3rem 0.45rem;
-  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
-  font-size: 12px; font-variant-numeric: tabular-nums;
-}
-.occ-totals > span { flex: 1 1 0; min-width: 0; }
-.occ-totals > span:last-child { text-align: right; }
-.occ-total-in { color: var(--good); }
-.occ-total-out { color: #ef4444; }
-.occ-totals b { font-weight: 700; }
 .bucket { margin-bottom: 1rem; }
 .pin { display: inline-flex; gap: 0.25rem; align-items: center; }
 
