@@ -9,6 +9,7 @@
 #   dev.sh reset             stop and delete the volumes (day 0 again)
 #   dev.sh ingest [DIR]      ingest statements (default ~/Downloads/Statements/Statements_CSV)
 #   dev.sh sync-config [--adopt FILE]  update the volume's repo-newer config files (QOL §3)
+#   dev.sh passwd USER       set a sign-in password, which turns sign-in on (V2-SPEC.md §9.5)
 #   dev.sh ps | logs [svc]   convenience
 #
 # Iterating on the UI: edit trex-v2-hub/src/main/resources/trex/v2/hub/web/*, reload
@@ -36,6 +37,16 @@ if [ -z "${EZB_TOKEN:-}" ] && [ -f "$HOME/.config/trex/ezb.env" ]; then
     set -a; . "$HOME/.config/trex/ezb.env"; set +a
 fi
 export TREX_EZB_URL="${TREX_EZB_URL:-http://host.docker.internal:8095}"
+# Sign-in (V2-SPEC.md §9.5). The credential file lives outside the repo and is made by
+# `dev.sh passwd USER`. Creating it turns sign-in on for the stack by itself; without it the hub
+# stays open, exactly as before (A-7). It holds per-user PBKDF2 hashes and one sessionSecret, so it
+# is never committed and never seeded into the config volume, and the hub reads it once — `dev.sh up`
+# after a password change or a rotated sessionSecret.
+export TREX_AUTH_DIR="${TREX_AUTH_DIR:-$HOME/.config/trex/auth}"
+mkdir -p "$TREX_AUTH_DIR"
+if [ -f "$TREX_AUTH_DIR/auth.yaml" ]; then
+    export TREX_AUTH_FILE=/etc/trex-auth/auth.yaml
+fi
 export TREX_IMAGE_TAG="${TREX_IMAGE_TAG:-$(sed -n 's|^  <version>\(.*\)</version>|\1|p' "$repo/pom.xml" | head -1)}"
 
 compose=(docker compose -f "$repo/deploy/v2/compose.yml" -f "$repo/deploy/v2/compose.dev.yml")
@@ -53,6 +64,19 @@ build() {
     (cd "$repo" && deploy/bin/trex-v2-docker.sh build)
 }
 
+# Sign-in (V2-SPEC.md §9.5): set one user's password in the credential file, creating the file and
+# its sessionSecret on the first call. The hub reads it at startup, so `dev.sh up` afterwards.
+# The password is never echoed, and no hash is ever printed.
+passwd_user() {
+    local user="${1:-}"
+    [ -n "$user" ] || die "usage: dev.sh passwd USER"
+    local_docker
+    docker run --rm -it -v "$TREX_AUTH_DIR:/auth" -v trex-v2_config:/etc/trex:ro \
+        "trex/trex-v2:${TREX_IMAGE_TAG}" \
+        hub passwd --auth /auth/auth.yaml --config /etc/trex --user "$user"
+    echo "sign-in: set — now 'dev.sh up' (the hub reads the file once, at startup)"
+}
+
 # Config drift (V2-QOL-IMPROVEMENTS-PLAN.md §3): compare ., .shipped and .base under the config volume and
 # update only the files the repo moved while you did not — in a throwaway alpine container, so the
 # host needs no tools and the script itself never runs on this machine's filesystem.
@@ -67,6 +91,11 @@ case "${1:-up}" in
     up)
         local_docker
         "${compose[@]}" up -d
+        if [ -n "${TREX_AUTH_FILE:-}" ]; then
+            echo "sign-in: on  ($TREX_AUTH_DIR/auth.yaml)"
+        else
+            echo "sign-in: off (no $TREX_AUTH_DIR/auth.yaml — the hub is open)"
+        fi
         echo "trex ui: http://localhost:8090"
         ;;
     down) local_docker; "${compose[@]}" down ;;
@@ -89,7 +118,8 @@ case "${1:-up}" in
         fi
         sync_config "$adopt"
         ;;
+    passwd) shift; passwd_user "${1:-}" ;;
     ps) local_docker; "${compose[@]}" ps ;;
     logs) shift; local_docker; "${compose[@]}" logs --tail 50 "$@" ;;
-    *) sed -n '3,23p' "$0" | sed 's|^# \{0,1\}||' ;;
+    *) sed -n '3,/^$/p' "$0" | sed 's|^# \{0,1\}||' | sed '$d' ;;
 esac
