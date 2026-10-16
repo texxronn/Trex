@@ -56,6 +56,11 @@ public final class HubPasswdCommand implements Callable<Integer> {
             System.err.println("--user is required (or --list)");
             return 64;
         }
+        String uncarryable = checkCookieCarryable(user);
+        if (uncarryable != null) {
+            System.err.println(uncarryable);
+            return 1;
+        }
         String refusal = checkActive(user, config);
         if (refusal != null) {
             System.err.println(refusal);
@@ -88,6 +93,23 @@ public final class HubPasswdCommand implements Callable<Integer> {
             System.out.println(id);
         }
         return 0;
+    }
+
+    /**
+     * The session cookie is {@code v1.<user>.<exp>.<mac>} with the id carried verbatim, so an id
+     * containing {@code .}, {@code |}, {@code ;} or whitespace can never be signed in (V2-SPEC.md
+     * §9.5). Provisioning is the right place to refuse it — a failure here is visible, whereas
+     * accepting it would make sign-in fail forever with no explanation.
+     */
+    private static String checkCookieCarryable(String user) {
+        for (int i = 0; i < user.length(); i++) {
+            char c = user.charAt(i);
+            if (c == '.' || c == '|' || c == ';' || Character.isWhitespace(c)) {
+                return "user id '" + user + "' contains '" + c
+                    + "', which the session cookie cannot carry; refused (V2-SPEC.md §9.5)";
+            }
+        }
+        return null;
     }
 
     /**

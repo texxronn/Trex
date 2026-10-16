@@ -116,7 +116,12 @@ export function uploadStaged(file, onProgress) {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { /* empty */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-      else reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+      else {
+        // The same lapse the request() helper handles: a 401 means the browser belongs on the form,
+        // not a toast of "HTTP 401" (V2-AUTH-PLAN.md §4.4).
+        if (xhr.status === 401) location.assign('/login');
+        reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+      }
     };
     xhr.onerror = () => reject(new Error('upload failed'));
     xhr.send(file);

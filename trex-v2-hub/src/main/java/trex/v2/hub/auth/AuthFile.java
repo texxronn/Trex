@@ -1,5 +1,7 @@
 package trex.v2.hub.auth;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import trex.v2.log.Yaml;
 
 import java.io.IOException;
@@ -8,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -27,6 +30,8 @@ import java.util.Set;
  * The hub loads one snapshot read-only; {@code passwd} creates and rewrites it.
  */
 public final class AuthFile {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthFile.class);
 
     /** The format this build understands; an unknown version is refused, never guessed. */
     static final int VERSION = 1;
@@ -59,6 +64,12 @@ public final class AuthFile {
         if (shape.sessionSecret() == null || shape.sessionSecret().isBlank()) {
             throw new IllegalArgumentException(file + ": sessionSecret is required");
         }
+        int secretBytes = secretLength(file, shape.sessionSecret());
+        if (secretBytes < SECRET_BYTES) {
+            throw new IllegalArgumentException(file + ": sessionSecret is " + secretBytes
+                + " bytes, but the spec requires at least " + SECRET_BYTES
+                + " (V2-SPEC.md §9.5)");
+        }
         Map<String, UserEntry> users = shape.users();
         if (users == null || users.isEmpty()) {
             throw new IllegalArgumentException(file
@@ -73,11 +84,49 @@ public final class AuthFile {
                 throw new IllegalArgumentException(file + ": a user key must not be blank");
             }
             if (!PasswordHash.isValid(pbkdf2)) {
-                throw new IllegalArgumentException(file + ": user '" + id + "' has no valid pbkdf2 hash");
+                // A clear message, because a weakened or malformed hash is a startup error and the
+                // operator has to know what the spec's shape is (V2-SPEC.md §9.5).
+                throw new IllegalArgumentException(file + ": user '" + id + "' has no valid pbkdf2 hash"
+                    + " (sha256, at least " + PasswordHash.ITERATIONS + " iterations, a salt of at least "
+                    + PasswordHash.SALT_BYTES + " bytes and a key of at least " + PasswordHash.KEY_BYTES
+                    + " bytes)");
             }
             hashes.put(id, pbkdf2);
         }
+        warnIfLoose(file);
         return new AuthFile(file, shape.sessionSecret(), hashes);
+    }
+
+    /** The decoded length of the stored session secret, or a startup error if it is not base64. */
+    private static int secretLength(Path file, String secret) {
+        try {
+            return Base64.getDecoder().decode(secret).length;
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(file
+                + ": sessionSecret is not valid base64 (V2-SPEC.md §9.5)");
+        }
+    }
+
+    /**
+     * A note, not a refusal: a group- or world-accessible credential file is a permissions nit, and
+     * turning it into a failed startup would turn that nit into an outage. The spec's {@code 0600} is
+     * an install instruction (docs/DEPLOYMENTS.md); this names the file and the fix so it can be
+     * followed. A filesystem without POSIX permissions simply has nothing to report.
+     */
+    private static void warnIfLoose(Path file) {
+        try {
+            Set<PosixFilePermission> perms = Files.getPosixFilePermissions(file);
+            boolean loose = perms.stream().anyMatch(p ->
+                p.name().startsWith("GROUP_") || p.name().startsWith("OTHERS_"));
+            if (loose) {
+                log.warn("the credential file {} is group- or world-accessible; run `chmod 600 {}`"
+                    + " (V2-SPEC.md §9.5)", file, file);
+            }
+        } catch (UnsupportedOperationException e) {
+            // No POSIX permissions on this filesystem; the host chmods the file (DEPLOYMENTS.md).
+        } catch (IOException e) {
+            // The file was just read, so a stat failure here is not worth failing startup over.
+        }
     }
 
     /** A brand-new credential file with a fresh {@link #newSessionSecret()} and no users yet. */
@@ -156,8 +205,12 @@ public final class AuthFile {
     private static void restrictToOwner(Path file) {
         try {
             Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-        } catch (UnsupportedOperationException | IOException e) {
+        } catch (UnsupportedOperationException e) {
             // A filesystem without POSIX permissions; the host still chmods the file (DEPLOYMENTS).
+        } catch (IOException e) {
+            // A real failure to tighten the file is not swallowed: the caller must decide, and a
+            // credential file that could not be secured should not be reported as written.
+            throw new UncheckedIOException("cannot set 0600 on " + file, e);
         }
     }
 

@@ -43,10 +43,22 @@
   </form>
 </main>
 <script>
-  // Only a same-origin absolute path is honoured: `next` comes from the request, so accepting a
-  // scheme or a protocol-relative value would turn the gate into an open redirect.
-  const requested = new URLSearchParams(location.search).get('next') || '/';
-  const target = requested.startsWith('/') && !requested.startsWith('//') ? requested : '/';
+  // Only a same-origin http(s) target is honoured: `next` comes from the request, so accepting a
+  // scheme, a protocol-relative value or a `\` (which browsers treat as `/`) would turn the gate
+  // into an open redirect. Resolving against the origin makes `/\evil.example` a foreign origin.
+  const target = (() => {
+    const requested = new URLSearchParams(location.search).get('next') || '/';
+    try {
+      const url = new URL(requested, location.origin);
+      const httpish = url.protocol === 'http:' || url.protocol === 'https:';
+      if (httpish && url.origin === location.origin) {
+        return url.pathname + url.search + url.hash;
+      }
+    } catch {
+      // A value the URL parser rejects is not a target.
+    }
+    return '/';
+  })();
 
   const form = document.getElementById('signin');
   const error = document.getElementById('error');

@@ -55,6 +55,9 @@ final class HubHttpApi {
     /** The A-9 failure delay in milliseconds: the same for every refusal, with no lockout. */
     private static final long SIGN_IN_REFUSAL_MS = 250;
 
+    /** The request-body cap every endpoint shares; over it is a 413, never a full read (V2-SPEC.md §9.5). */
+    private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
+
     /**
      * Where {@link #gated} parks the resolved session user for the write handlers (V2-SPEC.md §9.5).
      * An attribute, not a parameter, because the routes share one lambda shape and only some of
@@ -82,8 +85,16 @@ final class HubHttpApi {
         context(server, "/api/jobs", ex -> jobs(ex, api, runner));
         // A-4: /mcp stays outside the wrapper. It inherits the listener, so an anonymous caller on
         // the network can still read and (only with TREX_MCP_ALLOW_WRITES) write as `agent`. A test
-        // pins this so turning it on later is a visible spec change, not a quiet refactor.
-        server.createContext("/mcp", ex -> McpHttp.handle(ex, api, McpConfig.fromEnv()));
+        // pins this so turning it on later is a visible spec change, not a quiet refactor. It is
+        // exactly one path: a sub-path is a 404, so the open seam cannot quietly grow a tree.
+        server.createContext("/mcp", ex -> {
+            if (!ex.getRequestURI().getPath().equals("/mcp")) {
+                sendError(ex, 404, "not found");
+                ex.close();
+                return;
+            }
+            McpHttp.handle(ex, api, McpConfig.fromEnv());
+        });
         route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
         route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
         route(server, "/api/brief", "GET", ex -> write(ex, 200, api.brief()));
@@ -662,6 +673,9 @@ final class HubHttpApi {
             }
             try {
                 handler.handle(ex);
+            } catch (BodyTooLargeException e) {
+                sendError(ex, 413, "request body too large");
+                ex.close();
             } catch (Exception e) {
                 log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
                 try {
@@ -693,6 +707,8 @@ final class HubHttpApi {
                     return;
                 }
                 dispatch(ex, path, handlers);
+            } catch (BodyTooLargeException e) {
+                sendError(ex, 413, "request body too large");
             } catch (Exception e) {
                 log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
                 sendError(ex, 500, "internal error: " + e.getMessage());
@@ -710,6 +726,8 @@ final class HubHttpApi {
                     return;
                 }
                 dispatch(ex, path, handlers);
+            } catch (BodyTooLargeException e) {
+                sendError(ex, 413, "request body too large");
             } catch (Exception e) {
                 log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
                 sendError(ex, 500, "internal error: " + e.getMessage());
@@ -777,11 +795,20 @@ final class HubHttpApi {
     }
 
     private static String readBody(HttpExchange ex) throws IOException {
-        byte[] bytes = ex.getRequestBody().readAllBytes();
-        if (bytes.length > 10 * 1024 * 1024) {
-            throw new IOException("request body too large");
+        // Read at most one byte past the cap: enough to prove the body is over it without allocating
+        // however much an anonymous caller chose to send (V2-SPEC.md §9.5 hardening).
+        byte[] bytes = ex.getRequestBody().readNBytes(MAX_BODY_BYTES + 1);
+        if (bytes.length > MAX_BODY_BYTES) {
+            throw new BodyTooLargeException();
         }
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    /** A request body past {@link #MAX_BODY_BYTES}: the handler answers 413, never a 500. */
+    private static final class BodyTooLargeException extends IOException {
+        BodyTooLargeException() {
+            super("request body too large");
+        }
     }
 
     /** A query value that is {@code null} only when the key is absent; present-but-empty is {@code ""}. */
@@ -889,6 +916,8 @@ final class HubHttpApi {
                 return;
             }
             sendError(ex, 404, "not found");
+        } catch (BodyTooLargeException e) {
+            sendError(ex, 413, "request body too large");
         } catch (Exception e) {
             log.error("job proxy failed", e);
             sendError(ex, 502, "job runner unreachable: " + e.getMessage());

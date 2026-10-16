@@ -135,6 +135,24 @@ class HubAuthTest {
             HttpResponse<String> ping = post(base, "/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}", null);
             assertEquals(200, ping.statusCode(), ping.body());
             assertTrue(ping.body().contains("\"result\""), ping.body());
+            // The open seam is exactly one path: a sub-path is a 404, not another anonymous door.
+            assertEquals(404, post(base, "/mcp/tools", "{}", null).statusCode());
+            assertEquals(404, post(base, "/mcp/", "{}", null).statusCode());
+        }
+    }
+
+    @Test
+    void anOverLimitBodyIsRefusedWith413(@TempDir Path dir) throws Exception {
+        Path configDir = config(dir, true);
+        Path auth = writeAuth(dir, SECRET);
+        try (HubService hub = start(dir, configDir, journal(dir), auth)) {
+            URI base = base(hub);
+            // One byte past the 10 MiB cap, anonymous on the open /api/login route: the hub must
+            // refuse before it reads and allocates a body it already knows is too big.
+            String overLimit = "x".repeat(10 * 1024 * 1024 + 1);
+            HttpResponse<String> refused = post(base, "/api/login", overLimit, null);
+            assertEquals(413, refused.statusCode(), refused.body());
+            assertTrue(refused.body().contains("too large"), refused.body());
         }
     }
 
@@ -159,7 +177,7 @@ class HubAuthTest {
         }
 
         // Flipping sessionSecret signs everyone out at once: the whole revocation model (no table).
-        writeAuth(dir, "another-secret-entirely-0123456789abcdefghijklmnopQRSTUVWXYZabc=");
+        writeAuth(dir, "DWPJzTCbPYE4nQs9/fb4fAvDIuG8Oynb00NPyRGm2A0=");
         try (HubService third = start(dir, configDir, journal, auth)) {
             assertEquals(401, get(base(third), "/api/whoami", cookie).statusCode());
         }

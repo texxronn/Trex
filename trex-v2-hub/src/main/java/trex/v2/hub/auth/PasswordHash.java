@@ -68,8 +68,10 @@ public final class PasswordHash {
     }
 
     /**
-     * The shape check the credential loader applies (V2-SPEC.md §9.5): the exact algorithm, a
-     * 16-byte salt and a 32-byte key, so a hand-edited file fails at startup rather than at login.
+     * The shape check the credential loader applies (V2-SPEC.md §9.5): the exact algorithm, an
+     * iteration count no weaker than the spec's, a salt of at least 16 bytes and a key of at least
+     * 32, so a hand-edited file fails at startup rather than at login. {@link #verify} still uses
+     * the stored parameters, which is what lets a future re-hash raise them.
      */
     public static boolean isValid(String stored) {
         if (stored == null) {
@@ -80,11 +82,11 @@ public final class PasswordHash {
             return false;
         }
         try {
-            if (Integer.parseInt(parts[1]) <= 0) {
+            if (Integer.parseInt(parts[1]) < ITERATIONS) {
                 return false;
             }
-            return Base64.getDecoder().decode(parts[2]).length == SALT_BYTES
-                && Base64.getDecoder().decode(parts[3]).length == KEY_BYTES;
+            return Base64.getDecoder().decode(parts[2]).length >= SALT_BYTES
+                && Base64.getDecoder().decode(parts[3]).length >= KEY_BYTES;
         } catch (IllegalArgumentException e) {
             return false;
         }

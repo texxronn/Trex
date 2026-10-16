@@ -19,6 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AuthFileTest {
 
+    /** A valid 44-char base64 secret: 32 random bytes, the spec's length (V2-SPEC.md §9.5). */
+    private static final String SECRET = "hZ8vQ0m3nJ2wX5tR7kL9pB4cD6fG1sA0eY3uI6oP8qZ=";
+
     @Test
     void hashVerifiesAndIsSalted() {
         String hash = PasswordHash.hash("correct horse battery staple");
@@ -93,9 +96,9 @@ class AuthFileTest {
         Path file = dir.resolve("auth.yaml");
         Files.writeString(file, """
             version: 1
-            sessionSecret: "secret"
+            sessionSecret: "%s"
             users: {}
-            """);
+            """.formatted(SECRET));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> AuthFile.load(file));
         assertTrue(e.getMessage().contains("no users"), e.getMessage());
     }
@@ -117,13 +120,84 @@ class AuthFileTest {
         Path file = dir.resolve("auth.yaml");
         Files.writeString(file, """
             version: 1
-            sessionSecret: "secret"
+            sessionSecret: "%s"
             users:
               ron:
                 pbkdf2: "not-a-hash"
-            """);
+            """.formatted(SECRET));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> AuthFile.load(file));
         assertTrue(e.getMessage().contains("pbkdf2"), e.getMessage());
+    }
+
+    @Test
+    void aWeakenedHashIsAStartupError(@TempDir Path dir) throws Exception {
+        // The spec names 600 000 iterations; a hand-edited count below it is refused at load, so a
+        // weakened file can never quietly become an open hub (V2-SPEC.md §9.5).
+        String weakened = PasswordHash.hash("pw").replace(":600000:", ":500000:");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> AuthFile.load(validFile(dir, SECRET, weakened)));
+        assertTrue(e.getMessage().contains("pbkdf2"), e.getMessage());
+    }
+
+    @Test
+    void anUnknownAlgorithmIsAStartupError(@TempDir Path dir) throws Exception {
+        String md5 = "md5:600000:AAAAAAAAAAAAAAAAAAAAAA==:"
+            + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> AuthFile.load(validFile(dir, SECRET, md5)));
+        assertTrue(e.getMessage().contains("pbkdf2"), e.getMessage());
+    }
+
+    @Test
+    void aShortSaltOrKeyIsAStartupError(@TempDir Path dir) throws Exception {
+        String shortSalt = "sha256:600000:" + java.util.Base64.getEncoder()
+            .encodeToString(new byte[8]) + ":"
+            + java.util.Base64.getEncoder().encodeToString(new byte[32]);
+        assertThrows(IllegalArgumentException.class,
+            () -> AuthFile.load(validFile(dir, SECRET, shortSalt)));
+
+        String shortKey = "sha256:600000:" + java.util.Base64.getEncoder()
+            .encodeToString(new byte[16]) + ":"
+            + java.util.Base64.getEncoder().encodeToString(new byte[16]);
+        assertThrows(IllegalArgumentException.class,
+            () -> AuthFile.load(validFile(dir, SECRET, shortKey)));
+    }
+
+    @Test
+    void aShortSessionSecretIsAStartupError(@TempDir Path dir) throws Exception {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> AuthFile.load(validFile(dir, "c2hvcnQ=", PasswordHash.hash("pw"))));
+        assertTrue(e.getMessage().contains("sessionSecret"), e.getMessage());
+
+        IllegalArgumentException notBase64 = assertThrows(IllegalArgumentException.class,
+            () -> AuthFile.load(validFile(dir, "not base64 at all !!", PasswordHash.hash("pw"))));
+        assertTrue(notBase64.getMessage().contains("base64"), notBase64.getMessage());
+    }
+
+    @Test
+    void aLooseFileWarnsButStillLoads(@TempDir Path dir) throws Exception {
+        Path file = validFile(dir, SECRET, PasswordHash.hash("pw"));
+        try {
+            Files.setPosixFilePermissions(file,
+                java.nio.file.attribute.PosixFilePermissions.fromString("rw-r--r--"));
+        } catch (UnsupportedOperationException e) {
+            return; // No POSIX permissions on this filesystem: nothing to warn about.
+        }
+        // A permissions nit is a warning, not an outage: the file still loads and verifies.
+        assertTrue(AuthFile.load(file).verify("ron", "pw"));
+    }
+
+    /** One user, {@code ron}, with the given secret and pbkdf2 string. */
+    private static Path validFile(Path dir, String secret, String pbkdf2) throws Exception {
+        Path file = dir.resolve("auth-" + Math.abs(secret.hashCode()) + ".yaml");
+        Files.writeString(file, """
+            version: 1
+            sessionSecret: "%s"
+            users:
+              ron:
+                pbkdf2: "%s"
+            """.formatted(secret, pbkdf2));
+        return file;
     }
 
     @Test

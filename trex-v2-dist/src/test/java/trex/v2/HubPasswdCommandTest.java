@@ -75,6 +75,19 @@ class HubPasswdCommandTest {
     }
 
     @Test
+    void refusesAnIdTheCookieCannotCarry(@TempDir Path dir) throws Exception {
+        Path configDir = config(dir, true, false);
+        Path auth = dir.resolve("auth.yaml");
+        // The cookie is `v1.<user>.<exp>.<mac>` with the id verbatim, so a dot can never sign in;
+        // provisioning fails loudly instead of building a session that can never be verified.
+        Result result = run("hunter2\nhunter2\n", "hub", "passwd", "--auth", auth.toString(),
+            "--config", configDir.toString(), "--user", "ron.smith");
+        assertNotEquals(0, result.exit());
+        assertTrue(result.err().contains("cookie"), result.err());
+        assertFalse(Files.exists(auth), "a refused passwd must not create the file");
+    }
+
+    @Test
     void refusesEmptyAndMismatchedPasswords(@TempDir Path dir) throws Exception {
         Path configDir = config(dir, true, false);
         Path auth = dir.resolve("auth.yaml");
