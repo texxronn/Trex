@@ -1,11 +1,12 @@
 # Account registry — SPEC.md §6. One entry per bank account.
 #   ref              registry key used by trex-ingest (--account) and on every journal line
 #   currency         AUD | USD | INR (stamped onto events; no conversion)
-#   liquid           optional; false puts this account outside the liquid boundary, so a transfer
-#                    to or from it crosses the boundary for the other side, while a transfer between
-#                    two such accounts changes nothing. Income and spend count on every account now —
-#                    a salary into savings is income, a loan's interest is spend (V2-SPEC.md §9.2,
-#                    V2-CASHFLOW-PLAN.md C-2). Default true; a clearing account is never liquid.
+#   liquid           optional, default true: the account is household money the Cash flow sheet
+#                    counts (V2-SPEC.md §9.2, V2-CASHFLOW-PLAN.md C-2). A move between two liquid
+#                    accounts is noise; liquid -> loan is a repayment; liquid -> any other
+#                    non-liquid account is set aside. A declared loan (mortgages.yaml) and a clearing
+#                    account are never liquid, whatever the flag; kids' and investment accounts are
+#                    liquid: false.
 #                    The old 'budget' key is a config error.
 # An unknown accountRef is always rejected; accounts are never auto-created.
 #
@@ -35,7 +36,6 @@ accounts:
   - ref: "ing-savings"
     currency: "AUD"
     balanceSource: statement
-    liquid: false        # its moves sit outside the boundary (income/spend still count)
     chip_color: blue
   # Orange Everyday.
   - ref: "ing-orange"
@@ -63,17 +63,16 @@ accounts:
   - ref: "ing-loan-offset"
     currency: "AUD"
     balanceSource: statement
-    liquid: false        # its moves sit outside the boundary (income/spend still count)
     chip_color: violet
   - ref: "ing-mortgage-simplifier"
     currency: "AUD"
     balanceSource: statement
-    liquid: false        # its moves sit outside the boundary (income/spend still count)
+    liquid: false        # a declared loan (mortgages.yaml): never liquid (C-2), explicit here
     chip_color: teal
   - ref: "ing-variable-rate"
     currency: "AUD"
     balanceSource: statement
-    liquid: false        # its moves sit outside the boundary (income/spend still count)
+    liquid: false        # a declared loan (mortgages.yaml): never liquid (C-2), explicit here
     chip_color: fuchsia
 
   # BankWest credit card (bw-csv). Debits are positive in that export and no row carries a
@@ -96,7 +95,6 @@ accounts:
   - ref: "cba-netsaver"
     currency: "AUD"
     balanceSource: statement
-    liquid: false        # its moves sit outside the boundary (income/spend still count)
     chip_color: cyan
 
   # Clearing accounts (V2-PROPOSAL.md §6.10): a closed counterparty whose statements are gone.
@@ -195,8 +193,8 @@ accounts:
   # absorbs the position. The destination text names their mother and the product ("maxi saver"),
   # never the child, so the per-child landing is an ATTACH_ACCOUNT decision, not a pattern
   # (see the 'maxi saver' entry in transfers.yaml). Migrate by registering the real account and
-  # revoking the attach. liquid is irrelevant for a clearing account: it is never `true`, so a
-  # transfer into one is a move out of the liquid boundary.
+  # revoking the attach. A clearing account is never liquid, whatever the flag (C-2), so a
+  # transfer into one is money set aside.
   - ref: "sg-auriel"
     currency: "AUD"
     balanceSource: clearing
