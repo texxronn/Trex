@@ -110,9 +110,7 @@ function renderSheet() {
     periodLabel.textContent = monthLabel(key);
     jumpInput.value = key + '-01';
   }
-  for (const tab of viewTabs.children) {
-    tab.classList.toggle('active', tab.dataset.view === view);
-  }
+  markTabs();
   clear(sheetHost);
   if (!data) {
     sheetHost.append(el('p', { class: 'muted' }, 'Loading…'));
@@ -125,7 +123,7 @@ function renderSheet() {
     return;
   }
   sheetHost.append(sheetGrid());
-  if (view === 'cost') {
+  if (data.view === 'cost') {
     const bridge = costBridge();
     if (bridge) sheetHost.append(bridge);
   }
@@ -156,7 +154,7 @@ function leftBar() {
     el('div', { class: 'muted', title: 'liquid accounts: ' + (accounts || []).join(', ') },
       through ? `through ${date(through)} — the statements say nothing after it` : 'no statements yet'),
     notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '',
-    view === 'cash' ? reconcileLine() : '');
+    data.view === 'cash' ? reconcileLine() : '');
 }
 
 /**
@@ -309,6 +307,15 @@ function colorOf(slice, index) {
   return PALETTE[index % PALETTE.length];
 }
 
+/** The bridge's sentence, worded from the rows actually shown. */
+function bridgeNote(principal, aside) {
+  const what = principal && aside ? 'Neither is spending' : 'This is not spending';
+  const why = [];
+  if (principal) why.push('the principal becomes equity in the home');
+  if (aside) why.push('the set-aside money is still yours');
+  return `${what}: ${why.join(' and ')}. The Cash view shows ${principal && aside ? 'them as Money Out slices' : 'it as a Money Out slice'} instead.`;
+}
+
 function hasRows(sheet) {
   return Boolean(sheet.income.lines.length || sheet.income.due || sheet.spend.slices.length
     || (sheet.loans && (sheet.loans.repayments || sheet.loans.charges))
@@ -337,9 +344,7 @@ function costBridge() {
   }
   return el('section', { class: 'mode-section bridge' },
     scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))),
-    el('p', { class: 'muted' },
-      'Neither is spending: the principal becomes equity in the home and the set-aside money is still '
-      + 'yours. The Cash view shows them as Money Out slices instead.'));
+    el('p', { class: 'muted' }, bridgeNote(principal, aside)));
 }
 
 // ---- the month stepper -------------------------------------------------------------------------
@@ -354,9 +359,16 @@ function step(direction) {
   goTo(monthKey(first));
 }
 
+function markTabs() {
+  for (const tab of viewTabs.children) {
+    tab.classList.toggle('active', tab.dataset.view === view);
+  }
+}
+
 function setView(next) {
   if (next === view) return;
   view = next;
+  markTabs(); // at once: the sheet below keeps the view it was read in until the new read lands
   writeUrl();
   load();
 }
@@ -381,8 +393,8 @@ function goTo(key) {
 function writeUrl() {
   const params = new URLSearchParams();
   if (month) params.set('month', month);
-  const query = params.toString();
   if (view !== 'cost') params.set('view', view);
+  const query = params.toString();
   history.replaceState(null, '', '#cashflow' + (query ? '?' + query : ''));
 }
 

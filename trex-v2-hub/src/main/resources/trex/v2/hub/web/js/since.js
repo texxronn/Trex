@@ -68,7 +68,7 @@ export function latestLeft() {
  * The summary line, or null when there is no marker, no validated answer, the marker line is
  * gone from the journal, or the person has dismissed it. Expected renders it above its
  * occurrences, Blotter above its toolbar; both read the same cached response. Expected passes
- * {@code left: false} to drop the "left this month" text — that figure lives in Budget now
+ * {@code left: false} to drop the "left this month" text — that figure lives in Cash flow now
  * (V2-SPEC.md §9.1) — while the Blotter keeps it. Every collection is normalised below, so a
  * payload with wrong-shaped rows renders nothing (or the calm line) instead of throwing in either
  * view.

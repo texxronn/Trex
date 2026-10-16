@@ -4,7 +4,7 @@
 // settled is a person's conclusion, due, partial and missed are the forward states. Each amount is
 // an unsigned magnitude with an explicit in/out direction. The catch-up backlog is the arrears
 // list, oldest first, the registry with its curation actions, and the rule lint. Headroom moved to
-// the Budget mode (V2-SPEC.md §9.2).
+// the Cash flow mode (V2-SPEC.md §9.2).
 //
 // The four sections fold (V2-EXPECTED-UX-PLAN.md §4): the summary is the section header and
 // carries its live figures, so a collapsed section still speaks. The daily content — occurrences
@@ -96,7 +96,7 @@ function render() {
   errorBar = el('div', { class: 'error', hidden: true });
   host.append(errorBar, el('div', { class: 'toolbar' }, tabs()));
   // The since-clear line sits above the occurrences (QOL §5), from the visit's cached read. It
-  // drops the "left this month" text — that figure lives in Budget now; the Blotter keeps it.
+  // drops the "left this month" text — that figure lives in Cash flow now; the Blotter keeps it.
   const notice = since.line({ left: false });
   if (notice) host.append(notice);
   if (!data) {
