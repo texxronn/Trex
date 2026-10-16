@@ -104,6 +104,28 @@ public final class StagingStore {
     }
 
     /**
+     * Remove an upload outright — the row leaves the list, whichever folder it sits in
+     * (V2-INBOX-CLEAR-PLAN.md §2, I-1). This is the one destructive staging operation, and it is
+     * safe exactly where it matters: a file whose bytes are on facts is durable in the evidence
+     * store, and the log is never touched. A file that never ingested is its only copy, and this
+     * store cannot tell the difference — it does not read the log — so the caller warns first
+     * (I-3); `false` means there was nothing by that name.
+     */
+    public synchronized boolean discard(String name) throws IOException {
+        boolean removed = false;
+        for (Path dir : List.of(root, done, failed)) {
+            if (Files.deleteIfExists(safeResolve(dir, name))) {
+                removed = true;
+            }
+            // The sidecar goes even if the file was already gone, so no .meta can outlive its bytes.
+            if (Files.deleteIfExists(dir.resolve(name + META))) {
+                removed = true;
+            }
+        }
+        return removed;
+    }
+
+    /**
      * The inbox files a sweep may take, by name: top level, settled (unmodified for
      * {@code settleMs}, so a file still being copied in is left for next time), and never a
      * dotfile or a partial ({@code .part}, {@code .tmp}) — Syncthing and scp both write those first.

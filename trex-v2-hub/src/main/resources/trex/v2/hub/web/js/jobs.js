@@ -37,6 +37,8 @@ let frontierHeading;
 let historyHost;
 let statusLine;
 let ingestButton;
+let clearButton;
+let selectAll;
 let reparseSummaryHost;
 let focusFrontier = false;
 
@@ -262,19 +264,35 @@ async function upload(files) {
 
 function renderStaging() {
   clear(stagingHost);
+  selectAll = null;
+  // A tick can outlive its file (a clear that failed, or another viewer's upload going away), so
+  // the set is pruned against the list before anything reads its size.
+  const names = new Set(staged.map((file) => file.name));
+  for (const name of [...selected]) if (!names.has(name)) selected.delete(name);
   ingestButton = el('button', { class: 'primary', onclick: runIngest }, 'Ingest selected');
-  ingestButton.disabled = selected.size === 0;
+  clearButton = el('button', { class: 'ghost', onclick: clearSelected }, 'Clear selected');
   const inboxButton = el('button', { onclick: () => startRun('ingest-inbox', {}).then(load) },
     'Ingest inbox');
   inboxButton.title = 'ingest every settled file statements.yaml names; file each under done/ or failed/';
-  stagingHost.append(el('div', { class: 'toolbar' }, ingestButton, inboxButton,
+  stagingHost.append(el('div', { class: 'toolbar' }, ingestButton, clearButton, inboxButton,
     el('span', { class: 'muted' }, 'The tick means these bytes are already in the log.')));
   if (!staged.length) {
+    syncSelection();
     stagingHost.append(el('p', { class: 'muted' }, 'Nothing staged.'));
     return;
   }
+  selectAll = el('input', {
+    type: 'checkbox',
+    title: 'tick every file',
+    onchange: (event) => {
+      if (event.target.checked) staged.forEach((file) => selected.add(file.name));
+      else staged.forEach((file) => selected.delete(file.name));
+      // Rebuilt rather than hand-synced: the tick lives in the set, and the box is its reflection.
+      renderStaging();
+    },
+  });
   const head = el('tr', {},
-    el('th', {}), el('th', {}, 'File'), el('th', {}, 'Type'), el('th', {}, 'Account'),
+    el('th', {}, selectAll), el('th', {}, 'File'), el('th', {}, 'Type'), el('th', {}, 'Account'),
     el('th', {}, 'Size'), el('th', {}, 'Status'), el('th', {}));
   const body = staged.map((file) => el('tr', { class: file.ingested ? 'read' : '' },
     el('td', {}, el('input', {
@@ -282,7 +300,7 @@ function renderStaging() {
       checked: selected.has(file.name),
       onchange: (event) => {
         if (event.target.checked) selected.add(file.name); else selected.delete(file.name);
-        ingestButton.disabled = selected.size === 0;
+        syncSelection();
       },
     })),
     el('td', { class: 'desc', title: file.original }, file.original),
@@ -291,11 +309,20 @@ function renderStaging() {
       (value) => { file.account = value; })),
     el('td', { class: 'muted' }, humanSize(file.size)),
     el('td', {}, statusCell(file)),
-    el('td', {}, file.ingested
-      ? el('button', { class: 'ghost', onclick: () => clearOne(file) }, 'Clear')
-      : ''),
+    el('td', {}, el('button', { class: 'ghost', onclick: () => clearFiles([file]) }, 'Clear')),
   ));
   stagingHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+  syncSelection();
+}
+
+/** Keep the two bulk buttons and the head's box in step with the per-row ticks. */
+function syncSelection() {
+  if (ingestButton) ingestButton.disabled = selected.size === 0;
+  if (clearButton) clearButton.disabled = selected.size === 0;
+  if (selectAll) {
+    selectAll.checked = staged.length > 0 && selected.size === staged.length;
+    selectAll.indeterminate = selected.size > 0 && selected.size < staged.length;
+  }
 }
 
 function select(values, current, onPick) {
@@ -310,7 +337,8 @@ function statusCell(file) {
     return el('span', { class: 'tick', title: 'ingested: these bytes are on facts' }, '\u2713 ingested');
   }
   if (file.state === 'done') {
-    return el('span', { class: 'muted', title: 'cleared from the inbox' }, 'cleared');
+    return el('span', { class: 'muted',
+      title: 'the inbox sweep filed it away; Clear removes the file' }, 'cleared');
   }
   if (file.state === 'failed') {
     return el('span', { class: 'occ-missed',
@@ -319,14 +347,50 @@ function statusCell(file) {
   return el('span', { class: 'muted' }, 'staged');
 }
 
-async function clearOne(file) {
-  try {
-    await api.clearStaged(file.name);
-    selected.delete(file.name);
-    await load();
-  } catch (error) {
-    reportError(error);
+/**
+ * Clearing removes the upload (V2-INBOX-CLEAR-PLAN.md §2, I-1): the row leaves the list and the
+ * file leaves the inbox, wherever the sweep had filed it. The log is not touched, and a file whose
+ * bytes are on facts keeps them in the evidence store — which is exactly what `clearMessage` says,
+ * and all it says, when every file in the batch is ticked.
+ */
+async function clearFiles(files) {
+  const list = files.filter(Boolean);
+  if (!list.length || !window.confirm(clearMessage(list))) return;
+  for (const file of list) {
+    try {
+      await api.clearStaged(file.name);
+      selected.delete(file.name);
+    } catch (error) {
+      reportError(error);
+    }
   }
+  await load();
+}
+
+function clearSelected() {
+  return clearFiles(staged.filter((file) => selected.has(file.name)));
+}
+
+/**
+ * The one place that says what clearing costs (I-3). An unticked file is not in the log, so its
+ * bytes exist nowhere else and no rebuild can bring it back; the store cannot say this itself — it
+ * never reads the log — so the view names the files it is about to lose.
+ */
+function clearMessage(files) {
+  const loose = files.filter((file) => !file.ingested);
+  const noun = files.length === 1 ? 'file' : 'files';
+  const lines = [`Clear ${files.length} ${noun} from the staging inbox?`];
+  if (files.length > loose.length) {
+    lines.push('', `The ${files.length - loose.length} ticked file(s) are already on facts: the `
+      + 'evidence store keeps their bytes, and the log is not touched.');
+  }
+  if (loose.length) {
+    lines.push('', `${loose.length} of them ${loose.length === 1 ? 'was' : 'were'} never ingested and `
+      + `${loose.length === 1 ? 'is' : 'are'} not in the log \u2014 clearing removes the only copy:`);
+    lines.push(...loose.slice(0, 8).map((file) => '  ' + (file.original || file.name)));
+    if (loose.length > 8) lines.push(`  \u2026 and ${loose.length - 8} more`);
+  }
+  return lines.join('\n');
 }
 
 async function runIngest() {
