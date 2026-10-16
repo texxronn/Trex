@@ -85,7 +85,7 @@ DOCKER_CONTEXT=trex deploy/bin/trex-v2-docker.sh build
 scp deploy/v2/compose.server.yml deploy@10.10.10.142:/tmp/compose.yml
 scp deploy/config/accounts.yaml deploy/config/users.yaml deploy/config/categories.yaml \
     deploy/config/transfers.yaml deploy/config/pins.yaml deploy/config/firefly.yaml \
-    deploy/config/ezb.yaml deploy/config/profiles.yaml deploy/config/statements.yaml deploy/config/sources.yaml \
+    deploy/config/ezb.yaml deploy/config/cashflow.yaml deploy/config/profiles.yaml deploy/config/statements.yaml deploy/config/sources.yaml \
     deploy/config/schedule.yaml deploy/config/mortgages.yaml deploy/v2/sequencer.yaml \
     deploy@10.10.10.142:/tmp/
 # as root on the host: install into /opt/trex/config and `docker compose up -d`
@@ -128,6 +128,24 @@ docker run --rm -i -v trex-v2_config:/etc/trex -e ADOPT=profiles.yaml alpine \
 
 A sync needs no restart: the sequencer re-checks the config before each write, and the hub's
 watcher re-derives on the change.
+
+### Upgrading to Cash flow (`budget` → `liquid`)
+
+The Budget tab became **Cash flow** (`V2-SPEC.md` §9.2, §9.3, §12): `accounts.yaml` `budget:` is
+replaced by `liquid:`, and the new `ConfigLoader` rejects a `budget:` key, so the hub, sequencer and
+runner will not start against an old live `accounts.yaml`. `init` never overwrites a live file, so
+change it before (or right after) `up`:
+
+1. Copy `cashflow.yaml` to the host with the others (the scp list above carries it).
+2. Check the drift state on the Jobs page. If `accounts.yaml` is **repo-newer** (you never edited
+   it), run `sync-config.sh` (*Config drift*). Otherwise edit by hand: rename every `budget` to
+   `liquid`, and drop `liquid: false` from `ing-savings`, `ing-loan-offset` and `cba-netsaver` —
+   they are liquid now; the two loan accounts keep `liquid: false`.
+3. Restart the stack (`docker compose up -d`). Also check any dev run dir's `accounts.yaml`.
+
+Changing `accounts.yaml` changes the `configRevision`, so expect one re-derive (harmless). For the
+rest of the deploy month the Blotter's since-line "left this month (was …)" compares the old and
+the new semantics.
 
 ### Seeding and testing (day 0)
 

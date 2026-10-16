@@ -559,6 +559,8 @@ the **cash-flow sheet**. One row-walk serves both reads, so the strip and the sh
 **Liquid** (C-2). Each account carries `liquid` (§12, default true; it replaces the old `budget`
 flag). A declared **loan** account (`mortgages.yaml` `loans[].account`) and a `clearing` account are
 never liquid, whatever the flag; the kids' accounts and any investment account are `liquid: false`.
+A clearing account standing in for a closed card or account (a closed card's repayments in old months) is
+never liquid either, so a move to it reads as "set aside" in those months — by design (C-2/C-3).
 
 **Flows** (C-3). Over the month's rows, with commitments counting through their occurrences:
 - an **external** row (no contra leg among your own accounts) on a liquid account is Money In or
