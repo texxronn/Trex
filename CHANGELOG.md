@@ -25,10 +25,10 @@ everything is under **Unreleased**.
 
 - **The acting-user switcher is gone** (`V2-SPEC.md` §9.1, §9.5). The status strip shows `Signed in as
   <name>` with **Sign out**, from `GET /api/whoami` (`Acting as <name> · sign-in off` when sign-in is
-  off); identity is a property of the session, not of the page. `/api/decisions`, `/api/cash` and
-  `POST /api/acks` are stamped with the session's user and refuse a draft naming another user (`403`),
-  and a `user` parameter on `/api/since` — or in an `/api/acks` body — is ignored. Attribution only:
-  any user may still make any decision.
+  off); identity is a property of the session, not of the page. With sign-in on, `/api/decisions`,
+  `/api/cash` and `POST /api/acks` are stamped `actor: user` with the session's user and refuse a
+  request naming another user (`403`), and a `user` parameter on `/api/since` is ignored. Attribution
+  only: any user may still make any decision.
 - **The Budget tab is now Cash flow** (`V2-SPEC.md` §9.2, §9.3, §12; `V2-CASHFLOW-PLAN.md` §1).
   `GET /api/cashflow?month=&view=cost|cash&exclude=` presents any month as one sheet over the
   household's liquid accounts: loan repayments split into charges and principal, moves to

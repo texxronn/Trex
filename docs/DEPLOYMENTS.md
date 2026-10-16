@@ -56,9 +56,10 @@ chmod 600 /opt/trex/auth/auth.yaml        # root only
 docker compose -f /opt/trex/compose.yml up -d
 ```
 
-Re-running `passwd` for a user replaces that user's hash; `hub passwd --auth <file> --list` names the
-ids that have one and never prints a hash. Changing `sessionSecret` in the file signs everyone out at
-once, and that is the whole revocation model.
+Re-running `passwd` for a user replaces that user's hash; `hub passwd --auth <file> --config <dir>
+--list` names the ids that have one and never prints a hash. Changing `sessionSecret` in the file signs
+everyone out, and a replaced password takes effect, when the hub **restarts** — the file is read once at
+startup — and that is the whole revocation model.
 
 **Still true, and worth repeating:** the hub is served over plain HTTP on the LAN, so the password and
 the session cookie cross the wire in the clear. Sign-in stops the stray device; it does not stop a

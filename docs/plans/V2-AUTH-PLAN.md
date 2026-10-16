@@ -161,9 +161,11 @@ pure and deterministic (`AGENTS.md`).
 
 With a session, the user is a **fact of the connection**, so the hub stops trusting the body:
 
-- `POST /api/decisions`, `POST /api/cash`, `POST /api/acks` — the session's user is stamped onto every
-  draft. A body that names a *different* user is **`403`**, not silently overridden: a mismatch is a
-  bug or an attack, and either way the honest answer is to fail loudly. (The MCP path keeps its own
+- `POST /api/decisions`, `POST /api/cash`, `POST /api/acks` — the session's user is stamped, and the
+  actor is **forced to `user`**. Stamping the user alone is not enough: the writer drops `user` to null
+  for any other actor, so a draft arriving with `actor: "system"` would be logged as a machine and lose
+  the person. A body that names a *different* user is **`403`**, not silently overridden: a mismatch is
+  a bug or an attack, and either way the honest answer is to fail loudly. (The MCP path keeps its own
   rule unchanged: `actingUser` must be a declared user or `agent`, `McpWriteTools`.)
 - `GET /api/since?user=` — the `user` parameter is **ignored**; the session decides whose "since you
   last cleared" line is read. (`GET /api/acks` takes no `user` and reports every user's read rows for
