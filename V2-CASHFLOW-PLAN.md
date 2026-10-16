@@ -60,10 +60,15 @@ accounts to within $0.01 (one occurrence-vs-fact cent).
 - **C-5 Payment month.** A paid occurrence (`occurred`/`settled`/`partial`) counts in the month of
   `COALESCE(matched_date, due_date)`; a `due`/`awaiting`/`missed` one in its `due_date` month. The
   Expected tab's query is not changed.
-- **C-6 Reconcile.** The read reports `reconcile.liquidNet` (the signed sum of every non-noop,
-  non-synthetic row on the liquid accounts dated in the month), `reconcile.postedLeft` (the Cash
-  view's left without any due projection and without unrecorded cash, computed whatever the view)
-  and `reconcile.gap = postedLeft − liquidNet`. The UI shows it in the Cash view.
+- **C-6 Reconcile.** The read reports `reconcile.liquidNet` (the signed sum of every non-noop row
+  on the liquid accounts dated in the month, synthetic legs included — a wallet's ATM leg),
+  `reconcile.postedLeft` (the Cash view's left without any due projection and without unrecorded
+  cash, computed whatever the view), `reconcile.settledWithoutFact` (the signed sum of the month's
+  counted paid occurrences with no matched fact — a "Mark paid" with no statement row) and
+  `reconcile.gap = postedLeft − liquidNet − settledWithoutFact`. The UI shows it in the Cash view.
+  Legitimate remaining gap: a HELD liquid leg, a liquid ↔ liquid move straddling the month boundary,
+  a commitment paid from a non-liquid account. (Amended in Task 3's fix round, measured on the
+  journal: Aug's ATM wallet legs and Jun/Sep's facts-less settles.)
 - **C-7 Exclude.** A view filter, never a decision or a log line. Keys name a **leaf** category
   (`FLIGHTS`) or a **primary** group (`Travel`). Defaults from an optional view-config
   `cashflow.yaml` (`exclude: [BIG_TICKET_PURCHASES]`), not hashed into `configRevision`; the URL

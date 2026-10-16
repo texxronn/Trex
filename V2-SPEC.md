@@ -589,25 +589,33 @@ is not changed.
 **Two views** (C-4; `view=cost` default). `left = In − Out` in both.
 - **Cost:** Money Out is spending including loan charges, plus `Due`, plus `Unrecorded`. The
   principal (the "→ home equity" figure) and the set-aside appear in a **bridge**, never in Out.
-- **Cash:** the loan charges leave their category groups and, with the principal, form one
-  **`Mortgage`** slice equal to the repayments (parts `Interest & fees`, `Principal`); **`Set aside`**
-  is a slice (parts: the accounts). The current month projects the declared **repayment**
+- **Cash:** the loan charges leave their category groups (and a loan's credits leave Money In, since
+  `charges` is net of them) and, with the principal, form one **`Mortgage`** slice equal to the
+  repayments (parts `Interest & fees`, `Principal`); **`Set aside`** is a slice (parts: the accounts).
+  `spend.posted` is then the groups plus `Mortgage` and `Set aside`, so
+  `spend.total = posted + due + unrecorded` holds in both views. The current month projects the declared **repayment**
   commitments' due occurrences (`mortgages.yaml` `repaymentCommitment`) into `Due` and skips the
   declared **interest** commitments' due occurrences, which sit inside the repayment. For a past
   month `left` is the change in the liquid accounts.
 
 Each expense row is rolled into its **primary group** (§11.2; a category the map does not name
 falls back to one `Expense` bucket) so the sheet and the ezbookkeeping charts slice a category the
-same way. The donut is real spending: `spend.posted` by group plus `Due`, `Unrecorded` and, in Cash,
+same way. The donut is real spending: the posted groups plus `Due`, `Unrecorded` and, in Cash,
 `Mortgage` and `Set aside`, as slices that carry no category. Each group slice carries its **parts**
 (its leaf categories, amount descending, summing to the slice) so the view can pivot. A **past**
 month is actuals; the month of the hub's `today` carries the projection.
 
-**Reconcile** (C-6). The read reports `reconcile.liquidNet` (the signed sum of every non-noop,
-non-synthetic row on the liquid accounts dated in the month), `reconcile.postedLeft` (the Cash view's
-`left` without any due projection and without unrecorded cash, whichever view was asked for) and
-`reconcile.gap = postedLeft − liquidNet`. The UI shows it in the Cash view; a gap beyond one
-occurrence-vs-fact cent is the thing to look at.
+**Reconcile** (C-6). The read reports `reconcile.liquidNet` (the signed sum of every non-noop row on
+the liquid accounts dated in the month, **synthetic legs included** — a wallet's ATM leg is one, and
+without it the bank leg would leave the liquid set with nothing arriving; a synthetic leg on a
+clearing account stays out because that account is not liquid), `reconcile.postedLeft` (the Cash
+view's `left` without any due projection and without unrecorded cash, whichever view was asked for),
+`reconcile.settledWithoutFact` (the signed sum — spend negative, income positive — of the month's
+paid occurrences the walk counted that carry no matched fact: a "Mark paid" with no statement row,
+real in `postedLeft` but in no row) and `reconcile.gap = postedLeft − liquidNet − settledWithoutFact`.
+The UI shows it in the Cash view; a gap beyond one occurrence-vs-fact cent is the thing to look at.
+What legitimately remains in it: a `HELD` leg on a liquid account, a liquid ↔ liquid move whose legs
+straddle the month boundary, and a commitment paid from a non-liquid account.
 
 **Exclude** (C-7). A **view filter**, never a decision or a log line. Keys name a leaf category
 (`FLIGHTS`) or a primary group (`Travel`). Defaults come from the optional view-config
