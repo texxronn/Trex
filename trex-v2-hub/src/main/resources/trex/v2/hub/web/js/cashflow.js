@@ -41,14 +41,17 @@ const DONUT_RADIUS = 70;
 const DONUT_STROKE = 36;
 const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 
-// The palette of the operator's reference budget sheet (budget_image.webp), sampled from it:
-// magenta, blue, green, amber, red, then grey, and a few more in the same family so a month with
-// many groups does not repeat a colour. Presentation only — nothing reads a colour back — and
-// assigned by arc index, which is amount-descending, so the biggest slice takes the first colour.
-const PALETTE = ['#c43074', '#479ff8', '#82d553', '#eebb42', '#e94025', '#929292',
-  '#6c7ae0', '#00b0a8', '#b46cd6', '#a9683c'];
-const SYNTHETIC_COLOR = { Due: '#94a3b8', Unrecorded: '#78716c' };
-const OTHER_COLOR = '#6b7280';
+// A vivid palette, no greys (the operator's call): it opens in the order of the reference budget
+// sheet (budget_image.webp) — magenta, blue, green, amber, red — then seven more saturated hues so
+// a month with many groups (the Leaf pivot) rarely repeats a colour. Neighbours in the list are far
+// apart on the colour wheel. Presentation only — nothing reads a colour back — and assigned by arc
+// index, which is amount-descending, so the biggest slice takes the first colour.
+const PALETTE = ['#ec4899', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#06b6d4', '#f97316', '#84cc16', '#d946ef', '#14b8a6', '#6366f1'];
+// The arcs that are not one group's posted spending take light tints, still colours, so they read
+// as softer than the groups beside them.
+const SYNTHETIC_COLOR = { Due: '#67e8f9', Unrecorded: '#fdba74' };
+const OTHER_COLOR = '#f9a8d4';
 
 let host;
 let ctx;
@@ -288,7 +291,7 @@ function withBody(table, rows) {
 }
 
 /** Each drawn arc's colour by row name, so a table row matches its arc; a row folded into the
- *  donut's Other arc gets Other's grey. */
+ *  donut's Other arc gets Other's colour. */
 function swatchColors() {
   const colors = new Map();
   arcs().filter((slice) => slice.amount > 0)
@@ -468,7 +471,7 @@ function arcs() {
   return [...folded, ...synthetics];
 }
 
-/** The arc's colour: the fixed palette by arc index, a neutral grey for the synthetic arcs. */
+/** The arc's colour: the fixed palette by arc index, a light tint for Other and the synthetic arcs. */
 function colorOf(slice, index) {
   if (SYNTHETIC.has(slice.group)) return SYNTHETIC_COLOR[slice.group];
   if (slice.group === 'Other') return OTHER_COLOR;

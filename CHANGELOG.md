@@ -17,6 +17,8 @@ everything is under **Unreleased**.
   non-liquid accounts shown as `Set aside`, liquid-to-liquid moves ignored. **Breaking config:**
   `accounts.yaml` `budget:` is replaced by `liquid:` and a `budget:` key is a config error; new
   `cashflow.yaml`. See *Upgrading to Cash flow* in `docs/DEPLOYMENTS.md` before deploying.
+- **The Cash flow donut is vivid** — twelve saturated hues and no greys; Other, Due and
+  Unrecorded take light tints instead of grey (presentation only).
 
 ## [0.2.2] - 2026-10-15
 
