@@ -155,7 +155,9 @@ function leftBar() {
     `out ${money(spend.total)}`,
   ];
   if (data.excluded && data.excluded.total > 0) {
-    parts.push(`Left excl. one-offs ${money(data.leftExcl)}`);
+    const keys = data.excluded.keys || [];
+    const shown = keys.length > 3 ? keys.slice(0, 2).join(', ') + ' +' + (keys.length - 2) : keys.join(', ');
+    parts.push(`Left excl. ${shown || 'exclusions'} ${money(data.leftExcl)}`);
   }
   const notes = [];
   if (missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(missed)}`));
@@ -221,15 +223,22 @@ function moneyIn() {
  * opens into its parts — the trex categories inside it (the read carries them). A move is never a
  * slice, so the donut is real spending only.
  */
+/** The row tooltip, worded per slice: Mortgage and Set aside do not open into categories. */
+function rowTitle(group) {
+  if (group === 'Mortgage') return 'click for interest and principal';
+  if (ACCOUNT_PARTS.has(group)) return 'click for the accounts';
+  return 'click for the categories inside this group';
+}
+
 function moneyOut() {
   const rows = [];
   const excluded = excludedInfo();
   for (const slice of outRows()) {
     const fixed = NON_CATEGORY.has(slice.group);
-    const parts = pivot === 'leaf' ? [] : (slice.parts || []);
+    const parts = pivot === 'leaf' && !fixed ? [] : (slice.parts || []);
     rows.push(...expandableRow(SYNTHETIC.has(slice.group) ? 'synthetic' : '', [slice.group], slice.amount,
       parts, ACCOUNT_PARTS.has(slice.group),
-      ACCOUNT_PARTS.has(slice.group) ? 'click for the accounts' : 'click for the categories inside this group',
+      rowTitle(slice.group),
       fixed ? null : slice.group));
   }
   const net = data.spend.total - excluded.total;

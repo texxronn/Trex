@@ -133,7 +133,7 @@ public final class HubService implements HubApi, AutoCloseable {
      * can never read an arbitrary path out of the volume.
      */
     private static final Set<String> MCP_CONFIG_FILES = Set.of(
-        "accounts.yaml", "categories.yaml", "transfers.yaml", "firefly.yaml", "ezb.yaml", "cashflow.yaml",
+        "accounts.yaml", "categories.yaml", "transfers.yaml", "firefly.yaml", "ezb.yaml",
         "profiles.yaml");
 
     private final HubConfig config;
