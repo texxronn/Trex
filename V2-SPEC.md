@@ -454,7 +454,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/commitments` | the registry: faces, a candidate's stem, rules, payment method and effective reminder lead time, current price, next due, arrears, notes |
 | GET | `/api/commitments/activity?id=` | a candidate's series, or a declared commitment's claimed facts over all history |
 | GET | `/api/expected?window=today\|week\|month` | the window's occurrences, the arrears backlog, the window-independent `toPay` occurrences, committed totals, and the month's **headroom** (§9.2) |
-| GET | `/api/budget?month=YYYY-MM&principal=include` | the month's **budget sheet** (§9.2): Money In, Money Out and Left as the month's **real flows** — every account's external rows plus commitments, whatever the `budget` flag — with the moves between your own accounts carried apart, each expense row rolled into its primary group; the same walk as `headroom`, which its `left` must equal; `principal=include` (default off) counts the loan principal repayments as Money Out, so `left` then falls below the strip's by exactly that principal (§9.2) |
+| GET | `/api/cashflow?month=YYYY-MM&view=cost\|cash&exclude=…` | the month's **cash-flow sheet** (§9.2): Money In, Money Out and Left over the **liquid** accounts, `view=cost` (default) or `cash`, each expense row rolled into its primary group with its leaf parts; the Mortgage/Set-aside slices (Cash) or bridge (Cost); `reconcile` against the liquid accounts' rows; `exclude` (leaf or primary keys; present, even empty, replaces the `cashflow.yaml` default); its Cost `left` is the strip's `headroom.left`. Replaces `/api/budget` |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
@@ -474,7 +474,7 @@ unauthenticated and binds loopback by default.
 ### 9.1 The status strip
 
 Open review count (a link to Review), or **✓ Review clear — through <date>** once nothing is open;
-the date is the oldest statement frontier of the `budget` accounts, so a clear never claims more
+the date is the oldest statement frontier of the `liquid` accounts, so a clear never claims more
 than the statements say. The wording names Review, not the world: a clean queue is not the same as
 nothing due, so it cannot be read as an all-clear.
 
@@ -542,70 +542,79 @@ the viewer's own, plus the month's headroom (§9.2). Expected shows one line **a
 and the Blotter one at its top, once per visit until dismissed: **Since Tue 08:40:** 47 new rows
 (ing-salary, bw-credit-card) · 2 new items · Netflix and NIB paid · left this month −$120 (was
 −$95). The **left this month** clause belongs to the Blotter alone; Expected omits it, because that
-figure is Budget's now (§9.2, §9.3). The parenthetical comes from `trex.clearedLeft` and is omitted
+figure is Cash flow's now (§9.2, §9.3). The parenthetical comes from `trex.clearedLeft` and is omitted
 when the marker's month is not the current one or nothing is stored; with a marker and no news the
 line is **Nothing new since Tue 08:40.**; a marker whose line is no longer in the log (a rebuilt
 journal) shows nothing; a new device has no marker and no line. Nothing is stored outside the
 browser; the endpoint is a read of the disposable index.
 
-### 9.2 Headroom ("left this month")
+### 9.2 Headroom and the cash-flow sheet
 
-Presented by the **Budget** mode (§9.3); always the calendar month of `asOf`:
-`left = income in + income due + moved in − commitments paid − commitments due − other spend − moved out`.
+Presented by the **Cash flow** mode (§9.3). The month's money in and out of the household's **liquid**
+accounts (`V2-CASHFLOW-PLAN.md`; the why, with the measured double counts it removes, is §0 there).
+The status strip's `headroom.left` is the **Cost** view's `left` of the calendar month of `asOf`
+(below); `GET /api/cashflow?month=YYYY-MM&view=cost|cash&exclude=…` presents any absolute month as
+the **cash-flow sheet**. One row-walk serves both reads, so the strip and the sheet cannot drift.
 
-Income and spend are the month's **real money in and out**: every account's **external** rows — a
-row with no contra leg among your own accounts, whatever the account's `budget` flag (a salary paid
-into a savings account and the interest a loan charges are each real money) — plus every
-commitment's occurrences. A **move** between two of your own accounts is never income or spend: it
-changes `left` only where it crosses into or out of a `budget` account (`moved out`/`moved in`); a
-move between two accounts both outside the budget changes nothing. Commitments count through their
-occurrences (`occurred`/`settled`/`partial` as paid, `due`/`awaiting` at the current price as due);
-a commitment whose facts are **all transfers** between your own accounts (a loan repayment) is a
-**move**, so its occurrences are not counted — its rows already carry the move. A fact a commitment
-claims counts through the commitment's occurrence **only when it is attached to one** (the
-occurrence's `matched_external_id`): a fact claimed but attached to no occurrence — a rule that
-reaches back further than the commitment's first materialised window — is ordinary income or spend,
-never swallowed. `missed` commitments and unpaired (`HELD`) legs are reported apart, never folded
-in. The month's unrecorded cash (§9.4) is added as one line, `Unrecorded cash`, signed — a negative
-month reduces spend. A declared wallet is a `budget` account, so an ATM withdrawal is a transfer
-between two budget accounts, which headroom skips.
+**Liquid** (C-2). Each account carries `liquid` (§12, default true; it replaces the old `budget`
+flag). A declared **loan** account (`mortgages.yaml` `loans[].account`) and a `clearing` account are
+never liquid, whatever the flag; the kids' accounts and any investment account are `liquid: false`.
 
-**The budget sheet** (`V2-BUDGET-VIEW-PLAN.md` D-6). `GET /api/budget?month=YYYY-MM` presents the
-same month — an absolute month, unlike headroom's "the month of `asOf`" — as a sheet: **Money In**
-(`income.posted + income.due`), **Money Out** (`spend.posted + spend.due + spend.unrecorded`) and
-**Money Left Over** (`left` = In − Out + `moved.net`, with `moved.net = moved.in − moved.out`). Money
-In and Money Out are the same real flows as headroom's income and spend, so **their totals hold no
-move**: a move between your own accounts rides a separate **Moved** block — the boundary-crossing
-`out`/`in` (each carrying the **parts** naming the account on the other side, amount descending) and
-their `net`, plus the moves between two accounts that are **both** outside the budget (`outside`, the
-offset → loan repayments, **aggregated per pair with a count** of the payments behind it). Each
-Money Out row is rolled into its **primary group** (§11.2; an expense category the map does not name
+**Flows** (C-3). Over the month's rows, with commitments counting through their occurrences:
+- an **external** row (no contra leg among your own accounts) on a liquid account is Money In or
+  Money Out; on a declared loan account (interest, fees) it is Money Out, always (a credit there is
+  Money In); on any other non-liquid account it is off the sheet (the kids' own activity);
+- a move **liquid ↔ liquid** is noise and ignored entirely — over the whole set of own accounts every
+  move nets to zero, so any boundary term would be a double count;
+- a move **liquid → loan** is a **repayment**, **loan → liquid** a **redraw** (a negative repayment).
+  Per loan, `charges` = the loan's Money Out external rows net of its credits and
+  `principal = repayments − charges` (negative in an odd month; reported as is);
+- a move **liquid → other non-liquid** (kids, clearing, investments) is **set aside**, back the
+  other way a negative set-aside; a move between two non-liquid accounts changes nothing and is not
+  reported.
+
+A commitment whose facts are **all transfers** between your own accounts (a loan repayment) is a
+move, so its occurrences are not counted as spend by the Cost view; a fact a commitment claims counts
+through the occurrence **only when it is attached to one** (`matched_external_id`) — a fact claimed
+but attached to no occurrence is ordinary income or spend, never swallowed. `missed` commitments and
+unpaired (`HELD`) legs are reported apart. The month's unrecorded cash (§9.4) is one signed line,
+`Unrecorded`. A declared wallet is a liquid account, so an ATM withdrawal is a liquid ↔ liquid move,
+which is noise.
+
+**Payment month** (C-5). A paid occurrence (`occurred`/`settled`/`partial`) counts in the month of
+`COALESCE(matched_date, due_date)`; a `due`/`awaiting`/`missed` one in its `due_date` month, so a
+commitment due 06-28 and paid 07-01 lands in July, with the account rows. The Expected tab's query
+is not changed.
+
+**Two views** (C-4; `view=cost` default). `left = In − Out` in both.
+- **Cost:** Money Out is spending including loan charges, plus `Due`, plus `Unrecorded`. The
+  principal (the "→ home equity" figure) and the set-aside appear in a **bridge**, never in Out.
+- **Cash:** the loan charges leave their category groups and, with the principal, form one
+  **`Mortgage`** slice equal to the repayments (parts `Interest & fees`, `Principal`); **`Set aside`**
+  is a slice (parts: the accounts). The current month projects the declared **repayment**
+  commitments' due occurrences (`mortgages.yaml` `repaymentCommitment`) into `Due` and skips the
+  declared **interest** commitments' due occurrences, which sit inside the repayment. For a past
+  month `left` is the change in the liquid accounts.
+
+Each expense row is rolled into its **primary group** (§11.2; a category the map does not name
 falls back to one `Expense` bucket) so the sheet and the ezbookkeeping charts slice a category the
-same way; the donut is real spending only, so it slices `spend.posted` by group plus the still-**due**
-commitments and the month's unrecorded cash as their own `Due`/`Unrecorded` slices (money that carries
-no category) — and the group slices alone sum to Money Out already seen, every slice to
-`spend.total`. A paid occurrence rolls into the group of the category its claimed fact carried. Each
-group slice carries its **parts** — the trex categories inside it, amount descending — so the view
-can open a group into the distribution that made it up; a slice's parts sum to its amount. The
-row-walk is the one `headroom` uses, factored out so the two reads cannot drift: the sheet's `left`
-equals `/api/expected`'s `headroom.left` for the same month. A **past** month is actuals (its `due`
-occurrences have become `missed` by then); the month of the hub's `today` carries the projection.
+same way. The donut is real spending: `spend.posted` by group plus `Due`, `Unrecorded` and, in Cash,
+`Mortgage` and `Set aside`, as slices that carry no category. Each group slice carries its **parts**
+(its leaf categories, amount descending, summing to the slice) so the view can pivot. A **past**
+month is actuals; the month of the hub's `today` carries the projection.
 
-**The principal option** (`V2-BUDGET-VIEW-PLAN.md` D-7). The sheet takes one operator option, **off by
-default**, to count the month's **loan principal repayments** as Money Out. A **principal repayment**
-is a transfer whose **paying** leg's contra account is one of the **declared loan accounts** — every
-facility's `loans[].account` in `mortgages.yaml` (§12); the other direction (a redraw the other way)
-is not one, and neither is a card repayment. `GET /api/budget` reads the option from
-`?principal=include` — any other value, or absent, is off. The month's principal is **always
-reported** (`principal.total` and its parts, the loan accounts, amount descending); with the option
-**on** it also becomes a **`Loan principal`** Money Out slice — placed after the group slices and
-before `Due`, opening into its loan-account parts as the moved parts are — and enters `spend.total`
-(`total = posted + due + unrecorded + principal.total`; `posted` is unchanged, so the group slices
-still sum to it and every slice to the total). With the option on the sheet's `left` is therefore
-**lower than the status strip's `headroom.left` by exactly the principal**: the strip never counts
-it. With the option **off** a principal repayment stays what it is today — a move between your own
-accounts (the offset → loan transfers, in `moved.outside`) — and the sheet's `left` still equals
-headroom's.
+**Reconcile** (C-6). The read reports `reconcile.liquidNet` (the signed sum of every non-noop,
+non-synthetic row on the liquid accounts dated in the month), `reconcile.postedLeft` (the Cash view's
+`left` without any due projection and without unrecorded cash, whichever view was asked for) and
+`reconcile.gap = postedLeft − liquidNet`. The UI shows it in the Cash view; a gap beyond one
+occurrence-vs-fact cent is the thing to look at.
+
+**Exclude** (C-7). A **view filter**, never a decision or a log line. Keys name a leaf category
+(`FLIGHTS`) or a primary group (`Travel`). Defaults come from the optional view-config
+`cashflow.yaml` (§12); the URL's `exclude` overrides them (present, even empty, replaces the default).
+Excluded spending leaves the slices and rides `excluded`; `left` is unchanged and
+`leftExcl = left + excluded.total`. Only posted category spending can be excluded — not `Mortgage`,
+`Set aside`, `Due` or `Unrecorded`.
 
 ### 9.3 The UI modes
 
@@ -616,7 +625,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
 | **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction, split into **IN** (left) and **OUT** (right) panels with the same columns, each panel's header carrying its row count and its summed amount (the shorter panel takes the taller one's height, and the panels stack under 720px); inside Occurrences, a window-independent Manual payments group lists the `toPay` rows and opens the existing Settle action as **Mark paid** (a decision only: it writes no fact and does not change a transaction); the same occurrences remain in the window tables; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu, filtered to `active` by default; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md`, `V2-MANUAL-PAY-PLAN.md` |
-| **Budget** | the month's **budget sheet** (§9.2): Money In, Money Out and Money Left Over as the month's **real flows** over every account, a Money Out donut by primary group, a **Moved** bridge for the moves between your own accounts (the boundary-crossing out/in, each with its destinations/sources) and a muted **outside the budget** list for the moves between two non-budget accounts that change nothing; a month stepper (calendar months only, the month in the URL) | `V2-REVIEW-FIXES-PLAN.md` §10, `V2-BUDGET-VIEW-PLAN.md` |
+| **Cash flow** | the month's money in and out of the **liquid** accounts (§9.2, C-1): Money In, Money Out and Left, with a **Cost / Cash** toggle for the mortgage (Cost: the principal and set-aside in a bridge; Cash: `Mortgage` and `Set aside` slices, a `reconcile` line against the liquid accounts' rows), a Money Out donut and table with a **Primary / Leaf** pivot (`pivot=leaf`, view-only, C-8), a ⊘ exclude toggle per group or leaf (C-7, `exclude=` in the URL, defaults from `cashflow.yaml`); a month stepper (calendar months only; month, `view`, `pivot` and `exclude` in the URL); `#cashflow`, with `#budget` kept as an alias | `V2-CASHFLOW-PLAN.md` (supersedes `V2-BUDGET-VIEW-PLAN.md` D-2, D-3, D-6's boundary, D-7) |
 | **Eyeball** | open items, the anomaly checks at an explicit `asOf`, rows bucketed by period with `Ack`/`Unack` | `V2-PROPOSAL.md` §10.3 |
 | **Rules** | the category editor and the transfer-pattern editor, each with blast-radius preview, lint, fixtures | `V2-PROPOSAL.md` §10 |
 | **Accounts** | per-account opening, range, newest ingest, a facts-derived weekly strip (a quiet week is a hole to check) | `V2-PROPOSAL.md` §10.5 |
@@ -812,7 +821,7 @@ the *category* type is 1 income, 2 expense, 3 transfer. A mapped row carries `X-
   ezbookkeeping primary; view-only like the rest of that file, §12) names the primary an expense
   category sits under, and an unmapped expense category falls back to `trex-expense`. A row still
   names only its **secondary**, so the row mapping is unchanged; it is the charts that aggregate over
-  the primaries, and the same map rolls a category into its primary for the Budget sheet's Money Out
+  the primaries, and the same map rolls a category into its primary for the cash-flow sheet's Money Out
   donut (§9.2). A child that already exists elsewhere is **re-parented** to its primary and
   **keeps its id**, so a saved exploration survives the move; a second leaf with the same
   `(type, name)` is a **duplicate** and is deleted, keeping the id already under the target primary
@@ -882,22 +891,18 @@ Firefly unit.
 `balanceSource` = `statement | declared | clearing`, `settlementWindowDays`, `fetchEveryDays`
 (the statement-age nudge, §9.1 — presentation only: default 31 for a statement account, none for
 declared/clearing, `0` off), `chip_color` — the hub
-chip colour, presentation only — `budget` (default true, never for a clearing account: whether the
-account's **moves** sit inside the budget — income and spend count on **every** account now, so the
-flag only decides which side of the boundary a transfer crosses; a declared wallet stays
-`budget: true`, so its transfers to and from the bank are skipped by headroom, §9.2; presentation
-only), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
+chip colour, presentation only — `liquid` (default true; whether the account is part of the household's liquid cash that the cash-flow sheet counts, §9.2 — never true for a clearing account or a declared loan account, whatever the flag; the kids' and investment accounts are `liquid: false`; it replaces `budget`, and a `budget:` key is a config error naming `liquid`; a declared wallet stays liquid; a view setting, never a derive input), and for a clearing account `closingBalance`/`closedAt`), `users.yaml` (non-empty; id, name, active, cadence), `categories.yaml`
 (declared categories + ordered rules), `categories.tests.yaml` (golden fixtures, run on load),
 `profiles.yaml` (account-scoped `MARK_NOOP` rules for roles), `transfers.yaml` (window, tolerances, and
 per-account ordered `transferPatterns` with a `default` list — match, `rail`, `shape`, `clearing` (a
 `clearing` account or a declared wallet, §6.3)),
 `firefly.yaml` (account mapping), `ezb.yaml` (the ezbookkeeping view's mapping — ref → name, its
 ezbookkeeping account category, the zone, and an optional category → primary `categories` map;
-**view-config**, read by `trex egress ezb` **and by the hub's Budget roll-up** (§9.2) and never
-hashed into `configRevision`, §11.2), `mortgages.yaml` (optional **view-config**, not a derive input:
+**view-config**, read by `trex egress ezb` **and by the hub's Cash flow roll-up** (§9.2) and never
+hashed into `configRevision`, §11.2), `cashflow.yaml` (optional **view-config** for the Cash flow sheet: `exclude: [BIG_TICKET_PURCHASES]`, the categories or primary groups excluded by default — the URL overrides; never hashed into `configRevision`, C-7), `mortgages.yaml` (optional **view-config**, not a derive input:
 each facility's offset account, the loan it shelters (`offsetAppliesTo` — the declaration the
 idle-offset insight rests on, never inferred from charges), its loans, and per loan the
-repayment/interest commitment ids, with an optional observed rate — §9.3; never hashed into
+repayment/interest commitment ids, with an optional observed rate — §9.3; **also read by the Cash flow sheet** (§9.2: the loan accounts, and the repayment and interest commitment ids); never hashed into
 `configRevision`), `sources.yaml` (the declared 8-char sources the sequencer accepts),
 `statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker), and an
 optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a

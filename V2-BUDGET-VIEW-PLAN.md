@@ -54,6 +54,12 @@ moves between your own accounts carried on a **Moved** bridge that is neither in
   operator's own accounts (the offset → loan transfers, in `moved.outside`). The month's principal is
   reported either way. *(operator, 2026-10-16: "Add a checkbox for Money Out (Includes Principal
   Repayments?) — in which case adds Principal repayments as money out".)*
+- **D-8** Superseded by `V2-CASHFLOW-PLAN.md` (operator, 2026-10-16): D-2 (the donut's treatment of
+  moves) by the Cash flow sheet's Cost and Cash views, where a liquid ↔ liquid move is noise and the
+  mortgage is a bridge or a `Mortgage` slice; D-3 (the "outside the budget" section) by the `liquid`
+  flag and the flow rules of C-3; D-6's boundary (`budget` flag, `moved.in`/`moved.out`/`moved.outside`)
+  by `liquid` accounts, its real-flows rule for external rows standing; D-7 (the principal checkbox,
+  which counted the loan interest twice) by the `Mortgage` slice and bridge.
 
 **Authority:** `V2-SPEC.md` §9.2 (headroom), §9.3 (the UI modes), §12 (config), §11.2 (the ezb
 roll-up map); `V2-REVIEW-FIXES-PLAN.md` §10; `AGENTS.md`.
