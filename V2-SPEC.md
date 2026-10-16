@@ -452,7 +452,7 @@ unauthenticated and binds loopback by default.
 | GET | `/login` | the sign-in page; the only static path an anonymous caller is given (§9.5) |
 | POST | `/api/login` | `{user, password}` → a signed session cookie; `401` on a bad user, a wrong password or an inactive user (§9.5) |
 | POST | `/api/logout` | clears the session cookie |
-| GET | `/api/whoami` | the signed-in user `{user, name}`; `401` when anonymous |
+| GET | `/api/whoami` | `{user, name, signedIn}`; `401` when anonymous; with sign-in off it names the default acting user and `signedIn: false` (§9.5) |
 | GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through`, the hub's `today`, `stale`, `expectedDueThisWeek` and `manualToPay` (§9.1) |
 | GET | `/api/refdata` | accounts, users, declared categories, **mortgage facilities** (§9.3), revisions |
 | GET | `/api/ledger` | the blotter rows; filters include `role`, `leg`, account, category, dates |
@@ -489,11 +489,11 @@ nothing due, so it cannot be read as an all-clear.
 On a phone (≤720px) the journal counters — `n`, `txn`, `transfers`, `pending`, the revisions and a zero
 `lag` — are hidden behind an **ⓘ** toggle; the nudges, a non-zero lag and the sign-in line always show.
 
-**The sign-in line.** The strip names who the hub believes you are — `Signed in as Ron`, from
-`GET /api/whoami` (§9.5) — with **Sign out** beside it. There is **no user switcher**: identity is a
-property of the session, not of the page, so the acting user is whoever signed in and nothing in the UI
-may claim otherwise. `/api/status` is read through the signed-in session; the counters and the
-revisions are unchanged.
+**The sign-in line.** The strip names who the hub believes you are — `Signed in as Ron` with **Sign
+out** when sign-in is on, or `Acting as Ron · sign-in off` when it is not (§9.5) — from
+`GET /api/whoami`. There is **no user switcher**: identity is a property of the session, not of the
+page, so the acting user is whoever signed in and nothing in the UI may claim otherwise. `/api/status`
+is read through the signed-in session; the counters and the revisions are unchanged.
 
 **The expectations nudge.** `/api/status` also returns `expectedDueThisWeek`: the count of declared
 commitments' occurrences whose window is still open (`status = 'due'`) and whose `due_date` falls
@@ -707,7 +707,15 @@ whole revocation model. A failed sign-in is a `401` after a fixed 250 ms delay; 
 **What is gated.** `/login`, `POST /api/login` and `POST /api/logout` are open; nothing else is. An
 anonymous `/api/…`, `/head` or `/api/events` is `401 {"error":"not signed in"}`; an anonymous `GET /`
 or `/ui/…` is a `302` to `/login?next=<path>`, because a browser clicking a link should land on a form.
-`GET /api/whoami` is the shell's first call: `{user, name}` once signed in, `401` before.
+`GET /api/whoami` is the shell's first call: `{user, name, signedIn}` — `signedIn: true` once signed
+in, `401` before, and `signedIn: false` with a default user when sign-in is off (below).
+
+**With sign-in off** there is no session, so the shell has no person to name, but it still needs one:
+`GET /api/whoami` answers `{user, name, signedIn: false}` for the **default acting user** — the first
+declared `active` user in `users.yaml` (`ron`) — and the UI's writes keep naming that user in the body,
+exactly as they did before sign-in existed. It is a read and it grants nothing; with no `--auth` the
+whole surface is open anyway. With sign-in on, `signedIn` is `true`, the hub stamps the session's user,
+refuses a draft naming anyone else, and whatever the client declared is redundant.
 
 **`/mcp` is deliberately not gated** (`V2-AUTH-PLAN.md` A-4). It inherits the listener, so an anonymous
 caller on the same network can still use its read tools and — only where `TREX_MCP_ALLOW_WRITES=1` —

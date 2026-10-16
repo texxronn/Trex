@@ -165,10 +165,18 @@ With a session, the user is a **fact of the connection**, so the hub stops trust
   draft. A body that names a *different* user is **`403`**, not silently overridden: a mismatch is a
   bug or an attack, and either way the honest answer is to fail loudly. (The MCP path keeps its own
   rule unchanged: `actingUser` must be a declared user or `agent`, `McpWriteTools`.)
-- `GET /api/since?user=` and `GET/POST /api/acks?user=` — the `user` parameter is **ignored**; the
-  session decides whose "since you last cleared" line and whose ACKs are read.
+- `GET /api/since?user=` — the `user` parameter is **ignored**; the session decides whose "since you
+  last cleared" line is read. (`GET /api/acks` takes no `user` and reports every user's read rows for
+  the client to pick from; a `POST` body's `user` is ignored and stamped.)
 - The UI deletes the `acting as` switcher and `trex.user` from `localStorage`; `ctx.user` arrives from
   `GET /api/whoami`; the status strip reads `Signed in as Ron · Sign out`.
+- **With sign-in off the shell still needs a name**, so `GET /api/whoami` answers
+  `{user, name, signedIn: false}` for the **default acting user** — the first declared `active` user in
+  `users.yaml` (`ron`) — and the client keeps *declaring* that user in a write body, exactly as it did
+  before sign-in existed. The hub only stamps when it has a session; a client-declared user is
+  redundant when it has one. (This was missed by the first pass and caught in review: dropping the
+  client's `user` outright broke every write in the sign-in-off dev setup, which the API-level tests
+  did not cover.)
 - Still true, and worth saying: **names are not permissions.** ron and mel may each close any grain,
   exactly as `users.yaml` says; auth changes *who the log says did it*, not what anyone may do.
 

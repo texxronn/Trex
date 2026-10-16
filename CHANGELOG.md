@@ -14,19 +14,21 @@ everything is under **Unreleased**.
 - **Sign-in for the hub** (`V2-SPEC.md` §5, §9.1, §9.5, §12; `V2-AUTH-PLAN.md`). Started with
   `--auth <file>` (or `TREX_AUTH_FILE`), the hub requires a signed-in **ron** or **mel**: `POST
   /api/login` checks a per-user PBKDF2-SHA256 hash and sets an `HttpOnly; SameSite=Lax` signed session
-  cookie, and every read and decision in §9 is gated behind it. **Off by default** — without `--auth`
-  the hub behaves exactly as before. The credential file holds the hashes and one `sessionSecret`, lives
-  **outside the repo** (`deploy/config` never sees it, config drift never checks it), is written by
-  `trex hub passwd`, and is a startup error when missing or malformed. `/mcp` is deliberately **not**
-  gated (A-4); bind the hub to loopback instead. See *Sign-in* in `docs/DEPLOYMENTS.md` before deploying.
+  cookie, and every read and decision in §9 is gated behind it. The credential file holds the hashes
+  and one `sessionSecret`, lives **outside the repo** (`deploy/config` never sees it, config drift
+  never checks it), is written by `trex hub passwd`, and is a startup error when missing or malformed.
+  **Off by default**: without `--auth` the API behaves exactly as before and the shell's identity falls
+  back to the first active user (`ron`), as the pre-sign-in UI did. `/mcp` is deliberately **not** gated
+  (A-4); bind the hub to loopback instead. See *Sign-in* in `docs/DEPLOYMENTS.md` before deploying.
 
 ### Changed
 
 - **The acting-user switcher is gone** (`V2-SPEC.md` §9.1, §9.5). The status strip shows `Signed in as
-  <name>` with **Sign out**, from `GET /api/whoami`; identity is a property of the session, not of the
-  page. `/api/decisions`, `/api/cash` and `/api/acks` are stamped with the session's user and refuse a
-  draft naming another user (`403`), and the `user` parameter on `/api/since` and `/api/acks` is
-  ignored. Attribution only: any user may still make any decision.
+  <name>` with **Sign out**, from `GET /api/whoami` (`Acting as <name> · sign-in off` when sign-in is
+  off); identity is a property of the session, not of the page. `/api/decisions`, `/api/cash` and
+  `POST /api/acks` are stamped with the session's user and refuse a draft naming another user (`403`),
+  and a `user` parameter on `/api/since` — or in an `/api/acks` body — is ignored. Attribution only:
+  any user may still make any decision.
 - **The Budget tab is now Cash flow** (`V2-SPEC.md` §9.2, §9.3, §12; `V2-CASHFLOW-PLAN.md` §1).
   `GET /api/cashflow?month=&view=cost|cash&exclude=` presents any month as one sheet over the
   household's liquid accounts: loan repayments split into charges and principal, moves to
