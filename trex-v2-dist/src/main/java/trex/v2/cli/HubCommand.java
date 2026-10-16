@@ -53,6 +53,10 @@ public final class HubCommand implements Callable<Integer> {
         description = "Shared secret presented to the runner (or TREX_RUNNER_TOKEN).")
     String runnerToken;
 
+    @Option(names = "--auth",
+        description = "Credential file for sign-in (or TREX_AUTH_FILE); without it the hub is open.")
+    Path auth;
+
     @Override
     public Integer call() throws Exception {
         if (journal == null || config == null || index == null) {
@@ -64,9 +68,12 @@ public final class HubCommand implements Callable<Integer> {
             return 64;
         }
         String token = runnerToken != null ? runnerToken : System.getenv("TREX_RUNNER_TOKEN");
+        String envAuth = System.getenv("TREX_AUTH_FILE");
+        Path authFile = auth != null ? auth
+            : (envAuth == null || envAuth.isBlank() ? null : Path.of(envAuth));
         HubConfig hubConfig = new HubConfig(journal, index, config, host, port,
             HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl, evidence, runnerUrl, token,
-            HubConfig.DEFAULT_ASOF_REFRESH_MS);
+            HubConfig.DEFAULT_ASOF_REFRESH_MS, authFile);
         HubService service = HubService.start(hubConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-hub-shutdown"));
         System.out.println("trex hub listening on " + host + ":" + service.port()

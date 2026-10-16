@@ -11,8 +11,12 @@ import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.DecisionRequest;
 import trex.v2.hub.api.ErrorResponse;
+import trex.v2.hub.api.LoginRequest;
+import trex.v2.hub.api.RefdataResponse;
 import trex.v2.hub.api.ReflowRequest;
 import trex.v2.hub.api.TransferRequest;
+import trex.v2.hub.auth.Auth;
+import trex.v2.hub.auth.Session;
 import trex.v2.log.Json;
 
 import java.io.IOException;
@@ -24,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -33,18 +38,40 @@ import java.util.concurrent.Executors;
 /**
  * The hub's read and decision API (V2-PROPOSAL.md §7.4, §10, §6.6). Handlers run on virtual
  * threads; reads go through the pool, writes are forwarded to the only writer.
+ *
+ * <p>With sign-in configured (V2-SPEC.md §9.5) every context and route goes through one
+ * {@link #gated} wrapper — a single check, never a check inside each handler. A null {@link Auth}
+ * is sign-in off: {@code gated} passes everything and the surface is byte-for-byte the pre-sign-in
+ * hub (A-7). {@code /mcp} is deliberately left outside the wrapper (A-4).
  */
 final class HubHttpApi {
 
     private static final Logger log = LoggerFactory.getLogger(HubHttpApi.class);
 
-    private HubHttpApi() {}
+    /** The A-9 failure delay in milliseconds: the same for every refusal, with no lockout. */
+    private static final long SIGN_IN_REFUSAL_MS = 250;
 
-    static HttpServer start(String host, int port, HubApi api, HubEvents events, RunnerClient runner)
-            throws IOException {
+    private final Auth auth;
+
+    private HubHttpApi(Auth auth) {
+        this.auth = auth;
+    }
+
+    static HttpServer start(String host, int port, HubApi api, HubEvents events, RunnerClient runner,
+                            Auth auth) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
-        server.createContext("/api/events", ex -> streamEvents(ex, api, events));
-        server.createContext("/api/jobs", ex -> jobs(ex, api, runner));
+        new HubHttpApi(auth).register(server, api, events, runner);
+        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        server.start();
+        return server;
+    }
+
+    private void register(HttpServer server, HubApi api, HubEvents events, RunnerClient runner) {
+        context(server, "/api/events", ex -> streamEvents(ex, api, events));
+        context(server, "/api/jobs", ex -> jobs(ex, api, runner));
+        // A-4: /mcp stays outside the wrapper. It inherits the listener, so an anonymous caller on
+        // the network can still read and (only with TREX_MCP_ALLOW_WRITES) write as `agent`. A test
+        // pins this so turning it on later is a visible spec change, not a quiet refactor.
         server.createContext("/mcp", ex -> McpHttp.handle(ex, api, McpConfig.fromEnv()));
         route(server, "/head", "GET", ex -> write(ex, 200, api.head()));
         route(server, "/api/status", "GET", ex -> write(ex, 200, api.status()));
@@ -261,21 +288,32 @@ final class HubHttpApi {
         route(server, "/api/config/transfers", configTransfers);
         route(server, "/api/config/drift", "GET", ex -> write(ex, 200, api.configDrift()));
 
-        server.createContext("/", ex -> serveStaticOrNotFound(ex));
-        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
-        server.start();
-        return server;
+        if (auth != null) {
+            // The open routes and whoami (V2-SPEC.md §9.5). Absent when sign-in is off, so a hub
+            // started without --auth has exactly the surface it had before.
+            routeOpen(server, "/api/login", "POST", ex -> login(ex, api));
+            routeOpen(server, "/api/logout", "POST", ex -> logout(ex));
+            route(server, "/api/whoami", "GET", ex -> whoami(ex, api));
+        }
+
+        // The catch-all: /login (open) and the UI, plus every other path's 404. An anonymous
+        // browser request is redirected to the form by `gated`, never shown JSON.
+        context(server, "/", ex -> serveStaticOrNotFound(ex));
     }
 
-    /** Static UI assets under {@code /ui/}, the index at {@code /}; everything else is 404. */
-    private static void serveStaticOrNotFound(HttpExchange ex) {
+    /** Static UI assets under {@code /ui/}, the index at {@code /}, the login page at {@code /login}. */
+    private void serveStaticOrNotFound(HttpExchange ex) {
         try {
             if (!"GET".equals(ex.getRequestMethod())) {
                 sendError(ex, 405, "method not allowed");
                 return;
             }
             String path = ex.getRequestURI().getPath();
-            if (path.equals("/") || path.equals("/index.html")) {
+            if (path.equals("/login") && auth != null) {
+                // The sign-in page is open (V2-SPEC.md §9.5) and self-contained: nothing under
+                // /ui/ needs to be reachable before sign-in.
+                serveStatic(ex, "login.html");
+            } else if (path.equals("/") || path.equals("/index.html")) {
                 serveStatic(ex, "index.html");
             } else if (path.startsWith("/ui/")) {
                 serveStatic(ex, path.substring("/ui/".length()));
@@ -352,8 +390,207 @@ final class HubHttpApi {
         return "application/octet-stream";
     }
 
+    // ---- sign-in gate (V2-SPEC.md §9.5, V2-AUTH-PLAN.md §4.4, §4.5) -------------------------
+
+    /**
+     * The one enforcement point. A gated context or route calls this first; it returns true when
+     * the request may proceed, and when it may not the rejection (a 401 for the API, a 302 to the
+     * form for the browser) has already been sent. A null {@link Auth} is sign-in off, so this is a
+     * no-op and the class behaves exactly as it did before sign-in existed.
+     */
+    private boolean gated(HttpExchange ex) {
+        if (auth == null) {
+            return true;
+        }
+        String path = ex.getRequestURI().getPath();
+        if (isOpen(path, ex.getRequestMethod())) {
+            return true;
+        }
+        long now = Instant.now().getEpochSecond();
+        Session.Principal principal = auth.resolve(ex.getRequestHeaders().getFirst("Cookie"), now);
+        if (principal == null) {
+            rejectAnonymous(ex, path);
+            return false;
+        }
+        if (principal.shouldSlide(now)) {
+            // A-5: a verified cookie past its half-life is re-issued, so an active session slides.
+            ex.getResponseHeaders().add("Set-Cookie", auth.session().cookie(principal.user(), now));
+        }
+        return true;
+    }
+
+    /** The only paths that do not require a session (V2-SPEC.md §9.5, A-4 leaves /mcp outside). */
+    private static boolean isOpen(String path, String method) {
+        return path.equals("/login")
+            || (path.equals("/api/login") && "POST".equals(method))
+            || (path.equals("/api/logout") && "POST".equals(method));
+    }
+
+    /**
+     * An anonymous request, refused by shape: the API answers {@code 401 {"error":"not signed in"}},
+     * the browser is sent to the form with its return path, never JSON.
+     */
+    private static void rejectAnonymous(HttpExchange ex, String path) {
+        if (path.equals("/head") || path.startsWith("/api/")) {
+            sendError(ex, 401, "not signed in");
+            return;
+        }
+        String next = ex.getRequestURI().getPath();
+        String query = ex.getRequestURI().getRawQuery();
+        if (query != null && !query.isEmpty()) {
+            next = next + "?" + query;
+        }
+        ex.getResponseHeaders().set("Location", "/login?next=" + urlEncode(next));
+        try {
+            ex.sendResponseHeaders(302, -1);
+        } catch (IOException e) {
+            log.debug("could not send the login redirect", e);
+        }
+    }
+
+    /** {@code POST /api/login}: verify in constant time, then set the session cookie. */
+    private void login(HttpExchange ex, HubApi api) throws IOException {
+        LoginRequest request;
+        try {
+            request = Json.mapper().readValue(readBody(ex), LoginRequest.class);
+        } catch (com.fasterxml.jackson.core.JacksonException e) {
+            sendError(ex, 400, "malformed body: " + e.getOriginalMessage());
+            return;
+        }
+        String user = request.user();
+        RefdataResponse.UserJson declared = user == null ? null : api.refdata().users().stream()
+            .filter(u -> user.equals(u.id())).findFirst().orElse(null);
+        boolean ok = declared != null && declared.active() && request.password() != null
+            && auth.verifyCredentials(user, request.password());
+        if (!ok) {
+            // A-9: a fixed delay per failure, no lockout. The body is uniform, so it reveals neither
+            // whether the id exists, nor that it is inactive, nor that the password is wrong; the
+            // user is named only in the host log.
+            sleepBeforeRefusal();
+            log.warn("failed sign-in for '{}'", user);
+            sendError(ex, 401, "invalid credentials");
+            return;
+        }
+        long now = Instant.now().getEpochSecond();
+        ex.getResponseHeaders().add("Set-Cookie", auth.session().cookie(declared.id(), now));
+        write(ex, 200, Map.of("user", declared.id(), "name", declared.name()));
+    }
+
+    /** {@code POST /api/logout}: clear the cookie. There is no session table to touch. */
+    private static void logout(HttpExchange ex) throws IOException {
+        ex.getResponseHeaders().add("Set-Cookie", Session.clearCookie());
+        write(ex, 200, Map.of("ok", true));
+    }
+
+    /** {@code GET /api/whoami}: the shell's first call; 401 when anonymous (gated before this). */
+    private void whoami(HttpExchange ex, HubApi api) throws IOException {
+        Session.Principal principal = auth.resolve(ex.getRequestHeaders().getFirst("Cookie"),
+            Instant.now().getEpochSecond());
+        if (principal == null) {
+            sendError(ex, 401, "not signed in");
+            return;
+        }
+        write(ex, 200, Map.of("user", principal.user(), "name", nameOf(api, principal.user())));
+    }
+
+    /** The declared name for a signed-in id; an id the config no longer declares still answers. */
+    private static String nameOf(HubApi api, String user) {
+        for (RefdataResponse.UserJson u : api.refdata().users()) {
+            if (u.id().equals(user)) {
+                return u.name();
+            }
+        }
+        return user;
+    }
+
+    private static void sleepBeforeRefusal() {
+        try {
+            Thread.sleep(SIGN_IN_REFUSAL_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // ---- routing ----------------------------------------------------------------------------
+
     private interface Handler {
         void handle(HttpExchange ex) throws Exception;
+    }
+
+    /** A gated context (the SSE stream and the job proxy do their own method dispatch). */
+    private void context(HttpServer server, String path, Handler handler) {
+        server.createContext(path, ex -> {
+            if (!gated(ex)) {
+                ex.close();
+                return;
+            }
+            try {
+                handler.handle(ex);
+            } catch (Exception e) {
+                log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
+                try {
+                    sendError(ex, 500, "internal error: " + e.getMessage());
+                } finally {
+                    ex.close();
+                }
+            }
+        });
+    }
+
+    private void route(HttpServer server, String path, String method, Handler handler) {
+        route(server, path, Map.of(method, handler));
+    }
+
+    /** A route that skips the gate: the sign-in endpoints (V2-SPEC.md §9.5). */
+    private void routeOpen(HttpServer server, String path, String method, Handler handler) {
+        routeOpen(server, path, Map.of(method, handler));
+    }
+
+    private void route(HttpServer server, String path, Map<String, Handler> handlers) {
+        server.createContext(path, ex -> {
+            try {
+                if (!ex.getRequestURI().getPath().equals(path)) {
+                    sendError(ex, 404, "not found");
+                    return;
+                }
+                if (!gated(ex)) {
+                    return;
+                }
+                dispatch(ex, path, handlers);
+            } catch (Exception e) {
+                log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
+                sendError(ex, 500, "internal error: " + e.getMessage());
+            } finally {
+                ex.close();
+            }
+        });
+    }
+
+    private void routeOpen(HttpServer server, String path, Map<String, Handler> handlers) {
+        server.createContext(path, ex -> {
+            try {
+                if (!ex.getRequestURI().getPath().equals(path)) {
+                    sendError(ex, 404, "not found");
+                    return;
+                }
+                dispatch(ex, path, handlers);
+            } catch (Exception e) {
+                log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
+                sendError(ex, 500, "internal error: " + e.getMessage());
+            } finally {
+                ex.close();
+            }
+        });
+    }
+
+    private static void dispatch(HttpExchange ex, String path, Map<String, Handler> handlers) throws Exception {
+        Handler handler = handlers.get(ex.getRequestMethod());
+        if (handler == null) {
+            ex.getResponseHeaders().set("Allow", String.join(", ", handlers.keySet()));
+            sendError(ex, 405, "method not allowed");
+            return;
+        }
+        handler.handle(ex);
     }
 
     /**
@@ -401,33 +638,6 @@ final class HubHttpApi {
         out.write(("event: " + event + "\n").getBytes(StandardCharsets.UTF_8));
         out.write(("data: " + Json.mapper().writeValueAsString(data) + "\n\n").getBytes(StandardCharsets.UTF_8));
         out.flush();
-    }
-
-    private static void route(HttpServer server, String path, String method, Handler handler) {
-        route(server, path, Map.of(method, handler));
-    }
-
-    private static void route(HttpServer server, String path, Map<String, Handler> handlers) {
-        server.createContext(path, ex -> {
-            try {
-                if (!ex.getRequestURI().getPath().equals(path)) {
-                    sendError(ex, 404, "not found");
-                    return;
-                }
-                Handler handler = handlers.get(ex.getRequestMethod());
-                if (handler == null) {
-                    ex.getResponseHeaders().set("Allow", String.join(", ", handlers.keySet()));
-                    sendError(ex, 405, "method not allowed");
-                    return;
-                }
-                handler.handle(ex);
-            } catch (Exception e) {
-                log.error("500 {} {}: unhandled failure", ex.getRequestMethod(), path, e);
-                sendError(ex, 500, "internal error: " + e.getMessage());
-            } finally {
-                ex.close();
-            }
-        });
     }
 
     private static String readBody(HttpExchange ex) throws IOException {
