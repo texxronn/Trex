@@ -14,8 +14,21 @@ export function mount(container, context) {
   ctx = context;
 }
 
-function item(label, value, cls = '') {
-  return el('span', {}, `${label} `, el('b', { class: cls }, String(value)));
+function item(label, value, cls = '', diag = false) {
+  return el('span', { class: diag ? 'diag' : null }, `${label} `, el('b', { class: cls }, String(value)));
+}
+
+/**
+ * On a phone the bookkeeping counters (n, txn, transfers, pending, the revisions, a zero lag) are
+ * noise above the page a family member opened: they are tagged `diag`, hidden under 720px, and this
+ * button brings them back. The nudges, a non-zero lag and the user switch always stay.
+ */
+function diagToggle() {
+  return el('button', {
+    type: 'button', class: 'diag-toggle', title: 'show the journal counters',
+    'aria-label': 'show the journal counters',
+    onclick: () => host.classList.toggle('show-diag'),
+  }, 'ⓘ');
 }
 
 /**
@@ -41,17 +54,18 @@ export async function refresh() {
     const review = total(status.reviewByKind);
     if (review === 0) recordClear(status.n);
     host.append(
-      item('n', status.n),
-      item('lag', status.lagBytes + ' B', status.lagBytes > 0 ? 'bad' : 'good'),
-      item('txn', status.counts.txn_current ?? 0),
-      item('transfers', status.counts.transfer ?? 0),
+      item('n', status.n, '', true),
+      item('lag', status.lagBytes + ' B', status.lagBytes > 0 ? 'bad' : 'good', status.lagBytes === 0),
+      item('txn', status.counts.txn_current ?? 0, '', true),
+      item('transfers', status.counts.transfer ?? 0, '', true),
       manualToPayNudge(status.manualToPay),
       allClear(review, status.through),
       expectedNudge(status.expectedDueThisWeek),
       stale(status.stale),
-      item('pending', status.counts.pending ?? 0),
+      item('pending', status.counts.pending ?? 0, '', true),
       revisions(status),
       userSelect(),
+      diagToggle(),
     );
   } catch {
     // transient: the next delta retries
@@ -133,7 +147,7 @@ function stale(rows) {
 }
 
 function revisions(status) {
-  return el('span', { class: 'muted', title: status.configRevision },
+  return el('span', { class: 'muted diag', title: status.configRevision },
     `config ${short(status.configRevision)} · ${status.deriveVersion} · ${status.hashVersion}`);
 }
 

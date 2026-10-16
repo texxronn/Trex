@@ -30,6 +30,10 @@ const SYNTHETIC = new Set(['Due', 'Unrecorded']);
 // Slices that are not a category's spending: never excludable, the same in both pivots.
 const NON_CATEGORY = new Set(['Mortgage', 'Set aside', 'Due', 'Unrecorded']);
 const PIVOTS = { primary: 'Primary', leaf: 'Leaf' };
+// On a phone Money Out shows this many category rows before "Show N more" (CSS does the hiding,
+// so a desktop always sees every row).
+const FOLD_AFTER = 8;
+const MIN_FOLD = 3;
 
 // The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
 // one <circle> per slice with a dash pattern of its arc length, which needs no trigonometry.
@@ -53,6 +57,7 @@ let view = 'cost'; // 'cost' | 'cash', also in the URL
 let pivot = 'primary'; // 'primary' | 'leaf', also in the URL
 let excludeKeys = null; // null = not in the URL (server defaults); an array once the viewer toggles
 let data = null;
+let showAll = false; // the phone's "Show N more" choice, kept across re-renders
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
 let periodLabel;
@@ -198,7 +203,7 @@ function sheetGrid() {
   const grid = el('div', { class: 'budget-sheet' },
     el('div', { class: 'budget-col' }, moneyIn(), moneyOut()));
   const donut = donutSection();
-  if (donut) grid.append(el('div', { class: 'budget-col' }, donut));
+  if (donut) grid.append(el('div', { class: 'budget-col donut-col' }, donut));
   return grid;
 }
 
@@ -233,13 +238,37 @@ function rowTitle(group) {
 function moneyOut() {
   const rows = [];
   const excluded = excludedInfo();
+  const colors = swatchColors();
+  const categoryRows = [];
   for (const slice of outRows()) {
     const fixed = NON_CATEGORY.has(slice.group);
     const parts = pivot === 'leaf' && !fixed ? [] : (slice.parts || []);
-    rows.push(...expandableRow(SYNTHETIC.has(slice.group) ? 'synthetic' : '', [slice.group], slice.amount,
-      parts, ACCOUNT_PARTS.has(slice.group),
+    // On a phone the legend is hidden, so each row carries its arc's colour instead.
+    const swatch = el('span', { class: 'row-swatch',
+      style: 'background:' + (colors.get(slice.group) || OTHER_COLOR) });
+    const sliceRows = expandableRow(SYNTHETIC.has(slice.group) ? 'synthetic' : '', [swatch, slice.group],
+      slice.amount, parts, ACCOUNT_PARTS.has(slice.group),
       rowTitle(slice.group),
-      fixed ? null : slice.group));
+      fixed ? null : slice.group);
+    if (!fixed) categoryRows.push(sliceRows);
+    rows.push(...sliceRows);
+  }
+  // The long tail of categories folds behind "Show N more" on a phone; the fixed rows never do.
+  // Folding one or two rows saves nothing, so a short tail stays open.
+  const tail = categoryRows.slice(FOLD_AFTER);
+  const folded = tail.length >= MIN_FOLD ? tail.length : 0;
+  if (folded) for (const row of tail.flat()) row.classList.add('beyond-fold');
+  const table = el('table', { class: 'budget-table' + (showAll ? ' show-all' : '') });
+  if (folded) {
+    const label = () => (showAll ? 'Show fewer' : `Show ${folded} more`);
+    const more = el('button', {
+      type: 'button', class: 'link',
+      onclick: () => {
+        showAll = table.classList.toggle('show-all');
+        more.textContent = label();
+      },
+    }, label());
+    rows.push(el('tr', { class: 'fold-more' }, el('td', { colspan: 2 }, more)));
   }
   const net = data.spend.total - excluded.total;
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
@@ -249,8 +278,22 @@ function moneyOut() {
   return el('section', { class: 'mode-section' },
     el('h4', {}, 'Money Out'),
     pivotTabs(),
-    scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))),
+    scroll(withBody(table, rows)),
     excludedLine());
+}
+
+function withBody(table, rows) {
+  table.append(el('tbody', {}, ...rows));
+  return table;
+}
+
+/** Each drawn arc's colour by row name, so a table row matches its arc; a row folded into the
+ *  donut's Other arc gets Other's grey. */
+function swatchColors() {
+  const colors = new Map();
+  arcs().filter((slice) => slice.amount > 0)
+    .forEach((slice, index) => colors.set(slice.group, colorOf(slice, index)));
+  return colors;
 }
 
 function excludedInfo() {
