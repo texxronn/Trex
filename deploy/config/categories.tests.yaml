@@ -221,6 +221,9 @@ tests:
   - description: "PICCOLO ME"
     amount: -800
     category: FOOD
+  - description: "STARBUCKS SYDNEY AIRPORT"
+    amount: -650
+    category: FOOD
   - description: "GONG CHA"
     amount: -700
     category: FOOD
