@@ -80,13 +80,10 @@ final class HubHttpApi {
                 sendError(ex, 422, e.getMessage());
             }
         });
-        route(server, "/api/budget", "GET", ex -> {
+        route(server, "/api/cashflow", "GET", ex -> {
             try {
                 String query = ex.getRequestURI().getQuery();
-                // `?principal=include` turns the loan principal repayments into Money Out; anything
-                // else (or absent) leaves them a move between your own accounts (D-7).
-                write(ex, 200, api.budget(param(query, "month"),
-                    "include".equals(param(query, "principal"))));
+                write(ex, 200, api.cashflow(param(query, "month"), param(query, "view")));
             } catch (IllegalArgumentException e) {
                 sendError(ex, 400, e.getMessage());
             }

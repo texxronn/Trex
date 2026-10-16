@@ -1,13 +1,12 @@
-// Budget mode (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5): the month's sheet — Money In, Money Out
-// and Money Left Over — with a donut of Money Out by primary group and a muted "outside the budget"
-// section for the moves that never touch a budget account. Money In and Money Out are the month's
-// real flows over every account; a move between your own accounts rides the bridge between them and
-// is never income or spend. One read, /api/budget, over the derived index: the sheet's `left` equals
-// the status line's headroom for the same month, because the hub shares headroom's row-walk (§9.2),
-// not because the view computes anything of its own.
+// Budget mode (V2-SPEC.md §9.2): the month's cash-flow sheet — Money In, Money Out and Money Left
+// Over of the liquid accounts — with a donut of Money Out by primary group. One read,
+// /api/cashflow, over the derived index; this view reads the Cost view, whose `left` equals the
+// status line's headroom for the same month because the hub shares headroom's row-walk, not because
+// the view computes anything of its own. (The Cash/Cost toggle and the loan bridge are
+// V2-CASHFLOW-PLAN.md Task 5.)
 //
-// The month lives in the URL (#budget?month=YYYY-MM&principal=include) so a month — and the
-// operator's "include principal repayments" choice — is linkable and survives a reload. Stepping
+// The month lives in the URL (#budget?month=YYYY-MM) so a month is linkable and survives a reload.
+// Stepping
 // rewrites it with history.replaceState, never location.hash: a hash assignment fires
 // `hashchange` and the router would remount the mode on every step.
 
@@ -18,12 +17,8 @@ import { date, money } from './format.js';
 
 // The synthetic slices the hub appends after the rolled-up groups: money still due and the wallet's
 // unrecorded cash. They are not posted spending, so the tables mark them muted and the donut keeps
-// them apart from the groups. A move between your own accounts is never here: it rides `moved`.
+// them apart from the groups. A move between your own accounts is never here.
 const SYNTHETIC = new Set(['Due', 'Unrecorded']);
-
-// The operator's option (V2-BUDGET-VIEW-PLAN.md D-7) turns the month's loan principal repayments
-// into a Money Out slice named this; the hub places it after the groups and before Due.
-const PRINCIPAL = 'Loan principal';
 
 // The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
 // one <circle> per slice with a dash pattern of its arc length, which needs no trigonometry.
@@ -43,7 +38,6 @@ const OTHER_COLOR = '#6b7280';
 let host;
 let ctx;
 let month = null; // the YYYY-MM in the URL; the response's month is the truth once it arrives
-let includePrincipal = false; // the operator's option, also in the URL (D-7)
 let data = null;
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
@@ -55,7 +49,6 @@ export function mount(container, context) {
   host = container;
   ctx = context;
   month = (context.modeQuery && context.modeQuery.get('month')) || null;
-  includePrincipal = Boolean(context.modeQuery && context.modeQuery.get('principal') === 'include');
   buildShell();
   renderSheet();
   load();
@@ -65,7 +58,7 @@ export function mount(container, context) {
 async function load() {
   const generation = ++loadGeneration;
   try {
-    data = await api.budget(month || undefined, includePrincipal);
+    data = await api.cashflow(month || undefined, 'cost');
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     month = data.month; // the hub names the month it read, whether or not the URL asked for one
     errorBar.hidden = true;
@@ -116,30 +109,21 @@ function renderSheet() {
     return;
   }
   sheetHost.append(sheetGrid());
-  const moved = movedSection();
-  if (moved) sheetHost.append(moved);
-  const outside = outsideSection();
-  if (outside) sheetHost.append(outside);
 }
 
 /**
  * Money Left Over (V2-SPEC.md §9.2): one figure that answers "am I okay?", with the arithmetic beside
  * it and the date the statements reach, so a late statement reads as a late statement and not as
- * money. It is the sheet's header, and the same headroom the status line carries. Money In and Money
- * Out are the month's real flows; a move between your own accounts rides the bridge in between.
+ * money. It is the sheet's header, and the same headroom the status line carries. A move between
+ * your own accounts is never In or Out.
  */
 function leftBar() {
-  const { income, spend, moved, missed, unpaired, left, through, accounts } = data;
+  const { income, spend, missed, unpaired, left, through, accounts } = data;
   const figure = el('b', { class: left < 0 ? 'occ-missed' : 'tick' }, money(left));
   const parts = [
     `in ${money(income.total)}`,
     `out ${money(spend.total)}`,
   ];
-  // A move between your own accounts is never income or spend (V2-SPEC.md §9.2): it is shown apart,
-  // because it moves `left` without being either. Positive is money moved out.
-  if (moved.out || moved.in) {
-    parts.push(`moved ${money(moved.out - moved.in)}`);
-  }
   const notes = [];
   if (missed) notes.push(el('span', { class: 'occ-missed' }, `not seen yet: ${money(missed)}`));
   if (unpaired) {
@@ -149,7 +133,7 @@ function leftBar() {
   return el('section', { class: 'headroom' },
     el('div', {}, el('span', { class: 'muted' }, `Left in ${monthName(data.month)} `), figure),
     el('div', { class: 'muted' }, parts.join(' · ')),
-    el('div', { class: 'muted', title: 'budget accounts: ' + (accounts || []).join(', ') },
+    el('div', { class: 'muted', title: 'liquid accounts: ' + (accounts || []).join(', ') },
       through ? `through ${date(through)} — the statements say nothing after it` : 'no statements yet'),
     notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '');
 }
@@ -164,8 +148,8 @@ function sheetGrid() {
 }
 
 /**
- * Money In: the posted income per category — every account's, real flows, whatever its `budget`
- * flag — then the Due line when non-zero, then the total. A move is never here; it rides the bridge.
+ * Money In: the posted income per category on the liquid accounts (and the loans' credits), then
+ * the Due line when non-zero, then the total. A move is never here.
  */
 function moneyIn() {
   const rows = data.income.lines.map((line) =>
@@ -180,76 +164,21 @@ function moneyIn() {
 }
 
 /**
- * Money Out, one row per slice: the rolled-up groups, the Loan principal slice when the operator
- * asked for it, and the synthetic Due/Unrecorded. A group row opens into its parts — the trex
- * categories inside it (the read carries them, §4); the principal row opens into the loan accounts
- * it repaid, rendered as account chips like the move bridge's parts. A move is never a slice: it
- * rides the bridge below, so the donut is real spending only. The header carries the operator's
- * "Include principal repayments" option (D-7), hidden when the month has no principal repayment.
+ * Money Out, one row per slice: the rolled-up groups and the synthetic Due/Unrecorded. A group row
+ * opens into its parts — the trex categories inside it (the read carries them). A move is never a
+ * slice, so the donut is real spending only.
  */
 function moneyOut() {
   const rows = [];
   for (const slice of data.spend.slices) {
     const synthetic = SYNTHETIC.has(slice.group);
-    const principal = slice.group === PRINCIPAL;
     rows.push(...expandableRow(synthetic ? 'synthetic' : '', [slice.group], slice.amount,
-      slice.parts || [], principal,
-      principal ? 'click for the loan accounts this repaid' : 'click for the categories inside this group'));
+      slice.parts || [], false, 'click for the categories inside this group'));
   }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.spend.total))));
   return el('section', { class: 'mode-section' },
-    el('h4', {}, 'Money Out', principalToggle()),
-    scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
-}
-
-/**
- * The "Include principal repayments" checkbox (V2-BUDGET-VIEW-PLAN.md D-7), in the Money Out header
- * with the month's principal amount beside it. On, the loan principal repayments are Money Out and
- * lower `left`; off, they stay a move between the operator's own accounts. The choice lives in the
- * URL, like the month. Hidden entirely when the month has no principal repayment: there is nothing
- * to toggle, and an always-off checkbox would only ask a question with one answer.
- */
-function principalToggle() {
-  const principal = data.principal;
-  if (!principal || !principal.total) return null;
-  return el('label', {
-      class: 'principal-toggle',
-      title: "Count the month's loan principal repayments as Money Out; the status strip never does",
-    },
-    el('input', {
-      type: 'checkbox', checked: includePrincipal,
-      onchange: (event) => {
-        includePrincipal = event.target.checked;
-        writeUrl();
-        load();
-      },
-    }),
-    ` Include principal repayments `,
-    el('span', { class: 'muted' }, money(principal.total)));
-}
-
-/**
- * The move bridge (V2-SPEC.md §9.2): money that crossed the budget boundary between your own
- * accounts. It is neither Money In nor Money Out — both totals above exclude it — but it moves
- * `left`, so it sits between them. Each row opens into the accounts on the other side: the
- * destinations of a move out, the sources of a move in.
- */
-function movedSection() {
-  const { moved } = data;
-  if (!moved || (!moved.out && !moved.in)) return null;
-  const rows = [];
-  if (moved.out) {
-    rows.push(...expandableRow('', ['to your other accounts'], moved.out, moved.outParts || [], true,
-      'click for the accounts this move went to'));
-  }
-  if (moved.in) {
-    rows.push(...expandableRow('', ['from your other accounts'], moved.in, moved.inParts || [], true,
-      'click for the accounts this move came from'));
-  }
-  rows.push(el('tr', { class: 'total' }, el('td', { title: 'money in minus money out' }, 'Net moved in'),
-    el('td', { class: 'amount' }, money(moved.net))));
-  return section('Moved between your accounts',
+    el('h4', {}, 'Money Out'),
     scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))));
 }
 
@@ -339,31 +268,8 @@ function colorOf(slice, index) {
   return PALETTE[index % PALETTE.length];
 }
 
-/**
- * Outside the budget (D-3): the moves between two accounts that are both outside it — the loan
- * repayments, one line per pair with the count of payments behind it. They change nothing in the
- * figures above: the move never crosses the boundary, and the Mortgage tab owns the detail.
- */
-function outsideSection() {
-  const moves = (data.moved && data.moved.outside) || [];
-  if (!moves.length) return null;
-  const rows = moves.map((entry) =>
-    el('tr', {},
-      el('td', {}, accountChip(ctx.refdata, entry.from), ' \u2192 ', accountChip(ctx.refdata, entry.to)),
-      el('td', { class: 'note muted' }, entry.count > 1 ? `${entry.count} payments` : ''),
-      el('td', { class: 'amount' }, money(entry.amount))));
-  return el('section', { class: 'mode-section budget-outside' },
-    el('h4', {}, 'Outside the budget'),
-    el('table', { class: 'budget-outside-table' }, el('tbody', {}, ...rows)),
-    el('p', { class: 'muted' },
-      'Both accounts are outside the budget, so these moves change nothing in the figures above.'));
-}
-
 function hasRows(sheet) {
-  const moved = sheet.moved || {};
-  return Boolean(sheet.income.lines.length || sheet.income.due
-    || sheet.spend.slices.length
-    || moved.out || moved.in || (moved.outside || []).length);
+  return Boolean(sheet.income.lines.length || sheet.income.due || sheet.spend.slices.length);
 }
 
 // ---- the month stepper -------------------------------------------------------------------------
@@ -391,14 +297,12 @@ function goTo(key) {
 }
 
 /**
- * The month and the principal option both live in the URL query (D-7), so a sheet is linkable and
- * survives a reload. history.replaceState, never location.hash: a hash assignment fires
+ * The month lives in the URL query, so a sheet is linkable and survives a reload. history.replaceState, never location.hash: a hash assignment fires
  * `hashchange` and the router would remount the mode on every change.
  */
 function writeUrl() {
   const params = new URLSearchParams();
   if (month) params.set('month', month);
-  if (includePrincipal) params.set('principal', 'include');
   const query = params.toString();
   history.replaceState(null, '', '#budget' + (query ? '?' + query : ''));
 }

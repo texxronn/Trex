@@ -629,12 +629,6 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-table .twisty { color: var(--muted); font-size: 10px; }
 .budget-table tr.leaf td { color: var(--muted); }
 .budget-table tr.leaf td:first-child { padding-left: 1.5rem; }
-/* The Money Out header carries the operator's "Include principal repayments" option (D-7): a small
-   inline checkbox with the month's principal amount beside it. */
-.principal-toggle { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.6rem;
-  font-weight: 400; cursor: pointer; }
-.principal-toggle input { margin: 0; }
-.principal-toggle span { font-variant-numeric: tabular-nums; }
 
 /* The donut: twice the old size, but never wider than its column. It carries a viewBox, so the whole
    ring scales, text included. */
@@ -652,14 +646,6 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-legend .share { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .budget-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
   margin-right: 0.45rem; vertical-align: -1px; }
-
-/* Outside the budget (D-3): the loan repayments per pair and the outside accounts' own rows, a
-   compact muted table with the amount right-aligned. */
-.budget-outside { color: var(--muted); }
-.budget-outside-table { font-size: 12px; border-collapse: collapse; }
-.budget-outside-table td { padding: 0.12rem 0.6rem 0.12rem 0; white-space: nowrap; }
-.budget-outside-table td.note { color: var(--muted); }
-.budget-outside-table td.amount { text-align: right; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 720px) {
   .budget-sheet { grid-template-columns: minmax(0, 1fr); }

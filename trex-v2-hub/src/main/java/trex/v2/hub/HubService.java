@@ -36,7 +36,7 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
-import trex.v2.hub.api.BudgetResponse;
+import trex.v2.hub.api.CashflowResponse;
 import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.CashResponse;
@@ -249,7 +249,7 @@ public final class HubService implements HubApi, AutoCloseable {
         return new StatusResponse(reads.logHeadN(), offset, head, Math.max(0, head - offset),
             reads.counts(), reads.reviewByKind(), c.configRevision(),
             DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION,
-            oldestFrontier(frontiers, statementLiquid(registry)),
+            oldestFrontier(frontiers, statementLiquid(registry, liquidAccounts())),
             staleAccounts(registry, frontiers, today),
             Math.toIntExact(reads.expectedDueThisWeek(Period.bounds(Period.weekKey(today)))),
             reads.manualToPay(today), env(), today);
@@ -307,10 +307,11 @@ public final class HubService implements HubApi, AutoCloseable {
      * The liquid accounts that have statements: a cash account has no statement to be late, so it
      * never holds a "through" date back (V2-REVIEW-FIXES-PLAN.md §10, §11).
      */
-    private static java.util.Set<String> statementLiquid(Registry registry) {
+    private static java.util.Set<String> statementLiquid(Registry registry, Set<String> liquid) {
         java.util.Set<String> out = new java.util.TreeSet<>();
         for (var account : registry.accounts().values()) {
-            if (account.liquid() && account.balanceSource() == trex.v2.core.config.BalanceSource.STATEMENT) {
+            if (liquid.contains(account.ref())
+                && account.balanceSource() == BalanceSource.STATEMENT) {
                 out.add(account.ref());
             }
         }
@@ -377,55 +378,63 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
-     * The month's headroom (§9.2) measured at {@code at}, over the liquid accounts: the read the
-     * Expected view and the since-clear line share, so the two can never drift.
+     * The month's headroom (§9.2) measured at {@code at}, over the liquid accounts: the Cost view's
+     * {@code left}, the read the Expected view and the since-clear line share, so they never drift.
      */
     private ExpectedResponse.Headroom monthHeadroom(LocalDate at) {
-        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, liquidAccounts(),
-            statementLiquid(refresher.config().registry()));
-    }
-
-    /** The {@code liquid} account refs: the accounts whose moves sit inside the boundary, exactly as
-     *  headroom and the budget sheet both read them. It is the boundary a move crosses, not a gate on
-     *  which rows count — income and spend are every account's external rows (V2-SPEC.md §9.2). */
-    private Set<String> liquidAccounts() {
-        Set<String> budget = new TreeSet<>();
-        for (var account : refresher.config().registry().accounts().values()) {
-            if (account.liquid()) {
-                budget.add(account.ref());
-            }
-        }
-        return budget;
+        Set<String> liquid = liquidAccounts();
+        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, liquid,
+            statementLiquid(refresher.config().registry(), liquid), loanBook());
     }
 
     /**
-     * The declared loan accounts ({@code mortgages.yaml}): the accounts a principal repayment pays
-     * into (V2-BUDGET-VIEW-PLAN.md D-7). A transfer paying one of these is loan principal, never
-     * ordinary spend — whether or not the operator's {@code includePrincipal} option counts it.
+     * The liquid account refs (V2-CASHFLOW-PLAN.md C-2): an account's {@code liquid} flag, except
+     * that a declared loan account ({@code mortgages.yaml}) and a clearing account are never liquid,
+     * whatever the flag — a loan is where a repayment goes, and a clearing account holds no facts of
+     * its own, so a move into either leaves the household's spendable money.
      */
-    private Set<String> loanAccounts() {
-        Set<String> loans = new TreeSet<>();
+    private Set<String> liquidAccounts() {
+        Set<String> loans = loanBook().accounts();
+        Set<String> liquid = new TreeSet<>();
+        for (var account : refresher.config().registry().accounts().values()) {
+            if (account.liquid() && account.balanceSource() != BalanceSource.CLEARING
+                && !loans.contains(account.ref())) {
+                liquid.add(account.ref());
+            }
+        }
+        return liquid;
+    }
+
+    /**
+     * The declared facility ({@code mortgages.yaml}) as the cash-flow walk reads it: the loan
+     * accounts a liquid → loan move repays (C-3), and the declared repayment and interest
+     * commitments each view projects differently (C-4).
+     */
+    private HubQueries.LoanBook loanBook() {
+        Set<String> accounts = new TreeSet<>();
+        Set<String> repayments = new TreeSet<>();
+        Set<String> interest = new TreeSet<>();
         for (RefdataResponse.MortgageJson facility : mortgages) {
             for (RefdataResponse.LoanJson loan : facility.loans()) {
-                loans.add(loan.account());
+                accounts.add(loan.account());
+                repayments.add(loan.repaymentCommitment());
+                interest.add(loan.interestCommitment());
             }
         }
-        return loans;
+        return new HubQueries.LoanBook(Set.copyOf(accounts), Set.copyOf(repayments), Set.copyOf(interest));
     }
 
     /**
-     * The month's budget sheet (§9.2, V2-BUDGET-VIEW-PLAN.md §4): a read of the derived index as the
-     * month's real flows — Money In and Money Out over every account, with the moves between your own
-     * accounts carried apart — sharing headroom's row-walk so its {@code left} equals the figure
+     * The month's cash-flow sheet (§9.2, V2-CASHFLOW-PLAN.md): Money In and Money Out of the liquid
+     * accounts in the Cost view, or the Cash view when {@code view} is {@code cash} (anything else is
+     * Cost). It shares headroom's row-walk, so the Cost view's {@code left} equals the figure
      * {@code /api/expected} prints. {@code month} is any {@code YYYY-MM}; null or blank is the hub's
      * current month. Measured at the hub's today exactly as headroom: the current month carries its
      * still-due projection, and a past month's due has become {@code missed} by then, so it reads as
-     * actuals without a special case (D-4). With {@code includePrincipal} the month's loan principal
-     * repayments (D-7) become a Money Out slice and lower {@code left}, so it falls below headroom's
-     * by exactly that much — the status strip never counts them.
+     * actuals without a special case.
      */
     @Override
-    public BudgetResponse budget(String month, boolean includePrincipal) {
+    public CashflowResponse cashflow(String month, String view) {
         YearMonth ym;
         if (month == null || month.isBlank()) {
             ym = YearMonth.now();
@@ -436,15 +445,16 @@ public final class HubService implements HubApi, AutoCloseable {
                 throw new IllegalArgumentException("month must be YYYY-MM, not '" + month + "'");
             }
         }
-        return reads.budgetSheet(Period.bounds(ym.toString()), LocalDate.now(), liquidAccounts(),
-            statementLiquid(refresher.config().registry()), categoryGroups(), loanAccounts(),
-            includePrincipal);
+        Set<String> liquid = liquidAccounts();
+        return reads.cashflowSheet(Period.bounds(ym.toString()), LocalDate.now(), liquid,
+            statementLiquid(refresher.config().registry(), liquid), categoryGroups(), loanBook(),
+            "cash".equals(view));
     }
 
     /**
      * The expense roll-up map from {@code ezb.yaml} (V2-SPEC.md §11.2, V2-BUDGET-VIEW-PLAN.md D-5):
      * a trex category to the ezbookkeeping primary its Money Out roll-up sits under. Read here so
-     * the Budget donut and the charts slice a category the same way; view-only config, never hashed
+     * the Cash flow donut and the charts slice a category the same way; view-only config, never hashed
      * into {@code configRevision}. A missing file, an absent or non-object map, or an unreadable one
      * is an empty map, and the sheet then falls back to one {@code Expense} group.
      */
@@ -468,7 +478,7 @@ public final class HubService implements HubApi, AutoCloseable {
             });
             return Map.copyOf(out);
         } catch (IOException e) {
-            log.warn("cannot read the budget roll-up map from {}", file, e);
+            log.warn("cannot read the cash-flow roll-up map from {}", file, e);
             return Map.of();
         }
     }

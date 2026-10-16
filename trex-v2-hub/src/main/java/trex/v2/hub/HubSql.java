@@ -157,15 +157,33 @@ final class HubSql {
         ORDER BY o.due_date, o.commitment_id""";
 
     /**
-     * The month's current rows for the headroom figure (V2-REVIEW-FIXES-PLAN.md §10): each with the
-     * commitment that claimed it, if any, the account of the other side of its transfer — the other
-     * leg, or the derived clearing leg — so a move that crosses the budget boundary can be told from
-     * one that stays inside or outside it, and (new columns, appended last so the earlier readers are
-     * unchanged) the row's category (index 8, for the budget sheet's roll-up) and whether the claimed
-     * fact is <b>attached</b> to one of its commitment's occurrences (index 9, the occurrence's
-     * {@code due_date}). A fact a commitment claims but never attaches — its rules reach back further
-     * than the materialised windows — is not counted through an occurrence, so it remains ordinary
-     * income or spend (V2-SPEC.md §9.2).
+     * The month's occurrences for the cash-flow walk (V2-CASHFLOW-PLAN.md C-5), in the column order
+     * of {@link #EXPECTED_OCCURRENCES} so one reader serves both. A paid occurrence
+     * ({@code occurred}/{@code settled}/{@code partial}) falls in the month it was paid —
+     * {@code COALESCE(matched_date, due_date)} — and any other in its due month: a bill due 06-28 and
+     * paid 07-01 lands in July with the account row that paid it, so a month can reconcile with
+     * the rows. The Expected tab keeps the due-date window ({@link #EXPECTED_OCCURRENCES}).
+     */
+    static final String CASHFLOW_OCCURRENCES = """
+        SELECT o.commitment_id, c.name, c.direction, c.cadence, c.current_amount,
+               o.due_date, o.window_start, o.window_end, o.status, o.amount,
+               o.matched_external_id, o.matched_date, o.matched_by, o.off_schedule, o.settle_n,
+               c.payment
+        FROM commitment_occurrence o
+        JOIN commitment c ON c.commitment_id = o.commitment_id
+        WHERE (CASE WHEN o.status IN ('occurred', 'settled', 'partial')
+                    THEN COALESCE(o.matched_date, o.due_date) ELSE o.due_date END) BETWEEN ? AND ?
+        ORDER BY o.due_date, o.commitment_id""";
+
+    /**
+     * The month's current rows for the cash-flow walk (V2-SPEC.md §9.2): each with the commitment
+     * that claimed it, if any, the account of the other side of its transfer — the other leg, or
+     * the derived clearing leg — so a move can be classed by the liquidity of its two accounts
+     * (V2-CASHFLOW-PLAN.md C-3), and (appended last so the earlier readers are unchanged) the row's
+     * category (index 8, for the sheet's roll-up) and whether the claimed fact is <b>attached</b> to
+     * one of its commitment's occurrences (index 9, the occurrence's {@code due_date}). A fact a
+     * commitment claims but never attaches — its rules reach back further than the materialised
+     * windows — is not counted through an occurrence, so it remains ordinary income or spend.
      */
     static final String HEADROOM_ROWS = """
         SELECT t.account_ref, t.amount, t.role, t.leg, t.transfer_id, cf.commitment_id,
@@ -188,17 +206,12 @@ final class HubSql {
         "SELECT account_ref, unrecorded FROM cash_month WHERE month = ?";
 
     /**
-     * Every claimed fact with its accounts, per commitment: whether it only ever moves money
-     * between two budget accounts (a card repayment), and whether it is only ever a transfer at all
-     * (a loan repayment) — both are moves, never income or spend, so their occurrences are not
-     * counted (V2-SPEC.md §9.2). {@code is_transfer} is the explicit flag for the second.
+     * Every claimed fact, per commitment, with whether it is a transfer: a commitment whose facts
+     * are all transfers between your own accounts (a card or loan repayment) is a move, never income
+     * or spend, so its occurrences are not counted (V2-SPEC.md §9.2).
      */
-    static final String COMMITMENT_FACT_ACCOUNTS = """
-        SELECT cf.commitment_id, t.account_ref, t.transfer_id,
-               (SELECT o.account_ref FROM txn_current o
-                 WHERE o.transfer_id = t.transfer_id AND o.external_id <> t.external_id
-                 ORDER BY o.external_id LIMIT 1) AS other_account,
-               (t.transfer_id IS NOT NULL) AS is_transfer
+    static final String COMMITMENT_FACT_TRANSFERS = """
+        SELECT cf.commitment_id, (t.transfer_id IS NOT NULL) AS is_transfer
         FROM commitment_fact cf JOIN txn_current t ON t.external_id = cf.external_id
         ORDER BY cf.commitment_id, t.external_id""";
 
