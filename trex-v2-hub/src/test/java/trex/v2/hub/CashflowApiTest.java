@@ -125,7 +125,7 @@ class CashflowApiTest {
                 .get("view").asText(), "anything but cash is cost");
             // C-2: a clearing account flagged liquid and a loan account left at the default are
             // never liquid.
-            assertEquals(List.of("card", "everyday", "offset", "savings"),
+            assertEquals(List.of("card", "cash-ron", "everyday", "offset", "savings"),
                 Json.mapper().convertValue(cost.get("accounts"), List.class), cost.toPrettyString());
             assertEquals(0, cost.get("spend").get("due").asLong(),
                 "a past month is actuals: " + cost.toPrettyString());
@@ -200,6 +200,7 @@ class CashflowApiTest {
             assertEquals(liquidNet, reconcile.get("liquidNet").asLong(), reconcile.toPrettyString());
             assertEquals(0, reconcile.get("gap").asLong(), cash.toPrettyString());
             assertEquals(reconcile.get("liquidNet").asLong(), cash.get("left").asLong());
+            assertEquals(0, reconcile.get("settledWithoutFact").asLong(), reconcile.toPrettyString());
             assertEquals(reconcile, cost.get("reconcile"), "reconcile is computed whatever the view");
 
             // ---- (4) a redraw reduces the repayments; (6) the payment month ------------------------
@@ -281,6 +282,97 @@ class CashflowApiTest {
         }
     }
 
+    /**
+     * The reconcile's edges and the set-aside and loan-credit cases (C-3, C-6), in a past month: an
+     * unrecorded ATM withdrawal (the wallet's leg is a synthetic row that {@code liquidNet} must
+     * see), a commitment marked paid with no statement row ({@code settledWithoutFact}), money back
+     * from the kids (a negative set-aside), a set-aside into a non-clearing {@code liquid: false}
+     * account, a loan credit, and a loan charge attached to no commitment.
+     */
+    @Test
+    void aPastMonthsReconcileEdges(@TempDir Path dir) throws Exception {
+        YearMonth month = YearMonth.now(ZoneOffset.UTC).minusMonths(2);
+        Path configDir = dir.resolve("config");
+        config(configDir, "liquid: false");
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "sal", "everyday", 500000, "SALARY ACME", month.atDay(2)),
+                // Cash out of the ATM, never recorded: unrecorded cash, and a synthetic wallet leg.
+                fact(2, "atm", "everyday", -10000, "ATM WDL 123", month.atDay(3)),
+                // 300.00 to the kids, 500.00 back: a set-aside of -200.00.
+                fact(3, "kids-out", "everyday", -30000, "KIDS SAVINGS", month.atDay(4)),
+                fact(4, "kids-back", "everyday", 50000, "KIDS RETURN", month.atDay(5)),
+                // Into a non-clearing liquid: false account: set aside too.
+                fact(5, "inv-a", "everyday", -40000, "TO INVEST", month.atDay(6)),
+                fact(6, "inv-b", "invest", 40000, "FROM EVERYDAY", month.atDay(6)),
+                // A loan credit and a loan fee attached to no commitment.
+                fact(7, "loan-credit", "loan", 2500, "FEE REFUND", month.atDay(7)),
+                fact(8, "loan-fee", "loan", -1000, "ACCOUNT KEEPING", month.atDay(8)),
+                fact(9, "rep-a", "offset", -100000, "TO LOAN", month.atDay(15)),
+                fact(10, "rep-b", "loan", 100000, "FROM OFFSET", month.atDay(15)),
+                pair(11, "inv-a", "inv-b"),
+                pair(12, "rep-a", "rep-b"),
+                // Marked paid without a statement row.
+                declare(13, "nbn", "NBN", "out", "CARBON NBN", 9191L, month.atDay(12)),
+                new Decision.SettleOccurrence(14, "nbn", List.of(month.atDay(12)), null, Actor.USER,
+                    "ron", AT)));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(hub, 1);
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+            while (System.nanoTime() < deadline && hub.cashMonths("cash-ron").isEmpty()) {
+                Thread.sleep(50);
+            }
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+            JsonNode cost = json(client, base, "/api/cashflow?month=" + month);
+            JsonNode cash = json(client, base, "/api/cashflow?month=" + month + "&view=cash");
+
+            // The set-aside: kids net negative, the investment account positive.
+            JsonNode setAside = cost.get("setAside");
+            assertEquals(20000, setAside.get("total").asLong(), setAside.toPrettyString());
+            assertEquals(List.of("invest", "kids"), partNames(setAside.get("parts")));
+            assertEquals(40000, setAside.get("parts").get(0).get("amount").asLong());
+            assertEquals(-20000, setAside.get("parts").get(1).get("amount").asLong(),
+                "money back from the kids is a negative set-aside: " + setAside);
+
+            // The loan: an unattached fee is a charge, a credit nets it.
+            JsonNode loans = cost.get("loans");
+            assertEquals(100000, loans.get("repayments").asLong(), loans.toPrettyString());
+            assertEquals(1000 - 2500, loans.get("charges").asLong(), loans.toPrettyString());
+            assertEquals(100000 - (1000 - 2500), loans.get("principal").asLong(), loans.toPrettyString());
+
+            // Cost: the loan credit is Money In, the unattached fee and the settled bill Money Out.
+            assertEquals(500000 + 2500, cost.get("income").get("posted").asLong(), cost.toPrettyString());
+            assertEquals(Map.of("Expense", 1000L + 9191, "Unrecorded", 10000L),
+                slices(cost.get("spend").get("slices")), cost.toPrettyString());
+            assertEquals(500000 + 2500 - 1000 - 9191 - 10000, cost.get("left").asLong());
+
+            // Cash: the loan's credit leaves Money In and its fee leaves the groups; both net in the
+            // Mortgage slice's Interest & fees.
+            assertEquals(500000, cash.get("income").get("posted").asLong(), cash.toPrettyString());
+            assertEquals(1, cash.get("income").get("lines").size(), cash.get("income").toPrettyString());
+            Map<String, Long> cashSlices = slices(cash.get("spend").get("slices"));
+            assertEquals(Map.of("Expense", 9191L, "Mortgage", 100000L, "Set aside", 20000L,
+                "Unrecorded", 10000L), cashSlices, cash.toPrettyString());
+            JsonNode mortgage = sliceFor(cash.get("spend").get("slices"), "Mortgage");
+            assertEquals(-1500, mortgage.get("parts").get(0).get("amount").asLong(), mortgage.toString());
+            assertEquals(101500, mortgage.get("parts").get(1).get("amount").asLong(), mortgage.toString());
+            assertEquals(cost.get("left").asLong() - cash.get("left").asLong(), 101500 + 20000,
+                "Cost left - Cash left = principal + set-aside");
+
+            // The reconcile: the wallet's synthetic leg is in liquidNet, the settled bill is named.
+            JsonNode reconcile = cash.get("reconcile");
+            assertEquals(500000 - 10000 - 30000 + 50000 - 40000 + 10000 - 100000,
+                reconcile.get("liquidNet").asLong(), reconcile.toPrettyString());
+            assertEquals(-9191, reconcile.get("settledWithoutFact").asLong(), reconcile.toPrettyString());
+            assertEquals(0, reconcile.get("gap").asLong(), cash.toPrettyString());
+        }
+    }
+
     private static Map<String, Long> slices(JsonNode array) {
         Map<String, Long> out = new TreeMap<>();
         for (JsonNode slice : array) {
@@ -348,8 +440,9 @@ class CashflowApiTest {
     }
 
     /**
-     * The fixture's accounts: four liquid ones, the declared loan (left at the default flag, which
-     * C-2 overrides) and the kids' clearing account with {@code kidsLiquid} as its flag — C-2 again.
+     * The fixture's accounts: four liquid bank accounts and a liquid wallet, the declared loan (left
+     * at the default flag, which C-2 overrides), an investment account ({@code liquid: false}) and
+     * the kids' clearing account with {@code kidsLiquid} as its flag — C-2 again.
      */
     private static void config(Path configDir, String kidsLiquid) throws Exception {
         Files.createDirectories(configDir);
@@ -370,6 +463,13 @@ class CashflowApiTest {
               - ref: "loan"
                 currency: "AUD"
                 balanceSource: statement
+              - ref: "invest"
+                currency: "AUD"
+                balanceSource: statement
+                liquid: false
+              - ref: "cash-ron"
+                currency: "AUD"
+                balanceSource: declared
               - ref: "kids"
                 currency: "AUD"
                 balanceSource: clearing
@@ -406,6 +506,8 @@ class CashflowApiTest {
             transferPatterns:
               everyday:
                 - { match: 'KIDS', rail: BANK_TRANSFER, clearing: kids }
+                # An ATM withdrawal is a transfer to the declared wallet (V2-CASH-PLAN.md §4.1).
+                - { match: 'ATM', rail: BANK_TRANSFER, clearing: cash-ron }
             """);
         Files.writeString(configDir.resolve("ezb.yaml"), """
             zone: "Australia/Sydney"

@@ -199,6 +199,16 @@ final class HubSql {
         ORDER BY t.external_id""";
 
     /**
+     * The month's signed movement per account for the reconcile figure (V2-CASHFLOW-PLAN.md C-6):
+     * every non-noop row, <b>synthetic included</b> — an ATM withdrawal's wallet leg is a derived
+     * synthetic row, and without it the bank leg would leave the liquid set with nothing arriving.
+     */
+    static final String MONTH_ACCOUNT_NET = """
+        SELECT account_ref, SUM(amount) FROM txn_current
+        WHERE role != 'noop' AND date >= ? AND date <= ?
+        GROUP BY account_ref ORDER BY account_ref""";
+
+    /**
      * The month's unrecorded cash per wallet (V2-CASH-PLAN.md §4.2, V2-SPEC.md §9.2): the derived
      * {@code cash_month} figure, signed, keyed by {@code YYYY-MM}.
      */

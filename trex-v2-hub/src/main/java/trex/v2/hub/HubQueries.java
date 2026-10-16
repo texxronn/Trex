@@ -956,7 +956,9 @@ public final class HubQueries implements AutoCloseable {
      * own external rows by category — attached to an occurrence or not — which the Cash view takes
      * out of the groups exactly once. {@code repaymentsBy} (net of redraws) and {@code chargesBy}
      * (debits net of credits) are per loan account; {@code setAsideBy} per destination account,
-     * signed. {@code liquidNet} is the signed sum of the liquid accounts' rows (C-6).
+     * signed. {@code liquidNet} is the signed sum of the liquid accounts' rows, synthetic legs
+     * included, and {@code settledWithoutFact} the signed paid occurrences counted with no fact
+     * behind them (C-6).
      */
     private record Walk(long incomeIn, long incomeDue, long committedPaid, long committedDue,
                         long interestDue, long repaymentDue, long uncommittedSpend, long unrecordedCash,
@@ -964,7 +966,7 @@ public final class HubQueries implements AutoCloseable {
                         Map<String, Long> incomeByCategory, Map<String, Long> spendByCategory,
                         Map<String, Long> loanIncomeByCategory, Map<String, Long> loanSpendByCategory,
                         Map<String, Long> repaymentsBy, Map<String, Long> chargesBy,
-                        Map<String, Long> setAsideBy, long liquidNet) {
+                        Map<String, Long> setAsideBy, long liquidNet, long settledWithoutFact) {
 
         /** The Cost view's left (C-4): headroom's figure. The principal and set-aside are not Out. */
         long costLeft() {
@@ -1108,7 +1110,8 @@ public final class HubQueries implements AutoCloseable {
                 new CashflowResponse.Loans(repayments, charges, principal, loanParts),
                 new CashflowResponse.SetAside(setAside, parts(w.setAsideBy())),
                 w.missed(), w.unpaired(), income.total() - total,
-                new CashflowResponse.Reconcile(w.liquidNet(), postedLeft, postedLeft - w.liquidNet()));
+                new CashflowResponse.Reconcile(w.liquidNet(), postedLeft, w.settledWithoutFact(),
+                    postedLeft - w.liquidNet() - w.settledWithoutFact()));
         });
     }
 
@@ -1172,7 +1175,6 @@ public final class HubQueries implements AutoCloseable {
         long uncommittedSpend = 0;
         long unpaired = 0;
         long incomeIn = 0;
-        long liquidNet = 0;
         try (PreparedStatement ps = conn.prepareStatement(HubSql.HEADROOM_ROWS)) {
             ps.setString(1, month.from().toString());
             ps.setString(2, month.to().toString());
@@ -1192,9 +1194,6 @@ public final class HubQueries implements AutoCloseable {
                         continue; // not a posting
                     }
                     boolean isLiquid = liquid.contains(account);
-                    if (isLiquid) {
-                        liquidNet += amount;
-                    }
                     if (rs.getString(5) != null && other != null) {
                         // A move between two of your own accounts, never income or spend. Read from
                         // its liquid leg only, so each is counted once; liquid <-> liquid and two
@@ -1246,6 +1245,7 @@ public final class HubQueries implements AutoCloseable {
         long interestDue = 0;
         long repaymentDue = 0;
         long missed = 0;
+        long settledWithoutFact = 0;
         try (PreparedStatement ps = conn.prepareStatement(HubSql.CASHFLOW_OCCURRENCES)) {
             ps.setString(1, month.from().toString());
             ps.setString(2, month.to().toString());
@@ -1276,6 +1276,11 @@ public final class HubQueries implements AutoCloseable {
                     String category = categoryOf(commitmentCategory.get(id));
                     switch (status) {
                         case "occurred", "settled", "partial" -> {
+                            if (rs.getString(11) == null) {
+                                // Marked paid with no statement row: real in postedLeft, absent
+                                // from the rows, so reconcile names it rather than calling it a gap.
+                                settledWithoutFact += in ? moved : -moved;
+                            }
                             if (in) {
                                 incomeIn += moved;
                                 incomeByCategory.merge(category, moved, Long::sum);
@@ -1304,6 +1309,22 @@ public final class HubQueries implements AutoCloseable {
             }
         }
 
+        // The liquid rows' signed sum (C-6), synthetic legs included. What legitimately remains in the
+        // gap: a HELD liquid leg, a liquid <-> liquid move straddling the month boundary, and a
+        // commitment paid from a non-liquid account.
+        long liquidNet = 0;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.MONTH_ACCOUNT_NET)) {
+            ps.setString(1, month.from().toString());
+            ps.setString(2, month.to().toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    if (liquid.contains(rs.getString(1))) {
+                        liquidNet += rs.getLong(2);
+                    }
+                }
+            }
+        }
+
         LocalDate through = oldestFrontier(conn, today, statementLiquid);
         // The month's unrecorded cash (§9.2): the cash_month figure over the liquid wallets.
         // cash_month only ever holds declared wallets, but a wallet with liquid: false must still be
@@ -1322,7 +1343,8 @@ public final class HubQueries implements AutoCloseable {
         return new Walk(incomeIn, incomeDue, committedPaid, committedDue, interestDue, repaymentDue,
             uncommittedSpend, unrecordedCash, missed, unpaired, through,
             List.copyOf(new java.util.TreeSet<>(liquid)), incomeByCategory, spendByCategory,
-            loanIncomeByCategory, loanSpendByCategory, repaymentsBy, chargesBy, setAsideBy, liquidNet);
+            loanIncomeByCategory, loanSpendByCategory, repaymentsBy, chargesBy, setAsideBy, liquidNet,
+            settledWithoutFact);
     }
 
     /** A row's trex category, or {@code UNCATEGORIZED} for a blank one (a structural transfer leg). */

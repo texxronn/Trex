@@ -83,10 +83,13 @@ public record CashflowResponse(String month, String view, LocalDate through, Lis
 
     /**
      * The month against the liquid accounts' own rows (C-6), whatever the view: {@code liquidNet} is
-     * the signed sum of every non-noop, non-synthetic row on the liquid accounts dated in the month;
-     * {@code postedLeft} the Cash view's {@code left} without any due projection or unrecorded cash;
-     * {@code gap = postedLeft − liquidNet}, which is zero for a fully reconciled month (bar an
-     * occurrence-vs-fact cent).
+     * the signed sum of every non-noop row on the liquid accounts dated in the month, synthetic legs
+     * included (a wallet's ATM leg); {@code postedLeft} the Cash view's {@code left} without any due
+     * projection or unrecorded cash; {@code settledWithoutFact} the signed sum of the month's paid
+     * occurrences that carry no fact (a "Mark paid" with no statement row: spend negative, income
+     * positive), which {@code postedLeft} counts but no row does; and
+     * {@code gap = postedLeft − liquidNet − settledWithoutFact}, zero for a fully reconciled month
+     * bar an occurrence-vs-fact cent.
      */
-    public record Reconcile(long liquidNet, long postedLeft, long gap) {}
+    public record Reconcile(long liquidNet, long postedLeft, long settledWithoutFact, long gap) {}
 }
