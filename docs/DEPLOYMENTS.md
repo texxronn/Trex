@@ -49,9 +49,10 @@ docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
   hub passwd --auth /auth/auth.yaml --config /etc/trex --user mel
 chmod 600 /opt/trex/auth/auth.yaml        # root only
 
-# compose mounts it read-only into the hub and passes the flag (the hub already takes --config):
-#   volumes: - /opt/trex/auth/auth.yaml:/etc/trex-auth/auth.yaml:ro
-#   command: … --auth /etc/trex-auth/auth.yaml
+# compose mounts the directory read-only and passes the path through the environment:
+#   volumes:     - ${TREX_AUTH_DIR:-/opt/trex/auth}:/etc/trex-auth:ro
+#   environment:   TREX_AUTH_FILE=/etc/trex-auth/auth.yaml
+# set TREX_AUTH_FILE — and, if the file lives somewhere else, TREX_AUTH_DIR — in /opt/trex/.env
 docker compose -f /opt/trex/compose.yml up -d
 ```
 
