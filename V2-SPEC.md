@@ -469,7 +469,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/since?n=<n>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line for the signed-in user (§9.1, §9.5); a `user` parameter is ignored |
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly — Firefly only, §11.2 keeps no state) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
-| GET/POST | `/api/acks` | the signed-in user's `USER_ACK` rows and their validity (§9.5); a `user` parameter is ignored |
+| GET/POST | `/api/acks` | every user's `USER_ACK` rows and their validity (a read row carries its `user`, and the client picks its own); a `POST` signs the signed-in user and ignores any `user` in the body (§9.5) |
 | POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer; every draft is stamped with the signed-in user, and one naming a different user is a `403` (§9.5); a row-scoped batch's response also carries `patch` — the rows it moved (§6.6) |
 | POST | `/api/cash` | a manual cash fact — spend, income or a wallet count — on a declared account, forwarded to the sequencer (§9.4); the signed-in user signs the `PIN` (§9.5) |
 | GET | `/api/cash/months` | the derived per-month `cash_month` rows: the unrecorded cash figures (§9.4) |
@@ -716,10 +716,11 @@ does.
 
 **Attribution.** The session's user is stamped onto `POST /api/decisions`, `POST /api/cash` and
 `POST /api/acks`; a draft naming a **different** user is refused with `403`, never silently rewritten.
-The `user` parameter on `/api/since` and `/api/acks` is ignored: the session decides whose
-since-cleared line and whose ACKs are read. The UI's acting-user switcher is gone (§9.1). This is a
-signature, not a permission — ron and mel may each make any decision, as `users.yaml` says; the log
-only records which of them did.
+The `user` parameter on `/api/since` is ignored — the session decides whose line is read — and any
+`user` in an `/api/acks` body is ignored, so a signed-in `POST` always signs the session's user. A
+`user` parameter on `/api/eyeball` stays a filter over read rows, not an identity. The UI's
+acting-user switcher is gone (§9.1). This is a signature, not a permission — ron and mel may each make
+any decision, as `users.yaml` says; the log only records which of them did.
 
 **Deployment** (`docs/DEPLOYMENTS.md`). Authentication is a host concern: the file is installed by hand
 on the host and is never seeded or drift-checked. Plain HTTP on a LAN still carries the password and the
