@@ -1,4 +1,8 @@
-// Decision drafts, one function per action, so a mode never hand-writes a payload shape.
+// Decision drafts, one function per action, so a mode never hand-writes a payload shape. Each draft
+// declares the acting user it got from /api/whoami: with sign-in off the hub has no session and this
+// declared user is the identity, exactly as the pre-sign-in UI sent it; with sign-in on the hub
+// stamps the session's user and refuses a draft naming anyone else with a 403 (V2-SPEC.md §9.5), so
+// the declared user is then redundant and `ctx` still earns its place in the (ctx, …) shape.
 
 const envelope = (action, ctx, comment) => ({
   action,

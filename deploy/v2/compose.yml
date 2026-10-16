@@ -173,14 +173,23 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
       TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+      # Sign-in (V2-SPEC.md §9.5). Unset = the hub is open, exactly as before (A-7). Point it at the
+      # credential file created by `trex hub passwd` (docs/DEPLOYMENTS.md) to require a signed-in ron
+      # or mel; a missing or malformed file is a startup error, never a silent "open".
+      TREX_AUTH_FILE: ${TREX_AUTH_FILE:-}
     volumes:
       - config:/etc/trex
       - journal:/var/lib/trex/journal:ro
       - index:/var/lib/trex/index
       - evidence:/var/lib/trex/evidence
+      # The credential file lives outside the repo and outside the config volume, and is never
+      # seeded, synced or drift-checked (V2-SPEC.md §12).
+      - ${TREX_AUTH_DIR:-/opt/trex/auth}:/etc/trex-auth:ro
     ports:
-      # Loopback by default. Set TREX_HUB_BIND=0.0.0.0 (or a LAN IP) to put the UI on the
-      # network. The API has no auth, so front it with Caddy/Tailscale before exposure.
+      # Loopback by default. Set TREX_HUB_BIND=0.0.0.0 (or a LAN IP) to put the UI on the network.
+      # Sign-in is opt-in (TREX_AUTH_FILE above); without it the API is open to anyone who can reach
+      # the port, and `/mcp` is never gated either (V2-SPEC.md §9.5) — front it with Caddy, TLS or a
+      # tunnel before exposing it.
       - "${TREX_HUB_BIND:-127.0.0.1}:${TREX_HUB_PORT:-8090}:8090"
     depends_on:
       init:

@@ -141,6 +141,10 @@ content rows each take `0`.
 
 ## 5. Decisions
 
+- **Attributed, and verified.** Every decision names the user who made it, and the hub takes that name
+  from the signed-in session rather than from the request body (§9.5), so a caller cannot claim another
+  person's id. The writer still validates it against `users.yaml`, and the envelope and the line format
+  are unchanged. Attribution is not permission: any user may make any decision.
 - **Revocable, never rewritten.** Family inverses (`UNPAIR`, `UNPIN`, `MARK_EXTERNAL`,
   `USER_UNACK`, a later `PIN` or `USER_ACK`) cover the everyday undo; `REVOKE(n)` is the general one
   and the only way back from `SUPERSEDE`, `RETIRE` and `DISMISS`. A later `REVOKE` may revoke a
@@ -445,6 +449,10 @@ unauthenticated and binds loopback by default.
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/login` | the sign-in page; the only static path an anonymous caller is given (§9.5) |
+| POST | `/api/login` | `{user, password}` → a signed session cookie; `401` on a bad user, a wrong password or an inactive user (§9.5) |
+| POST | `/api/logout` | clears the session cookie |
+| GET | `/api/whoami` | `{user, name, signedIn}`; `401` when anonymous; with sign-in off it names the default acting user and `signedIn: false` (§9.5) |
 | GET | `/head`, `/api/status` | log head and index lag; table counts, open review by kind, revisions, `through`, the hub's `today`, `stale`, `expectedDueThisWeek` and `manualToPay` (§9.1) |
 | GET | `/api/refdata` | accounts, users, declared categories, **mortgage facilities** (§9.3), revisions |
 | GET | `/api/ledger` | the blotter rows; filters include `role`, `leg`, account, category, dates |
@@ -458,12 +466,12 @@ unauthenticated and binds loopback by default.
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
 | GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
-| GET | `/api/since?n=<n>&user=<id>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line (§9.1) |
+| GET | `/api/since?n=<n>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line for the signed-in user (§9.1, §9.5); with sign-in on a `user` parameter is ignored |
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly — Firefly only, §11.2 keeps no state) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
-| GET/POST | `/api/acks` | per-user `USER_ACK` rows and their validity |
-| POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer; a row-scoped batch's response also carries `patch` — the rows it moved (§6.6) |
-| POST | `/api/cash` | a manual cash fact — spend, income or a wallet count — on a declared account, forwarded to the sequencer (§9.4) |
+| GET/POST | `/api/acks` | every user's `USER_ACK` rows and their validity (a read row carries its `user`, and the client picks its own); with sign-in on a `POST` is stamped as `actor: user` and the session's user, and a body naming another user is a `403` (§9.5) |
+| POST | `/api/decisions` | precheck against the index (`422` naming the failure, `409` stale view, `503`/`502` writer down) and forward to the sequencer; with sign-in on every draft is stamped `actor: user` with the signed-in user, and one naming a different user is a `403` (§9.5); a row-scoped batch's response also carries `patch` — the rows it moved (§6.6) |
+| POST | `/api/cash` | a manual cash fact — spend, income or a wallet count — on a declared account, forwarded to the sequencer (§9.4); with sign-in on the signed-in user signs the `PIN` (§9.5) |
 | GET | `/api/cash/months` | the derived per-month `cash_month` rows: the unrecorded cash figures (§9.4) |
 | POST | `/api/reflow/preview`, `/api/reflow/preview/transfers` | blast radius of a category or transfer-pattern edit, before it is saved |
 | GET/PUT | `/api/config/categories`, `/api/config/transfers` | the rule files the Rules mode edits |
@@ -479,7 +487,13 @@ than the statements say. The wording names Review, not the world: a clean queue 
 nothing due, so it cannot be read as an all-clear.
 
 On a phone (≤720px) the journal counters — `n`, `txn`, `transfers`, `pending`, the revisions and a zero
-`lag` — are hidden behind an **ⓘ** toggle; the nudges, a non-zero lag and the user switch always show.
+`lag` — are hidden behind an **ⓘ** toggle; the nudges, a non-zero lag and the sign-in line always show.
+
+**The sign-in line.** The strip names who the hub believes you are — `Signed in as Ron` with **Sign
+out** when sign-in is on, or `Acting as Ron · sign-in off` when it is not (§9.5) — from
+`GET /api/whoami`. There is **no user switcher**: identity is a property of the session, not of the
+page, so the acting user is whoever signed in and nothing in the UI may claim otherwise. `/api/status`
+is read through the signed-in session; the counters and the revisions are unchanged.
 
 **The expectations nudge.** `/api/status` also returns `expectedDueThisWeek`: the count of declared
 commitments' occurrences whose window is still open (`status = 'due'`) and whose `due_date` falls
@@ -537,7 +551,7 @@ head `n` whenever it shows `Review clear` (`trex.clearedAtN`), with the last kno
 it (`trex.clearedLeft`). The client captures the stored marker when the page loads, before the
 `Review clear` write can move it; a clear advances it only when there was no marker to read or
 the visit's read succeeded — a failed or malformed read leaves the marker where it was, so the
-next visit retries news it never showed. `GET /api/since?n=<n>&user=<id>` then reads what the log appended
+next visit retries news it never showed. `GET /api/since?n=<n>` then reads what the log appended
 after that line: facts (total and per account), completed batches, review items opened after the
 line's time, occurrences that turned `occurred` (the fact the matcher attached is after `n`) or
 `missed` (the window closed after the line's UTC date), and the decisions after `n` that are not
@@ -657,7 +671,7 @@ natural key), `sourceType: manual`, `provenance: AUTHORED`, `evidenceId: null` a
 A **count** is the same with `amount: 0` and `balance` the counted value, derived as an ATTESTATION.
 Corrections are a new fact plus `SUPERSEDE`, or `RETIRE` — never an edit. An optional category is
 applied as a `PIN` decision on the new fact in the same request (a rule may also catch it); the
-category is never a field of the fact, and the acting user signs the `PIN`.
+category is never a field of the fact, and the signed-in user signs the `PIN` (§9.5).
 
 `GET /api/cash/months` returns the `cash_month` rows (§7) — one per declared account and calendar
 month: `in_from_bank`, `out_to_bank` (Σ synthetic wallet legs in/out, magnitudes), `recorded_out`,
@@ -667,6 +681,65 @@ month: `in_from_bank`, `out_to_bank` (Σ synthetic wallet legs in/out, magnitude
 The figure is `unrecorded = in_from_bank − out_to_bank − recorded_out + recorded_in − held_delta`:
 `> 0` is cash left the wallet unrecorded, `< 0` is cash appeared unrecorded, `= 0` a fully recorded
 month.
+
+### 9.5 Sign-in and attribution
+
+The hub is **off until it is switched on**: started without `--auth`, it serves everything to whoever
+can reach the listener, exactly as before. With `--auth <file>` (or `TREX_AUTH_FILE`) every read and
+decision in §9 requires a **signed-in person**, and the hub stamps that person onto the decisions it
+forwards. The sequencer keeps its own posture (§8): loopback, single writer, no credential.
+
+**The credential file.** Hashes live outside the repo — never in `deploy/config`, never in the image,
+never synced (§12) — at the path `--auth` names, `0600` and root-owned. It holds a per-user
+PBKDF2-SHA256 hash (600 000 iterations, a per-hash salt) and one `sessionSecret` (32 random bytes).
+`trex hub passwd --auth <file> --config <dir> --user <id>` creates the file (and its secret) and sets
+or replaces a hash; `--list` names the ids that have one and never prints a hash. A password may be set
+only for a declared `active` user (§12, `users.yaml`), and only for an id the cookie can carry (below).
+A missing, unreadable or malformed file — an unknown algorithm, a weaker iteration count, a short salt,
+key or secret — is a **startup error**, never a silent switch to open. The file is read **once, at
+startup**: a new password, or a rotated `sessionSecret`, takes effect when the hub restarts.
+
+**The session.** `POST /api/login` takes `{user, password}`, compares in constant time, and sets an
+`HttpOnly; SameSite=Lax; Path=/` cookie carrying only `v1.<user>.<expiry>` signed with HMAC-SHA256
+under the `sessionSecret` (`Secure` is added only when the hub is behind TLS). The cookie is verified
+on every request and slides on use toward a 30-day expiry; `POST /api/logout` clears it. The cookie
+carries the user id verbatim, so an id containing `.`, `|`, `;` or whitespace cannot be signed in, and
+`trex hub passwd` refuses to set one. The hub keeps **no session table**: changing the `sessionSecret`
+invalidates every session at the next restart, and that is the whole revocation model. A failed sign-in
+is a `401` after a fixed 250 ms delay; there is no lockout.
+
+**What is gated.** `/login`, `POST /api/login` and `POST /api/logout` are open; nothing else is. An
+anonymous `/api/…`, `/head` or `/api/events` is `401 {"error":"not signed in"}`; an anonymous `GET /`
+or `/ui/…` is a `302` to `/login?next=<path>`, because a browser clicking a link should land on a form.
+`GET /api/whoami` is the shell's first call: `{user, name, signedIn}` — `signedIn: true` once signed
+in, `401` before, and `signedIn: false` with a default user when sign-in is off (below).
+
+**With sign-in off** there is no session, so the shell has no person to name, but it still needs one:
+`GET /api/whoami` answers `{user, name, signedIn: false}` for the **default acting user** — the first
+declared `active` user in `users.yaml` (`ron`) — and the UI's writes keep naming that user in the body,
+exactly as they did before sign-in existed. It is a read and it grants nothing; with no `--auth` the
+whole surface is open anyway. With sign-in on, `signedIn` is `true`, the hub stamps the session's user,
+refuses a draft naming anyone else, and whatever the client declared is redundant.
+
+**`/mcp` is deliberately not gated** (`V2-AUTH-PLAN.md` A-4). It inherits the listener, so an anonymous
+caller on the same network can still use its read tools and — only where `TREX_MCP_ALLOW_WRITES=1` —
+write as `agent`. Turning the hub's sign-in on does not close that seam; binding the hub to loopback
+does.
+
+**Attribution.** With sign-in on, the session's user is stamped onto `POST /api/decisions`,
+`POST /api/cash` and `POST /api/acks`, and each is forced to `actor: user` so the writer records the
+person rather than a machine actor. A request naming a **different** user — in a draft, or in a cash or
+acks body — is refused with `403` before anything is forwarded, never silently rewritten. The `user`
+parameter on `/api/since` is likewise ignored (the session decides whose line is read) and a `user`
+parameter on `/api/eyeball` stays a filter over read rows, not an identity. With sign-in off none of
+this applies: those parameters and body fields keep the meaning they had before. The UI's acting-user
+switcher is gone (§9.1). This is a signature, not a permission — ron and mel may each make any decision,
+as `users.yaml` says; the log only records which of them did.
+
+**Deployment** (`docs/DEPLOYMENTS.md`). Authentication is a host concern: the file is installed by hand
+on the host and is never seeded or drift-checked. Plain HTTP on a LAN still carries the password and the
+cookie in the clear, so the recommended posture is to bind the hub to loopback and reach it through a
+tunnel or a TLS-terminating proxy — which also closes the `/mcp` seam above.
 
 ---
 
@@ -922,6 +995,12 @@ optional `refdata.yaml` overriding the declared category names. The rules are th
 rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
 location is `--archive` on the sequencer and runner.
 
+**Authentication is not a config file here** (§9.5). The credential file is deliberately outside this
+directory and outside the repo — it holds secrets, so it is not seeded, not shipped in the image and not
+part of config drift. The hub reaches it by `--auth <path>` or `TREX_AUTH_FILE`, and `trex hub passwd`
+writes it on the host, `0600`. `users.yaml` stays what it is — attribution, never authorization — and
+gains no credential field.
+
 **Config drift** (`V2-QOL-IMPROVEMENTS-PLAN.md` §3). The compose `init` service never overwrites a live
 config file, but on every `up` it rewrites `/etc/trex/.shipped/<file>` with the image's copy, and
 when it installs a missing live file it also records that copy as `/etc/trex/.base/<file>`. The hub
@@ -938,7 +1017,8 @@ like any other; a sync re-seeds the file and a hub restart picks the new mapping
 
 ## 13. CLI
 
-One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runner`, `index`,
+One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub` (and `hub passwd`, the
+host-side credential editor, §9.5), `runner`, `index`,
 `ingest`, `egress archive`, `egress firefly`, `egress ezb`, `snapshot`, `stream export`, `stream ingest`, `reflow`,
 `verify`, `export`, `import` (dev). Exit code `64` is `EX_USAGE`. No config is baked in.
 

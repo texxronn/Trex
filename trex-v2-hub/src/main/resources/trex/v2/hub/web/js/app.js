@@ -1,5 +1,5 @@
-// The app shell: load the reference data and the acting user, mount one mode at a time, and keep
-// the status strip fresh from the SSE stream.
+// The app shell: load the reference data and the signed-in identity, mount one mode at a time,
+// and keep the status strip fresh from the SSE stream.
 
 import { api } from './api.js';
 import { connect } from './sse.js';
@@ -26,9 +26,14 @@ const modes = { blotter, review, expected, cashflow, eyeball, rules, accounts, m
 const ctx = {
   n: 0,
   configRevision: null,
-  user: localStorage.getItem('trex.user') || 'ron',
+  // The identity is a fact of the connection now (V2-SPEC.md §9.5): it arrives from GET
+  // /api/whoami at boot, never from localStorage. With a session the hub stamps it onto every
+  // write; with sign-in off this declared user is the identity, exactly as the pre-sign-in UI
+  // sent it. `signedIn` tells the strip which of the two it is looking at.
+  user: null,
+  userName: null,
+  signedIn: false,
   refdata: { users: [], accounts: [], categories: [], mortgages: [] },
-  onUserChange: () => {},
 };
 
 let activeMode = null;
@@ -36,14 +41,20 @@ let activeMode = null;
 async function boot() {
   initTheme();
   try {
+    const who = await api.whoami();
+    ctx.user = who.user;
+    ctx.userName = who.name;
+    ctx.signedIn = Boolean(who.signedIn);
+  } catch (error) {
+    // A failed read: the shell still renders. A 401 has already sent the browser to the form
+    // inside request(); anything else leaves the identity unresolved and this toast speaks.
+    toast('Cannot read whoami: ' + (error.message || error), 'bad');
+  }
+  try {
     ctx.refdata = await api.refdata();
   } catch (error) {
     toast('Cannot reach the hub: ' + (error.message || error), 'bad');
   }
-  if (ctx.refdata.users.length && !ctx.refdata.users.some((u) => u.id === ctx.user)) {
-    ctx.user = ctx.refdata.users[0].id;
-  }
-  ctx.onUserChange = refreshActive;
 
   status.mount(document.getElementById('status'), ctx);
   // The marker order matters (QOL §5): since.js captured the stored marker at module load, and
@@ -74,6 +85,12 @@ async function boot() {
         refreshActive();
       }
       ingestToast.onDelta(change);
+    },
+    onState: (state) => {
+      // The stream cannot read a 401: on a drop, probe whoami once. A 401 redirects inside
+      // request(); every other failure (the hub restarting, a network blip) keeps today's
+      // reconnect and must not sign anyone out (V2-AUTH-PLAN.md §4.4).
+      if (state === 'reconnecting') api.whoami().catch(() => {});
     },
   });
 }

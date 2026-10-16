@@ -109,4 +109,19 @@ public record DecisionDraft(
             amountKind, kind, matches, amount, anchor, fromCandidate, endedAt, candidate, dueDates,
             null, null);
     }
+
+    /**
+     * The same draft, re-signed by {@code user} <em>acting as a person</em>. The hub stamps the
+     * signed-in session onto every draft it forwards (V2-SPEC.md §9.5), so the request body cannot
+     * name its own author — and it forces {@code actor} to {@code user} too, because a body that
+     * claimed {@code actor: "system"} would otherwise make the writer null the person out. A pure
+     * copy — no derivation, nothing mechanical.
+     */
+    public DecisionDraft withActingUser(String user) {
+        return new DecisionDraft(action, "user", user, at, comment, legA, legB, externalId, pendingId,
+            postedId, item, externalIds, category, fromId, toId, reason, target, configRevision,
+            deriveVersion, hashVersion, stateHash, text, account, commitmentId, name, direction,
+            cadence, amountKind, kind, matches, amount, anchor, fromCandidate, endedAt, candidate,
+            dueDates, payment, remindDays);
+    }
 }

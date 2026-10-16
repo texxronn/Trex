@@ -30,9 +30,41 @@ TREX_HUB_BIND=0.0.0.0     # the UI on the LAN
 TREX_SEQ_BIND=127.0.0.1   # the writer stays private
 ```
 
-**There is no authentication.** Anyone who can reach :8090 can read the journal and write decisions,
-so it is LAN-only for now; front it with Caddy (TLS, optional auth) and/or Tailscale before it goes
-anywhere wider.
+### Sign-in (opt-in)
+
+`trex-v2-hub-1` takes `--auth /etc/trex-auth/auth.yaml` (or `TREX_AUTH_FILE`); with it every read and
+decision needs a signed-in **ron** or **mel** (`V2-SPEC.md` §9.5). Started without it the hub serves
+anything to anyone who can reach :8090 — the bind host is then the only protection. The credential file
+is **not** a `deploy/config` file: it is created on the host, is never seeded, synced or drift-checked,
+and holds only PBKDF2 hashes and one `sessionSecret`.
+
+```sh
+# as root on the host: create the file and its sessionSecret, then set each password.
+# `passwd` reads users.yaml (to refuse an unknown or inactive user), so mount the config too.
+docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
+  trex/trex-v2:0.1.0-SNAPSHOT \
+  hub passwd --auth /auth/auth.yaml --config /etc/trex --user ron
+docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
+  trex/trex-v2:0.1.0-SNAPSHOT \
+  hub passwd --auth /auth/auth.yaml --config /etc/trex --user mel
+chmod 600 /opt/trex/auth/auth.yaml        # root only
+
+# compose mounts the directory read-only and passes the path through the environment:
+#   volumes:     - ${TREX_AUTH_DIR:-/opt/trex/auth}:/etc/trex-auth:ro
+#   environment:   TREX_AUTH_FILE=/etc/trex-auth/auth.yaml
+# set TREX_AUTH_FILE — and, if the file lives somewhere else, TREX_AUTH_DIR — in /opt/trex/.env
+docker compose -f /opt/trex/compose.yml up -d
+```
+
+Re-running `passwd` for a user replaces that user's hash; `hub passwd --auth <file> --config <dir>
+--list` names the ids that have one and never prints a hash. Changing `sessionSecret` in the file signs
+everyone out, and a replaced password takes effect, when the hub **restarts** — the file is read once at
+startup — and that is the whole revocation model.
+
+**Still true, and worth repeating:** the hub is served over plain HTTP on the LAN, so the password and
+the session cookie cross the wire in the clear. Sign-in stops the stray device; it does not stop a
+sniffer. Bind the hub to loopback and reach it through a tunnel, or terminate TLS in front, before
+trusting anything wider than the house.
 
 ### MCP server
 
@@ -60,8 +92,10 @@ user (`ron`/`mel`) or `agent`, never anything else. The contract the family bot 
 follow — the reads to prefer, the action payloads, the attribution rule and the safety posture — is
 `docs/ASSISTANT.md`. The egress jobs — `egress-ezb` (live) and `egress-firefly` (dormant) — are never
 exposed; job orchestration stays in the Jobs UI.
-**`/mcp` has no authentication of its own** — it inherits the hub's listener — so keep the hub
-loopback-only (or behind the perimeter) whenever writes are enabled.
+**`/mcp` has no authentication of its own** — it inherits the hub's listener, and the hub's sign-in
+(§9.5) deliberately does not cover it — so keep the hub loopback-only (or behind the perimeter)
+whenever writes are enabled. Turning sign-in on does not close this seam; binding the hub to loopback
+does.
 
 ### Why `/opt/trex/compose.yml` differs from `deploy/v2/compose.yml`
 

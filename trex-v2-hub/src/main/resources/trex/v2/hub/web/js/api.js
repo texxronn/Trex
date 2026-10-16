@@ -20,6 +20,9 @@ async function request(method, path, body) {
     const message = data && data.error ? data.error : (typeof data === 'string' ? data : response.statusText);
     const error = new Error(message || `HTTP ${response.status}`);
     error.status = response.status;
+    // A session can lapse mid-visit. The API answers 401; the browser belongs on the form, not a
+    // toast of "HTTP 401" (V2-AUTH-PLAN.md §4.4). Any other failure is the caller's to handle.
+    if (response.status === 401) location.assign('/login');
     throw error;
   }
   return data;
@@ -27,6 +30,8 @@ async function request(method, path, body) {
 
 export const api = {
   status: () => request('GET', '/api/status'),
+  whoami: () => request('GET', '/api/whoami'),
+  logout: () => request('POST', '/api/logout'),
   refdata: () => request('GET', '/api/refdata'),
   ledger: (params = {}) => request('GET', '/api/ledger?' + new URLSearchParams(params)),
   review: (kind, account) => {
@@ -77,6 +82,9 @@ export const api = {
   workbook: () => request('GET', '/api/workbook'),
   ingests: (sinceN) => request('GET', '/api/ingests'
     + (sinceN === null || sinceN === undefined ? '' : '?' + new URLSearchParams({ sinceN }))),
+  // The user is the identity only when sign-in is off; with a session the hub ignores it and reads
+  // the signed-in user's own line (V2-SPEC.md §9.5). Omitted when there is no user, so no
+  // user=undefined ever reaches the hub.
   since: (n, user) => request('GET', '/api/since?' + new URLSearchParams({
     n,
     ...(user ? { user } : {}),
@@ -108,7 +116,12 @@ export function uploadStaged(file, onProgress) {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { /* empty */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-      else reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+      else {
+        // The same lapse the request() helper handles: a 401 means the browser belongs on the form,
+        // not a toast of "HTTP 401" (V2-AUTH-PLAN.md §4.4).
+        if (xhr.status === 401) location.assign('/login');
+        reject(new Error((data && data.error) || `HTTP ${xhr.status}`));
+      }
     };
     xhr.onerror = () => reject(new Error('upload failed'));
     xhr.send(file);

@@ -65,6 +65,7 @@ import trex.v2.hub.api.StatusResponse;
 import trex.v2.hub.api.TransferJson;
 import trex.v2.hub.api.TransferPreview;
 import trex.v2.hub.api.UnitsResponse;
+import trex.v2.hub.auth.Auth;
 import trex.v2.index.IndexLock;
 import trex.v2.index.Indexer;
 import trex.v2.index.ProjectionRow;
@@ -170,6 +171,14 @@ public final class HubService implements HubApi, AutoCloseable {
 
     public static HubService start(HubConfig config) {
         ConfigLoader.Loaded loaded = ConfigLoader.load(config.configDir());
+        // Sign-in (V2-SPEC.md §9.5): a null authFile is off, exactly as before. A bad file — missing,
+        // unreadable, empty or malformed — is a startup error here, never a silent switch to open.
+        Auth auth = config.authFile() == null ? null : Auth.load(config.authFile());
+        if (auth == null && !isLoopback(config.host())) {
+            log.warn("the hub is bound to {} with no sign-in configured (--auth / TREX_AUTH_FILE): "
+                + "anyone who can reach it can read the journal and write decisions (V2-SPEC.md §9.5)",
+                config.host());
+        }
         // View config, loaded here and not through ConfigLoader: it must never enter configRevision.
         List<RefdataResponse.MortgageJson> mortgages =
             Mortgages.load(config.configDir(), loaded.registry());
@@ -189,7 +198,7 @@ public final class HubService implements HubApi, AutoCloseable {
             RunnerClient runner = config.runnerUrl() == null ? null : new RunnerClient(config.runnerUrl(), config.runnerToken());
             HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events, runner,
                 mortgages);
-            service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner);
+            service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner, auth);
             log.info("trex hub listening on {}:{}; journal {}; index {}",
                 config.host(), service.server.getAddress().getPort(), config.journal(), config.index());
             return service;
@@ -199,6 +208,19 @@ public final class HubService implements HubApi, AutoCloseable {
         } catch (RuntimeException e) {
             closeQuietly(lock, indexer, reads, refresher);
             throw e;
+        }
+    }
+
+    /**
+     * A-7's guard: a bind address on the loopback interface needs no sign-in, anything else does, and
+     * the dangerous combination must be visible in the log rather than silent. An unresolvable host
+     * is treated as non-loopback, so the warning errs toward being shown.
+     */
+    private static boolean isLoopback(String host) {
+        try {
+            return java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return false;
         }
     }
 
