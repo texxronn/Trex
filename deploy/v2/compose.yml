@@ -45,6 +45,8 @@ configs:
     file: ../config/firefly.yaml
   ezb.yaml:
     file: ../config/ezb.yaml
+  cashflow.yaml:
+    file: ../config/cashflow.yaml
   statements.yaml:
     file: ../config/statements.yaml
   sources.yaml:
@@ -81,7 +83,7 @@ services:
     command:
       - >-
         mkdir -p /etc/trex /etc/trex/.shipped /etc/trex/.base /var/lib/trex/journal /var/lib/trex/index /var/lib/trex/evidence /var/lib/trex/archive /var/lib/trex/staging;
-        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml ezb.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml mortgages.yaml; do
+        for f in sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml ezb.yaml cashflow.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml mortgages.yaml; do
           cp "/bootstrap/$$f" "/etc/trex/.shipped/$$f";
           if [ ! -e "/etc/trex/$$f" ]; then
             cp "/bootstrap/$$f" "/etc/trex/$$f";
@@ -100,6 +102,7 @@ services:
       - { source: pins.yaml, target: /bootstrap/pins.yaml }
       - { source: firefly.yaml, target: /bootstrap/firefly.yaml }
       - { source: ezb.yaml, target: /bootstrap/ezb.yaml }
+      - { source: cashflow.yaml, target: /bootstrap/cashflow.yaml }
       - { source: statements.yaml, target: /bootstrap/statements.yaml }
       - { source: sources.yaml, target: /bootstrap/sources.yaml }
       - { source: schedule.yaml, target: /bootstrap/schedule.yaml }

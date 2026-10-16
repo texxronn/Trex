@@ -133,7 +133,7 @@ public final class HubService implements HubApi, AutoCloseable {
      * can never read an arbitrary path out of the volume.
      */
     private static final Set<String> MCP_CONFIG_FILES = Set.of(
-        "accounts.yaml", "categories.yaml", "transfers.yaml", "firefly.yaml", "ezb.yaml",
+        "accounts.yaml", "categories.yaml", "transfers.yaml", "firefly.yaml", "ezb.yaml", "cashflow.yaml",
         "profiles.yaml");
 
     private final HubConfig config;
@@ -434,7 +434,7 @@ public final class HubService implements HubApi, AutoCloseable {
      * actuals without a special case.
      */
     @Override
-    public CashflowResponse cashflow(String month, String view) {
+    public CashflowResponse cashflow(String month, String view, String exclude) {
         YearMonth ym;
         if (month == null || month.isBlank()) {
             ym = YearMonth.now();
@@ -448,7 +448,39 @@ public final class HubService implements HubApi, AutoCloseable {
         Set<String> liquid = liquidAccounts();
         return reads.cashflowSheet(Period.bounds(ym.toString()), LocalDate.now(), liquid,
             statementLiquid(refresher.config().registry(), liquid), categoryGroups(), loanBook(),
-            "cash".equals(view));
+            "cash".equals(view), exclude == null ? cashflowDefaults() : splitKeys(exclude));
+    }
+
+    private static List<String> splitKeys(String csv) {
+        return java.util.Arrays.stream(csv.split(","))
+            .map(String::strip).filter(k -> !k.isEmpty()).distinct().toList();
+    }
+
+    /**
+     * The default exclusions from the optional {@code cashflow.yaml} (V2-CASHFLOW-PLAN.md C-7): its
+     * {@code exclude} list of leaf categories or primary groups. View-only config, never hashed into
+     * {@code configRevision}; a missing, unreadable or malformed file means no defaults.
+     */
+    private List<String> cashflowDefaults() {
+        Path file = config.configDir().resolve("cashflow.yaml");
+        if (!Files.isRegularFile(file)) {
+            return List.of();
+        }
+        try {
+            JsonNode exclude = Yaml.mapper().readTree(Files.readString(file)).path("exclude");
+            if (!exclude.isArray()) {
+                return List.of();
+            }
+            List<String> out = new ArrayList<>();
+            exclude.forEach(n -> {
+                if (n.isTextual() && !n.asText().isBlank()) {
+                    out.add(n.asText().strip());
+                }
+            });
+            return out.stream().distinct().toList();
+        } catch (IOException e) {
+            return List.of();
+        }
     }
 
     /**

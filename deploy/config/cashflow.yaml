@@ -1,0 +1,2 @@
+# cashflow.yaml — Cash flow view defaults (V2-CASHFLOW-PLAN C-7). View-config only.
+exclude: [BIG_TICKET_PURCHASES]

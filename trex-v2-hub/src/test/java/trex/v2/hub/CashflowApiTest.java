@@ -373,6 +373,101 @@ class CashflowApiTest {
         }
     }
 
+    /**
+     * C-7: exclusion is a view filter over posted category spending. Keys match a leaf or a primary
+     * group; absent {@code exclude} takes the {@code cashflow.yaml} default, present (even empty)
+     * replaces it; {@code left} and {@code spend.total} do not move, {@code leftExcl} adds the
+     * excluded back, and the slices sum to {@code spend.total − excluded.total} in both views.
+     */
+    @Test
+    void excludeRemovesLeavesOrGroupsFromTheSlices(@TempDir Path dir) throws Exception {
+        YearMonth month = YearMonth.now(ZoneOffset.UTC).minusMonths(2);
+        YearMonth next = month.plusMonths(1);
+        Path configDir = dir.resolve("config");
+        config(configDir, "liquid: true");
+        Files.writeString(configDir.resolve("cashflow.yaml"), "exclude: [WATER]\n");
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                fact(1, "sal", "savings", SALARY, "SALARY ACME", month.atDay(3)),
+                fact(2, "shop", "everyday", -15000, "COLES 1234", month.atDay(6)),
+                fact(3, "fee", "everyday", -500, "ACCOUNT FEE", month.atDay(8)),
+                fact(4, "water", "everyday", -10000, "SYDNEY WATER", month.atDay(9)),
+                fact(5, "rep-a", "offset", -REPAYMENT, "TO LOAN", month.atDay(15)),
+                fact(6, "rep-b", "loan", REPAYMENT, "FROM OFFSET", month.atDay(15)),
+                fact(7, "int", "loan", -INTEREST, "INTEREST CHARGE", month.atDay(15)),
+                fact(8, "f-every", "everyday", -100, "FRONTIER", next.atDay(20)),
+                fact(9, "f-off", "offset", -100, "FRONTIER", next.atDay(20)),
+                fact(10, "f-loan", "loan", -100, "FRONTIER", next.atDay(20)),
+                declare(11, "loan-repay", "Loan repayment", "out", "TO LOAN", REPAYMENT, month.atDay(15)),
+                declare(12, "loan-interest", "Loan interest", "out", "INTEREST CHARGE", INTEREST,
+                    month.atDay(15)),
+                pair(13, "rep-a", "rep-b")));
+        }
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50))) {
+            await(hub, 2);
+            HttpClient client = HttpClient.newHttpClient();
+            URI base = URI.create("http://127.0.0.1:" + hub.port());
+            String q = "/api/cashflow?month=" + month;
+
+            // The default from cashflow.yaml: WATER is out of the Bills group, which disappears.
+            JsonNode def = json(client, base, q);
+            assertEquals(List.of("WATER"), strings(def.get("excluded").get("keys")));
+            assertEquals(10000, def.get("excluded").get("total").asLong());
+            assertEquals(List.of("WATER"), partNames(def.get("excluded").get("parts")));
+            assertEquals(Map.of("Finance", INTEREST + 500, "Living", 15000L), slices(def.get("spend").get("slices")),
+                def.toPrettyString());
+
+            // left and spend.total do not move; leftExcl adds the excluded back.
+            JsonNode all = json(client, base, q + "&exclude=");
+            assertEquals(List.of(), strings(all.get("excluded").get("keys")), "present-empty replaces the default");
+            assertEquals(0, all.get("excluded").get("total").asLong());
+            assertEquals(0, all.get("excluded").get("parts").size());
+            assertEquals(Map.of("Finance", INTEREST + 500, "Living", 15000L, "Bills", 10000L),
+                slices(all.get("spend").get("slices")));
+            assertEquals(all.get("left").asLong(), all.get("leftExcl").asLong());
+            assertEquals(all.get("left").asLong(), def.get("left").asLong());
+            assertEquals(all.get("spend").get("total").asLong(), def.get("spend").get("total").asLong());
+            assertEquals(def.get("left").asLong() + 10000, def.get("leftExcl").asLong());
+
+            // By leaf: a partially excluded group keeps its other leaves.
+            JsonNode leaf = json(client, base, q + "&exclude=BANK_FEES");
+            assertEquals(List.of("INTEREST_PAID"),
+                partNames(sliceFor(leaf.get("spend").get("slices"), "Finance").get("parts")));
+            assertEquals(500, leaf.get("excluded").get("total").asLong());
+            assertEquals(Map.of("Finance", INTEREST, "Living", 15000L, "Bills", 10000L),
+                slices(leaf.get("spend").get("slices")));
+
+            // By group (and a mix, in request order; parts amount descending).
+            JsonNode group = json(client, base, q + "&exclude=Finance,WATER,NOT_A_THING");
+            assertEquals(List.of("Finance", "WATER", "NOT_A_THING"), strings(group.get("excluded").get("keys")));
+            assertEquals(INTEREST + 500 + 10000, group.get("excluded").get("total").asLong());
+            assertEquals(List.of("INTEREST_PAID", "WATER", "BANK_FEES"),
+                partNames(group.get("excluded").get("parts")));
+            assertEquals(Map.of("Living", 15000L), slices(group.get("spend").get("slices")));
+            assertEquals(group.get("left").asLong() + INTEREST + 500 + 10000, group.get("leftExcl").asLong());
+            assertEquals(group.get("spend").get("total").asLong() - group.get("excluded").get("total").asLong(),
+                slices(group.get("spend").get("slices")).values().stream().mapToLong(Long::longValue).sum());
+
+            // Cash view: the loan interest already left Finance for Mortgage, so excluding the
+            // interest leaf excludes nothing there, and Mortgage is never excludable.
+            JsonNode cash = json(client, base, q + "&view=cash&exclude=INTEREST_PAID,Mortgage,BANK_FEES");
+            assertEquals(500, cash.get("excluded").get("total").asLong(), cash.toPrettyString());
+            assertEquals(REPAYMENT, slices(cash.get("spend").get("slices")).get("Mortgage"));
+            assertFalse(slices(cash.get("spend").get("slices")).containsKey("Finance"));
+            assertEquals(cash.get("left").asLong() + 500, cash.get("leftExcl").asLong());
+            assertEquals(cash.get("spend").get("total").asLong() - 500,
+                slices(cash.get("spend").get("slices")).values().stream().mapToLong(Long::longValue).sum());
+        }
+    }
+
+    private static List<String> strings(JsonNode array) {
+        List<String> out = new ArrayList<>();
+        array.forEach(n -> out.add(n.asText()));
+        return out;
+    }
+
     private static Map<String, Long> slices(JsonNode array) {
         Map<String, Long> out = new TreeMap<>();
         for (JsonNode slice : array) {

@@ -1032,21 +1032,34 @@ public final class HubQueries implements AutoCloseable {
      * the repayment commitments and not the interest. Zero slices are omitted; every slice sums to
      * {@code spend.total} and {@code left = income.total − spend.total} in both views, so
      * Cost left − Cash left = principal + set-aside for a past month.
+     *
+     * <p>{@code exclude} (C-7) names leaf categories or primary groups whose posted spending leaves
+     * the slices (a group with no leaf left disappears) and rides {@code excluded}; {@code spend.total}
+     * and {@code left} are unchanged and {@code leftExcl = left + excluded.total}.
      */
     public CashflowResponse cashflowSheet(Period.Range month, LocalDate today, Set<String> liquid,
                                           Set<String> statementLiquid, Map<String, String> groups,
-                                          LoanBook loans, boolean cash) {
+                                          LoanBook loans, boolean cash, List<String> exclude) {
         return read(conn -> {
             Walk w = walk(conn, month, today, liquid, statementLiquid, loans);
             Map<String, Long> spendByCategory = cash
                 ? minus(w.spendByCategory(), w.loanSpendByCategory()) : w.spendByCategory();
+            // C-7: the excluded leaves come out of the slices only (after the Cash view's charge
+            // removal), so the totals and `left` below still count them.
+            Map<String, Long> excludedByCategory = new java.util.TreeMap<>();
+            Map<String, Long> sliced = new java.util.TreeMap<>();
+            spendByCategory.forEach((category, amount) -> {
+                boolean out = exclude.contains(category) || exclude.contains(groupOf(category, groups));
+                (out ? excludedByCategory : sliced).put(category, amount);
+            });
+            long excludedTotal = sum(excludedByCategory);
             Map<String, Long> incomeByCategory = cash
                 ? minus(w.incomeByCategory(), w.loanIncomeByCategory()) : w.incomeByCategory();
 
             // Each group keeps its parts — the trex categories inside it — so the view can open a
             // group into the distribution that made it up.
             Map<String, Map<String, Long>> byGroup = new java.util.TreeMap<>();
-            spendByCategory.forEach((category, amount) ->
+            sliced.forEach((category, amount) ->
                 byGroup.computeIfAbsent(groupOf(category, groups), k -> new java.util.TreeMap<>())
                     .merge(category, amount, Long::sum));
             List<CashflowResponse.Slice> slices = new ArrayList<>();
@@ -1110,6 +1123,8 @@ public final class HubQueries implements AutoCloseable {
                 new CashflowResponse.Loans(repayments, charges, principal, loanParts),
                 new CashflowResponse.SetAside(setAside, parts(w.setAsideBy())),
                 w.missed(), w.unpaired(), income.total() - total,
+                new CashflowResponse.Excluded(exclude, excludedTotal, parts(excludedByCategory)),
+                income.total() - total + excludedTotal,
                 new CashflowResponse.Reconcile(w.liquidNet(), postedLeft, w.settledWithoutFact(),
                     postedLeft - w.liquidNet() - w.settledWithoutFact()));
         });

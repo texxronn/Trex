@@ -83,7 +83,8 @@ final class HubHttpApi {
         route(server, "/api/cashflow", "GET", ex -> {
             try {
                 String query = ex.getRequestURI().getQuery();
-                write(ex, 200, api.cashflow(param(query, "month"), param(query, "view")));
+                write(ex, 200, api.cashflow(param(query, "month"), param(query, "view"),
+                    present(query, "exclude")));
             } catch (IllegalArgumentException e) {
                 sendError(ex, 400, e.getMessage());
             }
@@ -435,6 +436,21 @@ final class HubHttpApi {
             throw new IOException("request body too large");
         }
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    /** A query value that is {@code null} only when the key is absent; present-but-empty is {@code ""}. */
+    private static String present(String rawQuery, String key) {
+        if (rawQuery == null) {
+            return null;
+        }
+        for (String pair : rawQuery.split("&")) {
+            int eq = pair.indexOf('=');
+            String name = eq < 0 ? pair : pair.substring(0, eq);
+            if (name.equals(key)) {
+                return eq < 0 ? "" : java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+            }
+        }
+        return null;
     }
 
     private static String param(String rawQuery, String key) {

@@ -17,10 +17,15 @@ import java.util.List;
  * positive magnitudes except {@code left}, the reconcile figures, a loan's principal and a
  * set-aside, which are signed. {@code through} is the oldest statement frontier among the liquid
  * accounts and {@code accounts} the liquid refs.
+ *
+ * <p>{@code excluded} is the view filter of V2-CASHFLOW-PLAN.md C-7: posted category spending the
+ * viewer set aside, already removed from {@code spend.slices} but still in {@code spend.total} and
+ * {@code left}; {@code leftExcl = left + excluded.total}.
  */
 public record CashflowResponse(String month, String view, LocalDate through, List<String> accounts,
                                Income income, Spend spend, Loans loans, SetAside setAside,
-                               long missed, long unpaired, long left, Reconcile reconcile) {
+                               long missed, long unpaired, long left, Excluded excluded,
+                               long leftExcl, Reconcile reconcile) {
 
     /**
      * Money In. {@code posted} is income already seen — a paid income occurrence or an uncommitted
@@ -44,6 +49,13 @@ public record CashflowResponse(String month, String view, LocalDate through, Lis
      * {@code Unrecorded}; a zero slice is omitted.
      */
     public record Spend(long posted, long due, long unrecorded, long total, List<Slice> slices) {}
+
+    /**
+     * The excluded view filter (C-7): {@code keys} are the effective keys in request (or default)
+     * order, {@code total} what they took out of the slices, {@code parts} the excluded leaf
+     * categories, amount descending then label.
+     */
+    public record Excluded(List<String> keys, long total, List<Part> parts) {}
 
     /**
      * One Money Out slice with its {@code parts} summing to its amount: a group's trex categories,

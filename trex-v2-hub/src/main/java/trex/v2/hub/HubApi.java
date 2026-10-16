@@ -65,10 +65,12 @@ interface HubApi {
      * Cash view; anything else is Cost. It shares headroom's row-walk, so the Cost view's
      * {@code left} equals {@code /api/expected}'s {@code headroom.left} for the same month.
      * {@code month} is any {@code YYYY-MM}; null or blank is the hub's current month, and a
-     * malformed month is an {@link IllegalArgumentException}. A read of the derived index; nothing
+     * malformed month is an {@link IllegalArgumentException}. {@code exclude} is a
+     * comma-separated list of leaf categories or primary groups (C-7): null (absent) takes the
+     * {@code cashflow.yaml} default, any string — even blank — is exactly that list. A read of the derived index; nothing
      * is stored.
      */
-    CashflowResponse cashflow(String month, String view);
+    CashflowResponse cashflow(String month, String view, String exclude);
 
     /** The note thread on one id (or every note), oldest first (§6.2 {@code NOTE}). */
     List<trex.v2.hub.api.NoteJson> notes(String externalId);
