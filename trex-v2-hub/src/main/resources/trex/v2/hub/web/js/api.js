@@ -45,10 +45,11 @@ export const api = {
   activity: (id) => request('GET', '/api/commitments/activity?' + new URLSearchParams({ id })),
   expected: (window) => request('GET', '/api/expected'
     + (window ? '?' + new URLSearchParams({ window }) : '')),
-  cashflow: (month, view) => {
+  cashflow: (month, { view, exclude } = {}) => {
     const params = new URLSearchParams();
     if (month) params.set('month', month);
     if (view) params.set('view', view);
+    if (exclude && exclude.length) params.set('exclude', exclude.join(','));
     const query = params.toString();
     return request('GET', '/api/cashflow' + (query ? '?' + query : ''));
   },

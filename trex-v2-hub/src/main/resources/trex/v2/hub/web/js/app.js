@@ -9,7 +9,7 @@ import * as since from './since.js';
 import * as blotter from './blotter.js';
 import * as review from './review.js';
 import * as expected from './expected.js';
-import * as budget from './budget.js';
+import * as cashflow from './cashflow.js';
 import * as eyeball from './eyeball.js';
 import * as rules from './rules.js';
 import * as accounts from './accounts.js';
@@ -19,7 +19,9 @@ import * as chains from './chains.js';
 import * as jobs from './jobs.js';
 import * as ingestToast from './ingestToast.js';
 
-const modes = { blotter, review, expected, budget, eyeball, rules, accounts, mortgage, cash, chains, jobs };
+// #budget is the old name of the Cash flow mode (C-1); old links keep working.
+const modeAliases = { budget: 'cashflow' };
+const modes = { blotter, review, expected, cashflow, eyeball, rules, accounts, mortgage, cash, chains, jobs };
 
 const ctx = {
   n: 0,
@@ -78,7 +80,8 @@ async function boot() {
 
 function route() {
   const raw = location.hash.slice(1) || 'blotter';
-  const [requested, query] = raw.split('?');
+  const [asked, query] = raw.split('?');
+  const requested = modeAliases[asked] || asked;
   const name = modes[requested] ? requested : 'blotter';
   ctx.modeQuery = new URLSearchParams(query || '');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.mode === name));

@@ -610,7 +610,7 @@ button.warn:hover { background: var(--warn-soft); }
 .amort-legend .swatch.interest { background: var(--bad); }
 .amort-legend .swatch.principal { background: var(--good); }
 
-/* ---- Budget: the month's sheet and its donut (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5) ---- */
+/* ---- Cash flow: the month's sheet and its donut (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5) ---- */
 
 /* Money In and Money Out in one column, the donut beside them. Stacked on a phone, so the donut
    follows the tables rather than squeezing them. */
@@ -646,6 +646,12 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-legend .share { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .budget-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
   margin-right: 0.45rem; vertical-align: -1px; }
+
+/* The Cost view's bridge and the Cash view's reconcile line are footnotes to Left. */
+.bridge { margin-top: 0.6rem; }
+.bridge p { font-size: 12px; margin: 0.3rem 0 0; }
+.bridge .budget-table td { color: var(--muted); }
+.reconcile { font-size: 12px; }
 
 @media (max-width: 720px) {
   .budget-sheet { grid-template-columns: minmax(0, 1fr); }

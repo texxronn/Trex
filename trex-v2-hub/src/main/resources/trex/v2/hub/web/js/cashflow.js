@@ -1,14 +1,15 @@
-// Budget mode (V2-SPEC.md §9.2): the month's cash-flow sheet — Money In, Money Out and Money Left
-// Over of the liquid accounts — with a donut of Money Out by primary group. One read,
-// /api/cashflow, over the derived index; this view reads the Cost view, whose `left` equals the
-// status line's headroom for the same month because the hub shares headroom's row-walk, not because
-// the view computes anything of its own. (The Cash/Cost toggle and the loan bridge are
-// V2-CASHFLOW-PLAN.md Task 5.)
+// Cash flow mode (V2-SPEC.md §9.2; V2-CASHFLOW-PLAN.md C-1, C-4, C-6): the month's cash-flow sheet —
+// Money In, Money Out and Money Left Over of the liquid accounts — with a donut of Money Out. One
+// read, /api/cashflow, over the derived index, in one of two views the toolbar switches between:
+// Cost (spending; the loan principal and the set-aside are a muted bridge under the tables) and
+// Cash (the mortgage repayment and the set-aside are Money Out slices, so Left is the change in the
+// liquid accounts). The Cost view's `left` equals the status line's headroom for the same month
+// because the hub shares headroom's row-walk, not because this view computes anything of its own.
 //
-// The month lives in the URL (#budget?month=YYYY-MM) so a month is linkable and survives a reload.
-// Stepping
-// rewrites it with history.replaceState, never location.hash: a hash assignment fires
-// `hashchange` and the router would remount the mode on every step.
+// The month and the view live in the URL (#cashflow?month=YYYY-MM&view=cash) so a sheet is linkable
+// and survives a reload. Changing either rewrites it with history.replaceState, never
+// location.hash: a hash assignment fires `hashchange` and the router would remount the mode.
+// (#budget is an alias the router maps here; the first write replaces it with #cashflow.)
 
 import { api } from './api.js';
 import { accountChip } from './account.js';
@@ -17,7 +18,10 @@ import { date, money } from './format.js';
 
 // The synthetic slices the hub appends after the rolled-up groups: money still due and the wallet's
 // unrecorded cash. They are not posted spending, so the tables mark them muted and the donut keeps
-// them apart from the groups. A move between your own accounts is never here.
+// them apart from the groups. Cash view's Mortgage and Set aside are posted money out, so they are
+// ordinary groups here and carry their own parts (account refs for Set aside).
+const VIEWS = { cost: 'Cost', cash: 'Cash' };
+const ACCOUNT_PARTS = new Set(['Set aside']);
 const SYNTHETIC = new Set(['Due', 'Unrecorded']);
 
 // The donut's geometry, in the SVG's own 200×200 space. The ring is stroked circles, not arc paths:
@@ -38,17 +42,21 @@ const OTHER_COLOR = '#6b7280';
 let host;
 let ctx;
 let month = null; // the YYYY-MM in the URL; the response's month is the truth once it arrives
+let view = 'cost'; // 'cost' | 'cash', also in the URL
 let data = null;
 let loadGeneration = 0; // supersedes an in-flight load when a newer one starts
 let errorBar;
 let periodLabel;
 let jumpInput;
+let viewTabs;
 let sheetHost;
 
 export function mount(container, context) {
   host = container;
   ctx = context;
   month = (context.modeQuery && context.modeQuery.get('month')) || null;
+  view = context.modeQuery && context.modeQuery.get('view') === 'cash' ? 'cash' : 'cost';
+  data = null;
   buildShell();
   renderSheet();
   load();
@@ -58,7 +66,7 @@ export function mount(container, context) {
 async function load() {
   const generation = ++loadGeneration;
   try {
-    data = await api.cashflow(month || undefined, 'cost');
+    data = await api.cashflow(month || undefined, { view });
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     month = data.month; // the hub names the month it read, whether or not the URL asked for one
     errorBar.hidden = true;
@@ -67,7 +75,7 @@ async function load() {
     // The sheet keeps the last month it did read; the stepper follows it rather than the failed
     // query, so the toolbar and the tables never disagree about which month is on screen.
     if (data) month = data.month;
-    errorBar.textContent = error.message || 'failed to load the budget sheet';
+    errorBar.textContent = error.message || 'failed to load the cash flow sheet';
     errorBar.hidden = false;
     return;
   }
@@ -82,8 +90,13 @@ function buildShell() {
   periodLabel = el('span', { class: 'period muted' });
   jumpInput = el('input', { type: 'date', onchange: jump });
   sheetHost = el('div');
+  viewTabs = el('div', { class: 'tabs', role: 'group', 'aria-label': 'View' },
+    ...Object.entries(VIEWS).map(([value, label]) => el('button', {
+      type: 'button', class: 'tab', 'data-view': value, onclick: () => setView(value),
+    }, label)));
   host.append(errorBar,
     el('div', { class: 'toolbar' },
+      viewTabs,
       button('\u2039', () => step(-1)),
       periodLabel,
       button('\u203a', () => step(1)),
@@ -97,6 +110,9 @@ function renderSheet() {
     periodLabel.textContent = monthLabel(key);
     jumpInput.value = key + '-01';
   }
+  for (const tab of viewTabs.children) {
+    tab.classList.toggle('active', tab.dataset.view === view);
+  }
   clear(sheetHost);
   if (!data) {
     sheetHost.append(el('p', { class: 'muted' }, 'Loading…'));
@@ -109,6 +125,10 @@ function renderSheet() {
     return;
   }
   sheetHost.append(sheetGrid());
+  if (view === 'cost') {
+    const bridge = costBridge();
+    if (bridge) sheetHost.append(bridge);
+  }
 }
 
 /**
@@ -135,7 +155,27 @@ function leftBar() {
     el('div', { class: 'muted' }, parts.join(' · ')),
     el('div', { class: 'muted', title: 'liquid accounts: ' + (accounts || []).join(', ') },
       through ? `through ${date(through)} — the statements say nothing after it` : 'no statements yet'),
-    notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '');
+    notes.length ? el('div', {}, ...notes.flatMap((n, i) => (i ? [' · ', n] : [n]))) : '',
+    view === 'cash' ? reconcileLine() : '');
+}
+
+/**
+ * C-6: the Cash view's Left should be the change in the liquid accounts, so the hub compares it with
+ * the accounts' own rows. Informational only: a gap is never an error here, and a 1-cent gap is a
+ * real possible value, shown as it is. A paid occurrence with no statement row yet (a "Mark paid")
+ * is in Left but not in the rows, which the muted note names.
+ */
+function reconcileLine() {
+  const r = data.reconcile;
+  if (!r) return '';
+  const children = [r.gap === 0
+    ? "Matches the accounts' rows"
+    : `Rows differ by ${money(r.gap)}`];
+  if (r.settledWithoutFact) {
+    children.push(` · includes ${money(r.settledWithoutFact)} marked paid without a statement row`);
+  }
+  return el('div', { class: 'muted reconcile', title: 'the Cash view\'s Left against the signed sum of the liquid accounts\' rows' },
+    ...children);
 }
 
 /** Money In and Money Out in one column, the donut beside them on a wide screen (§5). */
@@ -173,7 +213,8 @@ function moneyOut() {
   for (const slice of data.spend.slices) {
     const synthetic = SYNTHETIC.has(slice.group);
     rows.push(...expandableRow(synthetic ? 'synthetic' : '', [slice.group], slice.amount,
-      slice.parts || [], false, 'click for the categories inside this group'));
+      slice.parts || [], ACCOUNT_PARTS.has(slice.group),
+      ACCOUNT_PARTS.has(slice.group) ? 'click for the accounts' : 'click for the categories inside this group'));
   }
   rows.push(el('tr', { class: 'total' }, el('td', {}, 'Total'),
     el('td', { class: 'amount' }, money(data.spend.total))));
@@ -269,7 +310,36 @@ function colorOf(slice, index) {
 }
 
 function hasRows(sheet) {
-  return Boolean(sheet.income.lines.length || sheet.income.due || sheet.spend.slices.length);
+  return Boolean(sheet.income.lines.length || sheet.income.due || sheet.spend.slices.length
+    || (sheet.loans && (sheet.loans.repayments || sheet.loans.charges))
+    || (sheet.setAside && sheet.setAside.total));
+}
+
+/**
+ * The Cost view's bridge (C-4): the two things that left the liquid accounts but are not spending.
+ * Principal repaid is equity gained, set-aside money still belongs to you in another account; the
+ * Cash view shows both as Money Out slices instead. Muted, so it reads as a footnote to Left.
+ */
+function costBridge() {
+  const principal = data.loans ? data.loans.principal : 0;
+  const aside = data.setAside ? data.setAside.total : 0;
+  if (!principal && !aside) return null;
+  const rows = [];
+  if (principal) {
+    const parts = (data.loans.parts || []).filter((p) => p.principal)
+      .map((p) => ({ label: p.account, amount: p.principal }));
+    rows.push(...expandableRow('', ['Principal \u2192 home equity'], principal, parts, true,
+      'click for the loans'));
+  }
+  if (aside) {
+    rows.push(...expandableRow('', ['Set aside'], aside, data.setAside.parts || [], true,
+      'click for the accounts'));
+  }
+  return el('section', { class: 'mode-section bridge' },
+    scroll(el('table', { class: 'budget-table' }, el('tbody', {}, ...rows))),
+    el('p', { class: 'muted' },
+      'Neither is spending: the principal becomes equity in the home and the set-aside money is still '
+      + 'yours. The Cash view shows them as Money Out slices instead.'));
 }
 
 // ---- the month stepper -------------------------------------------------------------------------
@@ -282,6 +352,13 @@ function step(direction) {
   const first = new Date(bounds.from.getTime());
   first.setUTCMonth(first.getUTCMonth() + direction);
   goTo(monthKey(first));
+}
+
+function setView(next) {
+  if (next === view) return;
+  view = next;
+  writeUrl();
+  load();
 }
 
 function jump(event) {
@@ -297,14 +374,16 @@ function goTo(key) {
 }
 
 /**
- * The month lives in the URL query, so a sheet is linkable and survives a reload. history.replaceState, never location.hash: a hash assignment fires
- * `hashchange` and the router would remount the mode on every change.
+ * The month and the view live in the URL query, so a sheet is linkable and survives a reload.
+ * history.replaceState, never location.hash: a hash assignment fires `hashchange` and the router
+ * would remount the mode on every change.
  */
 function writeUrl() {
   const params = new URLSearchParams();
   if (month) params.set('month', month);
   const query = params.toString();
-  history.replaceState(null, '', '#budget' + (query ? '?' + query : ''));
+  if (view !== 'cost') params.set('view', view);
+  history.replaceState(null, '', '#cashflow' + (query ? '?' + query : ''));
 }
 
 function currentMonth() {
