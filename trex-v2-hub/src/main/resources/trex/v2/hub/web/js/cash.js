@@ -117,7 +117,8 @@ async function record(f) {
     // addressable for a later correction (a new fact plus SUPERSEDE, never an edit).
     receipt: 'MAN-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     category: f.category.value || null,
-    user: ctx.user,
+    // No user: the hub signs the session's, so the PIN on this fact is attributed to whoever is
+    // signed in (V2-SPEC.md §9.5), not to anything the body says.
   };
   f.submit.disabled = true;
   try {

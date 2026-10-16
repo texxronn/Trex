@@ -227,8 +227,9 @@ function rowMenuItems(row) {
 async function toggleAck(row) {
   const isRead = read.has(row.externalId);
   try {
+    // No user in the body: the hub signs the session's, so the ACK is attributed to whoever is
+    // signed in (V2-SPEC.md §9.5).
     const response = await api.postAck({
-      user: ctx.user,
       externalId: row.externalId,
       action: isRead ? 'UNACK' : 'ACK',
       comment: null,

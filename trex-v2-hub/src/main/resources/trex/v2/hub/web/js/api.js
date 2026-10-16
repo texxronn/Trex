@@ -82,10 +82,7 @@ export const api = {
   workbook: () => request('GET', '/api/workbook'),
   ingests: (sinceN) => request('GET', '/api/ingests'
     + (sinceN === null || sinceN === undefined ? '' : '?' + new URLSearchParams({ sinceN }))),
-  since: (n, user) => request('GET', '/api/since?' + new URLSearchParams({
-    n,
-    ...(user ? { user } : {}),
-  })),
+  since: (n) => request('GET', '/api/since?' + new URLSearchParams({ n })),
   accounts: (params = {}) => request('GET', '/api/accounts?' + new URLSearchParams(params)),
   cash: (body) => request('POST', '/api/cash', body),
   cashMonths: (account) => request('GET', '/api/cash/months'

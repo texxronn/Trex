@@ -18,6 +18,7 @@ import trex.v2.hub.api.TransferRequest;
 import trex.v2.hub.auth.Auth;
 import trex.v2.hub.auth.Session;
 import trex.v2.log.Json;
+import trex.v2.sequencer.api.DecisionDraft;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,7 +30,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -50,6 +53,13 @@ final class HubHttpApi {
 
     /** The A-9 failure delay in milliseconds: the same for every refusal, with no lockout. */
     private static final long SIGN_IN_REFUSAL_MS = 250;
+
+    /**
+     * Where {@link #gated} parks the resolved session user for the write handlers (V2-SPEC.md §9.5).
+     * An attribute, not a parameter, because the routes share one lambda shape and only some of
+     * them stamp; absent means sign-in is off and the request's own {@code user} still rules.
+     */
+    private static final String SESSION_USER = "trex.session.user";
 
     private final Auth auth;
 
@@ -142,7 +152,12 @@ final class HubHttpApi {
                     sendError(ex, 422, "n is required");
                     return;
                 }
-                write(ex, 200, api.since(Long.parseLong(n), param(query, "user")));
+                // V2-SPEC.md §9.5: with a session the signed-in user decides whose "since you last
+                // cleared" line is read, so the `user` parameter is ignored; with sign-in off it is
+                // still the identity, exactly as before (A-7).
+                String session = sessionUser(ex);
+                write(ex, 200, api.since(Long.parseLong(n),
+                    session != null ? session : param(query, "user")));
             } catch (NumberFormatException e) {
                 sendError(ex, 422, "n must be a number");
             }
@@ -186,6 +201,20 @@ final class HubHttpApi {
         route(server, "/api/decisions", "POST", ex -> {
             try {
                 DecisionRequest request = Json.mapper().readValue(readBody(ex), DecisionRequest.class);
+                String session = sessionUser(ex);
+                if (session != null && request.decisions() != null) {
+                    // V2-SPEC.md §9.5: every draft is stamped with the session's user, and a draft
+                    // that names a different one is refused — never silently rewritten — and nothing
+                    // reaches the writer. Sign-in off leaves the batch exactly as sent (A-7).
+                    String foreign = foreignUser(request, session);
+                    if (foreign != null) {
+                        sendError(ex, 403, "a draft names '" + foreign
+                            + "', but the session is signed in as '" + session + "'");
+                        return;
+                    }
+                    request = new DecisionRequest(request.allOrNone(), request.asOfN(),
+                        stampDecisions(request.decisions(), session));
+                }
                 DecisionOutcome outcome = api.submitDecisions(request);
                 write(ex, outcome.status(), outcome.body());
             } catch (com.fasterxml.jackson.core.JacksonException e) {
@@ -195,6 +224,13 @@ final class HubHttpApi {
         route(server, "/api/cash", "POST", ex -> {
             try {
                 CashRequest request = Json.mapper().readValue(readBody(ex), CashRequest.class);
+                String session = sessionUser(ex);
+                if (session != null) {
+                    // V2-SPEC.md §9.5: the session signs the PIN; any body user is ignored.
+                    request = new CashRequest(request.account(), request.date(), request.amount(),
+                        request.balance(), request.description(), request.receipt(), request.category(),
+                        session);
+                }
                 DecisionOutcome outcome = api.submitCash(request);
                 write(ex, outcome.status(), outcome.body());
             } catch (com.fasterxml.jackson.core.JacksonException e) {
@@ -209,6 +245,13 @@ final class HubHttpApi {
         acks.put("POST", ex -> {
             try {
                 AckRequest request = Json.mapper().readValue(readBody(ex), AckRequest.class);
+                String session = sessionUser(ex);
+                if (session != null) {
+                    // V2-SPEC.md §9.5: a signed-in POST signs the session's user; any body user is
+                    // ignored. Sign-in off uses the body's user, exactly as before (A-7).
+                    request = new AckRequest(session, request.externalId(), request.action(),
+                        request.comment());
+                }
                 DecisionOutcome outcome = api.postAck(request);
                 write(ex, outcome.status(), outcome.body());
             } catch (com.fasterxml.jackson.core.JacksonException e) {
@@ -412,6 +455,9 @@ final class HubHttpApi {
             rejectAnonymous(ex, path);
             return false;
         }
+        // Park the resolved user for the write handlers to stamp (V2-SPEC.md §9.5); resolved once,
+        // at the gate, never again per handler.
+        ex.setAttribute(SESSION_USER, principal.user());
         if (principal.shouldSlide(now)) {
             // A-5: a verified cookie past its half-life is re-issued, so an active session slides.
             ex.getResponseHeaders().add("Set-Cookie", auth.session().cookie(principal.user(), now));
@@ -509,6 +555,34 @@ final class HubHttpApi {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // ---- attribution: the session signs the write (V2-SPEC.md §9.5) --------------------------
+
+    /** The session user parked by {@link #gated}, or null when sign-in is off (A-7). */
+    private static String sessionUser(HttpExchange ex) {
+        Object user = ex.getAttribute(SESSION_USER);
+        return user == null ? null : (String) user;
+    }
+
+    /** The id a draft claims that is not the session's, or null when no draft names a foreign user. */
+    private static String foreignUser(DecisionRequest request, String session) {
+        for (DecisionDraft draft : request.decisions()) {
+            String named = draft.user();
+            if (named != null && !named.isBlank() && !named.equals(session)) {
+                return named;
+            }
+        }
+        return null;
+    }
+
+    /** The same drafts, every one re-signed by the session's user. */
+    private static List<DecisionDraft> stampDecisions(List<DecisionDraft> decisions, String session) {
+        List<DecisionDraft> stamped = new ArrayList<>(decisions.size());
+        for (DecisionDraft draft : decisions) {
+            stamped.add(draft.withUser(session));
+        }
+        return stamped;
     }
 
     // ---- routing ----------------------------------------------------------------------------

@@ -1,9 +1,10 @@
-// Decision drafts, one function per action, so a mode never hand-writes a payload shape.
+// Decision drafts, one function per action, so a mode never hand-writes a payload shape. No draft
+// carries a `user`: the hub stamps the signed-in session onto every one and refuses a mismatch with
+// a 403 (V2-SPEC.md §9.5), so `ctx` is threaded only to keep the (ctx, …) shape uniform.
 
 const envelope = (action, ctx, comment) => ({
   action,
   actor: 'user',
-  user: ctx.user,
   comment: comment || null,
 });
 
