@@ -209,8 +209,7 @@ final class HubHttpApi {
                     // reaches the writer. Sign-in off leaves the batch exactly as sent (A-7).
                     String foreign = foreignUser(request, session);
                     if (foreign != null) {
-                        sendError(ex, 403, "a draft names '" + foreign
-                            + "', but the session is signed in as '" + session + "'");
+                        refuseForeign(ex, session, foreign);
                         return;
                     }
                     request = new DecisionRequest(request.allOrNone(), request.asOfN(),
@@ -227,7 +226,12 @@ final class HubHttpApi {
                 CashRequest request = Json.mapper().readValue(readBody(ex), CashRequest.class);
                 String session = sessionUser(ex);
                 if (session != null) {
-                    // V2-SPEC.md §9.5: the session signs the PIN; any body user is ignored.
+                    // V2-SPEC.md §9.5: the session signs the PIN. A body naming a different user is
+                    // refused before anything is forwarded, never silently rewritten.
+                    if (isForeign(request.user(), session)) {
+                        refuseForeign(ex, session, request.user());
+                        return;
+                    }
                     request = new CashRequest(request.account(), request.date(), request.amount(),
                         request.balance(), request.description(), request.receipt(), request.category(),
                         session);
@@ -248,8 +252,12 @@ final class HubHttpApi {
                 AckRequest request = Json.mapper().readValue(readBody(ex), AckRequest.class);
                 String session = sessionUser(ex);
                 if (session != null) {
-                    // V2-SPEC.md §9.5: a signed-in POST signs the session's user; any body user is
-                    // ignored. Sign-in off uses the body's user, exactly as before (A-7).
+                    // V2-SPEC.md §9.5: a signed-in POST signs the session's user. A body naming a
+                    // different user is refused before anything is forwarded (A-7 is sign-in off).
+                    if (isForeign(request.user(), session)) {
+                        refuseForeign(ex, session, request.user());
+                        return;
+                    }
                     request = new AckRequest(session, request.externalId(), request.action(),
                         request.comment());
                 }
@@ -609,19 +617,32 @@ final class HubHttpApi {
     /** The id a draft claims that is not the session's, or null when no draft names a foreign user. */
     private static String foreignUser(DecisionRequest request, String session) {
         for (DecisionDraft draft : request.decisions()) {
-            String named = draft.user();
-            if (named != null && !named.isBlank() && !named.equals(session)) {
-                return named;
+            if (isForeign(draft.user(), session)) {
+                return draft.user();
             }
         }
         return null;
     }
 
-    /** The same drafts, every one re-signed by the session's user. */
+    /** True when {@code named} is a non-blank user that is not the session's (V2-SPEC.md §9.5). */
+    private static boolean isForeign(String named, String session) {
+        return named != null && !named.isBlank() && !named.equals(session);
+    }
+
+    /**
+     * The uniform refusal for a body that names another user (V2-SPEC.md §9.5): a {@code 403} sent
+     * before anything is forwarded, so nothing is appended and nothing is silently rewritten.
+     */
+    private static void refuseForeign(HttpExchange ex, String session, String named) {
+        sendError(ex, 403, "the request names '" + named + "', but the session is signed in as '"
+            + session + "'");
+    }
+
+    /** The same drafts, every one re-signed by the session's user, and forced to act as a person. */
     private static List<DecisionDraft> stampDecisions(List<DecisionDraft> decisions, String session) {
         List<DecisionDraft> stamped = new ArrayList<>(decisions.size());
         for (DecisionDraft draft : decisions) {
-            stamped.add(draft.withUser(session));
+            stamped.add(draft.withActingUser(session));
         }
         return stamped;
     }

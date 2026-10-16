@@ -91,35 +91,13 @@ class HubAttributionTest {
             Decision appended = lastDecision(journal);
             assertNotNull(appended, "a decision was appended");
             assertEquals("MARK_EXTERNAL", appended.action().name());
+            assertEquals(Actor.USER, appended.actor(), "the person, not a machine");
             assertEquals("ron", appended.user(), "the session signed it, from the log");
         }
     }
 
     @Test
-    void aCashBodyUserIsIgnoredAndTheSessionSignsThePin(@TempDir Path dir) throws Exception {
-        Path configDir = config(dir);
-        Path journal = journalWithFact(dir);
-        Path auth = writeAuth(dir);
-        try (SequencerService sequencer = sequencer(dir, configDir);
-             HubService hub = hubWithWriter(dir, configDir, journal, auth, sequencer)) {
-            URI base = base(hub);
-            String cookie = signIn(base, "ron", RON);
-
-            // The body claims mel; the category makes the fact's PIN observable in the log.
-            HttpResponse<String> ok = post(base, "/api/cash", """
-                {"account":"cash-ron","date":"2026-09-05","amount":-1234,"description":"MANUAL LUNCH",
-                 "category":"GROCERIES","user":"mel"}""", cookie);
-            assertEquals(200, ok.statusCode(), ok.body());
-
-            Decision pin = lastDecision(journal);
-            assertNotNull(pin, "the PIN was appended");
-            assertEquals("PIN", pin.action().name());
-            assertEquals("ron", pin.user(), "the session signs the PIN, not the body");
-        }
-    }
-
-    @Test
-    void anAckBodyUserIsIgnored(@TempDir Path dir) throws Exception {
+    void aDraftClaimingAMachineActorIsForcedToThePerson(@TempDir Path dir) throws Exception {
         Path configDir = config(dir);
         Path journal = journalWithFact(dir);
         Path auth = writeAuth(dir);
@@ -129,14 +107,92 @@ class HubAttributionTest {
             String cookie = signIn(base, "ron", RON);
             await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
 
-            HttpResponse<String> ok = post(base, "/api/acks",
-                "{\"user\":\"mel\",\"externalId\":\"a\",\"action\":\"ACK\"}", cookie);
+            // A body that claims `actor: "system"` and names no user would otherwise be logged as a
+            // machine with no person (the sequencer nulls `user` for a non-user actor). Stamping the
+            // session forces both, so the person survives (V2-SPEC.md §9.5).
+            HttpResponse<String> ok = post(base, "/api/decisions",
+                decisionsJson(draft("MARK_EXTERNAL", "system", null, "a", null, null, List.of())), cookie);
             assertEquals(200, ok.statusCode(), ok.body());
 
-            Decision ack = lastDecision(journal);
-            assertNotNull(ack, "the ACK was appended");
-            assertEquals("USER_ACK", ack.action().name());
-            assertEquals("ron", ack.user(), "a signed-in POST signs the session's user");
+            // The actor and the user are read back from the journal, not the response — the log is
+            // the record that matters.
+            Decision appended = lastDecision(journal);
+            assertNotNull(appended, "a decision was appended");
+            assertEquals("MARK_EXTERNAL", appended.action().name());
+            assertEquals(Actor.USER, appended.actor(), "the actor is forced to the person");
+            assertEquals("ron", appended.user(), "the session signed it, from the log");
+        }
+    }
+
+    @Test
+    void aCashBodyNamingAnotherUserIsRefusedAndNothingIsAppended(@TempDir Path dir) throws Exception {
+        Path configDir = config(dir);
+        Path journal = journalWithFact(dir);
+        Path auth = writeAuth(dir);
+        try (SequencerService sequencer = sequencer(dir, configDir);
+             HubService hub = hubWithWriter(dir, configDir, journal, auth, sequencer)) {
+            URI base = base(hub);
+            String cookie = signIn(base, "ron", RON);
+
+            long before = Files.size(journal);
+            // The body claims mel; the category would otherwise make the PIN observable in the log.
+            HttpResponse<String> refused = post(base, "/api/cash", """
+                {"account":"cash-ron","date":"2026-09-05","amount":-1234,"description":"MANUAL LUNCH",
+                 "category":"GROCERIES","user":"mel"}""", cookie);
+            assertEquals(403, refused.statusCode(), refused.body());
+            assertTrue(refused.body().contains("mel"), refused.body());
+            assertEquals(before, Files.size(journal), "a 403 appends nothing");
+        }
+    }
+
+    @Test
+    void anAckBodyNamingAnotherUserIsRefusedAndNothingIsAppended(@TempDir Path dir) throws Exception {
+        Path configDir = config(dir);
+        Path journal = journalWithFact(dir);
+        Path auth = writeAuth(dir);
+        try (SequencerService sequencer = sequencer(dir, configDir);
+             HubService hub = hubWithWriter(dir, configDir, journal, auth, sequencer)) {
+            URI base = base(hub);
+            String cookie = signIn(base, "ron", RON);
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+
+            long before = Files.size(journal);
+            HttpResponse<String> refused = post(base, "/api/acks",
+                "{\"user\":\"mel\",\"externalId\":\"a\",\"action\":\"ACK\"}", cookie);
+            assertEquals(403, refused.statusCode(), refused.body());
+            assertTrue(refused.body().contains("mel"), refused.body());
+            assertEquals(before, Files.size(journal), "a 403 appends nothing");
+        }
+    }
+
+    @Test
+    void ordinaryCashAndAcksAreSignedByTheSessionUser(@TempDir Path dir) throws Exception {
+        Path configDir = config(dir);
+        Path journal = journalWithFact(dir);
+        Path auth = writeAuth(dir);
+        try (SequencerService sequencer = sequencer(dir, configDir);
+             HubService hub = hubWithWriter(dir, configDir, journal, auth, sequencer)) {
+            URI base = base(hub);
+            String cookie = signIn(base, "ron", RON);
+            await(() -> hub.status().counts().getOrDefault("txn_current", 0L) == 1L);
+
+            // No body user at all: the session signs the PIN.
+            HttpResponse<String> cash = post(base, "/api/cash", """
+                {"account":"cash-ron","date":"2026-09-05","amount":-1234,"description":"MANUAL LUNCH",
+                 "category":"GROCERIES"}""", cookie);
+            assertEquals(200, cash.statusCode(), cash.body());
+            Decision pin = lastDecision(journal);
+            assertNotNull(pin, "the PIN was appended");
+            assertEquals("PIN", pin.action().name());
+            assertEquals("ron", pin.user(), "the session signs the PIN");
+
+            HttpResponse<String> ack = post(base, "/api/acks",
+                "{\"externalId\":\"a\",\"action\":\"ACK\"}", cookie);
+            assertEquals(200, ack.statusCode(), ack.body());
+            Decision userAck = lastDecision(journal);
+            assertNotNull(userAck, "the ACK was appended");
+            assertEquals("USER_ACK", userAck.action().name());
+            assertEquals("ron", userAck.user(), "the session signs the ACK");
         }
     }
 
