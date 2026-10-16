@@ -89,9 +89,12 @@ final class RunnerHttpApi {
             return;
         }
         if (path.equals("/staging/clear") && method.equals("POST")) {
+            // Clear removes the upload (V2-INBOX-CLEAR-PLAN.md §2, I-1); the sweep's filing into
+            // done/ is markDone, and stays the sweep's. A never-ingested file has no other copy,
+            // which the Jobs view states before it gets here.
             String name = queryParam(ex, "name");
-            boolean ok = name != null && staging.markDone(name);
-            writeJson(ex, ok ? 200 : 404, Map.of("done", ok));
+            boolean ok = name != null && staging.discard(name);
+            writeJson(ex, ok ? 200 : 404, Map.of("cleared", ok));
             return;
         }
         if (path.startsWith("/jobs/")) {

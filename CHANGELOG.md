@@ -20,9 +20,18 @@ everything is under **Unreleased**.
   **Off by default**: without `--auth` the API behaves exactly as before and the shell's identity falls
   back to the first active user (`ron`), as the pre-sign-in UI did. `/mcp` is deliberately **not** gated
   (A-4); bind the hub to loopback instead. See *Sign-in* in `docs/DEPLOYMENTS.md` before deploying.
+- **`Clear selected` in the staging inbox** (`V2-SPEC.md` §9.3, §16; `V2-INBOX-CLEAR-PLAN.md`), with a
+  select-all box in the table head — clearing a dozen duplicate uploads used to be a dozen clicks.
 
 ### Changed
 
+- **`Clear` on a staging inbox row now removes the upload** (`V2-SPEC.md` §9.3, §16;
+  `V2-INBOX-CLEAR-PLAN.md`). It filed the row into `done/` and left it listed, so the inbox could only
+  grow; it now deletes the file and its `.meta` sidecar, wherever the inbox sweep had filed it, and
+  **every** row has one — before, only a row whose bytes were already on facts did, so an upload you
+  decided not to ingest was stuck in the list for good. The log is never touched (a file on facts
+  keeps its bytes in the evidence store), so the confirm speaks up only for uploads that were never
+  ingested, which have no other copy.
 - **The acting-user switcher is gone** (`V2-SPEC.md` §9.1, §9.5). The status strip shows `Signed in as
   <name>` with **Sign out**, from `GET /api/whoami` (`Acting as <name> · sign-in off` when sign-in is
   off); identity is a property of the session, not of the page. With sign-in on, `/api/decisions`,

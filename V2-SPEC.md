@@ -659,7 +659,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Mortgage** | a declared facility: offset liquidity and each loan's balance with its own statement date; per loan the repayment and interest series (count, span, total); principal as a labelled estimate with its residual; the idle offset beyond the loan it shelters; and an **amortiser** — editable loan/offset/rate/repayment, defaulting to the facility's current figures, projecting the linked-offset payoff with an interest-vs-principal chart | `V2-MORTGAGE-PLAN.md` |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
 | **Cash** | a wallet's rows — transfers in/out, recorded spends/income and counts, newest first; a quick-add form for spend/income/count; the month's unrecorded figure at the top | `V2-CASH-PLAN.md` |
-| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
+| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`, **Clear** on any row — the upload goes, the log does not), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
 
 ### 9.4 Cash
 
@@ -1071,7 +1071,14 @@ worker, a bounded in-memory run history, and a **staging inbox** for uploads. `i
 one allowed composition: the `ingest` subcommand with its items resolved from `statements.yaml`
 over the settled inbox files, each filed by exit code — `0` to `done/`, `1`/`3` to `failed/`,
 otherwise left for the next sweep; an empty or all-unnamed inbox is *nothing to do*, which a
-scheduled run skips quietly. `reparse` replays one stored evidence id with the adapter and account
+scheduled run skips quietly.
+
+**The staging inbox can be cleared.** `POST /staging/clear?name=` (the hub's `/api/jobs/staging/clear`,
+the Jobs row's **Clear**) **removes the upload** — the file and its `.meta` sidecar, in the inbox or
+wherever the sweep filed it, and `done/` is what the sweep produces, not what Clear produces. It is
+the one destructive staging operation, and the log is never touched: a file whose bytes are on facts
+keeps them in the evidence store, so the view warns first only for files that were never ingested,
+whose bytes exist nowhere else (`V2-INBOX-CLEAR-PLAN.md`). `reparse` replays one stored evidence id with the adapter and account
 the batch recorded (`sourceType` and `account` are params the Jobs page fills from the ingest
 history), defaulting to a preview; `apply` is gated by `--allow-apply` and by the UI — Apply unlocks
 only after a preview of the same evidence that found changes and no `RETIRE`, or after an explicit
