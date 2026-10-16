@@ -117,8 +117,10 @@ async function record(f) {
     // addressable for a later correction (a new fact plus SUPERSEDE, never an edit).
     receipt: 'MAN-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     category: f.category.value || null,
-    // No user: the hub signs the session's, so the PIN on this fact is attributed to whoever is
-    // signed in (V2-SPEC.md §9.5), not to anything the body says.
+    // The acting user the shell got from /api/whoami (V2-SPEC.md §9.5): with sign-in off the hub has
+    // no session, so this declared user signs the PIN; with sign-in on the hub signs the session's
+    // and ignores this field.
+    user: ctx.user,
   };
   f.submit.disabled = true;
   try {

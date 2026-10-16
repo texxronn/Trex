@@ -35,7 +35,7 @@ export async function load(context) {
   ctx = context;
   if (read !== 'pending') return;
   try {
-    const response = await api.since(markerN);
+    const response = await api.since(markerN, context.user);
     if (wellFormed(response)) {
       data = response;
       read = 'ok';

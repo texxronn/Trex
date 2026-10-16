@@ -44,8 +44,9 @@ import java.util.concurrent.Executors;
  *
  * <p>With sign-in configured (V2-SPEC.md §9.5) every context and route goes through one
  * {@link #gated} wrapper — a single check, never a check inside each handler. A null {@link Auth}
- * is sign-in off: {@code gated} passes everything and the surface is byte-for-byte the pre-sign-in
- * hub (A-7). {@code /mcp} is deliberately left outside the wrapper (A-4).
+ * is sign-in off: {@code gated} passes everything and the surface is today's hub plus the
+ * {@code /api/whoami} the shell needs to name a default acting user (§9.5). {@code /mcp} is
+ * deliberately left outside the wrapper (A-4).
  */
 final class HubHttpApi {
 
@@ -332,12 +333,15 @@ final class HubHttpApi {
         route(server, "/api/config/drift", "GET", ex -> write(ex, 200, api.configDrift()));
 
         if (auth != null) {
-            // The open routes and whoami (V2-SPEC.md §9.5). Absent when sign-in is off, so a hub
-            // started without --auth has exactly the surface it had before.
+            // The open routes (V2-SPEC.md §9.5): signing in or out is meaningless without a
+            // credential file, so they exist only with --auth.
             routeOpen(server, "/api/login", "POST", ex -> login(ex, api));
             routeOpen(server, "/api/logout", "POST", ex -> logout(ex));
-            route(server, "/api/whoami", "GET", ex -> whoami(ex, api));
         }
+        // whoami is the shell's first call in both modes (§9.1, §9.5): with --auth `gated` has
+        // already refused an anonymous caller, and with sign-in off it answers the default acting
+        // user. Registering it outside the block is what lets the sign-in-off shell name someone.
+        route(server, "/api/whoami", "GET", ex -> whoami(ex, api));
 
         // The catch-all: /login (open) and the UI, plus every other path's 404. An anonymous
         // browser request is redirected to the form by `gated`, never shown JSON.
@@ -528,15 +532,52 @@ final class HubHttpApi {
         write(ex, 200, Map.of("ok", true));
     }
 
-    /** {@code GET /api/whoami}: the shell's first call; 401 when anonymous (gated before this). */
+    /**
+     * {@code GET /api/whoami}: the shell's first call (V2-SPEC.md §9.1, §9.5). With a session it is
+     * the signed-in principal and {@code signedIn: true}; with sign-in off it is the default acting
+     * user and {@code signedIn: false}, so the shell can still name someone. It is a read and grants
+     * nothing. With {@code --auth} the gate has refused an anonymous caller before this, so the
+     * resolve below only ever returns null defensively.
+     */
     private void whoami(HttpExchange ex, HubApi api) throws IOException {
+        if (auth == null) {
+            RefdataResponse.UserJson defaultUser = defaultActingUser(api);
+            if (defaultUser == null) {
+                // users.yaml is non-empty by spec (§12), so this is a guard, not a path.
+                sendError(ex, 401, "no declared user");
+                return;
+            }
+            write(ex, 200, Map.of("user", defaultUser.id(), "name", defaultUser.name(),
+                "signedIn", false));
+            return;
+        }
         Session.Principal principal = auth.resolve(ex.getRequestHeaders().getFirst("Cookie"),
             Instant.now().getEpochSecond());
         if (principal == null) {
+            // `gated` already rejected an anonymous caller; this only keeps a null `auth` impossible.
             sendError(ex, 401, "not signed in");
             return;
         }
-        write(ex, 200, Map.of("user", principal.user(), "name", nameOf(api, principal.user())));
+        write(ex, 200, Map.of("user", principal.user(), "name", nameOf(api, principal.user()),
+            "signedIn", true));
+    }
+
+    /**
+     * The default acting user when sign-in is off (V2-SPEC.md §9.5): the first declared {@code
+     * active} user in {@code users.yaml}, else the first declared user, else null. The inactive
+     * skip matters because a config may lead with a person who has no hash yet.
+     */
+    private static RefdataResponse.UserJson defaultActingUser(HubApi api) {
+        List<RefdataResponse.UserJson> users = api.refdata().users();
+        if (users.isEmpty()) {
+            return null;
+        }
+        for (RefdataResponse.UserJson user : users) {
+            if (user.active()) {
+                return user;
+            }
+        }
+        return users.get(0);
     }
 
     /** The declared name for a signed-in id; an id the config no longer declares still answers. */

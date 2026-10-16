@@ -227,9 +227,11 @@ function rowMenuItems(row) {
 async function toggleAck(row) {
   const isRead = read.has(row.externalId);
   try {
-    // No user in the body: the hub signs the session's, so the ACK is attributed to whoever is
-    // signed in (V2-SPEC.md §9.5).
+    // The acting user the shell got from /api/whoami (V2-SPEC.md §9.5): with sign-in off the hub has
+    // no session, so this declared user signs the ACK; with sign-in on the hub signs the session's
+    // and ignores this field.
     const response = await api.postAck({
+      user: ctx.user,
       externalId: row.externalId,
       action: isRead ? 'UNACK' : 'ACK',
       comment: null,

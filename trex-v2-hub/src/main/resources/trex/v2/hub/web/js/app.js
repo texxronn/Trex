@@ -27,9 +27,12 @@ const ctx = {
   n: 0,
   configRevision: null,
   // The identity is a fact of the connection now (V2-SPEC.md §9.5): it arrives from GET
-  // /api/whoami at boot, never from localStorage, and the hub stamps it onto every write.
+  // /api/whoami at boot, never from localStorage. With a session the hub stamps it onto every
+  // write; with sign-in off this declared user is the identity, exactly as the pre-sign-in UI
+  // sent it. `signedIn` tells the strip which of the two it is looking at.
   user: null,
   userName: null,
+  signedIn: false,
   refdata: { users: [], accounts: [], categories: [], mortgages: [] },
 };
 
@@ -41,10 +44,11 @@ async function boot() {
     const who = await api.whoami();
     ctx.user = who.user;
     ctx.userName = who.name;
+    ctx.signedIn = Boolean(who.signedIn);
   } catch (error) {
-    // Sign-in off (no /api/whoami route) or a failed read: the shell still renders. A 401 has
-    // already sent the browser to the form inside request().
-    toast('Not signed in: ' + (error.message || error), 'bad');
+    // A failed read: the shell still renders. A 401 has already sent the browser to the form
+    // inside request(); anything else leaves the identity unresolved and this toast speaks.
+    toast('Cannot read whoami: ' + (error.message || error), 'bad');
   }
   try {
     ctx.refdata = await api.refdata();

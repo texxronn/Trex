@@ -157,15 +157,23 @@ function short(revision) {
 }
 
 /**
- * Who the hub believes you are (V2-SPEC.md §9.1): the identity from GET /api/whoami, with Sign out
- * beside it. There is no switcher — the session is the only identity now, and the hub stamps it
- * (§9.5); Sign out clears the cookie and returns to the form.
+ * Who the hub believes you are (V2-SPEC.md §9.1): the identity from GET /api/whoami. With a session
+ * the hub stamps it (§9.5), so the line reads "Signed in as" with Sign out beside it — clearing the
+ * cookie and returning to the form. With sign-in off there is no session to end, so it reads
+ * "Acting as" with no button. There is no switcher either way: the session, or the declared default,
+ * is the only identity.
  */
 function signInLine() {
-  return el('span', {}, 'Signed in as ',
-    el('b', {}, ctx.userName || ctx.user || ''),
-    ' ',
-    el('button', { type: 'button', class: 'ghost', onclick: signOut }, 'Sign out'));
+  const name = ctx.userName || ctx.user || '';
+  if (ctx.signedIn) {
+    return el('span', {}, 'Signed in as ',
+      el('b', {}, name),
+      ' ',
+      el('button', { type: 'button', class: 'ghost', onclick: signOut }, 'Sign out'));
+  }
+  return el('span', {}, 'Acting as ',
+    el('b', {}, name),
+    ' \u00b7 sign-in off');
 }
 
 async function signOut() {

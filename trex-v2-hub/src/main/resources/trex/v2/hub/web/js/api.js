@@ -82,7 +82,13 @@ export const api = {
   workbook: () => request('GET', '/api/workbook'),
   ingests: (sinceN) => request('GET', '/api/ingests'
     + (sinceN === null || sinceN === undefined ? '' : '?' + new URLSearchParams({ sinceN }))),
-  since: (n) => request('GET', '/api/since?' + new URLSearchParams({ n })),
+  // The user is the identity only when sign-in is off; with a session the hub ignores it and reads
+  // the signed-in user's own line (V2-SPEC.md §9.5). Omitted when there is no user, so no
+  // user=undefined ever reaches the hub.
+  since: (n, user) => request('GET', '/api/since?' + new URLSearchParams({
+    n,
+    ...(user ? { user } : {}),
+  })),
   accounts: (params = {}) => request('GET', '/api/accounts?' + new URLSearchParams(params)),
   cash: (body) => request('POST', '/api/cash', body),
   cashMonths: (account) => request('GET', '/api/cash/months'
