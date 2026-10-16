@@ -653,6 +653,20 @@ button.warn:hover { background: var(--warn-soft); }
 .bridge .budget-table td { color: var(--muted); }
 .reconcile { font-size: 12px; }
 
+/* C-7/C-8: the pivot tabs, the ⊘ toggle (a 32px hit area for a thumb) and the Excluded line. */
+.pivot-tabs { margin: 0 0 0.4rem; }
+.budget-table .full-total { font-weight: 400; }
+.excl-toggle { min-width: 32px; min-height: 32px; padding: 0; margin: -6px -4px -6px 0.3rem;
+  background: transparent; border: 0; color: var(--muted); opacity: 0.55; cursor: pointer;
+  vertical-align: middle; }
+.excl-toggle:hover, .excl-toggle.on { opacity: 1; color: var(--fg); }
+.budget-legend td.tog { padding: 0; }
+.excluded-line { margin-top: 0.4rem; font-size: 12px; }
+.excluded-line button.link, .excluded-line .excl-key { background: transparent; border: 0;
+  padding: 0.35rem 0.2rem; min-height: 32px; color: inherit; cursor: pointer; font: inherit; }
+.excluded-line .excl-key { border: 1px solid var(--line-strong); border-radius: 999px;
+  padding: 0.2rem 0.6rem; margin: 0.1rem 0.15rem 0.1rem 0; }
+
 @media (max-width: 720px) {
   .budget-sheet { grid-template-columns: minmax(0, 1fr); }
 }

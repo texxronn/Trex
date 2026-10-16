@@ -49,7 +49,8 @@ export const api = {
     const params = new URLSearchParams();
     if (month) params.set('month', month);
     if (view) params.set('view', view);
-    if (exclude && exclude.length) params.set('exclude', exclude.join(','));
+    // An empty list is a statement ("exclude nothing"), not an absent one: it overrides the defaults.
+    if (Array.isArray(exclude)) params.set('exclude', exclude.join(','));
     const query = params.toString();
     return request('GET', '/api/cashflow' + (query ? '?' + query : ''));
   },
