@@ -105,6 +105,44 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void liquidDefaultsTrueExceptForAClearingAccount(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+              - ref: "ing-mortgage"
+                currency: "AUD"
+                balanceSource: statement
+                liquid: false
+              - ref: "nab-fixed"
+                currency: "AUD"
+                balanceSource: clearing
+                closingBalance: 0
+            """);
+        Registry registry = ConfigLoader.load(dir).registry();
+        assertTrue(registry.account("ing-savings").liquid());
+        assertFalse(registry.account("ing-mortgage").liquid());
+        assertFalse(registry.account("nab-fixed").liquid());
+    }
+
+    @Test
+    void theOldBudgetKeyIsALoadErrorNamingLiquid(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        writeBaseConfig(dir);
+        Files.writeString(dir.resolve("accounts.yaml"), """
+            accounts:
+              - ref: "ing-savings"
+                currency: "AUD"
+                balanceSource: statement
+                budget: false
+            """);
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ConfigLoader.load(dir));
+        assertTrue(error.getMessage().contains("'budget' was renamed 'liquid'"), error.getMessage());
+    }
+
+    @Test
     void configRevisionIsStable() {
         assertEquals(ConfigLoader.load(configDir()).config().configRevision(),
             ConfigLoader.load(configDir()).config().configRevision());

@@ -238,7 +238,7 @@ class HeadroomApiTest {
         Path journal = dir.resolve("trex.jsonl");
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(
-                // Salary paid into a budget:false savings account: real income all the same.
+                // Salary paid into a liquid:false savings account: real income all the same.
                 fact(1, "sal-sav", "savings", 200000, "SALARY MEL", first),
                 // A loan account's interest charge: real spend, though the account is outside the budget.
                 fact(2, "int-loan", "loan", -50000, "INTEREST CHARGE", first),
@@ -265,7 +265,7 @@ class HeadroomApiTest {
             JsonNode headroom = headroom(hub, today);
 
             assertEquals(200000, headroom.get("incomeIn").asLong(),
-                "salary into a budget:false account counts: " + headroom.toPrettyString());
+                "salary into a liquid:false account counts: " + headroom.toPrettyString());
             assertEquals(50000, headroom.get("uncommittedSpend").asLong(),
                 "the loan interest counts: " + headroom.toPrettyString());
             assertEquals(10000, headroom.get("movedOut").asLong(),
@@ -378,15 +378,15 @@ class HeadroomApiTest {
               - ref: "savings"
                 currency: "AUD"
                 balanceSource: declared
-                budget: false
+                liquid: false
               - ref: "offset"
                 currency: "AUD"
                 balanceSource: declared
-                budget: false
+                liquid: false
               - ref: "loan"
                 currency: "AUD"
                 balanceSource: declared
-                budget: false
+                liquid: false
               - ref: "cash-ron"
                 currency: "AUD"
                 balanceSource: declared

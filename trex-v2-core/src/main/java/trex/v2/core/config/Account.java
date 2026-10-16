@@ -26,7 +26,7 @@ import java.time.LocalDate;
  */
 public record Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
                       Integer fetchEveryDays, Long closingBalance, LocalDate closedAt, String chipColor,
-                      boolean budget) {
+                      boolean liquid) {
 
     /** The common shape: a statement or declared account with no clearing fields and no chip colour. */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays) {
@@ -42,8 +42,8 @@ public record Account(String ref, String currency, BalanceSource balanceSource, 
     }
 
     /**
-     * Without an explicit {@code budget} flag: every account the money is spent from is in the
-     * monthly budget, and a clearing account (no facts of its own) never is.
+     * Without an explicit {@code liquid} flag (V2-CASHFLOW-PLAN.md C-2): an account is liquid unless
+     * it is a clearing account (no facts of its own), which never is.
      */
     public Account(String ref, String currency, BalanceSource balanceSource, int settlementWindowDays,
                    Long closingBalance, LocalDate closedAt, String chipColor) {

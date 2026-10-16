@@ -249,7 +249,7 @@ public final class HubService implements HubApi, AutoCloseable {
         return new StatusResponse(reads.logHeadN(), offset, head, Math.max(0, head - offset),
             reads.counts(), reads.reviewByKind(), c.configRevision(),
             DeriveConfig.DERIVE_VERSION, DeriveConfig.HASH_VERSION,
-            oldestFrontier(frontiers, statementBudget(registry)),
+            oldestFrontier(frontiers, statementLiquid(registry)),
             staleAccounts(registry, frontiers, today),
             Math.toIntExact(reads.expectedDueThisWeek(Period.bounds(Period.weekKey(today)))),
             reads.manualToPay(today), env(), today);
@@ -304,13 +304,13 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
-     * The budget accounts that have statements: a cash account has no statement to be late, so it
+     * The liquid accounts that have statements: a cash account has no statement to be late, so it
      * never holds a "through" date back (V2-REVIEW-FIXES-PLAN.md §10, §11).
      */
-    private static java.util.Set<String> statementBudget(Registry registry) {
+    private static java.util.Set<String> statementLiquid(Registry registry) {
         java.util.Set<String> out = new java.util.TreeSet<>();
         for (var account : registry.accounts().values()) {
-            if (account.budget() && account.balanceSource() == trex.v2.core.config.BalanceSource.STATEMENT) {
+            if (account.liquid() && account.balanceSource() == trex.v2.core.config.BalanceSource.STATEMENT) {
                 out.add(account.ref());
             }
         }
@@ -377,21 +377,21 @@ public final class HubService implements HubApi, AutoCloseable {
     }
 
     /**
-     * The month's headroom (§9.2) measured at {@code at}, over the budget accounts: the read the
+     * The month's headroom (§9.2) measured at {@code at}, over the liquid accounts: the read the
      * Expected view and the since-clear line share, so the two can never drift.
      */
     private ExpectedResponse.Headroom monthHeadroom(LocalDate at) {
-        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, budgetAccounts(),
-            statementBudget(refresher.config().registry()));
+        return reads.headroom(Period.bounds(YearMonth.from(at).toString()), at, liquidAccounts(),
+            statementLiquid(refresher.config().registry()));
     }
 
-    /** The {@code budget} account refs: the accounts whose moves sit inside the budget, exactly as
+    /** The {@code liquid} account refs: the accounts whose moves sit inside the boundary, exactly as
      *  headroom and the budget sheet both read them. It is the boundary a move crosses, not a gate on
      *  which rows count — income and spend are every account's external rows (V2-SPEC.md §9.2). */
-    private Set<String> budgetAccounts() {
+    private Set<String> liquidAccounts() {
         Set<String> budget = new TreeSet<>();
         for (var account : refresher.config().registry().accounts().values()) {
-            if (account.budget()) {
+            if (account.liquid()) {
                 budget.add(account.ref());
             }
         }
@@ -436,8 +436,8 @@ public final class HubService implements HubApi, AutoCloseable {
                 throw new IllegalArgumentException("month must be YYYY-MM, not '" + month + "'");
             }
         }
-        return reads.budgetSheet(Period.bounds(ym.toString()), LocalDate.now(), budgetAccounts(),
-            statementBudget(refresher.config().registry()), categoryGroups(), loanAccounts(),
+        return reads.budgetSheet(Period.bounds(ym.toString()), LocalDate.now(), liquidAccounts(),
+            statementLiquid(refresher.config().registry()), categoryGroups(), loanAccounts(),
             includePrincipal);
     }
 

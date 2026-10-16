@@ -974,11 +974,11 @@ public final class HubQueries implements AutoCloseable {
      * are not counted.
      */
     public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, java.util.Set<String> budget,
-                                             java.util.Set<String> statementBudget) {
+                                             java.util.Set<String> statementLiquid) {
         return read(conn -> {
             // The status strip never counts loan principal as Money Out (D-7): an empty loan set and
             // the option off, so this walk is exactly what it was before the feature.
-            Walk w = walk(conn, month, today, budget, statementBudget, Set.of(), false);
+            Walk w = walk(conn, month, today, budget, statementLiquid, Set.of(), false);
             return new ExpectedResponse.Headroom(month.from(), w.left(), w.incomeIn(), w.incomeDue(),
                 w.committedPaid(), w.committedDue(), w.uncommittedSpend(), w.unrecordedCash(),
                 w.movedOut(), w.movedIn(), w.missed(), w.unpaired(), w.through(), w.accounts());
@@ -1004,10 +1004,10 @@ public final class HubQueries implements AutoCloseable {
      * spend.total} and lowers {@code left}; when the option is off it stays a move in {@code moved}.
      */
     public BudgetResponse budgetSheet(Period.Range month, LocalDate today, java.util.Set<String> budget,
-                                      java.util.Set<String> statementBudget, Map<String, String> groups,
+                                      java.util.Set<String> statementLiquid, Map<String, String> groups,
                                       Set<String> loans, boolean includePrincipal) {
         return read(conn -> {
-            Walk w = walk(conn, month, today, budget, statementBudget, loans, includePrincipal);
+            Walk w = walk(conn, month, today, budget, statementLiquid, loans, includePrincipal);
 
             // Each group keeps its parts — the trex categories inside it — so the view can open a
             // group into the distribution that made it up (V2-BUDGET-VIEW-PLAN.md §5).
@@ -1106,7 +1106,7 @@ public final class HubQueries implements AutoCloseable {
      * principal}. Headroom passes an empty set and {@code false}, so the strip is untouched.
      */
     private Walk walk(Connection conn, Period.Range month, LocalDate today, java.util.Set<String> budget,
-                      java.util.Set<String> statementBudget, Set<String> loans, boolean includePrincipal)
+                      java.util.Set<String> statementLiquid, Set<String> loans, boolean includePrincipal)
             throws SQLException {
         // A commitment whose claimed facts are only ever internal moves between budget accounts (a
         // card repayment), and one whose facts are only ever transfers at all (a loan repayment):
@@ -1265,7 +1265,7 @@ public final class HubQueries implements AutoCloseable {
             }
         }
 
-        LocalDate through = oldestFrontier(conn, today, statementBudget);
+        LocalDate through = oldestFrontier(conn, today, statementLiquid);
         // The month's unrecorded cash (§9.2): the cash_month figure over the wallets in the
         // budget. cash_month only ever holds declared wallets, but a wallet with budget: false
         // must still be left out, exactly as its spend is.

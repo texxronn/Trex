@@ -385,18 +385,18 @@ class BudgetApiTest {
               - ref: "savings"
                 currency: "AUD"
                 balanceSource: declared
-                budget: false
+                liquid: false
               - ref: "cash-ron"
                 currency: "AUD"
                 balanceSource: declared
               - ref: "offset"
                 currency: "AUD"
                 balanceSource: declared
-                budget: false
+                liquid: false
               - ref: "loan"
                 currency: "AUD"
                 balanceSource: declared
-                budget: false
+                liquid: false
             """);
         Files.writeString(configDir.resolve("users.yaml"), """
             users:
