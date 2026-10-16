@@ -148,6 +148,14 @@ nav a.active { color: var(--accent-fg); background: var(--accent); }
 .status .good { color: var(--good); }
 .status .warn { color: var(--warn); }
 .status select { min-height: 1.75rem; padding: 0.1rem 0.35rem; font-size: 12px; }
+/* The ⓘ that brings the journal counters back on a phone (status.js); a desktop never needs it. */
+.status .diag-toggle { display: none; min-width: 32px; min-height: 32px; padding: 0; margin-left: auto;
+  background: transparent; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; }
+@media (max-width: 720px) {
+  .status:not(.show-diag) .diag { display: none; }
+  .status .diag-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .status.show-diag .diag-toggle { color: var(--fg); }
+}
 
 /* ---- layout ------------------------------------------------------------- */
 
@@ -667,6 +675,21 @@ button.warn:hover { background: var(--warn-soft); }
 .excluded-line .excl-key { border: 1px solid var(--line-strong); border-radius: 999px;
   padding: 0.2rem 0.6rem; margin: 0.1rem 0.15rem 0.1rem 0; }
 
+/* A row's arc colour, shown only on a phone, where the legend is hidden. */
+.row-swatch { display: none; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.45rem;
+  vertical-align: -1px; }
+.budget-table tr.fold-more { display: none; }
+.budget-table tr.fold-more button.link { background: transparent; border: 0; padding: 0.35rem 0;
+  min-height: 32px; color: var(--accent); cursor: pointer; font: inherit; }
+
+/* On a phone the picture comes first: a smaller donut straight under Left, the legend's colours
+   moved onto the table rows, and Money Out's long tail folded behind "Show N more". */
 @media (max-width: 720px) {
   .budget-sheet { grid-template-columns: minmax(0, 1fr); }
+  .budget-sheet .donut-col { order: -1; }
+  .budget-donut { max-width: 220px; }
+  .budget-legend { display: none; }
+  .row-swatch { display: inline-block; }
+  .budget-table:not(.show-all) tr.beyond-fold { display: none; }
+  .budget-table tr.fold-more { display: table-row; }
 }
