@@ -1,5 +1,5 @@
 // The status strip (V2-PROPOSAL.md §14): n, lag, table counts, review by kind, reconciliation and
-// the three revisions, plus the acting-user switcher.
+// the three revisions, plus the signed-in identity and Sign out.
 
 import { api } from './api.js';
 import { el, clear } from './dom.js';
@@ -21,7 +21,7 @@ function item(label, value, cls = '', diag = false) {
 /**
  * On a phone the bookkeeping counters (n, txn, transfers, pending, the revisions, a zero lag) are
  * noise above the page a family member opened: they are tagged `diag`, hidden under 720px, and this
- * button brings them back. The nudges, a non-zero lag and the user switch always stay.
+ * button brings them back. The nudges, a non-zero lag and the sign-in line always stay.
  */
 function diagToggle() {
   return el('button', {
@@ -64,7 +64,7 @@ export async function refresh() {
       stale(status.stale),
       item('pending', status.counts.pending ?? 0, '', true),
       revisions(status),
-      userSelect(),
+      signInLine(),
       diagToggle(),
     );
   } catch {
@@ -156,14 +156,23 @@ function short(revision) {
   return revision.replace('sha256:', '').slice(0, 8);
 }
 
-function userSelect() {
-  const users = (ctx.refdata && ctx.refdata.users) || [];
-  const select = el('select', {
-    onchange: (event) => {
-      ctx.user = event.target.value;
-      localStorage.setItem('trex.user', ctx.user);
-      if (ctx.onUserChange) ctx.onUserChange();
-    },
-  }, ...users.map((u) => el('option', { value: u.id, selected: u.id === ctx.user }, u.name + (u.active ? '' : ' (inactive)'))));
-  return el('span', {}, 'acting as ', select);
+/**
+ * Who the hub believes you are (V2-SPEC.md §9.1): the identity from GET /api/whoami, with Sign out
+ * beside it. There is no switcher — the session is the only identity now, and the hub stamps it
+ * (§9.5); Sign out clears the cookie and returns to the form.
+ */
+function signInLine() {
+  return el('span', {}, 'Signed in as ',
+    el('b', {}, ctx.userName || ctx.user || ''),
+    ' ',
+    el('button', { type: 'button', class: 'ghost', onclick: signOut }, 'Sign out'));
+}
+
+async function signOut() {
+  try {
+    await api.logout();
+  } catch {
+    // A failed or already-dead session changes nothing: the redirect is the point either way.
+  }
+  location.assign('/login');
 }

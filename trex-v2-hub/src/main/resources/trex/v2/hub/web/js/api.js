@@ -20,6 +20,9 @@ async function request(method, path, body) {
     const message = data && data.error ? data.error : (typeof data === 'string' ? data : response.statusText);
     const error = new Error(message || `HTTP ${response.status}`);
     error.status = response.status;
+    // A session can lapse mid-visit. The API answers 401; the browser belongs on the form, not a
+    // toast of "HTTP 401" (V2-AUTH-PLAN.md §4.4). Any other failure is the caller's to handle.
+    if (response.status === 401) location.assign('/login');
     throw error;
   }
   return data;
@@ -27,6 +30,8 @@ async function request(method, path, body) {
 
 export const api = {
   status: () => request('GET', '/api/status'),
+  whoami: () => request('GET', '/api/whoami'),
+  logout: () => request('POST', '/api/logout'),
   refdata: () => request('GET', '/api/refdata'),
   ledger: (params = {}) => request('GET', '/api/ledger?' + new URLSearchParams(params)),
   review: (kind, account) => {
