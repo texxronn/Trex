@@ -39,22 +39,25 @@ is **not** a `deploy/config` file: it is created on the host, is never seeded, s
 and holds only PBKDF2 hashes and one `sessionSecret`.
 
 ```sh
-# as root on the host: create the file and its sessionSecret, then set each password
-docker run --rm -it -v /opt/trex/auth:/auth trex/trex-v2:0.1.0-SNAPSHOT \
-  hub passwd --auth /auth/auth.yaml --user ron
-docker run --rm -it -v /opt/trex/auth:/auth trex/trex-v2:0.1.0-SNAPSHOT \
-  hub passwd --auth /auth/auth.yaml --user mel
+# as root on the host: create the file and its sessionSecret, then set each password.
+# `passwd` reads users.yaml (to refuse an unknown or inactive user), so mount the config too.
+docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
+  trex/trex-v2:0.1.0-SNAPSHOT \
+  hub passwd --auth /auth/auth.yaml --config /etc/trex --user ron
+docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
+  trex/trex-v2:0.1.0-SNAPSHOT \
+  hub passwd --auth /auth/auth.yaml --config /etc/trex --user mel
 chmod 600 /opt/trex/auth/auth.yaml        # root only
 
-# compose mounts it read-only into the hub and passes the flag:
+# compose mounts it read-only into the hub and passes the flag (the hub already takes --config):
 #   volumes: - /opt/trex/auth/auth.yaml:/etc/trex-auth/auth.yaml:ro
 #   command: … --auth /etc/trex-auth/auth.yaml
 docker compose -f /opt/trex/compose.yml up -d
 ```
 
-Re-running `passwd` for a user replaces that user's hash; `hub passwd --list` names the ids that have
-one and never prints a hash. Changing `sessionSecret` in the file signs everyone out at once, and that
-is the whole revocation model.
+Re-running `passwd` for a user replaces that user's hash; `hub passwd --auth <file> --list` names the
+ids that have one and never prints a hash. Changing `sessionSecret` in the file signs everyone out at
+once, and that is the whole revocation model.
 
 **Still true, and worth repeating:** the hub is served over plain HTTP on the LAN, so the password and
 the session cookie cross the wire in the clear. Sign-in stops the stray device; it does not stop a

@@ -1002,7 +1002,8 @@ like any other; a sync re-seeds the file and a hub restart picks the new mapping
 
 ## 13. CLI
 
-One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub`, `runner`, `index`,
+One artifact, one role per subcommand (`trex-v2.jar`): `sequencer`, `hub` (and `hub passwd`, the
+host-side credential editor, §9.5), `runner`, `index`,
 `ingest`, `egress archive`, `egress firefly`, `egress ezb`, `snapshot`, `stream export`, `stream ingest`, `reflow`,
 `verify`, `export`, `import` (dev). Exit code `64` is `EX_USAGE`. No config is baked in.
 
