@@ -18,7 +18,7 @@
 
 set -eu
 
-files="sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml ezb.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml mortgages.yaml"
+files="sequencer.yaml accounts.yaml users.yaml categories.yaml transfers.yaml pins.yaml firefly.yaml ezb.yaml cashflow.yaml statements.yaml sources.yaml schedule.yaml profiles.yaml mortgages.yaml"
 adopt="${ADOPT:-}"
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
 

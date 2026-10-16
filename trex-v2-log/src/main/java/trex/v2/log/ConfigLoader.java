@@ -75,8 +75,13 @@ public final class ConfigLoader {
                         + "' closedAt must be an ISO date, not '" + e.closedAt() + "'");
                 }
             }
-            // budget: presentation only — which accounts the Expected "left this month" figure reads
-            // (V2-REVIEW-FIXES-PLAN.md §10). Absent means in the budget, except a clearing account.
+            // liquid: which accounts are inside the cash-flow boundary (V2-CASHFLOW-PLAN.md C-2).
+            // Absent means liquid, except a clearing account. The old 'budget' key is refused so a
+            // stale config cannot silently change the boundary.
+            if (e.retiredBudget() != null) {
+                throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref()
+                    + "': 'budget' was renamed 'liquid' (V2-CASHFLOW-PLAN C-2)");
+            }
             // fetchEveryDays: presentation only too — the statement-age nudge (V2-QOL-IMPROVEMENTS-PLAN.md
             // §2). Absent means 31 days for a statement account and no cadence for the others; an
             // explicit 0 (a closed account that still has statement rows) turns the nudge off.
@@ -84,7 +89,7 @@ public final class ConfigLoader {
                 : source == BalanceSource.STATEMENT ? DEFAULT_FETCH_EVERY_DAYS : null;
             Account account = new Account(e.ref(), e.currency(), source, settlement, fetchEveryDays,
                 e.closingBalance(), closedAt, e.chipColor(),
-                e.budget() == null ? source != BalanceSource.CLEARING : e.budget());
+                e.liquid() == null ? source != BalanceSource.CLEARING : e.liquid());
             if (accountMap.putIfAbsent(account.ref(), account) != null) {
                 throw new IllegalArgumentException(accountsFile.getFileName() + ": account '" + e.ref() + "' is declared twice");
             }
@@ -306,7 +311,9 @@ public final class ConfigLoader {
                                Integer fetchEveryDays, Long closingBalance, String closedAt,
                                @com.fasterxml.jackson.annotation.JsonProperty("chip_color")
                                @com.fasterxml.jackson.annotation.JsonAlias("chipColor") String chipColor,
-                               Boolean budget) {}
+                               Boolean liquid,
+                               /** Retired key, read only so it can be refused with a pointer to {@code liquid}. */
+                               @com.fasterxml.jackson.annotation.JsonProperty("budget") Boolean retiredBudget) {}
 
     public record UsersFile(List<UserEntry> users) {}
 

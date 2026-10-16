@@ -4,7 +4,7 @@ import trex.v2.hub.api.AckJson;
 import trex.v2.hub.api.AckRequest;
 import trex.v2.hub.api.AccountsResponse;
 import trex.v2.hub.api.BriefResponse;
-import trex.v2.hub.api.BudgetResponse;
+import trex.v2.hub.api.CashflowResponse;
 import trex.v2.hub.api.CashMonthJson;
 import trex.v2.hub.api.CashRequest;
 import trex.v2.hub.api.DecisionRequest;
@@ -60,18 +60,17 @@ interface HubApi {
     trex.v2.hub.api.ExpectedResponse expected(String window, java.time.LocalDate asOf);
 
     /**
-     * The month's budget sheet (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §4): Money In, Money Out and
-     * Left over the {@code budget} accounts, sharing headroom's row-walk so the sheet's {@code left}
-     * equals {@code /api/expected}'s {@code headroom.left} for the same month. {@code month} is any
-     * {@code YYYY-MM}; null or blank is the hub's current month, and a malformed month is an
-     * {@link IllegalArgumentException}. A read of the derived index; nothing is stored.
-     *
-     * <p>{@code includePrincipal} (V2-BUDGET-VIEW-PLAN.md D-7) counts the month's loan principal
-     * repayments as a Money Out slice: then the sheet's {@code left} is lower than headroom's by
-     * exactly the principal, because the status strip never counts it. Off, they stay a move between
-     * the operator's own accounts.
+     * The month's cash-flow sheet (V2-SPEC.md §9.2, V2-CASHFLOW-PLAN.md): Money In, Money Out and
+     * Left of the liquid accounts, in the Cost view or — when {@code view} is {@code cash} — the
+     * Cash view; anything else is Cost. It shares headroom's row-walk, so the Cost view's
+     * {@code left} equals {@code /api/expected}'s {@code headroom.left} for the same month.
+     * {@code month} is any {@code YYYY-MM}; null or blank is the hub's current month, and a
+     * malformed month is an {@link IllegalArgumentException}. {@code exclude} is a
+     * comma-separated list of leaf categories or primary groups (C-7): null (absent) takes the
+     * {@code cashflow.yaml} default, any string — even blank — is exactly that list. A read of the derived index; nothing
+     * is stored.
      */
-    BudgetResponse budget(String month, boolean includePrincipal);
+    CashflowResponse cashflow(String month, String view, String exclude);
 
     /** The note thread on one id (or every note), oldest first (§6.2 {@code NOTE}). */
     List<trex.v2.hub.api.NoteJson> notes(String externalId);

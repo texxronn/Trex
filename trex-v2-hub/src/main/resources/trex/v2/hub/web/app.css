@@ -610,7 +610,7 @@ button.warn:hover { background: var(--warn-soft); }
 .amort-legend .swatch.interest { background: var(--bad); }
 .amort-legend .swatch.principal { background: var(--good); }
 
-/* ---- Budget: the month's sheet and its donut (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5) ---- */
+/* ---- Cash flow: the month's sheet and its donut (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §5) ---- */
 
 /* Money In and Money Out in one column, the donut beside them. Stacked on a phone, so the donut
    follows the tables rather than squeezing them. */
@@ -629,12 +629,6 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-table .twisty { color: var(--muted); font-size: 10px; }
 .budget-table tr.leaf td { color: var(--muted); }
 .budget-table tr.leaf td:first-child { padding-left: 1.5rem; }
-/* The Money Out header carries the operator's "Include principal repayments" option (D-7): a small
-   inline checkbox with the month's principal amount beside it. */
-.principal-toggle { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.6rem;
-  font-weight: 400; cursor: pointer; }
-.principal-toggle input { margin: 0; }
-.principal-toggle span { font-variant-numeric: tabular-nums; }
 
 /* The donut: twice the old size, but never wider than its column. It carries a viewBox, so the whole
    ring scales, text included. */
@@ -653,13 +647,25 @@ button.warn:hover { background: var(--warn-soft); }
 .budget-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
   margin-right: 0.45rem; vertical-align: -1px; }
 
-/* Outside the budget (D-3): the loan repayments per pair and the outside accounts' own rows, a
-   compact muted table with the amount right-aligned. */
-.budget-outside { color: var(--muted); }
-.budget-outside-table { font-size: 12px; border-collapse: collapse; }
-.budget-outside-table td { padding: 0.12rem 0.6rem 0.12rem 0; white-space: nowrap; }
-.budget-outside-table td.note { color: var(--muted); }
-.budget-outside-table td.amount { text-align: right; font-variant-numeric: tabular-nums; }
+/* The Cost view's bridge and the Cash view's reconcile line are footnotes to Left. */
+.bridge { margin-top: 0.6rem; }
+.bridge p { font-size: 12px; margin: 0.3rem 0 0; }
+.bridge .budget-table td { color: var(--muted); }
+.reconcile { font-size: 12px; }
+
+/* C-7/C-8: the pivot tabs, the ⊘ toggle (a 32px hit area for a thumb) and the Excluded line. */
+.pivot-tabs { margin: 0 0 0.4rem; }
+.budget-table .full-total { font-weight: 400; }
+.excl-toggle { min-width: 32px; min-height: 32px; padding: 0; margin: -6px -4px -6px 0.3rem;
+  background: transparent; border: 0; color: var(--muted); opacity: 0.55; cursor: pointer;
+  vertical-align: middle; }
+.excl-toggle:hover, .excl-toggle.on { opacity: 1; color: var(--fg); }
+.budget-legend td.tog { padding: 0; }
+.excluded-line { margin-top: 0.4rem; font-size: 12px; }
+.excluded-line button.link, .excluded-line .excl-key { background: transparent; border: 0;
+  padding: 0.35rem 0.2rem; min-height: 32px; color: inherit; cursor: pointer; font: inherit; }
+.excluded-line .excl-key { border: 1px solid var(--line-strong); border-radius: 999px;
+  padding: 0.2rem 0.6rem; margin: 0.1rem 0.15rem 0.1rem 0; }
 
 @media (max-width: 720px) {
   .budget-sheet { grid-template-columns: minmax(0, 1fr); }

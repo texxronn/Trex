@@ -1,8 +1,8 @@
 package trex.v2.hub;
 
 import trex.v2.hub.api.ActivityJson;
-import trex.v2.hub.api.BudgetResponse;
 import trex.v2.hub.api.CashMonthJson;
+import trex.v2.hub.api.CashflowResponse;
 import trex.v2.hub.api.CommitmentJson;
 import trex.v2.hub.api.DismissalJson;
 import trex.v2.hub.api.ExpectedResponse;
@@ -930,213 +930,264 @@ public final class HubQueries implements AutoCloseable {
     }
 
     /**
-     * Everything the headroom figure and the budget sheet share, from one row-walk (§9.2,
-     * V2-BUDGET-VIEW-PLAN.md §3–4). The two reads call {@link #walk} so they cannot drift; the
-     * sheet's {@code left} equals headroom's for the same month. The amounts are the month's real
-     * flows — every account's external rows and every commitment's occurrences — with
-     * {@code movedOut}/{@code movedIn} carrying only the moves that cross the budget boundary;
-     * {@code incomeByCategory} and {@code spendByCategory} are the per-category amounts the sheet
-     * rolls up, keyed by trex category; {@code movedOutBy} and {@code movedInBy} are the month's
-     * boundary-crossing moves keyed by the account on the other side; {@code outside} is the
-     * month's moves between two accounts both outside the budget, one entry per transfer;
-     * {@code principalBy} is every repayment to a declared loan account, keyed by that account, and
-     * {@code principal} the part of it the operator chose to count as Money Out (D-7; zero when the
-     * option is off, so the sheet's {@code left} still equals headroom's by default).
+     * The declared loans the cash-flow walk reads ({@code mortgages.yaml}, V2-CASHFLOW-PLAN.md C-3,
+     * C-4): the loan accounts, and the declared repayment and interest commitments. A repayment
+     * commitment is a move (liquid → loan), so the Cost view never counts its occurrences and the
+     * Cash view projects its due ones; an interest commitment's due occurrences sit inside that
+     * repayment, so the Cash view skips them and the Cost view projects them.
+     */
+    public record LoanBook(Set<String> accounts, Set<String> repaymentCommitments,
+                           Set<String> interestCommitments) {
+
+        /** No declared facility. */
+        public static final LoanBook NONE = new LoanBook(Set.of(), Set.of(), Set.of());
+    }
+
+    /**
+     * Everything headroom and the cash-flow sheet share, from one row-walk (V2-SPEC.md §9.2,
+     * V2-CASHFLOW-PLAN.md C-3), so the strip's {@code left} is the Cost view's and they cannot drift.
+     * The figures are view-neutral; the sheet assembles a view from them.
+     *
+     * <p>{@code incomeIn}/{@code committedPaid}/{@code uncommittedSpend} and the per-category maps
+     * hold the liquid accounts' external rows, the declared loans' external rows and the paid
+     * occurrences. {@code committedDue} is the due out-occurrences of every commitment that is not a
+     * declared loan commitment; {@code interestDue} and {@code repaymentDue} hold those, so each view
+     * picks its own (C-4). {@code loanIncomeByCategory}/{@code loanSpendByCategory} are the loans'
+     * own external rows by category — attached to an occurrence or not — which the Cash view takes
+     * out of the groups exactly once. {@code repaymentsBy} (net of redraws) and {@code chargesBy}
+     * (debits net of credits) are per loan account; {@code setAsideBy} per destination account,
+     * signed. {@code liquidNet} is the signed sum of the liquid accounts' rows, synthetic legs
+     * included, and {@code settledWithoutFact} the signed paid occurrences counted with no fact
+     * behind them (C-6).
      */
     private record Walk(long incomeIn, long incomeDue, long committedPaid, long committedDue,
-                        long uncommittedSpend, long unrecordedCash, long movedOut, long movedIn,
+                        long interestDue, long repaymentDue, long uncommittedSpend, long unrecordedCash,
                         long missed, long unpaired, LocalDate through, List<String> accounts,
                         Map<String, Long> incomeByCategory, Map<String, Long> spendByCategory,
-                        Map<String, Long> movedOutBy, Map<String, Long> movedInBy,
-                        List<BudgetResponse.Outside> outside, long principal,
-                        Map<String, Long> principalBy) {
+                        Map<String, Long> loanIncomeByCategory, Map<String, Long> loanSpendByCategory,
+                        Map<String, Long> repaymentsBy, Map<String, Long> chargesBy,
+                        Map<String, Long> setAsideBy, long liquidNet, long settledWithoutFact) {
 
-        /** Headroom's formula (§9.2), now the sheet's Money Left Over: {@code principal} is what the
-         *  operator asked to count as Money Out, so it is already zero when the option is off. */
-        long left() {
-            return incomeIn + incomeDue + movedIn - committedPaid - committedDue - uncommittedSpend
-                - movedOut - unrecordedCash - principal;
+        /** The Cost view's left (C-4): headroom's figure. The principal and set-aside are not Out. */
+        long costLeft() {
+            return incomeIn + incomeDue - committedPaid - uncommittedSpend - committedDue - interestDue
+                - unrecordedCash;
+        }
+
+        long repayments() {
+            return sum(repaymentsBy);
+        }
+
+        long charges() {
+            return sum(chargesBy);
+        }
+
+        long setAside() {
+            return sum(setAsideBy);
+        }
+
+        /**
+         * The Cash view's left without any due projection or unrecorded cash (C-6): the liquid
+         * income less the liquid spending, the repayments and the set-aside. The loans' own rows sit
+         * inside the repayments, so they leave In and Out here — which is what makes it equal the
+         * liquid rows' sum for a past month.
+         */
+        long postedLeft() {
+            long income = incomeIn - sum(loanIncomeByCategory);
+            long spend = committedPaid + uncommittedSpend - sum(loanSpendByCategory);
+            return income - spend - repayments() - setAside();
         }
     }
 
-    /** The from/to pair an outside transfer aggregates by (D-3). */
-    private record Pair(String from, String to) {}
+    private static long sum(Map<String, Long> amounts) {
+        return amounts.values().stream().mapToLong(Long::longValue).sum();
+    }
 
     /**
-     * The headroom of one calendar month (V2-REVIEW-FIXES-PLAN.md §10, V2-SPEC.md §9.2): income and
-     * spend as the month's real flows — every account's external rows and every commitment's
-     * occurrences, whatever the account's {@code budget} flag — with a move between two of your own
-     * accounts never income or spend. A move changes {@code left} only where it crosses into or out
-     * of a budget account ({@code movedOut}/{@code movedIn}); between two accounts both outside the
-     * budget it changes nothing. A claimed fact counts through its commitment's occurrence only
-     * when it is attached to one; a fact claimed but unattached is ordinary income or spend. A
-     * commitment whose facts are all transfers between your own accounts is a move; its occurrences
-     * are not counted.
+     * The headroom of one calendar month (V2-SPEC.md §9.2): the Cost view of the cash-flow sheet
+     * (V2-CASHFLOW-PLAN.md C-4) over the {@code liquid} accounts — In less Out, where Out holds the
+     * loan charges and the interest commitments' due occurrences but never the principal, a
+     * set-aside, or a repayment commitment. {@code loans} is the declared facility.
      */
-    public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, java.util.Set<String> budget,
-                                             java.util.Set<String> statementBudget) {
+    public ExpectedResponse.Headroom headroom(Period.Range month, LocalDate today, Set<String> liquid,
+                                             Set<String> statementLiquid, LoanBook loans) {
         return read(conn -> {
-            // The status strip never counts loan principal as Money Out (D-7): an empty loan set and
-            // the option off, so this walk is exactly what it was before the feature.
-            Walk w = walk(conn, month, today, budget, statementBudget, Set.of(), false);
-            return new ExpectedResponse.Headroom(month.from(), w.left(), w.incomeIn(), w.incomeDue(),
-                w.committedPaid(), w.committedDue(), w.uncommittedSpend(), w.unrecordedCash(),
-                w.movedOut(), w.movedIn(), w.missed(), w.unpaired(), w.through(), w.accounts());
+            Walk w = walk(conn, month, today, liquid, statementLiquid, loans);
+            return new ExpectedResponse.Headroom(month.from(), w.costLeft(), w.incomeIn(), w.incomeDue(),
+                w.committedPaid(), w.committedDue() + w.interestDue(), w.uncommittedSpend(),
+                w.unrecordedCash(), w.missed(), w.unpaired(), w.through(), w.accounts());
         });
     }
 
     /**
-     * The month's budget sheet (V2-SPEC.md §9.2, V2-BUDGET-VIEW-PLAN.md §4): headroom's walk,
-     * presented as Money In / Money Out / Left, with each out row rolled into its primary group.
-     * {@code groups} maps a trex category to its ezbookkeeping primary (§11.2); an unmapped or blank
-     * category falls back to one {@code Expense} group. Income is never grouped. The synthetic
-     * slices — {@code Due}, {@code Unrecorded} — sit after the groups and are not posted spending;
-     * the group slices alone sum to {@code spend.posted} and every slice to {@code spend.total}, so
-     * the donut reconciles with {@code left}. A move is never a slice: it rides {@code moved}, whose
-     * {@code outside} list holds the moves between two non-budget accounts, aggregated per pair with
-     * its payment count; the budget-boundary moves ride {@code moved.out}/{@code moved.in} with
-     * their parts (D-2, D-3).
+     * The month's cash-flow sheet (V2-SPEC.md §9.2, V2-CASHFLOW-PLAN.md C-3…C-6): headroom's walk,
+     * presented as Money In / Money Out / Left in the {@code cash} or Cost view. {@code groups} maps
+     * a trex category to its ezbookkeeping primary (§11.2); an unmapped or blank category falls back
+     * to one {@code Expense} group. Income is never grouped.
      *
-     * <p>{@code loans} is the declared loan accounts ({@code mortgages.yaml}) and {@code
-     * includePrincipal} the operator's option (D-7): a transfer paying one of those accounts is
-     * always reported as {@link BudgetResponse.Principal}, and, only when the option is on, it also
-     * becomes a {@code Loan principal} slice (after the groups, before {@code Due}), enters {@code
-     * spend.total} and lowers {@code left}; when the option is off it stays a move in {@code moved}.
+     * <p>Cost: the groups (loan charges included), then {@code Due} (the interest commitments, never
+     * the repayments) and {@code Unrecorded}; the loans and the set-aside are reported only. Cash: the
+     * loans' own rows leave their groups and income lines and, with the principal, form the
+     * {@code Mortgage} slice equal to the repayments; {@code Set aside} is a slice; {@code Due} holds
+     * the repayment commitments and not the interest. Zero slices are omitted; every slice sums to
+     * {@code spend.total} and {@code left = income.total − spend.total} in both views, so
+     * Cost left − Cash left = principal + set-aside for a past month.
+     *
+     * <p>{@code exclude} (C-7) names leaf categories or primary groups whose posted spending leaves
+     * the slices (a group with no leaf left disappears) and rides {@code excluded}; {@code spend.total}
+     * and {@code left} are unchanged and {@code leftExcl = left + excluded.total}.
      */
-    public BudgetResponse budgetSheet(Period.Range month, LocalDate today, java.util.Set<String> budget,
-                                      java.util.Set<String> statementBudget, Map<String, String> groups,
-                                      Set<String> loans, boolean includePrincipal) {
+    public CashflowResponse cashflowSheet(Period.Range month, LocalDate today, Set<String> liquid,
+                                          Set<String> statementLiquid, Map<String, String> groups,
+                                          LoanBook loans, boolean cash, List<String> exclude) {
         return read(conn -> {
-            Walk w = walk(conn, month, today, budget, statementBudget, loans, includePrincipal);
+            Walk w = walk(conn, month, today, liquid, statementLiquid, loans);
+            Map<String, Long> spendByCategory = cash
+                ? minus(w.spendByCategory(), w.loanSpendByCategory()) : w.spendByCategory();
+            // C-7: the excluded leaves come out of the slices only (after the Cash view's charge
+            // removal), so the totals and `left` below still count them.
+            Map<String, Long> excludedByCategory = new java.util.TreeMap<>();
+            Map<String, Long> sliced = new java.util.TreeMap<>();
+            spendByCategory.forEach((category, amount) -> {
+                boolean out = exclude.contains(category) || exclude.contains(groupOf(category, groups));
+                (out ? excludedByCategory : sliced).put(category, amount);
+            });
+            long excludedTotal = sum(excludedByCategory);
+            Map<String, Long> incomeByCategory = cash
+                ? minus(w.incomeByCategory(), w.loanIncomeByCategory()) : w.incomeByCategory();
 
             // Each group keeps its parts — the trex categories inside it — so the view can open a
-            // group into the distribution that made it up (V2-BUDGET-VIEW-PLAN.md §5).
+            // group into the distribution that made it up.
             Map<String, Map<String, Long>> byGroup = new java.util.TreeMap<>();
-            w.spendByCategory().forEach((category, amount) ->
+            sliced.forEach((category, amount) ->
                 byGroup.computeIfAbsent(groupOf(category, groups), k -> new java.util.TreeMap<>())
                     .merge(category, amount, Long::sum));
-            List<BudgetResponse.Slice> slices = new ArrayList<>();
+            List<CashflowResponse.Slice> slices = new ArrayList<>();
             byGroup.forEach((group, categories) -> {
-                List<BudgetResponse.Part> parts = parts(categories);
-                long amount = parts.stream().mapToLong(BudgetResponse.Part::amount).sum();
-                slices.add(new BudgetResponse.Slice(group, amount, parts));
+                List<CashflowResponse.Part> parts = parts(categories);
+                long amount = parts.stream().mapToLong(CashflowResponse.Part::amount).sum();
+                if (amount != 0) {
+                    slices.add(new CashflowResponse.Slice(group, amount, parts));
+                }
             });
-            slices.sort(java.util.Comparator.comparingLong(BudgetResponse.Slice::amount).reversed()
-                .thenComparing(BudgetResponse.Slice::group));
-            long posted = w.committedPaid() + w.uncommittedSpend();
-            long due = w.committedDue();
-            // The principal is always reported; it is only Money Out (a slice, in the total, in
-            // `left`) when the operator asked for it (D-7).
-            List<BudgetResponse.Part> principalParts = parts(w.principalBy());
-            long principal = w.principalBy().values().stream().mapToLong(Long::longValue).sum();
-            long total = posted + due + w.unrecordedCash() + (includePrincipal ? principal : 0);
-            if (includePrincipal && principal != 0) {
-                slices.add(new BudgetResponse.Slice("Loan principal", principal, principalParts));
+            slices.sort(Comparator.comparingLong(CashflowResponse.Slice::amount).reversed()
+                .thenComparing(CashflowResponse.Slice::group));
+            long posted = sum(spendByCategory);
+
+            long repayments = w.repayments();
+            long charges = w.charges();
+            long principal = repayments - charges;
+            long setAside = w.setAside();
+            if (cash) {
+                if (repayments != 0) {
+                    slices.add(new CashflowResponse.Slice("Mortgage", repayments,
+                        nonZero(List.of(new CashflowResponse.Part("Interest & fees", charges),
+                            new CashflowResponse.Part("Principal", principal)))));
+                }
+                if (setAside != 0) {
+                    slices.add(new CashflowResponse.Slice("Set aside", setAside, parts(w.setAsideBy())));
+                }
+                posted += repayments + setAside;
             }
+            long due = w.committedDue() + (cash ? w.repaymentDue() : w.interestDue());
             if (due != 0) {
-                slices.add(new BudgetResponse.Slice("Due", due));
+                slices.add(new CashflowResponse.Slice("Due", due));
             }
             if (w.unrecordedCash() != 0) {
-                slices.add(new BudgetResponse.Slice("Unrecorded", w.unrecordedCash()));
+                slices.add(new CashflowResponse.Slice("Unrecorded", w.unrecordedCash()));
+            }
+            long total = posted + due + w.unrecordedCash();
+
+            List<CashflowResponse.Line> lines = parts(incomeByCategory).stream()
+                .map(p -> new CashflowResponse.Line(p.label(), p.amount()))
+                .toList();
+            long incomePosted = sum(incomeByCategory);
+            CashflowResponse.Income income = new CashflowResponse.Income(incomePosted, w.incomeDue(),
+                incomePosted + w.incomeDue(), lines);
+
+            Set<String> loanAccounts = new java.util.TreeSet<>(w.repaymentsBy().keySet());
+            loanAccounts.addAll(w.chargesBy().keySet());
+            List<CashflowResponse.Loan> loanParts = new ArrayList<>();
+            for (String account : loanAccounts) {
+                long r = w.repaymentsBy().getOrDefault(account, 0L);
+                long c = w.chargesBy().getOrDefault(account, 0L);
+                if (r != 0 || c != 0) {
+                    loanParts.add(new CashflowResponse.Loan(account, r, c, r - c));
+                }
             }
 
-            List<BudgetResponse.Line> lines = w.incomeByCategory().entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
-                    .thenComparing(Map.Entry.comparingByKey()))
-                .map(e -> new BudgetResponse.Line(e.getKey(), e.getValue()))
-                .toList();
-
-            BudgetResponse.Moved moved = new BudgetResponse.Moved(w.movedOut(), w.movedIn(),
-                w.movedIn() - w.movedOut(), parts(w.movedOutBy()), parts(w.movedInBy()),
-                aggregateOutside(w.outside()));
-
-            return new BudgetResponse(YearMonth.from(month.from()).toString(), w.through(), w.accounts(),
-                new BudgetResponse.Income(w.incomeIn(), w.incomeDue(), w.incomeIn() + w.incomeDue(), lines),
-                new BudgetResponse.Spend(posted, due, w.unrecordedCash(), total, slices),
-                moved, new BudgetResponse.Principal(principal, principalParts),
-                w.missed(), w.unpaired(), w.left());
+            long postedLeft = w.postedLeft();
+            return new CashflowResponse(YearMonth.from(month.from()).toString(), cash ? "cash" : "cost",
+                w.through(), w.accounts(), income,
+                new CashflowResponse.Spend(posted, due, w.unrecordedCash(), total, slices),
+                new CashflowResponse.Loans(repayments, charges, principal, loanParts),
+                new CashflowResponse.SetAside(setAside, parts(w.setAsideBy())),
+                w.missed(), w.unpaired(), income.total() - total,
+                new CashflowResponse.Excluded(exclude, excludedTotal, parts(excludedByCategory)),
+                income.total() - total + excludedTotal,
+                new CashflowResponse.Reconcile(w.liquidNet(), postedLeft, w.settledWithoutFact(),
+                    postedLeft - w.liquidNet() - w.settledWithoutFact()));
         });
     }
 
+    /** {@code a − b} per key, dropping the keys that net to zero (sorted, so deterministic). */
+    private static Map<String, Long> minus(Map<String, Long> a, Map<String, Long> b) {
+        Map<String, Long> out = new java.util.TreeMap<>(a);
+        b.forEach((k, v) -> out.merge(k, -v, Long::sum));
+        out.values().removeIf(v -> v == 0);
+        return out;
+    }
+
+    private static List<CashflowResponse.Part> nonZero(List<CashflowResponse.Part> parts) {
+        return parts.stream().filter(p -> p.amount() != 0).toList();
+    }
+
     /**
-     * One slice's parts, amount descending then label: a group's trex categories, a {@code Moved}
-     * out's destination accounts, or the move in's source accounts.
+     * One slice's parts, amount descending then label, zeros dropped: a group's trex categories or
+     * the set-aside's destination accounts.
      */
-    private static List<BudgetResponse.Part> parts(Map<String, Long> amounts) {
+    private static List<CashflowResponse.Part> parts(Map<String, Long> amounts) {
         return amounts.entrySet().stream()
+            .filter(e -> e.getValue() != 0)
             .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
                 .thenComparing(Map.Entry.comparingByKey()))
-            .map(e -> new BudgetResponse.Part(e.getKey(), e.getValue()))
+            .map(e -> new CashflowResponse.Part(e.getKey(), e.getValue()))
             .toList();
     }
 
     /**
-     * The month's outside transfers, one line per pair (D-3): the walk's per-transfer entries summed
-     * with the payments behind them, sorted by {@code from} then {@code to}.
+     * The one row-walk headroom and the cash-flow sheet share (V2-SPEC.md §9.2). It reads the month's
+     * rows ({@link HubSql#HEADROOM_ROWS}) and its commitments' occurrences by payment month
+     * ({@link HubSql#CASHFLOW_OCCURRENCES}, C-5) and classes each by the liquidity of its accounts
+     * (C-3): an external row on a liquid account or a declared loan is In/Out; on any other
+     * non-liquid account it is off the sheet. A move liquid ↔ liquid is noise; liquid → loan a
+     * repayment (a redraw negative); liquid → any other non-liquid account a set-aside; between two
+     * non-liquid accounts nothing. Over the whole set of own accounts every move nets to zero, so a
+     * boundary term counted as In or Out would be a double count (V2-CASHFLOW-PLAN.md §0).
      */
-    private static List<BudgetResponse.Outside> aggregateOutside(List<BudgetResponse.Outside> perTransfer) {
-        Map<Pair, long[]> byPair = new java.util.TreeMap<>(
-            Comparator.comparing(Pair::from).thenComparing(Pair::to));
-        for (BudgetResponse.Outside transfer : perTransfer) {
-            long[] sum = byPair.computeIfAbsent(new Pair(transfer.from(), transfer.to()),
-                k -> new long[2]);
-            sum[0] += transfer.amount();
-            sum[1]++;
-        }
-        List<BudgetResponse.Outside> outside = new ArrayList<>();
-        byPair.forEach((pair, sum) ->
-            outside.add(new BudgetResponse.Outside(pair.from(), pair.to(), sum[0], (int) sum[1])));
-        return outside;
-    }
-
-    /**
-     * The one row-walk the headroom figure and the budget sheet share (§9.2). It reads the month's
-     * facts ({@link HubSql#HEADROOM_ROWS}) and its commitments' occurrences
-     * ({@link HubSql#EXPECTED_OCCURRENCES}) and returns every amount the two reads need, plus the
-     * sheet's per-category detail: the category of the fact each commitment claimed (so a paid
-     * occurrence rolls into that category's group), the category of every uncommitted out row, and
-     * the month's moves between your own accounts — those crossing the budget boundary (keyed by the
-     * contra account) and those between two non-budget accounts (D-2, D-3). The budget sheet and
-     * headroom read the same walk.
-     *
-     * <p>{@code loans} is the declared loan accounts and {@code includePrincipal} the operator's
-     * option (D-7): a paying transfer to a loan account is always collected into {@code principalBy},
-     * keyed by that loan account; only when the option is on is it skipped as a move (so it is not
-     * also in {@code outside}/{@code movedOut}) and subtracted from {@code left} via {@code
-     * principal}. Headroom passes an empty set and {@code false}, so the strip is untouched.
-     */
-    private Walk walk(Connection conn, Period.Range month, LocalDate today, java.util.Set<String> budget,
-                      java.util.Set<String> statementBudget, Set<String> loans, boolean includePrincipal)
-            throws SQLException {
-        // A commitment whose claimed facts are only ever internal moves between budget accounts (a
-        // card repayment), and one whose facts are only ever transfers at all (a loan repayment):
-        // both are moves, never income or spend, so their occurrences are not counted (§9.2).
-        Map<String, Boolean> internalOnly = new java.util.TreeMap<>();
+    private Walk walk(Connection conn, Period.Range month, LocalDate today, Set<String> liquid,
+                      Set<String> statementLiquid, LoanBook loans) throws SQLException {
+        // A commitment whose claimed facts are only ever transfers (a card or loan repayment) is a
+        // move, never income or spend, so its occurrences are not counted (§9.2).
         Map<String, Boolean> transferOnly = new java.util.TreeMap<>();
-        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACT_ACCOUNTS);
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.COMMITMENT_FACT_TRANSFERS);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                String id = rs.getString(1);
-                boolean internal = rs.getString(3) != null && budget.contains(rs.getString(2))
-                    && budget.contains(rs.getString(4));
-                internalOnly.merge(id, internal, Boolean::logicalAnd);
-                transferOnly.merge(id, rs.getInt(5) != 0, Boolean::logicalAnd);
+                transferOnly.merge(rs.getString(1), rs.getInt(2) != 0, Boolean::logicalAnd);
             }
         }
 
         // The month's rows first: they carry the category of the fact each commitment claimed, so
-        // a paid occurrence below can roll into that category, and they carry every move between
-        // your own accounts (D-2, D-3). Collected before the occurrences because of the first.
+        // a paid occurrence below can roll into that category. Collected before the occurrences.
         Map<String, String> commitmentCategory = new java.util.TreeMap<>();
         Map<String, Long> incomeByCategory = new java.util.TreeMap<>();
         Map<String, Long> spendByCategory = new java.util.TreeMap<>();
-        Map<String, Long> movedOutBy = new java.util.TreeMap<>();
-        Map<String, Long> movedInBy = new java.util.TreeMap<>();
-        Map<String, Long> principalBy = new java.util.TreeMap<>();
-        List<BudgetResponse.Outside> outside = new ArrayList<>();
+        Map<String, Long> loanIncomeByCategory = new java.util.TreeMap<>();
+        Map<String, Long> loanSpendByCategory = new java.util.TreeMap<>();
+        Map<String, Long> repaymentsBy = new java.util.TreeMap<>();
+        Map<String, Long> chargesBy = new java.util.TreeMap<>();
+        Map<String, Long> setAsideBy = new java.util.TreeMap<>();
         long uncommittedSpend = 0;
-        long movedOut = 0;
-        long movedIn = 0;
         long unpaired = 0;
         long incomeIn = 0;
         try (PreparedStatement ps = conn.prepareStatement(HubSql.HEADROOM_ROWS)) {
@@ -1157,50 +1208,41 @@ public final class HubQueries implements AutoCloseable {
                     if ("noop".equals(role)) {
                         continue; // not a posting
                     }
-                    String transferId = rs.getString(5);
-                    if (transferId != null && other != null) {
-                        // A transfer whose paying leg went to a declared loan account is a principal
-                        // repayment (D-7): always collected into `principal`, and — only when the
-                        // operator asked — skipped as a move so it is not also in outside/movedOut.
-                        boolean principal = amount < 0 && loans.contains(other);
-                        if (principal) {
-                            principalBy.merge(other, -amount, Long::sum);
-                            if (includePrincipal) {
-                                continue;
-                            }
-                        }
-                        // A transfer between two of your own accounts is a move, never income or
-                        // spend. It moves `left` only from the budget side of a boundary crossing;
-                        // between two accounts both outside the budget it changes nothing and is
-                        // reported once, by its paying leg (D-3); between two budget accounts it
-                        // moves nothing at all.
-                        boolean accountIn = budget.contains(account);
-                        boolean otherIn = budget.contains(other);
-                        if (!accountIn && !otherIn) {
-                            if (amount < 0) {
-                                outside.add(new BudgetResponse.Outside(account, other, -amount, 1));
-                            }
-                        } else if (accountIn && !otherIn) {
-                            if (amount < 0) {
-                                movedOut += -amount;
-                                movedOutBy.merge(other, -amount, Long::sum);
+                    boolean isLiquid = liquid.contains(account);
+                    if (rs.getString(5) != null && other != null) {
+                        // A move between two of your own accounts, never income or spend. Read from
+                        // its liquid leg only, so each is counted once; liquid <-> liquid and two
+                        // non-liquid accounts change nothing.
+                        if (isLiquid && !liquid.contains(other)) {
+                            if (loans.accounts().contains(other)) {
+                                repaymentsBy.merge(other, -amount, Long::sum); // a redraw is negative
                             } else {
-                                movedIn += amount;
-                                movedInBy.merge(other, amount, Long::sum);
+                                setAsideBy.merge(other, -amount, Long::sum); // money back is negative
                             }
                         }
                         continue;
+                    }
+                    if (!attached && "HELD".equals(rs.getString(4))) {
+                        unpaired += Math.abs(amount);
+                        continue;
+                    }
+                    boolean isLoan = loans.accounts().contains(account);
+                    if (!isLiquid && !isLoan) {
+                        continue; // a non-liquid account's own activity (the kids'): off the sheet
+                    }
+                    if (isLoan) {
+                        // The loan's interest and fees, attached to an occurrence or not: the charges,
+                        // and by category so the Cash view can take them out of their groups once.
+                        chargesBy.merge(account, -amount, Long::sum);
+                        if (amount < 0) {
+                            loanSpendByCategory.merge(categoryOf(category), -amount, Long::sum);
+                        } else {
+                            loanIncomeByCategory.merge(categoryOf(category), amount, Long::sum);
+                        }
                     }
                     if (attached) {
                         continue; // counted through its commitment's occurrence, never twice
                     }
-                    if ("HELD".equals(rs.getString(4))) {
-                        unpaired += Math.abs(amount);
-                        continue;
-                    }
-                    // Every other row counts as income or spend, whatever the account's budget
-                    // flag: a salary paid into a savings account or an interest charge on a loan is
-                    // real money in or out (§9.2).
                     if (amount < 0) {
                         uncommittedSpend += -amount;
                         spendByCategory.merge(categoryOf(category), -amount, Long::sum);
@@ -1211,34 +1253,49 @@ public final class HubQueries implements AutoCloseable {
                 }
             }
         }
-        outside.sort(Comparator.comparing(BudgetResponse.Outside::from)
-            .thenComparing(BudgetResponse.Outside::to));
 
         long incomeDue = 0;
         long committedPaid = 0;
         long committedDue = 0;
+        long interestDue = 0;
+        long repaymentDue = 0;
         long missed = 0;
-        try (PreparedStatement ps = conn.prepareStatement(HubSql.EXPECTED_OCCURRENCES)) {
+        long settledWithoutFact = 0;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.CASHFLOW_OCCURRENCES)) {
             ps.setString(1, month.from().toString());
             ps.setString(2, month.to().toString());
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String id = rs.getString(1);
-                    if (Boolean.TRUE.equals(internalOnly.get(id))
-                        || Boolean.TRUE.equals(transferOnly.get(id))) {
-                        continue; // a move between your own accounts, never income or spend
-                    }
                     boolean in = "in".equals(rs.getString(3));
+                    String status = rs.getString(9);
                     Long expected = nullableLong(rs, 5);
                     Long amount = nullableLong(rs, 10);
                     long moved = amount != null ? Math.abs(amount) : 0;
                     long owed = expected == null ? 0 : Math.abs(expected);
+                    boolean open = "due".equals(status) || "awaiting".equals(status);
+                    if (loans.repaymentCommitments().contains(id)) {
+                        // A declared repayment is a move: its paid occurrences are the liquid ->
+                        // loan rows above; only the Cash view projects the still-due ones (C-4).
+                        if (open && !in) {
+                            repaymentDue += owed;
+                        }
+                        continue;
+                    }
+                    if (Boolean.TRUE.equals(transferOnly.get(id))) {
+                        continue; // a move between your own accounts, never income or spend
+                    }
                     // A paid occurrence carries the movement attached to it; its category is the
                     // one the claimed fact carried, so it lands in the same slice as a direct
-                    // purchase would (§3).
+                    // purchase would.
                     String category = categoryOf(commitmentCategory.get(id));
-                    switch (rs.getString(9)) {
+                    switch (status) {
                         case "occurred", "settled", "partial" -> {
+                            if (rs.getString(11) == null) {
+                                // Marked paid with no statement row: real in postedLeft, absent
+                                // from the rows, so reconcile names it rather than calling it a gap.
+                                settledWithoutFact += in ? moved : -moved;
+                            }
                             if (in) {
                                 incomeIn += moved;
                                 incomeByCategory.merge(category, moved, Long::sum);
@@ -1250,6 +1307,8 @@ public final class HubQueries implements AutoCloseable {
                         case "due", "awaiting" -> {
                             if (in) {
                                 incomeDue += owed;
+                            } else if (loans.interestCommitments().contains(id)) {
+                                interestDue += owed; // inside the repayment in the Cash view
                             } else {
                                 committedDue += owed;
                             }
@@ -1265,30 +1324,42 @@ public final class HubQueries implements AutoCloseable {
             }
         }
 
-        LocalDate through = oldestFrontier(conn, today, statementBudget);
-        // The month's unrecorded cash (§9.2): the cash_month figure over the wallets in the
-        // budget. cash_month only ever holds declared wallets, but a wallet with budget: false
-        // must still be left out, exactly as its spend is.
+        // The liquid rows' signed sum (C-6), synthetic legs included. What legitimately remains in the
+        // gap: a HELD liquid leg, a liquid <-> liquid move straddling the month boundary, and a
+        // commitment paid from a non-liquid account.
+        long liquidNet = 0;
+        try (PreparedStatement ps = conn.prepareStatement(HubSql.MONTH_ACCOUNT_NET)) {
+            ps.setString(1, month.from().toString());
+            ps.setString(2, month.to().toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    if (liquid.contains(rs.getString(1))) {
+                        liquidNet += rs.getLong(2);
+                    }
+                }
+            }
+        }
+
+        LocalDate through = oldestFrontier(conn, today, statementLiquid);
+        // The month's unrecorded cash (§9.2): the cash_month figure over the liquid wallets.
+        // cash_month only ever holds declared wallets, but a wallet with liquid: false must still be
+        // left out, exactly as its spend is.
         long unrecordedCash = 0;
         try (PreparedStatement ps = conn.prepareStatement(HubSql.CASH_MONTH_UNRECORDED_SELECT)) {
             ps.setString(1, YearMonth.from(month.from()).toString());
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    if (budget.contains(rs.getString(1))) {
+                    if (liquid.contains(rs.getString(1))) {
                         unrecordedCash += rs.getLong(2);
                     }
                 }
             }
         }
-        // The principal counts toward `left` only when it is Money Out, so headroom's walk (empty
-        // loans, option off) keeps the exact figure it always had (D-7).
-        long principal = includePrincipal
-            ? principalBy.values().stream().mapToLong(Long::longValue).sum() : 0;
-        return new Walk(incomeIn, incomeDue, committedPaid, committedDue, uncommittedSpend,
-            unrecordedCash, movedOut, movedIn, missed, unpaired, through,
-            List.copyOf(new java.util.TreeSet<>(budget)), Map.copyOf(incomeByCategory),
-            Map.copyOf(spendByCategory), Map.copyOf(movedOutBy), Map.copyOf(movedInBy),
-            List.copyOf(outside), principal, Map.copyOf(principalBy));
+        return new Walk(incomeIn, incomeDue, committedPaid, committedDue, interestDue, repaymentDue,
+            uncommittedSpend, unrecordedCash, missed, unpaired, through,
+            List.copyOf(new java.util.TreeSet<>(liquid)), incomeByCategory, spendByCategory,
+            loanIncomeByCategory, loanSpendByCategory, repaymentsBy, chargesBy, setAsideBy, liquidNet,
+            settledWithoutFact);
     }
 
     /** A row's trex category, or {@code UNCATEGORIZED} for a blank one (a structural transfer leg). */

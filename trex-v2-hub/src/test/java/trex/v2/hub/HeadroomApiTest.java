@@ -29,9 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * "Left this month" on Expected (V2-REVIEW-FIXES-PLAN.md §10): commitments through their
- * occurrences, everything else through the facts, transfers inside the budget skipped and transfers
- * leaving it counted.
+ * "Left this month" on Expected (V2-SPEC.md §9.2): the Cost view of the cash-flow sheet over the
+ * liquid accounts — commitments through their occurrences, everything else through the facts, and a
+ * move between your own accounts never income or spend (V2-CASHFLOW-PLAN.md C-3, C-4).
  */
 class HeadroomApiTest {
 
@@ -50,13 +50,13 @@ class HeadroomApiTest {
                 fact(1, "sal", "everyday", 500000, "SALARY ACME", first),
                 fact(2, "rent", "everyday", -200000, "RENT PAYMENT", first),
                 fact(3, "shop", "card", -3000, "COLES 1234", today),
-                // A card repayment: both sides in the budget, so it moves nothing.
+                // A card repayment: both accounts liquid, so it moves nothing.
                 fact(4, "rep-a", "everyday", -10000, "PAY CARD", today),
                 fact(5, "rep-b", "card", 10000, "PAYMENT RECEIVED", today),
-                // A deposit to savings leaves the budget: it is money out.
+                // A deposit to savings: liquid -> liquid, noise.
                 fact(6, "sav-a", "everyday", -50000, "TO SAVINGS", today),
                 fact(7, "sav-b", "savings", 50000, "FROM EVERYDAY", today),
-                // Savings interest is outside the budget altogether.
+                // Savings interest: an external row on a liquid account, so income.
                 fact(8, "int", "savings", 100, "INTEREST", today),
                 declare(9, "salary", "Salary", "in", "SALARY", 500000L, first),
                 declare(10, "rent", "Rent", "out", "RENT", 200000L, first),
@@ -77,16 +77,17 @@ class HeadroomApiTest {
 
             assertEquals(first.toString(), headroom.get("month").asText(), "always the month, whatever the window");
             assertEquals(500100, headroom.get("incomeIn").asLong(),
-                "the salary plus the savings interest, which is now real income: " + headroom.toPrettyString());
+                "the salary plus the savings interest: " + headroom.toPrettyString());
             assertEquals(200000, headroom.get("committedPaid").asLong(), headroom.toPrettyString());
             assertEquals(3000, headroom.get("uncommittedSpend").asLong(),
                 "the shop; never the card repayment: " + headroom.toPrettyString());
             assertEquals(0, headroom.get("unrecordedCash").asLong(),
                 "no wallet movement: " + headroom.toPrettyString());
-            assertEquals(50000, headroom.get("movedOut").asLong(), "the savings deposit is moved, not spent");
-            assertEquals(247100, headroom.get("left").asLong(),
-                "500100 in less 200000 committed, 3000 shop and 50000 moved: " + headroom.toPrettyString());
-            assertEquals(List.of("card", "cash-ron", "everyday"),
+            assertTrue(!headroom.has("movedOut") && !headroom.has("movedIn"), headroom.toPrettyString());
+            assertEquals(297100, headroom.get("left").asLong(),
+                "500100 in less 200000 committed and 3000 shop; the deposit is noise: "
+                    + headroom.toPrettyString());
+            assertEquals(List.of("card", "cash-ron", "everyday", "offset", "savings"),
                 Json.mapper().convertValue(headroom.get("accounts"), List.class));
             assertEquals(today.toString(), headroom.get("through").asText());
 
@@ -98,7 +99,7 @@ class HeadroomApiTest {
     }
 
     /**
-     * An ATM recorded as a manual spend: the withdrawal is a transfer between two budget accounts
+     * An ATM recorded as a manual spend: the withdrawal is a transfer between two liquid accounts
      * (skipped) and the recorded spend counts like any other, so the month nets to zero unrecorded
      * cash and {@code left} is the spend alone.
      */
@@ -131,7 +132,7 @@ class HeadroomApiTest {
     }
 
     /**
-     * An ATM nobody recorded: the withdrawal is still a transfer between budget accounts (skipped),
+     * An ATM nobody recorded: the withdrawal is still a transfer between liquid accounts (skipped),
      * but the wallet's month is unrecorded cash, and {@code left} carries it as spend.
      */
     @Test
@@ -225,9 +226,10 @@ class HeadroomApiTest {
     }
 
     /**
-     * The new model (V2-SPEC.md §9.2): income and spend are every account's external rows, whatever
-     * the account's {@code budget} flag, and a move between two of your own accounts is never income
-     * or spend. A move changes {@code left} only where it crosses the budget boundary.
+     * The cash-flow model (V2-SPEC.md §9.2, V2-CASHFLOW-PLAN.md C-3): income and spend are the
+     * liquid accounts' external rows plus a declared loan's charges, and a move between your own
+     * accounts is never income or spend — liquid <-> liquid is noise, and a liquid -> loan repayment
+     * is not Out in the Cost view (its principal is reported, never spent).
      */
     @Test
     void everyAccountsExternalsCountAndMovesDoNot(@TempDir Path dir) throws Exception {
@@ -238,17 +240,17 @@ class HeadroomApiTest {
         Path journal = dir.resolve("trex.jsonl");
         try (JsonlJournal j = new JsonlJournal(journal)) {
             j.appendBatch(List.of(
-                // Salary paid into a budget:false savings account: real income all the same.
+                // Salary paid into the (liquid) savings account: income.
                 fact(1, "sal-sav", "savings", 200000, "SALARY MEL", first),
-                // A loan account's interest charge: real spend, though the account is outside the budget.
+                // The declared loan's interest charge: Money Out, though the loan is never liquid.
                 fact(2, "int-loan", "loan", -50000, "INTEREST CHARGE", first),
-                // A card repayment: both legs in the budget, so it moves nothing and counts nothing.
+                // A card repayment: liquid <-> liquid, so it moves nothing and counts nothing.
                 fact(3, "card-a", "everyday", -9000, "PAY CARD", today),
                 fact(4, "card-b", "card", 9000, "PAYMENT RECEIVED", today),
-                // A deposit to savings crosses the boundary: a move out, not spend.
+                // A deposit to savings: liquid <-> liquid, noise.
                 fact(5, "sav-a", "everyday", -10000, "TO SAVINGS", today),
                 fact(6, "sav-b", "savings", 10000, "FROM EVERYDAY", today),
-                // Two offset -> loan repayments: both legs outside the budget, so they change nothing.
+                // Two offset -> loan repayments: principal and interest, never Cost-view Out.
                 fact(7, "off-a", "offset", -30000, "TO LOAN", today),
                 fact(8, "off-b", "loan", 30000, "FROM OFFSET", today),
                 fact(9, "off2-a", "offset", -30000, "TO LOAN", today),
@@ -265,15 +267,12 @@ class HeadroomApiTest {
             JsonNode headroom = headroom(hub, today);
 
             assertEquals(200000, headroom.get("incomeIn").asLong(),
-                "salary into a budget:false account counts: " + headroom.toPrettyString());
+                "salary into savings counts: " + headroom.toPrettyString());
             assertEquals(50000, headroom.get("uncommittedSpend").asLong(),
                 "the loan interest counts: " + headroom.toPrettyString());
-            assertEquals(10000, headroom.get("movedOut").asLong(),
-                "only the savings deposit crosses the boundary: " + headroom.toPrettyString());
-            assertEquals(0, headroom.get("movedIn").asLong(), headroom.toPrettyString());
             assertEquals(0, headroom.get("unpaired").asLong(), headroom.toPrettyString());
-            assertEquals(140000, headroom.get("left").asLong(),
-                "200000 in less 50000 interest less 10000 moved: " + headroom.toPrettyString());
+            assertEquals(150000, headroom.get("left").asLong(),
+                "200000 in less 50000 interest; no move counts: " + headroom.toPrettyString());
         }
     }
 
@@ -377,16 +376,14 @@ class HeadroomApiTest {
                 balanceSource: statement
               - ref: "savings"
                 currency: "AUD"
-                balanceSource: declared
-                budget: false
+                balanceSource: statement
               - ref: "offset"
                 currency: "AUD"
-                balanceSource: declared
-                budget: false
+                balanceSource: statement
               - ref: "loan"
                 currency: "AUD"
-                balanceSource: declared
-                budget: false
+                balanceSource: statement
+                liquid: false
               - ref: "cash-ron"
                 currency: "AUD"
                 balanceSource: declared
@@ -410,6 +407,18 @@ class HeadroomApiTest {
               everyday:
                 # An ATM withdrawal is a transfer to the declared wallet (V2-CASH-PLAN.md §4.1).
                 - { match: 'ATM', rail: BANK_TRANSFER, clearing: cash-ron }
+            """);
+        // The declared loan (C-3). Its commitment ids are not the fixtures' "loan-repay", so that
+        // test still exercises the transfer-only rule rather than the declaration.
+        Files.writeString(configDir.resolve("mortgages.yaml"), """
+            mortgages:
+              - name: "Fixture"
+                offset: "offset"
+                loans:
+                  - account: "loan"
+                    label: "Loan"
+                    repaymentCommitment: "mortgage-repay"
+                    interestCommitment: "mortgage-interest"
             """);
     }
 }

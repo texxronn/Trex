@@ -19,28 +19,26 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
     }
 
     /**
-     * "Left this month" (V2-REVIEW-FIXES-PLAN.md §10, V2-SPEC.md §9.2) as the month's real flows:
-     * income and spend are <b>every</b> account's external rows — whatever its {@code budget} flag —
-     * plus every commitment's occurrences, and a move between two of your own accounts is never
-     * income or spend. {@code left} is {@code incomeIn + incomeDue + movedIn − committedPaid −
-     * committedDue − uncommittedSpend − unrecordedCash − movedOut}. A read over the derived tables,
-     * not a budget: nothing is planned or stored. Every field is a positive magnitude except
-     * {@code left}. {@code movedOut}/{@code movedIn} are the moves that cross the budget boundary —
-     * to or from one of your own accounts outside it (the offset, savings, a loan): they move
-     * {@code left} like any outflow or inflow, but they are not spending or income. A move between
-     * two accounts both outside the budget moves {@code left} not at all. {@code missed}
-     * (out-commitments whose window closed with nothing seen) and {@code unpaired} (transfer legs
-     * still waiting for their other side) are shown, never folded into {@code left}. {@code through}
-     * is the oldest statement frontier among the budget accounts: the figure knows nothing after it.
-     * {@code unrecordedCash} is the month's unrecorded cash (V2-CASH-PLAN.md §4.2, V2-SPEC.md §9.2)
-     * over the declared wallets in the budget — the {@code cash_month} figure, signed: a positive
-     * month is spend nobody recorded, a negative one is cash that appeared unrecorded, and it moves
-     * {@code left} like other spend and income.
+     * "Left this month" (V2-SPEC.md §9.2): the <b>Cost</b> view of the month's cash-flow sheet
+     * (V2-CASHFLOW-PLAN.md C-4) over the liquid accounts, from the same row-walk, so the status strip
+     * and the sheet cannot drift. {@code left} is {@code incomeIn + incomeDue − committedPaid −
+     * committedDue − uncommittedSpend − unrecordedCash}. Income and spend are the liquid accounts'
+     * external rows and the declared loans' charges, with commitments counted through their
+     * occurrences (a paid one in its payment month, C-5); a move between your own accounts is never
+     * income or spend, and the principal and set-aside are not Out in the Cost view. A read over the
+     * derived tables, not a budget: nothing is planned or stored. Every field is a positive magnitude
+     * except {@code left} and {@code unrecordedCash}. {@code committedDue} holds the declared loan
+     * interest commitments' due occurrences and never the repayments' (a repayment is a move).
+     * {@code missed} (out-commitments whose window closed with nothing seen) and {@code unpaired}
+     * (transfer legs still waiting for their other side) are shown, never folded into {@code left}.
+     * {@code through} is the oldest statement frontier among the liquid accounts: the figure knows
+     * nothing after it. {@code unrecordedCash} is the month's unrecorded cash (V2-CASH-PLAN.md §4.2)
+     * over the liquid wallets — the {@code cash_month} figure, signed: a positive month is spend
+     * nobody recorded, a negative one cash that appeared unrecorded.
      */
     public record Headroom(LocalDate month, long left, long incomeIn, long incomeDue, long committedPaid,
-                           long committedDue, long uncommittedSpend, long unrecordedCash, long movedOut,
-                           long movedIn, long missed, long unpaired, LocalDate through,
-                           List<String> accounts) {}
+                           long committedDue, long uncommittedSpend, long unrecordedCash, long missed,
+                           long unpaired, LocalDate through, List<String> accounts) {}
 
 
     /**

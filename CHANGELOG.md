@@ -9,6 +9,15 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- **The Budget tab is now Cash flow** (`V2-SPEC.md` §9.2, §9.3, §12; `V2-CASHFLOW-PLAN.md` §1).
+  `GET /api/cashflow?month=&view=cost|cash&exclude=` presents any month as one sheet over the
+  household's liquid accounts: loan repayments split into charges and principal, moves to
+  non-liquid accounts shown as `Set aside`, liquid-to-liquid moves ignored. **Breaking config:**
+  `accounts.yaml` `budget:` is replaced by `liquid:` and a `budget:` key is a config error; new
+  `cashflow.yaml`. See *Upgrading to Cash flow* in `docs/DEPLOYMENTS.md` before deploying.
+
 ## [0.2.2] - 2026-10-15
 
 ### Added
