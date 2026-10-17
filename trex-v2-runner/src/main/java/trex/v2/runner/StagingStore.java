@@ -81,7 +81,11 @@ public final class StagingStore {
         return name;
     }
 
-    /** The absolute path of a staged file, in the inbox or in {@code done/}. */
+    /**
+     * The absolute path of a staged file, in the inbox, {@code done/} or {@code failed/}. A failed
+     * file resolves so a refused one can be re-run from its row with another account or
+     * {@code guard: off}; a manual ingest never moves it.
+     */
     public Path resolve(String name) throws IOException {
         Path staged = safeResolve(root, name);
         if (Files.isRegularFile(staged)) {
@@ -90,6 +94,10 @@ public final class StagingStore {
         Path archived = safeResolve(done, name);
         if (Files.isRegularFile(archived)) {
             return archived;
+        }
+        Path rejected = safeResolve(failed, name);
+        if (Files.isRegularFile(rejected)) {
+            return rejected;
         }
         throw new IOException("no such staged file: " + name);
     }

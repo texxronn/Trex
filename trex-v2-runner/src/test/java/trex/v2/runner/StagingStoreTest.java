@@ -36,6 +36,17 @@ class StagingStoreTest {
     }
 
     @Test
+    void resolveFindsAFailedFile(@TempDir Path dir) throws Exception {
+        StagingStore store = new StagingStore(dir.resolve("staging"));
+        StagingStore.Staged staged = store.put("a".getBytes(StandardCharsets.UTF_8), "Refused.csv");
+        assertTrue(store.markFailed(staged.name()));
+        Path path = store.resolve(staged.name());
+        assertTrue(Files.isRegularFile(path));
+        assertEquals("failed", path.getParent().getFileName().toString());
+        assertEquals("failed", store.list().get(0).state(), "resolving does not move it");
+    }
+
+    @Test
     void resolveRejectsTraversal(@TempDir Path dir) {
         StagingStore store = new StagingStore(dir);
         assertThrows(IllegalArgumentException.class, () -> store.resolve("../etc/passwd"));
