@@ -15,6 +15,7 @@ ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar runner \
   --statements /opt/trex/statements \
   --staging /var/lib/trex/staging \
   --evidence /var/lib/trex/evidence \
+  --journal /var/lib/trex/journal/trex.jsonl \
   --sequencer-url http://127.0.0.1:8080 \
   --hub-url http://127.0.0.1:8090 \
   --firefly-url ${TREX_FIREFLY_URL} \
@@ -24,6 +25,8 @@ ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/trex/lib/trex-v2.jar runner \
 StateDirectory=trex/staging trex/evidence
 StateDirectoryMode=0750
 ReadWritePaths=/var/lib/trex/staging /var/lib/trex/evidence
+# The account guard reads the journal; only the sequencer writes it.
+ReadOnlyPaths=/var/lib/trex/journal
 User=trex
 Group=trex
 Restart=on-failure

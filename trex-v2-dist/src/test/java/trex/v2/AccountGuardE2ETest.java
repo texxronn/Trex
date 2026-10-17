@@ -92,6 +92,22 @@ class AccountGuardE2ETest {
         }
     }
 
+    @Test
+    void anUnreadableJournalIsATransportFailureNotBadRows(@TempDir Path dir) throws Exception {
+        Path file = Files.writeString(dir.resolve("first.csv"), FIRST);
+        String missing = dir.resolve("no-such.jsonl").toString();
+        String evidence = dir.resolve("evidence").toString();
+
+        // Exit 2 is left in place by the inbox sweep; exit 1 would file the statement as bad rows.
+        assertEquals(2, run(dir, "ingest", "--source-type", "ing-csv", "--account", "ing-orange",
+            "--sequencer-url", "http://127.0.0.1:1", "--evidence", evidence, "--journal", missing,
+            file.toString()).exit());
+        assertEquals(2, run(dir, "ingest", "--source-type", "ing-csv", "--journal", missing,
+            "--identify", file.toString()).exit());
+        assertEquals(2, run(dir, "ingest", "--source-type", "ing-csv", "--account", "ing-orange",
+            "--journal", missing, "--account-guard=check", file.toString()).exit());
+    }
+
     private static Run ingest(Path dir, String url, Path journal, Path file, String account) throws Exception {
         return run(dir, "ingest", "--source-type", "ing-csv", "--account", account, "--sequencer-url", url,
             "--evidence", dir.resolve("evidence").toString(), "--journal", journal.toString(), file.toString());

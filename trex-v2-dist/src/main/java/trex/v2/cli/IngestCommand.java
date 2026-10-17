@@ -124,7 +124,11 @@ public final class IngestCommand implements Callable<Integer> {
         if ("off".equals(accountGuard)) {
             guard = IngestRunner.Guard.OFF;
         } else if (journal != null) {
-            guard = new IngestRunner.Guard(currentFacts());
+            SortedMap<String, List<Fact>> current = currentFacts();
+            if (current == null) {
+                return IngestRunner.TRANSPORT;
+            }
+            guard = new IngestRunner.Guard(current);
         } else {
             System.err.println("account guard skipped: no --journal");
         }
@@ -145,6 +149,9 @@ public final class IngestCommand implements Callable<Integer> {
             return IngestRunner.BAD_ROWS;
         }
         SortedMap<String, List<Fact>> current = currentFacts();
+        if (current == null) {
+            return IngestRunner.TRANSPORT;
+        }
         AccountGuard.Verdict verdict = AccountGuard.check(parsed.candidates(), account, current);
         GuardReport.verdict(file.getFileName().toString(), verdict, parsed.candidates(), current)
             .forEach(System.out::println);
@@ -163,6 +170,9 @@ public final class IngestCommand implements Callable<Integer> {
             return IngestRunner.BAD_ROWS;
         }
         SortedMap<String, List<Fact>> current = currentFacts();
+        if (current == null) {
+            return IngestRunner.TRANSPORT;
+        }
         List<AccountGuard.Score> scores = AccountGuard.score(parsed.candidates(), current);
         String name = file.getFileName().toString();
         if ("json".equals(format)) {
@@ -208,10 +218,20 @@ public final class IngestCommand implements Callable<Integer> {
         return parsed;
     }
 
+    /**
+     * The journal's current facts, or null (after one stderr line) when it cannot be read. An
+     * unreadable journal is the environment, not the file: the caller exits {@code TRANSPORT}, which
+     * the inbox sweep leaves in place for the next pass instead of filing the file as bad rows.
+     */
     private SortedMap<String, List<Fact>> currentFacts() {
         List<Fact> facts = new ArrayList<>();
         List<Decision> decisions = new ArrayList<>();
-        readJournal(journal, facts, decisions);
+        try {
+            readJournal(journal, facts, decisions);
+        } catch (RuntimeException e) {
+            System.err.println("account guard: cannot read the journal: " + e.getMessage());
+            return null;
+        }
         return AccountGuard.current(facts, decisions);
     }
 

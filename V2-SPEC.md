@@ -779,7 +779,9 @@ tunnel or a TLS-terminating proxy — which also closes the `/mcp` seam above.
   on|off|check` (default `on`): `off` posts whatever the verdict and records `guard: off`; `check`
   prints the verdict for `--account` and writes nothing (needs `--account`, `--journal` and FILE,
   else `64`; bad rows `1`; exit `0`, or `4` on a refusal). With `on` and no `--journal` the guard is
-  skipped with one stderr line and `guard` is omitted. A bad-row file and an
+  skipped with one stderr line and `guard` is omitted. A journal that cannot be read (guard `on` or
+  `check`, or `--identify`) is exit `2` with one stderr line, so the inbox sweep leaves the file for
+  the next pass rather than filing it as bad rows. A bad-row file and an
   empty file (nothing to send) close without a `guard`, with the guard on or off, since it never ran
   there. The operator downloads each statement overlapping the account's frontier where the bank
   allows it, so `FITS` normally comes from identical rows and `UNPROVEN` is the exception to look at.
