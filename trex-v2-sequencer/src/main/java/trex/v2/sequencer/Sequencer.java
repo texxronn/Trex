@@ -148,7 +148,7 @@ public final class Sequencer implements AutoCloseable {
             new Envelope(state.headN + 1, IngestEvent.KIND, Envelope.VERSION, clock.millis(), env, source, target),
             batch.phase(), batch.batch(), batch.evidence(), batch.file(), batch.account(),
             batch.sourceType(), batch.parser(), batch.appended(), batch.duplicate(), batch.flagged(),
-            batch.status());
+            batch.status(), batch.guard());
         journal.appendBatch(List.of(event));
         state.headN++;
         return head();

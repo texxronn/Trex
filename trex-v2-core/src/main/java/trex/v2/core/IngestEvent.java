@@ -20,7 +20,8 @@ public record IngestEvent(
     Integer appended,   // complete only
     Integer duplicate,
     Integer flagged,
-    String status       // complete only: ok | bad_rows | transport | rejected | duplicate
+    String status,      // complete only: ok | bad_rows | transport | rejected | duplicate | guard_refused
+    String guard        // complete only: fits | new | unproven | off | elsewhere:<ref> | contradicts; absent when the guard did not run
 ) implements LogLine {
 
     /** The namespaced wire kind. */

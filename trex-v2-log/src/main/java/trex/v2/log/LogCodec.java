@@ -243,6 +243,10 @@ public final class LogCodec {
         putNullableInt(o, "duplicate", e.duplicate());
         putNullableInt(o, "flagged", e.flagged());
         putNullable(o, "status", e.status());
+        // Absent, not null: lines written before the guard existed stay byte-identical.
+        if (e.guard() != null) {
+            o.put("guard", e.guard());
+        }
     }
 
     // ---- decode -----------------------------------------------------------------------------
@@ -359,7 +363,8 @@ public final class LogCodec {
             optInt(n, "appended"),
             optInt(n, "duplicate"),
             optInt(n, "flagged"),
-            opt(n, "status"));
+            opt(n, "status"),
+            opt(n, "guard"));
     }
 
     // ---- helpers ----------------------------------------------------------------------------
