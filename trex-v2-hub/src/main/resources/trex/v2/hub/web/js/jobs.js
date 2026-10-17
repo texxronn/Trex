@@ -320,6 +320,7 @@ function renderStaging() {
     el('td', { class: 'desc', title: file.original }, file.original),
     el('td', {}, select(adapters, file.sourceType, (value) => {
       file.sourceType = value;
+      identified.delete(file.name); // the old answer was for the old type
       identifyStaged(); // a row that had no type can be identified now
     })),
     el('td', {}, select((ctx.refdata.accounts || []).map((account) => account.ref), file.account,
@@ -445,7 +446,8 @@ function applyIdentified(file) {
 /** The muted "identified" tag and, when the file's name points elsewhere, the amber marker. */
 function identifyMarks(file) {
   const result = identified.get(file.name);
-  if (!result || !result.suggestion) return [];
+  // Hand-changed away from the suggestion, the row is no longer "identified".
+  if (!result || !result.suggestion || file.account !== result.suggestion) return [];
   const marks = [el('span', { class: 'tag identified', title: result.candidates.map(candidateText).join('\n') },
     'identified')];
   if (file.mapAccount && file.mapAccount !== result.suggestion) {
@@ -669,6 +671,12 @@ function jobCard(job) {
   if (job.name === 'ingest') {
     // Ingest is driven by the staging inbox above, not a bare button (it needs the file list).
     nodes.push(el('div', { class: 'muted' }, 'Use the staging inbox above.'));
+    return nodes;
+  }
+
+  if (job.name === 'identify') {
+    // Identify runs per staged file, driven by the inbox; a bare run has no file and errors.
+    nodes.push(el('div', { class: 'muted' }, 'Runs per staged file from the inbox above.'));
     return nodes;
   }
 
@@ -988,7 +996,8 @@ function renderFrontier() {
   const today = new Date().toISOString().slice(0, 10);
   const newest = new Map();
   for (const i of ingests) {
-    if (i.accountRef && !newest.has(i.accountRef)) newest.set(i.accountRef, i);
+    // A guard-refused batch sits under the account it was wrongly offered as and posted nothing.
+    if (i.accountRef && i.status !== 'guard_refused' && !newest.has(i.accountRef)) newest.set(i.accountRef, i);
   }
   const head = el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Newest file'),
     el('th', {}, 'Frontier'), el('th', {}, 'Suggested range'), el('th', {}, 'Fetch from'));
