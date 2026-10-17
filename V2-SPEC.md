@@ -470,7 +470,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/cashflow?month=YYYY-MM&view=cost\|cash&exclude=…` | the month's **cash-flow sheet** (§9.2): Money In, Money Out and Left over the **liquid** accounts, `view=cost` (default) or `cash`, each expense row rolled into its primary group with its leaf parts; the Mortgage/Set-aside slices (Cash) or bridge (Cost); `reconcile` against the liquid accounts' rows; `exclude` (leaf or primary keys; present, even empty, replaces the `cashflow.yaml` default); its Cost `left` is the strip's `headroom.left`. Replaces `/api/budget` |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
-| GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier and each batch's `guard` (absent when the guard did not run) — `?sinceN=<n>` keeps only batches completed after `n` |
+| GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier and each batch's `guard` (`null` when the guard did not run) — `?sinceN=<n>` keeps only batches completed after `n` |
 | GET | `/api/since?n=<n>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line for the signed-in user (§9.1, §9.5); with sign-in on a `user` parameter is ignored |
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly — Firefly only, §11.2 keeps no state) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
@@ -777,7 +777,7 @@ tunnel or a TLS-terminating proxy — which also closes the `/mcp` seam above.
   evidence stays stored, and the batch closes `complete` with `status: guard_refused` and the verdict
   in `guard`. `FITS`, `NEW` and `UNPROVEN` post, the last two with a note on stdout. `--account-guard
   on|off|check` (default `on`): `off` posts whatever the verdict and records `guard: off`; `check`
-  prints the verdict for `--account` and writes nothing (exit `0`, or `4` on a refusal). Without
+  prints the verdict for `--account` and writes nothing (needs `--account`, `--journal` and FILE, else `64`; bad rows `1`; exit `0`, or `4` on a refusal). Without
   `--journal` the guard is skipped with one stderr line and `guard` is omitted. A bad-row file and an
   empty file (nothing to send) close without a `guard`, with the guard on or off, since it never ran
   there. The operator downloads each statement overlapping the account's frontier where the bank
