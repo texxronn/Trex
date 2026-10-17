@@ -5,7 +5,8 @@ the account it is being ingested as, and refuse a file that plainly belongs to a
 
 **Authority:** `V2-SPEC.md` §6.7 (the balance chain), §10 (ingest), §16 (runner, staging inbox),
 §9.3 (Jobs); `AGENTS.md`. **Status:** G-1…G-7 accepted as recommended (operator, 2026-10-17);
-not scheduled for build yet.
+**built** on branch `feat/account-guard` (2026-10-17). Where this plan and `V2-SPEC.md` §10 differ, the
+spec wins; the as-built differences are in the **As built** section at the end.
 
 ## 0. Why
 
@@ -45,9 +46,10 @@ For the file: its rows' `(balance − amount, balance)` edges, as §6.7 uses the
 
 For each candidate account `A` with current facts:
 
-1. **Overlap:** some file row is an identical observation of a fact on `A` (date, amount,
-   rawDescription, balance — the same row key `Reparse` uses). Statements are usually downloaded
-   overlapping, so this is the common, strongest proof.
+1. **Overlap:** some file row matches a fact on `A` on `(date, amount, balance)` (R1: the
+   description is not part of the key, so a parser upgrade does not turn an overlap into a
+   contradiction). Statements are usually downloaded overlapping, so this is the common,
+   strongest proof.
 2. **Connects:** the file's opening equals the balance of `A`'s newest current row dated on or
    before the file's first date (the chain continues).
 3. **Contradicts:** `A` has current rows dated inside the file's span, and none of the file's rows
@@ -61,12 +63,14 @@ Verdict for the chosen account `C`:
 | Verdict | When | Effect |
 |---|---|---|
 | `FITS` | `C` overlaps or connects | post, as today |
-| `NEW` | `C` has no current facts | post (first ingest of an account) |
 | `ELSEWHERE` | `C` does not fit, and exactly one other account `X` overlaps or connects | **refuse**, naming `X` |
+| `NEW` | `C` has no current facts | post (first ingest of an account) |
 | `CONTRADICTS` | `C` contradicts, nothing else fits | **refuse** |
 | `UNPROVEN` | none of the above (a gap since the frontier, a broken source chain) | G-1 |
 
-`ELSEWHERE` with two or more other accounts fitting is reported as `UNPROVEN` with the candidates
+The table is the evaluation order (R3: `ELSEWHERE` before `NEW` — an empty chosen account with a file
+that fits another account is the classic mis-pick; **Ingest anyway** overrides a genuinely new
+account's coincidence). `ELSEWHERE` with two or more other accounts fitting is reported as `UNPROVEN` with the candidates
 named — the guard never guesses.
 
 The refusal message is the whole UX on the CLI:
@@ -126,8 +130,8 @@ prefills the row's account from it:
 - suggestion and filename match **disagree** → amber on the row, the suggestion is prefilled, both
   are named.
 
-The suggestion is only that until **Ingest** is pressed: choosing (or keeping) the account writes
-it to the file's sidecar `account` (§3), which the sweep passes on. A scheduled, unattended sweep
+The suggestion is only that until **Ingest** is pressed: the row's account goes in the `ingest` job
+item as usual (as built, nothing is written to the sidecar — R4). A scheduled, unattended sweep
 does not identify; the guard inside ingest still protects it. With identify prefilling the
 account, `statements.yaml` becomes the fallback and a renamed download stops mattering.
 
@@ -136,17 +140,18 @@ account, `statements.yaml` becomes the fallback and a renamed download stops mat
 - `trex ingest --account-guard=off` posts whatever the verdict (a deliberate correction, a
   restated statement). `--account-guard=check` parses and guards and writes nothing — no evidence, no events (a dry run; it
   prints the verdict and exits `0` on `FITS`/`NEW`, else the guard code).
-- In the runner, an inbox file's `.meta` sidecar may carry `account` and `guard: off`, set from the
-  Jobs page (§4). The sweep passes them through. Nothing else in the runner changes: it still only
-  runs the subcommand and files by exit code.
+- In the runner (R4, as built), the `ingest` job's items carry `account` and `guard: "off"`, set
+  from the Jobs page (§4); `StagingStore.resolve` also finds `failed/` so a refused file can be
+  re-run. No sidecar keys. Nothing else in the runner changes: it still only runs the subcommand and
+  files by exit code.
 
 ## 4. Jobs page
 
 - A refused file is filed to `failed/` like a bad-row file (G-2) and its row shows the verdict
   text. Two actions on that row:
-  - **Ingest as `ing-orange`** — when the verdict named one account: writes `account` to the
-    sidecar and runs the ingest for that one file.
-  - **Ingest anyway** — writes `guard: off` and runs it; a confirm names the account it will land on.
+  - **Ingest as `ing-orange`** — when the verdict named one account: runs the `ingest` job for
+    that one file with `account` set (R4).
+  - **Ingest anyway** — runs it with `guard: "off"`; a confirm names the account it will land on.
 - No new pre-flight step on the happy path: a file that fits ingests exactly as today, with no
   extra click. (A per-row **Check** button on the inbox, running `--account-guard=check`, is cheap
   to add but deferred until the refusal flow has been used — G-6.)
@@ -208,3 +213,29 @@ account, `statements.yaml` becomes the fallback and a renamed download stops mat
 5. **Spec.** `V2-SPEC.md` §10 (the guard, `--identify`, exit `4`, the `guard` field), §16 (sweep
    filing, sidecar keys, the `identify` job), §9.3 (Jobs inbox prefill and row actions) — in the
    same PR as the behaviour.
+
+## 8. As built (2026-10-17)
+
+`V2-SPEC.md` §9.3, §10, §16 are the contract. Rulings made while building, and where the code
+differs from the text above:
+
+- **R1** match key `(date, amount, balance)`. **R2** a zero balance is never evidence (an overlap row
+  or an opening). **R3** `ELSEWHERE` before `NEW`. **R4** `Ingest as X` / `Ingest anyway` use the
+  existing `ingest` job items (`account`, `guard: "off"`), no sidecar keys; `failed/` files resolve.
+  A consequence: an identified account is not remembered by the unattended sweep (the guard still
+  protects it).
+- **R5** identify reaches the hub as one JSON line on stdout (`--format json`), read from the run's
+  output; the `identify` job has mode `read`.
+- **R6** `guard` is a nullable `IngestEvent` field, written only when non-null.
+- **R8** with `--account-guard=off`, the bad-row and empty-file completes carry no `guard`: the guard
+  never ran on those paths. **R9** an index built before the `guard` column re-mirrors from the log
+  once on its first open.
+- The identify JSON is `{file, sourceType, candidates: [{account, verdict: fits|contradicts|none,
+  overlapRows, overlapFrom, overlapTo, connects}], suggestion}`; there is no `span`.
+- `--account-guard=check` needs `--account` and `--journal`; it exits `0`, or `4` on a refusal.
+- The posted-`unproven` note in the Jobs history reads *no overlap — check this statement*, not the
+  frontier-and-start wording in §2.1; the CLI note carries the newest row and the file start. `new`
+  has a CLI note and no history mark. The runner passes `--journal` whenever it has one.
+- **Fetch from** is the frontier minus 7 days. Refused rows are linked to their batch by evidence id
+  among the newest page of `/api/ingests`; an older refusal shows as a plain `failed`.
+- Not built: the per-row **Check** button (G-6), the account-number hint and re-home (§6).
