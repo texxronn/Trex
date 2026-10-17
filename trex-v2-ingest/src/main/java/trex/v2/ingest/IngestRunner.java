@@ -1,17 +1,19 @@
 package trex.v2.ingest;
 
+import trex.v2.core.Fact;
 import trex.v2.log.EvidenceStore;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.SortedMap;
 
 /**
  * One ingest run (V2-PROPOSAL.md §6.5, §12.1): store the evidence, parse and validate the whole
  * file, then send it one day at a time. Nothing is sent until every row is clean. Exit codes are
  * v1's contract: 0 success, 1 a bad row (nothing sent), 2 transport failure, 3 a rejected batch,
- * 64 usage.
+ * 64 usage; plus 4, the account guard refused the file (V2-ACCOUNT-GUARD-PLAN.md).
  */
 public final class IngestRunner {
 
@@ -20,6 +22,19 @@ public final class IngestRunner {
     public static final int TRANSPORT = 2;
     public static final int REJECTED = 3;
     public static final int USAGE = 64;
+    public static final int GUARD_REFUSED = 4;
+
+    /**
+     * The account guard for one run: the current facts to score against, or {@code OFF} to post
+     * without checking (the event then says so). A null guard means it did not run at all.
+     */
+    public record Guard(SortedMap<String, List<Fact>> current) {
+        public static final Guard OFF = new Guard(null);
+
+        public boolean off() {
+            return current == null;
+        }
+    }
 
     private IngestRunner() {}
 
@@ -28,14 +43,22 @@ public final class IngestRunner {
         return run(adapter, content, fileName, accountRef, null, fileName, evidence, client, out);
     }
 
-    /**
-     * With a source archive (§12.6): the exact bytes are gzipped under a dated, human name before
-     * anything is sent. {@code sourceName} is the original name (a staged file's, not the generated
-     * one); null falls back to {@code fileName}.
-     */
     public static int run(SourceAdapter adapter, byte[] content, String fileName, String accountRef,
                           Path sourceArchive, String sourceName, EvidenceStore evidence, IngestClient client,
                           PrintStream out) {
+        return run(adapter, content, fileName, accountRef, sourceArchive, sourceName, evidence, client, null,
+            out);
+    }
+
+    /**
+     * With a source archive (§12.6): the exact bytes are gzipped under a dated, human name before
+     * anything is sent. {@code sourceName} is the original name (a staged file's, not the generated
+     * one); null falls back to {@code fileName}. The guard runs after the file is known clean and
+     * before any fact is sent; a refusal closes the batch {@code guard_refused} with nothing posted.
+     */
+    public static int run(SourceAdapter adapter, byte[] content, String fileName, String accountRef,
+                          Path sourceArchive, String sourceName, EvidenceStore evidence, IngestClient client,
+                          Guard guard, PrintStream out) {
         Instant now = Instant.now();
         String evidenceId = evidence.put(content);
         if (sourceArchive != null) {
@@ -57,7 +80,7 @@ public final class IngestRunner {
                 out.printf("  %s:%d  %s '%s': %s%n", bad.file(), bad.line(), bad.field(), bad.value(),
                     bad.reason());
             }
-            client.postIngest(completeEvent(batchId, "bad_rows", 0, 0, 0));
+            client.postIngest(completeEvent(batchId, "bad_rows", 0, 0, 0, null));
             return BAD_ROWS;
         }
         List<FactDraft> drafts = parsed.candidates().stream()
@@ -65,8 +88,28 @@ public final class IngestRunner {
             .toList();
         if (drafts.isEmpty()) {
             out.println("nothing to send (" + parsed.skipped().size() + " skipped)");
-            client.postIngest(completeEvent(batchId, "duplicate", 0, 0, 0));
+            client.postIngest(completeEvent(batchId, "duplicate", 0, 0, 0, null));
             return OK;
+        }
+        String guardValue = null;
+        List<String> guardNote = List.of();
+        if (guard != null) {
+            if (guard.off()) {
+                guardValue = "off";
+            } else {
+                AccountGuard.Verdict verdict = AccountGuard.check(drafts, accountRef, guard.current());
+                guardValue = verdict.eventValue();
+                boolean note = verdict.kind() == AccountGuard.Kind.NEW
+                    || verdict.kind() == AccountGuard.Kind.UNPROVEN;
+                if (verdict.refuses()) {
+                    GuardReport.verdict(fileName, verdict, drafts, guard.current()).forEach(out::println);
+                    client.postIngest(completeEvent(batchId, "guard_refused", 0, 0, 0, guardValue));
+                    return GUARD_REFUSED;
+                }
+                if (note) {
+                    guardNote = GuardReport.verdict(fileName, verdict, drafts, guard.current());
+                }
+            }
         }
         int appended = 0;
         int duplicate = 0;
@@ -87,16 +130,18 @@ public final class IngestRunner {
                     case IngestClient.FLAGGED -> flagged++;
                     case IngestClient.REJECTED -> {
                         out.printf("rejected by the sequencer: %s (%s)%n", result.ref(), result.reason());
-                        client.postIngest(completeEvent(batchId, "rejected", appended, duplicate, flagged));
+                        client.postIngest(completeEvent(batchId, "rejected", appended, duplicate, flagged,
+                            guardValue));
                         return REJECTED;
                     }
                     default -> { }
                 }
             }
         }
-        client.postIngest(completeEvent(batchId, "ok", appended, duplicate, flagged));
+        client.postIngest(completeEvent(batchId, "ok", appended, duplicate, flagged, guardValue));
         out.printf("%s: %d appended, %d duplicate, %d flagged, evidence %s%n",
             accountRef, appended, duplicate, flagged, evidenceId);
+        guardNote.forEach(out::println);
         return OK;
     }
 
@@ -115,7 +160,8 @@ public final class IngestRunner {
     }
 
     private static java.util.Map<String, Object> completeEvent(String batchId, String status,
-                                                               int appended, int duplicate, int flagged) {
+                                                               int appended, int duplicate, int flagged,
+                                                               String guard) {
         java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
         m.put("phase", "complete");
         m.put("batch", batchId);
@@ -123,6 +169,9 @@ public final class IngestRunner {
         m.put("appended", appended);
         m.put("duplicate", duplicate);
         m.put("flagged", flagged);
+        if (guard != null) {
+            m.put("guard", guard);
+        }
         return m;
     }
 }
