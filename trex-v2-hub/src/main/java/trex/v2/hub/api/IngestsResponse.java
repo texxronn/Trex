@@ -14,8 +14,14 @@ public record IngestsResponse(List<IngestRow> rows) {
      * <p>{@code latestTxnDate} is the account's frontier (V2-INGEST-FRONTIER-PLAN.md): the newest
      * transaction date already processed for the account, clamped to today, or null when the
      * account has no facts — the lower bound for requesting the next statement file.
+     *
+     * <p>{@code guard} is the account guard's verdict from the {@code complete} marker
+     * (V2-ACCOUNT-GUARD-PLAN.md §2): {@code fits | new | unproven | off | elsewhere:<ref> |
+     * contradicts}, or null when the guard did not run (an ingest without {@code --journal}, or one
+     * from before the guard). A refusal pairs it with {@code status = guard_refused}.
      */
     public record IngestRow(String batch, String file, String evidenceId, String accountRef, String sourceType,
                             long nStart, long nEnd, Integer appended, Integer duplicate, Integer flagged,
-                            String status, long startedMs, long completedMs, LocalDate latestTxnDate) {}
+                            String status, long startedMs, long completedMs, LocalDate latestTxnDate,
+                            String guard) {}
 }

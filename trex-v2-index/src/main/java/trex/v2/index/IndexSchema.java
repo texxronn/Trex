@@ -58,6 +58,17 @@ final class IndexSchema {
                 st.execute("DROP TABLE IF EXISTS txn_current");
                 st.execute("DELETE FROM meta");
             }
+            // ingest_event gained the guard's verdict (V2-ACCOUNT-GUARD-PLAN.md §2). It is a mirror
+            // column, so an ALTER would leave the events already mirrored without the value the log
+            // holds: drop the mirror (and the view that pairs it, which CREATE IF NOT EXISTS would
+            // never reshape) and force a full re-mirror from the log, as for the envelope above.
+            if (hasTable(st, "ingest_event") && !hasColumn(st, "ingest_event", "guard")) {
+                st.execute("DROP VIEW IF EXISTS ingest_batch");
+                st.execute("DROP TABLE ingest_event");
+                st.execute("DROP TABLE IF EXISTS fact");
+                st.execute("DROP TABLE IF EXISTS decision");
+                st.execute("DELETE FROM meta");
+            }
             for (String statement : statements(sql)) {
                 st.execute(statement);
             }

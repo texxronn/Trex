@@ -37,8 +37,8 @@ final class Sql {
     static final String INSERT_DECISION = "INSERT INTO decision(n, action, payload, actor, user_id, at) "
         + "VALUES(?,?,?,?,?,?)";
     static final String INSERT_INGEST_EVENT = "INSERT INTO ingest_event(n, phase, batch, evidence_id, file, "
-        + "account_ref, source_type, parser, appended, duplicate, flagged, status, line_v, at_ms, env, source, target) "
-        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        + "account_ref, source_type, parser, appended, duplicate, flagged, status, guard, line_v, at_ms, env, source, "
+        + "target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     static final String SELECT_DECISIONS = "SELECT payload FROM decision ORDER BY n";
     static final String SELECT_DECISIONS_UPTO = "SELECT payload FROM decision WHERE n <= ? ORDER BY n";
 
