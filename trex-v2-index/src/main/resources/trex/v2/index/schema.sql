@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS ingest_event (
   duplicate   INTEGER,
   flagged     INTEGER,
   status      TEXT,
+  guard       TEXT,
   line_v      INTEGER NOT NULL,
   at_ms       INTEGER NOT NULL,
   env         TEXT NOT NULL,
@@ -159,7 +160,7 @@ CREATE TABLE IF NOT EXISTS pending (
 CREATE VIEW IF NOT EXISTS ingest_batch AS
 SELECT s.batch, s.file, s.evidence_id, s.account_ref,
        s.n AS n_start, c.n AS n_end,
-       c.appended, c.duplicate, c.flagged, c.status,
+       c.appended, c.duplicate, c.flagged, c.status, c.guard,
        s.at_ms AS started_ms, c.at_ms AS completed_ms
 FROM ingest_event s
 LEFT JOIN ingest_event c ON c.batch = s.batch AND c.phase = 'complete'

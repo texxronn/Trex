@@ -77,6 +77,35 @@ class HubIngestsApiTest {
     }
 
     @Test
+    void theGuardVerdictRidesOnEachBatch(@TempDir Path dir) throws Exception {
+        Path configDir = dir.resolve("config");
+        config(configDir);
+        Path journal = dir.resolve("trex.jsonl");
+        try (JsonlJournal j = new JsonlJournal(journal)) {
+            j.appendBatch(List.of(
+                ingest(1, IngestEvent.START, "b1", "plain.csv"),
+                ingest(2, IngestEvent.COMPLETE, "b1", "plain.csv"),
+                ingest(3, IngestEvent.START, "b2", "salary.csv"),
+                new IngestEvent(Envelope.stamped(4, IngestEvent.KIND, AT), IngestEvent.COMPLETE, "b2",
+                    "sha256:test", "salary.csv", "ing-savings", "ing-csv", "ing-csv/1", 0, 0, 0,
+                    "guard_refused", "elsewhere:ing-orange")));
+        }
+
+        try (HubService hub = HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
+                "127.0.0.1", 0, 50))) {
+            await(() -> hub.status().counts().getOrDefault("ingest_event", 0L) == 4L);
+            HttpClient client = HttpClient.newHttpClient();
+            JsonNode all = get(client, URI.create("http://127.0.0.1:" + hub.port() + "/api/ingests"));
+            JsonNode refused = all.get("rows").get(0);
+            // The Jobs page offers "Ingest as ing-orange" from exactly this pair.
+            assertEquals("guard_refused", refused.get("status").asText(), all.toPrettyString());
+            assertEquals("elsewhere:ing-orange", refused.get("guard").asText(), all.toPrettyString());
+            // An unguarded batch (no --journal) carries no verdict.
+            assertTrue(all.get("rows").get(1).path("guard").isNull(), all.toPrettyString());
+        }
+    }
+
+    @Test
     void sinceNReturnsEveryLaterBatchPastTheHistoryLimit(@TempDir Path dir) throws Exception {
         Path configDir = dir.resolve("config");
         config(configDir);
@@ -120,7 +149,7 @@ class HubIngestsApiTest {
         boolean start = IngestEvent.START.equals(phase);
         return new IngestEvent(Envelope.stamped(n, IngestEvent.KIND, AT), phase, batch, "sha256:test",
             file, "ing-savings", "ing-csv", "ing-csv/1",
-            start ? null : 3, start ? null : 0, start ? null : 0, start ? null : "ok");
+            start ? null : 3, start ? null : 0, start ? null : 0, start ? null : "ok", null);
     }
 
     private static void await(java.util.function.BooleanSupplier condition) throws InterruptedException {

@@ -27,6 +27,7 @@ public final class JobCatalogue {
         jobs.put("egress-ezb", egressEzb(config));
         jobs.put("ingest", ingest(config, statements, staging));
         jobs.put("ingest-inbox", ingestInbox(config, statements, staging, System::currentTimeMillis));
+        jobs.put("identify", identify(config, statements, staging));
         jobs.put("reparse", reparse(config));
         jobs.put("journal-snapshot", journalSnapshot(config));
         jobs.put("stream", stream(config, staging));
@@ -239,7 +240,7 @@ public final class JobCatalogue {
 
     static JobSpec ingest(RunnerConfig config, StatementsMap statements, StagingStore staging) {
         List<JobParam> params = List.of(JobParam.of("items", "items", true,
-            "one entry per file: {file, sourceType, account, source: staging|statements}"));
+            "one entry per file: {file, sourceType, account, source: staging|statements, guard: on|off}"));
         return new JobSpec("ingest", "Ingest",
             "Parse one or more statements into facts (V2-PROPOSAL.md §12); one child per file.",
             "write", params, p -> {
@@ -262,9 +263,9 @@ public final class JobCatalogue {
     /**
      * The drop-folder sweep (V2-REVIEW-FIXES-PLAN.md §9): the {@code ingest} job with its items
      * resolved from {@code statements.yaml} instead of picked by hand, and each file filed by its
-     * exit code — {@code 0} to {@code done/}, {@code 1} (bad rows) or {@code 3} (rejected) to
-     * {@code failed/}, anything else (transport, usage) left for the next sweep. Re-ingesting a file
-     * appends nothing, so a crash between the ingest and the move is harmless. A file the map does
+     * exit code — {@code 0} to {@code done/}, {@code 1} (bad rows), {@code 3} (rejected) or
+     * {@code 4} (the account guard refused it) to {@code failed/}, anything else (transport, usage)
+     * left for the next sweep. Re-ingesting a file appends nothing, so a crash between the ingest and the move is harmless. A file the map does
      * not name stays in the inbox for a person to type.
      */
     static JobSpec ingestInbox(RunnerConfig config, StatementsMap statements, StagingStore staging,
@@ -294,11 +295,57 @@ public final class JobCatalogue {
             });
     }
 
+    /**
+     * Ask the account guard which account a staged file belongs to (read-only). The hub triggers
+     * this when a file lands in the inbox and prefills the row's account from the one-line JSON it
+     * prints; the runner only builds the argv. It writes nothing: no sequencer, no evidence, and
+     * the file stays where it is.
+     */
+    static JobSpec identify(RunnerConfig config, StatementsMap statements, StagingStore staging) {
+        List<JobParam> params = List.of(
+            JobParam.of("file", "string", true, "the staged file name"),
+            JobParam.of("sourceType", "string", false, "the adapter; default from statements.yaml"));
+        return new JobSpec("identify", "Identify the account",
+            "Score a staged file against each account's current facts and print the best fit "
+                + "(V2-ACCOUNT-GUARD-PLAN.md).",
+            "read", params, p -> {
+                String file = text(p, "file");
+                if (file == null) {
+                    throw new IllegalArgumentException("file is required");
+                }
+                Path path;
+                try {
+                    path = staging.resolve(file);
+                } catch (IOException | IllegalArgumentException e) {
+                    throw new IllegalArgumentException(e.getMessage());
+                }
+                String name = staging.originalOf(file);
+                String sourceType = text(p, "sourceType");
+                if (sourceType == null) {
+                    sourceType = statements.resolve(name).map(StatementsMap.Entry::sourceType).orElse(null);
+                }
+                if (sourceType == null) {
+                    throw new IllegalArgumentException("no source type for " + name + "; set one");
+                }
+                if (!Adapters.types().contains(sourceType)) {
+                    throw new IllegalArgumentException("unknown source type '" + sourceType + "'");
+                }
+                if (config.journal() == null) {
+                    throw new IllegalArgumentException("--journal is not configured");
+                }
+                return List.of(new Step(name, List.of("ingest", "--identify", "--format", "json",
+                    "--source-type", sourceType,
+                    "--journal", config.journal().toString(),
+                    path.toString())));
+            });
+    }
+
     private static void file(StagingStore staging, String name, int code) {
         try {
             if (code == trex.v2.ingest.IngestRunner.OK) {
                 staging.markDone(name);
-            } else if (code == trex.v2.ingest.IngestRunner.BAD_ROWS || code == trex.v2.ingest.IngestRunner.REJECTED) {
+            } else if (code == trex.v2.ingest.IngestRunner.BAD_ROWS || code == trex.v2.ingest.IngestRunner.REJECTED
+                || code == trex.v2.ingest.IngestRunner.GUARD_REFUSED) {
                 staging.markFailed(name);
             }
         } catch (IOException e) {
@@ -355,6 +402,19 @@ public final class JobCatalogue {
             "--account", account,
             "--sequencer-url", config.sequencerUrl(),
             "--evidence", config.evidenceDir().toString()));
+        // The guard needs the journal to read each account's current facts; without it the CLI skips
+        // the guard, so the runner always passes it when it has one.
+        if (config.journal() != null) {
+            argv.add("--journal");
+            argv.add(config.journal().toString());
+        }
+        String guard = text(item, "guard");
+        if ("off".equals(guard)) {
+            argv.add("--account-guard");
+            argv.add("off");
+        } else if (guard != null && !"on".equals(guard)) {
+            throw new IllegalArgumentException("guard must be on or off");
+        }
         if (config.archive() != null) {
             argv.add("--source-archive");
             argv.add(config.archive().toString());

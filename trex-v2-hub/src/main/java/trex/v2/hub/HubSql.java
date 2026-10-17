@@ -305,9 +305,14 @@ final class HubSql {
         WHERE t.date >= ? AND t.date <= ?
         ORDER BY t.account_ref, t.date""";
 
-    /** Every ingest batch, oldest first; the caller keeps the last row per account. */
+    /**
+     * Every ingest batch, oldest first; the caller keeps the last row per account. A guard-refused
+     * batch is recorded under the account the file was wrongly offered as, and posted nothing, so
+     * it is not that account's last import.
+     */
     static final String ACCOUNT_LAST_IMPORTS = """
-        SELECT account_ref, file, status, started_ms FROM ingest_batch ORDER BY started_ms""";
+        SELECT account_ref, file, status, started_ms FROM ingest_batch
+        WHERE status IS NULL OR status <> 'guard_refused' ORDER BY started_ms""";
 
     // ---- since you last cleared (V2-QOL-IMPROVEMENTS-PLAN.md §5) -----------------------------
 

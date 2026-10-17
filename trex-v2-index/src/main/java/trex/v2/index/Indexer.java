@@ -338,11 +338,12 @@ public final class Indexer implements AutoCloseable {
         setNullableInt(ps, 10, e.duplicate());
         setNullableInt(ps, 11, e.flagged());
         ps.setString(12, e.status());
-        ps.setInt(13, e.envelope().v());
-        ps.setLong(14, e.envelope().atMs());
-        ps.setString(15, e.envelope().env());
-        ps.setString(16, e.envelope().source());
-        ps.setString(17, e.envelope().target());
+        ps.setString(13, e.guard());
+        ps.setInt(14, e.envelope().v());
+        ps.setLong(15, e.envelope().atMs());
+        ps.setString(16, e.envelope().env());
+        ps.setString(17, e.envelope().source());
+        ps.setString(18, e.envelope().target());
         ps.executeUpdate();
     }
 

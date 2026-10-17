@@ -167,7 +167,7 @@ public final class HubQueries implements AutoCloseable {
                 + "n_start, n_end, appended, duplicate, "
                 + "flagged, status, started_ms, completed_ms, "
                 + "(SELECT MAX(t.date) FROM txn_current t WHERE t.account_ref = ingest_batch.account_ref "
-                + "AND t.date <= ?) FROM ingest_batch"
+                + "AND t.date <= ?), guard FROM ingest_batch"
                 + (sinceN == null ? "" : " WHERE n_end > ?")
                 + " ORDER BY n_start DESC"
                 + (sinceN == null ? " LIMIT ?" : "");
@@ -185,7 +185,7 @@ public final class HubQueries implements AutoCloseable {
                             rs.getLong(6), rs.getLong(7),
                             (Integer) rs.getObject(8), (Integer) rs.getObject(9), (Integer) rs.getObject(10),
                             rs.getString(11), rs.getLong(12), rs.getLong(13),
-                            nullableDate(rs.getString(14))));
+                            nullableDate(rs.getString(14)), rs.getString(15)));
                     }
                 }
             }

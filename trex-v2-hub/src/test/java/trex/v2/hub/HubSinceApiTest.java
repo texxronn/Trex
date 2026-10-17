@@ -211,7 +211,7 @@ class HubSinceApiTest {
         boolean start = IngestEvent.START.equals(phase);
         return new IngestEvent(Envelope.stamped(n, IngestEvent.KIND, at), phase, batch, "sha256:test",
             file, account, "ing-csv", "ing-csv/1",
-            start ? null : 2, start ? null : 0, start ? null : 0, start ? null : "ok");
+            start ? null : 2, start ? null : 0, start ? null : 0, start ? null : "ok", null);
     }
 
     private static JsonNode json(HttpResponse<String> response) throws Exception {

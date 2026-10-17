@@ -89,7 +89,10 @@ migrated from.
   `revokes` and a commitment's kind is `commitmentKind` — the envelope owns `target` and `kind`.
 - **Ingest events** (`IngestEvent`): `phase` (`start | complete`) and `batch`; a `start` also carries
   `evidence`/`file`/`account`/`sourceType`/`parser`, a `complete` the `appended`/`duplicate`/`flagged`
-  counts and a `status`. The facts sit strictly between the pair, so a batch's `n` range is the
+  counts, a `status` and, when the account guard ran or was switched off, an optional `guard` (§10;
+  `fits | new | unproven | off | elsewhere:<ref> | contradicts`; a refusal closes with `status:
+  guard_refused`). `guard` is written only when set, so earlier lines are byte-identical
+  (`V2-ACCOUNT-GUARD-PLAN.md`). The facts sit strictly between the pair, so a batch's `n` range is the
   markers themselves.
 - **Forward compatibility.** A well-formed line whose `kind` this build does not know is parsed as
   `Unknown` and ignored; a known kind at a higher `v` is refused (never silently misread).
@@ -421,7 +424,9 @@ with `query_only` reads.
 The ingest history (`GET /api/ingests`) pairs each batch with its account's **frontier** — the
 newest transaction date processed for the account, clamped to today — as a read over
 `txn_current`; the Jobs page shows it per row and as a per-account fetch strip, so the next
-statement file can be requested by date range (`V2-INGEST-FRONTIER-PLAN.md`).
+statement file can be requested by date range (`V2-INGEST-FRONTIER-PLAN.md`). Each row also carries
+the batch's `guard` (§10), mirrored from the `complete` event; an index built before the column existed
+re-mirrors from the log once on its first open (the index is disposable).
 
 ---
 
@@ -465,7 +470,7 @@ unauthenticated and binds loopback by default.
 | GET | `/api/cashflow?month=YYYY-MM&view=cost\|cash&exclude=…` | the month's **cash-flow sheet** (§9.2): Money In, Money Out and Left over the **liquid** accounts, `view=cost` (default) or `cash`, each expense row rolled into its primary group with its leaf parts; the Mortgage/Set-aside slices (Cash) or bridge (Cost); `reconcile` against the liquid accounts' rows; `exclude` (leaf or primary keys; present, even empty, replaces the `cashflow.yaml` default); its Cost `left` is the strip's `headroom.left`. Replaces `/api/budget` |
 | GET | `/api/transfers`, `/api/units` | matched transfers; projectable units (a TRANSFER unit's `accountRef` is the paying leg, §11.2) |
 | GET | `/api/reconcile`, `/api/chains`, `/api/opening` | the balance check (§6.7): results with `noop` exclusions, forks with a per-side preview, openings (a declared wallet carries `latestBalance` = its attested count and `latestAt` = that attestation's date, §11.2) |
-| GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier — `?sinceN=<n>` keeps only batches completed after `n` |
+| GET | `/api/workbook`, `/api/eyeball`, `/api/accounts`, `/api/ingests` | the workbook; the eyeball checks at an explicit `asOf`; per-account coverage; the ingest history with each account's frontier and each batch's `guard` (`null` when the guard did not run) — `?sinceN=<n>` keeps only batches completed after `n` |
 | GET | `/api/since?n=<n>` | what the log appended after line `n` — facts (total, per account), completed batches, review items, occurrences, other viewers' decisions — and the month's **headroom**; the browser's "since you last cleared" line for the signed-in user (§9.1, §9.5); with sign-in on a `user` parameter is ignored |
 | GET/POST | `/api/projection` | Firefly projection state (an accelerator; its home is Firefly — Firefly only, §11.2 keeps no state) |
 | GET/POST | `/api/cursors` | feed cursors (index-only until the first feed — `V2-REVIEW-FIXES-PLAN.md` §13) |
@@ -659,7 +664,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Mortgage** | a declared facility: offset liquidity and each loan's balance with its own statement date; per loan the repayment and interest series (count, span, total); principal as a labelled estimate with its residual; the idle offset beyond the loan it shelters; and an **amortiser** — editable loan/offset/rate/repayment, defaulting to the facility's current figures, projecting the linked-offset payoff with an interest-vs-principal chart | `V2-MORTGAGE-PLAN.md` |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
 | **Cash** | a wallet's rows — transfers in/out, recorded spends/income and counts, newest first; a quick-add form for spend/income/count; the month's unrecorded figure at the top | `V2-CASH-PLAN.md` |
-| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`, **Clear** on any row — the upload goes, the log does not), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12) | §16, `V2-INGEST-FRONTIER-PLAN.md` |
+| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`, **Clear** on any row — the upload goes, the log does not), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12). **Account guard** (§10): for each staged row the page runs the read-only `identify` job, one file at a time, and prefills the row's account from the single suggestion, marked *identified*, unless a person already picked another account; when the filename map names a different account the row shows an amber line naming both. A `failed` row the guard refused (found by its evidence id among the newest page of `/api/ingests`) shows the verdict and two actions — **Ingest as X** (when the verdict named one account; a plain `ingest` item for X) and **Ingest anyway** (the row's account, `guard: "off"`, after a confirm). In the ingest history an `unproven` batch carries an amber *no overlap — check this statement* and an `off` one a quiet *guard off*. The fetch-frontier table has a **Fetch from** column: the frontier minus 7 days, so the download overlaps rows already ingested (presentation only) | §10, §16, `V2-INGEST-FRONTIER-PLAN.md`, `V2-ACCOUNT-GUARD-PLAN.md` |
 
 ### 9.4 Cash
 
@@ -748,7 +753,47 @@ tunnel or a TLS-terminating proxy — which also closes the `/mcp` seam above.
 - **Adapters** by `sourceType`: `ing-csv`, `bw-csv` (debit sign inferred per file; mixed rejected),
   `cba-csv` (header-less), `cba-pdf` (Transaction Summary PDF).
 - **Whole-file validation**: any bad row sends nothing. **Day-atomic batching**: a day is never split
-  across calls. Exit codes: `0` ok, `1` bad rows, `2` transport, `3` rejected, `64` usage.
+  across calls. Exit codes: `0` ok, `1` bad rows, `2` transport, `3` rejected, `4` refused by the
+  account guard, `64` usage.
+- **Account guard** (`V2-ACCOUNT-GUARD-PLAN.md`). Several accounts share one CSV format and nothing in
+  a file names its account, so before any fact is sent the ingest checks that the file belongs to the
+  account it is ingested as. It runs in `trex-v2-ingest` (`AccountGuard`, pure) after the bad-row
+  check and never in the sequencer; the CLI reads the journal read-only (`--journal`). *Current facts*
+  are posted, `BANK`-provenance observations whose `externalId` no effective `SUPERSEDE`/`RETIRE` has
+  closed (pending, authored and cash facts say nothing about a statement). A file row matches a fact
+  on `(date, amount, balance)` — the description is not part of the key, so a parser upgrade does not
+  turn an overlap into a contradiction. A **zero balance is never evidence**: a zero row is not an
+  overlap and a zero file opening never connects. The file's **opening** is the one `balance − amount`
+  that no row of the file has as its balance (§6.7); none or several means no opening. Per account with
+  current facts: it **overlaps** when at least one non-zero-balance row matches a current fact; it
+  **connects** when the file has a non-zero opening and the account's current fact on the newest date
+  at or before the file's first date has that balance; it **contradicts** when some date inside the
+  file has rows from both the file and the account and no file row on it matches the account; it
+  **fits** when it overlaps or connects. The verdict for the chosen account, in this order: `FITS`
+  (it fits); `ELSEWHERE(x)` (it does not fit and exactly one other account does — checked before
+  `NEW`, since an empty chosen account with a file that fits another is the classic mis-pick); `NEW`
+  (it has no current facts); `CONTRADICTS`; else `UNPROVEN` (carrying the accounts that fit, none or
+  two or more). `ELSEWHERE` and `CONTRADICTS` **refuse**: nothing is posted, the run exits `4`, the
+  evidence stays stored, and the batch closes `complete` with `status: guard_refused` and the verdict
+  in `guard`. `FITS`, `NEW` and `UNPROVEN` post, the last two with a note on stdout. `--account-guard
+  on|off|check` (default `on`): `off` posts whatever the verdict and records `guard: off`; `check`
+  prints the verdict for `--account` and writes nothing (needs `--account`, `--journal` and FILE,
+  else `64`; bad rows `1`; exit `0`, or `4` on a refusal). With `on` and no `--journal` the guard is
+  skipped with one stderr line and `guard` is omitted. A journal that cannot be read (guard `on` or
+  `check`, or `--identify`) is exit `2` with one stderr line, so the inbox sweep leaves the file for
+  the next pass rather than filing it as bad rows. A bad-row file and an
+  empty file (nothing to send) close without a `guard`, with the guard on or off, since it never ran
+  there. The operator downloads each statement overlapping the account's frontier where the bank
+  allows it, so `FITS` normally comes from identical rows and `UNPROVEN` is the exception to look at.
+  Feeds and `--reparse` are not guarded. No derive, identity or unit change: the ezbookkeeping view
+  is unaffected.
+- **Identify.** `trex ingest --identify --source-type … --journal … FILE [--format text|json]` scores
+  the file against every account with current facts and prints the candidates and a `suggestion` —
+  the single account that fits, else none. It writes nothing (no evidence, no events) and needs no
+  account; it exits `0` whenever it ran (`1` for bad rows, `64` for usage). `--format json` prints one
+  line: `{file, sourceType, candidates: [{account, verdict: fits|contradicts|none, overlapRows,
+  overlapFrom, overlapTo, connects}], suggestion}` (`suggestion` null when none or several fit). It
+  calls the same `AccountGuard.score` as the guard, so the suggestion and a refusal cannot disagree.
 - **Evidence**: files are stored content-addressed (SHA-256) and never rewritten; a re-parse replays
   stored evidence, diffs it against the facts it produced, and (with `--apply`) posts the new facts
   plus `SUPERSEDE`/`RETIRE`.
@@ -990,7 +1035,7 @@ each facility's offset account, the loan it shelters (`offsetAppliesTo` — the 
 idle-offset insight rests on, never inferred from charges), its loans, and per loan the
 repayment/interest commitment ids, with an optional observed rate — §9.3; **also read by the Cash flow sheet** (§9.2: the loan accounts, and the repayment and interest commitment ids); never hashed into
 `configRevision`), `sources.yaml` (the declared 8-char sources the sequencer accepts),
-`statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker), and an
+`statements.yaml` (a filename → `sourceType`/account map for the runner's upload picker and the inbox sweep; for the picker it is the fallback when `identify` (§10) has no single suggestion), and an
 optional `refdata.yaml` overriding the declared category names. The rules are the tuned contract; a
 rebuild consumes them as-is. The sequencer's environment is `TREX_ENV` (not a file); the archive
 location is `--archive` on the sequencer and runner.
@@ -1069,9 +1114,15 @@ subcommand — `ingest`, `ingest-inbox`, `reparse`, `egress-ezb`, `egress-firefl
 `export | ingest`) — never new logic: the runner starts the process, streams its output and records the exit code. One serialized
 worker, a bounded in-memory run history, and a **staging inbox** for uploads. `ingest-inbox` is the
 one allowed composition: the `ingest` subcommand with its items resolved from `statements.yaml`
-over the settled inbox files, each filed by exit code — `0` to `done/`, `1`/`3` to `failed/`,
-otherwise left for the next sweep; an empty or all-unnamed inbox is *nothing to do*, which a
-scheduled run skips quietly.
+over the settled inbox files, each filed by exit code — `0` to `done/`, `1`/`3`/`4` to `failed/`
+(`4`: the account guard refused it, §10), otherwise left for the next sweep; an empty or all-unnamed inbox is *nothing to do*, which a
+scheduled run skips quietly. The runner passes `--journal` to every `ingest` it builds when it has
+one, so the guard runs on the sweep too; an `ingest` item may carry `guard: "off"` (and an `account`),
+which is how the Jobs page re-runs a refused file (§9.3). A staged file resolves in the inbox, `done/`
+or `failed/`; a manual ingest never moves it. The **`identify`** job (mode `read`, params `file` and
+`sourceType`, which defaults from `statements.yaml`) runs `ingest --identify --format json` over a
+staged file and nothing more; the hub triggers it per uploaded file and reads the JSON line from the
+run's output, so the runner adds no composition and `ingest-inbox` stays the one allowed.
 
 **The staging inbox can be cleared.** `POST /staging/clear?name=` (the hub's `/api/jobs/staging/clear`,
 the Jobs row's **Clear**) **removes the upload** — the file and its `.meta` sidecar, in the inbox or

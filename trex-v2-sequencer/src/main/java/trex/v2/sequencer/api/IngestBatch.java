@@ -18,4 +18,5 @@ public record IngestBatch(
     Integer appended,
     Integer duplicate,
     Integer flagged,
-    String status) {}
+    String status,
+    String guard) {}

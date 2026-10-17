@@ -68,7 +68,7 @@ class StreamE2ETest {
                     trex.v2.core.Actor.USER, "ron"),
                 new IngestEvent(new Envelope(4, IngestEvent.KIND, Envelope.VERSION, AT.toEpochMilli(),
                     "Dev1    ", "SRC00001", "        "), "complete", "batch-1", null, "x.csv",
-                    "ing-savings", "ing-csv", "ing-csv/1", 1, 0, 0, "ok")));
+                    "ing-savings", "ing-csv", "ing-csv/1", 1, 0, 0, "ok", null)));
         }
 
         Path stream = dir.resolve("stream.jsonl.gz");

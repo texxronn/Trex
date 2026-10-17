@@ -5,8 +5,11 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import trex.v2.core.Decision;
 import trex.v2.core.Fact;
+import trex.v2.ingest.AccountGuard;
 import trex.v2.ingest.Adapters;
+import trex.v2.ingest.BadRow;
 import trex.v2.ingest.FactDraft;
+import trex.v2.ingest.GuardReport;
 import trex.v2.ingest.IngestClient;
 import trex.v2.ingest.IngestRunner;
 import trex.v2.ingest.Parsed;
@@ -14,6 +17,7 @@ import trex.v2.ingest.Reparse;
 import trex.v2.ingest.SourceAdapter;
 import trex.v2.log.EvidenceStore;
 import trex.v2.log.FramedReader;
+import trex.v2.log.Json;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +25,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
 import java.util.concurrent.Callable;
 
 /**
@@ -59,7 +64,7 @@ public final class IngestCommand implements Callable<Integer> {
     @Option(names = "--evidence", description = "The evidence store directory (required unless --types).")
     Path evidenceDir;
 
-    @Option(names = "--journal", description = "The journal file, for --reparse.")
+    @Option(names = "--journal", description = "The journal file: for --reparse, the account guard and --identify.")
     Path journal;
 
     @Option(names = "--reparse", description = "An evidence id to replay, e.g. sha256:... .")
@@ -67,6 +72,18 @@ public final class IngestCommand implements Callable<Integer> {
 
     @Option(names = "--apply", description = "With --reparse, post the new facts and SUPERSEDE/RETIRE decisions.")
     boolean apply;
+
+    @Option(names = "--account-guard", defaultValue = "on",
+        description = "on | off | check: refuse a file that fits another account (default on); check "
+            + "prints the verdict and writes nothing.")
+    String accountGuard;
+
+    @Option(names = "--identify",
+        description = "Print which account the FILE fits, from the journal, and write nothing.")
+    boolean identify;
+
+    @Option(names = "--format", defaultValue = "text", description = "With --identify: text | json.")
+    String format;
 
     @Parameters(index = "0", arity = "0..1", paramLabel = "FILE", description = "The statement file.")
     Path file;
@@ -82,6 +99,16 @@ public final class IngestCommand implements Callable<Integer> {
             return IngestRunner.USAGE;
         }
         SourceAdapter adapter = Adapters.byType(sourceType);
+        if (identify) {
+            return identify(adapter);
+        }
+        if ("check".equals(accountGuard)) {
+            return check(adapter);
+        }
+        if (!"on".equals(accountGuard) && !"off".equals(accountGuard)) {
+            System.err.println("--account-guard must be on, off or check");
+            return IngestRunner.USAGE;
+        }
         if (evidenceDir == null) {
             System.err.println("--evidence is required to ingest");
             return IngestRunner.USAGE;
@@ -93,10 +120,119 @@ public final class IngestCommand implements Callable<Integer> {
             System.err.println("--account, --sequencer-url and FILE are required to ingest");
             return IngestRunner.USAGE;
         }
+        IngestRunner.Guard guard = null;
+        if ("off".equals(accountGuard)) {
+            guard = IngestRunner.Guard.OFF;
+        } else if (journal != null) {
+            SortedMap<String, List<Fact>> current = currentFacts();
+            if (current == null) {
+                return IngestRunner.TRANSPORT;
+            }
+            guard = new IngestRunner.Guard(current);
+        } else {
+            System.err.println("account guard skipped: no --journal");
+        }
         EvidenceStore evidence = new EvidenceStore(evidenceDir);
         return IngestRunner.run(adapter, Files.readAllBytes(file), file.getFileName().toString(),
             account, sourceArchive, sourceName == null ? file.getFileName().toString() : sourceName,
-            evidence, new IngestClient(sequencerUrl, source), System.out);
+            evidence, new IngestClient(sequencerUrl, source), guard, System.out);
+    }
+
+    /** {@code --account-guard=check}: the verdict for one file against the journal; writes nothing. */
+    private Integer check(SourceAdapter adapter) throws Exception {
+        if (account == null || journal == null || file == null) {
+            System.err.println("--account, --journal and FILE are required with --account-guard=check");
+            return IngestRunner.USAGE;
+        }
+        Parsed parsed = parseOrReport(adapter, account);
+        if (parsed == null) {
+            return IngestRunner.BAD_ROWS;
+        }
+        SortedMap<String, List<Fact>> current = currentFacts();
+        if (current == null) {
+            return IngestRunner.TRANSPORT;
+        }
+        AccountGuard.Verdict verdict = AccountGuard.check(parsed.candidates(), account, current);
+        GuardReport.verdict(file.getFileName().toString(), verdict, parsed.candidates(), current)
+            .forEach(System.out::println);
+        return verdict.refuses() ? IngestRunner.GUARD_REFUSED : 0;
+    }
+
+    /** {@code --identify}: which account's history the FILE continues; no account needed, nothing written. */
+    private Integer identify(SourceAdapter adapter) throws Exception {
+        if (journal == null || file == null) {
+            System.err.println("--journal and FILE are required with --identify");
+            return IngestRunner.USAGE;
+        }
+        // The guard compares content, never accountRef, so the placeholder never reaches a score.
+        Parsed parsed = parseOrReport(adapter, "?");
+        if (parsed == null) {
+            return IngestRunner.BAD_ROWS;
+        }
+        SortedMap<String, List<Fact>> current = currentFacts();
+        if (current == null) {
+            return IngestRunner.TRANSPORT;
+        }
+        List<AccountGuard.Score> scores = AccountGuard.score(parsed.candidates(), current);
+        String name = file.getFileName().toString();
+        if ("json".equals(format)) {
+            System.out.println(identifyJson(name, scores));
+        } else {
+            GuardReport.identify(name, scores, current, parsed.candidates()).forEach(System.out::println);
+        }
+        return 0;
+    }
+
+    private String identifyJson(String name, List<AccountGuard.Score> scores) throws Exception {
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (AccountGuard.Score s : scores) {
+            Map<String, Object> c = new LinkedHashMap<>();
+            c.put("account", s.account());
+            c.put("verdict", s.fits() ? "fits" : s.contradicts() ? "contradicts" : "none");
+            c.put("overlapRows", s.overlapRows());
+            c.put("overlapFrom", s.overlapFrom() == null ? null : s.overlapFrom().toString());
+            c.put("overlapTo", s.overlapTo() == null ? null : s.overlapTo().toString());
+            c.put("connects", s.connects());
+            candidates.add(c);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("file", name);
+        out.put("sourceType", sourceType);
+        out.put("candidates", candidates);
+        out.put("suggestion", AccountGuard.suggestion(scores).orElse(null));
+        return Json.mapper().writeValueAsString(out);
+    }
+
+    /** Parse FILE; on bad rows print them as an ingest does and return null. */
+    private Parsed parseOrReport(SourceAdapter adapter, String accountRef) throws Exception {
+        String name = file.getFileName().toString();
+        Parsed parsed = adapter.parse(Files.readAllBytes(file), name, accountRef);
+        if (!parsed.clean()) {
+            System.out.println("rejected: " + parsed.bad().size() + " bad row(s); nothing sent");
+            for (BadRow bad : parsed.bad()) {
+                System.out.printf("  %s:%d  %s '%s': %s%n", bad.file(), bad.line(), bad.field(), bad.value(),
+                    bad.reason());
+            }
+            return null;
+        }
+        return parsed;
+    }
+
+    /**
+     * The journal's current facts, or null (after one stderr line) when it cannot be read. An
+     * unreadable journal is the environment, not the file: the caller exits {@code TRANSPORT}, which
+     * the inbox sweep leaves in place for the next pass instead of filing the file as bad rows.
+     */
+    private SortedMap<String, List<Fact>> currentFacts() {
+        List<Fact> facts = new ArrayList<>();
+        List<Decision> decisions = new ArrayList<>();
+        try {
+            readJournal(journal, facts, decisions);
+        } catch (RuntimeException e) {
+            System.err.println("account guard: cannot read the journal: " + e.getMessage());
+            return null;
+        }
+        return AccountGuard.current(facts, decisions);
     }
 
     private Integer reparse(SourceAdapter adapter) throws Exception {

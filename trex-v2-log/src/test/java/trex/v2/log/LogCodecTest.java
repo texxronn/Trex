@@ -216,12 +216,16 @@ class LogCodecTest {
     @Test
     void ingestEventsRoundTrip() {
         IngestEvent start = new IngestEvent(Envelope.stamped(1, IngestEvent.KIND, AT), "start", "b1",
-            "sha256:x", "f.csv", "ing-savings", "ing-csv", "ing-csv/1", null, null, null, null);
+            "sha256:x", "f.csv", "ing-savings", "ing-csv", "ing-csv/1", null, null, null, null, null);
         IngestEvent complete = new IngestEvent(Envelope.stamped(2, IngestEvent.KIND, AT), "complete", "b1",
-            null, null, null, null, null, 2, 0, 0, "ok");
-        for (LogLine line : List.<LogLine>of(start, complete)) {
+            null, null, null, null, null, 2, 0, 0, "ok", "fits");
+        IngestEvent bare = new IngestEvent(Envelope.stamped(3, IngestEvent.KIND, AT), "complete", "b2",
+            null, null, null, null, null, 2, 0, 0, "ok", null);
+        for (LogLine line : List.<LogLine>of(start, complete, bare)) {
             assertEquals(line, LogCodec.parse(LogCodec.encode(line)));
         }
+        assertTrue(new String(LogCodec.encode(complete)).contains("\"guard\":\"fits\""));
+        assertFalse(new String(LogCodec.encode(bare)).contains("guard"));
         assertTrue(LogCodec.isKnownKind(IngestEvent.KIND));
     }
 

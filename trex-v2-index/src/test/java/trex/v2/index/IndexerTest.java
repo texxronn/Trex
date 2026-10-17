@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import trex.v2.core.Actor;
 import trex.v2.core.Decision;
+import trex.v2.core.Envelope;
 import trex.v2.core.Fact;
+import trex.v2.core.IngestEvent;
 import trex.v2.core.Observation;
 import trex.v2.core.Provenance;
 import trex.v2.core.Payment;
@@ -404,6 +406,69 @@ class IndexerTest {
             }
             assertTrue(applyChanged(indexer, journal, ASOF), "a new line must trigger a re-derive");
             assertEquals(4, count(db, "txn_current"));
+        }
+    }
+
+    /** A guarded batch: the {@code complete} marker carries the guard's verdict (V2-ACCOUNT-GUARD-PLAN.md §2). */
+    private static Path guardedJournal(Path dir) {
+        Path path = dir.resolve("guarded.jsonl");
+        Instant at = Instant.parse("2026-09-30T00:00:00Z");
+        try (JsonlJournal j = new JsonlJournal(path)) {
+            j.appendBatch(List.of(
+                new IngestEvent(Envelope.stamped(1, IngestEvent.KIND, at), IngestEvent.START, "b1", "sha256:e",
+                    "salary.csv", "ing-salary", "ing-csv", "ing-csv/1", null, null, null, null, null),
+                new IngestEvent(Envelope.stamped(2, IngestEvent.KIND, at), IngestEvent.COMPLETE, "b1", "sha256:e",
+                    "salary.csv", "ing-salary", "ing-csv", "ing-csv/1", 0, 0, 0, "guard_refused",
+                    "elsewhere:ing-orange"),
+                new IngestEvent(Envelope.stamped(3, IngestEvent.KIND, at), IngestEvent.START, "b2", "sha256:f",
+                    "old.csv", "ing-savings", "ing-csv", "ing-csv/1", null, null, null, null, null),
+                new IngestEvent(Envelope.stamped(4, IngestEvent.KIND, at), IngestEvent.COMPLETE, "b2", "sha256:f",
+                    "old.csv", "ing-savings", "ing-csv", "ing-csv/1", 0, 0, 0, "ok", null)));
+        }
+        return path;
+    }
+
+    @Test
+    void theGuardRidesOnTheIngestBatchAndSurvivesARebuild(@TempDir Path dir) {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = guardedJournal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            applyChanged(indexer, journal, ASOF);
+            assertEquals("elsewhere:ing-orange", string(db, "SELECT guard FROM ingest_batch WHERE batch = 'b1'"));
+            assertEquals("guard_refused", string(db, "SELECT status FROM ingest_batch WHERE batch = 'b1'"));
+            // An unguarded ingest (no --journal) has no guard at all, not an empty one.
+            assertEquals(null, string(db, "SELECT guard FROM ingest_batch WHERE batch = 'b2'"));
+            indexer.rebuild(journal, ASOF);
+            assertEquals("elsewhere:ing-orange", string(db, "SELECT guard FROM ingest_batch WHERE batch = 'b1'"));
+        }
+    }
+
+    @Test
+    void anIndexMirroredBeforeTheGuardColumnReMirrorsIt(@TempDir Path dir) throws Exception {
+        Path db = dir.resolve("trex.sqlite");
+        Path journal = guardedJournal(dir);
+        try (Indexer indexer = Indexer.open(db, config())) {
+            applyChanged(indexer, journal, ASOF);
+        }
+        // Put the index back in the shape it had before the guard: no column, the old view.
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db.toAbsolutePath());
+             Statement st = c.createStatement()) {
+            st.execute("DROP VIEW ingest_batch");
+            st.execute("ALTER TABLE ingest_event DROP COLUMN guard");
+            st.execute("""
+                CREATE VIEW ingest_batch AS
+                SELECT s.batch, s.file, s.evidence_id, s.account_ref,
+                       s.n AS n_start, c.n AS n_end,
+                       c.appended, c.duplicate, c.flagged, c.status,
+                       s.at_ms AS started_ms, c.at_ms AS completed_ms
+                FROM ingest_event s
+                LEFT JOIN ingest_event c ON c.batch = s.batch AND c.phase = 'complete'
+                WHERE s.phase = 'start'""");
+        }
+        try (Indexer indexer = Indexer.open(db, config())) {
+            applyChanged(indexer, journal, ASOF);
+            assertEquals("elsewhere:ing-orange", string(db, "SELECT guard FROM ingest_batch WHERE batch = 'b1'"));
+            assertEquals(4, count(db, "ingest_event"));
         }
     }
 

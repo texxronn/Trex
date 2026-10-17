@@ -23,6 +23,14 @@ let configDrift = null;
 const EGRESS_JOBS = ['egress-firefly', 'egress-ezb'];
 const lastPlans = new Map(); // per egress job: in-session plan; Apply stays locked until one exists
 let lastPreview = null; // in-session reparse preview; Apply stays locked until a fresh one exists
+/**
+ * The identify job's answer per staged name, for this page session (V2-ACCOUNT-GUARD-PLAN.md §2.2):
+ * the parsed JSON line, or null when the run failed or printed none. A reload of the list reads it
+ * back instead of asking the runner again.
+ */
+const identified = new Map();
+let identifying = false;
+const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
 const selected = new Set();
 let stream = null;
@@ -111,6 +119,10 @@ async function load() {
     ]);
     adapters = (a && a.types) || [];
     staged = s || [];
+    for (const file of staged) {
+      file.mapAccount = file.account; // the statements.yaml match, before identify prefills over it
+      applyIdentified(file);
+    }
     jobs = j || [];
     runs = r || [];
     renderOps();
@@ -137,6 +149,7 @@ async function load() {
     configDrift = [];
   }
   renderConfigDrift();
+  renderStaging(); // a refused row's actions need the ingest history, which arrives after the list
   renderIngests();
   renderFrontier();
   renderOps();
@@ -144,6 +157,7 @@ async function load() {
     focusFrontier = false;
     frontierHeading.scrollIntoView({ block: 'start' });
   }
+  identifyStaged();
 }
 
 // ---- staleness ----------------------------------------------------------------------------
@@ -304,9 +318,13 @@ function renderStaging() {
       },
     })),
     el('td', { class: 'desc', title: file.original }, file.original),
-    el('td', {}, select(adapters, file.sourceType, (value) => { file.sourceType = value; })),
+    el('td', {}, select(adapters, file.sourceType, (value) => {
+      file.sourceType = value;
+      identified.delete(file.name); // the old answer was for the old type
+      identifyStaged(); // a row that had no type can be identified now
+    })),
     el('td', {}, select((ctx.refdata.accounts || []).map((account) => account.ref), file.account,
-      (value) => { file.account = value; })),
+      (value) => { file.account = value; }), ...identifyMarks(file)),
     el('td', { class: 'muted' }, humanSize(file.size)),
     el('td', {}, statusCell(file)),
     el('td', {}, el('button', { class: 'ghost', onclick: () => clearFiles([file]) }, 'Clear')),
@@ -341,10 +359,167 @@ function statusCell(file) {
       title: 'the inbox sweep filed it away; Clear removes the file' }, 'cleared');
   }
   if (file.state === 'failed') {
-    return el('span', { class: 'occ-missed',
-      title: 'the inbox sweep could not ingest it (bad rows or rejected); see the run output' }, '\u2717 failed');
+    const failed = el('span', { class: 'occ-missed',
+      title: 'the inbox sweep could not ingest it (bad rows, rejected, or refused by the account guard '
+        + 'because the file fits another account); see the run output' }, '\u2717 failed');
+    const batch = refusal(file);
+    if (!batch) return failed;
+    return el('div', {}, failed,
+      el('div', { class: 'guard-note' }, guardRefusalText(batch.guard, batch.accountRef)),
+      el('div', { class: 'toolbar guard-actions' }, ...refusedActions(file, batch)));
   }
   return el('span', { class: 'muted' }, 'staged');
+}
+
+// ---- account guard (V2-ACCOUNT-GUARD-PLAN.md) -----------------------------------------------
+
+/**
+ * Ask the runner which account each staged file belongs to, one file at a time: the runner runs
+ * one job at a time, so parallel asks would only queue there. Not awaited by load(), so the page
+ * never waits on it; each answer re-renders the inbox as it lands.
+ */
+async function identifyStaged() {
+  if (identifying || !jobs.some((job) => job.name === 'identify')) return;
+  identifying = true;
+  try {
+    for (;;) {
+      const file = staged.find((f) => f.state === 'staged' && f.sourceType && !identified.has(f.name));
+      if (!file) break;
+      let result = null;
+      try {
+        result = parseIdentify(await runIdentify(file));
+      } catch (error) {
+        // The row stays as it was; one line, not a toast per file.
+        console.warn(`identify ${file.original || file.name}: ${error.message}`);
+      }
+      identified.set(file.name, result);
+      // The list may have been reloaded meanwhile: prefill the row object that is on screen now.
+      const current = staged.find((f) => f.name === file.name);
+      if (current) applyIdentified(current);
+      renderStaging();
+    }
+  } finally {
+    identifying = false;
+  }
+}
+
+/** One identify run's output lines; a run queued past the sync wait is polled to its end. */
+async function runIdentify(file) {
+  let detail = await api.runJobSync('identify', { file: file.name, sourceType: file.sourceType }, 30000);
+  for (let tries = 0; !Array.isArray(detail.output) && tries < 300; tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const next = await api.runDetail(detail.runId || detail.id);
+    if (TERMINAL.has(next.state)) detail = next;
+  }
+  if (!Array.isArray(detail.output)) throw new Error('identify did not finish');
+  if (detail.exit !== 0) throw new Error(`exit ${detail.exit}`);
+  return detail.output;
+}
+
+/**
+ * The identify run prints exactly one JSON line ({file, sourceType, candidates, suggestion}); any
+ * other line is the runner's. Null when there is none.
+ */
+function parseIdentify(output) {
+  for (const line of [...(output || [])].reverse()) {
+    const text = String(line).trim();
+    if (!text.startsWith('{')) continue;
+    try {
+      const value = JSON.parse(text);
+      if (value && Array.isArray(value.candidates)) return value;
+    } catch {
+      // not the line we want
+    }
+  }
+  return null;
+}
+
+/**
+ * Prefill the suggestion over the statements.yaml match — but never over an account a person picked
+ * by hand, which is any value other than the map's.
+ */
+function applyIdentified(file) {
+  const result = identified.get(file.name);
+  if (result && result.suggestion && file.account === file.mapAccount) file.account = result.suggestion;
+}
+
+/** The muted "identified" tag and, when the file's name points elsewhere, the amber marker. */
+function identifyMarks(file) {
+  const result = identified.get(file.name);
+  // Hand-changed away from the suggestion, the row is no longer "identified".
+  if (!result || !result.suggestion || file.account !== result.suggestion) return [];
+  const marks = [el('span', { class: 'tag identified', title: result.candidates.map(candidateText).join('\n') },
+    'identified')];
+  if (file.mapAccount && file.mapAccount !== result.suggestion) {
+    marks.push(el('div', { class: 'guard-note' },
+      `identified ${result.suggestion}; filename says ${file.mapAccount}`));
+  }
+  return marks;
+}
+
+/** One candidate's evidence in a line, as the CLI's --identify prints it. */
+function candidateText(candidate) {
+  if (candidate.verdict === 'fits') {
+    return candidate.overlapRows > 0
+      ? `${candidate.account}: fits \u2014 ${candidate.overlapRows} rows overlap `
+        + `(${candidate.overlapFrom}..${candidate.overlapTo})`
+      : `${candidate.account}: fits \u2014 balance carries on`;
+  }
+  if (candidate.verdict === 'contradicts') return `${candidate.account}: contradicts (other rows on the same dates)`;
+  return `${candidate.account}: no evidence`;
+}
+
+/** The ref in a guard value of `elsewhere:<ref>`, else null. */
+function guardElsewhere(guard) {
+  return guard && guard.startsWith('elsewhere:') ? guard.slice('elsewhere:'.length) : null;
+}
+
+/** A refusal in words, from the batch's guard value and the account it was refused for. */
+function guardRefusalText(guard, account) {
+  const elsewhere = guardElsewhere(guard);
+  if (elsewhere) return `fits ${elsewhere}, not ${account || '?'}`;
+  if (guard === 'contradicts') return `contradicts ${account || '?'}: other rows on the same dates`;
+  return `refused by the account guard (${guard || 'no verdict'})`;
+}
+
+/**
+ * The newest ingest of this file's bytes, when the guard refused it. Matched on the evidence id (the
+ * same bytes), not the name: the history only holds the newest page of batches, so an old refusal
+ * shows as a plain failure.
+ */
+function refusal(file) {
+  const batch = ingests.find((i) => i.evidenceId && i.evidenceId === file.evidenceId);
+  return batch && batch.status === 'guard_refused' ? batch : null;
+}
+
+function refusedActions(file, batch) {
+  const busy = jobRunning('ingest');
+  const buttons = [];
+  const elsewhere = guardElsewhere(batch.guard);
+  if (elsewhere) {
+    buttons.push(el('button', { class: 'ghost', disabled: busy,
+      title: `ingest it into ${elsewhere}, the account it fits`,
+      onclick: () => ingestRefused(file, elsewhere, null) }, `Ingest as ${elsewhere}`));
+  }
+  buttons.push(el('button', { class: 'warn', disabled: busy,
+    title: 'ingest it into the account picked on this row, with the guard off',
+    onclick: () => ingestRefused(file, file.account, batch) }, 'Ingest anyway'));
+  return buttons;
+}
+
+/** Re-ingest a refused file; `overridden` (the refused batch) turns the guard off after a confirm. */
+async function ingestRefused(file, account, overridden) {
+  if (!file.sourceType || !account) {
+    reportError(new Error('pick a type and an account for this file first'));
+    return;
+  }
+  if (overridden && !window.confirm(`Ingest ${file.original || file.name} into ${account} with the account `
+    + `guard off?\n\nThe guard said: ${guardRefusalText(overridden.guard, overridden.accountRef)}.`)) {
+    return;
+  }
+  const item = { file: file.name, sourceType: file.sourceType, account, source: 'staging' };
+  if (overridden) item.guard = 'off';
+  await startRun('ingest', { items: [item] });
 }
 
 /**
@@ -496,6 +671,12 @@ function jobCard(job) {
   if (job.name === 'ingest') {
     // Ingest is driven by the staging inbox above, not a bare button (it needs the file list).
     nodes.push(el('div', { class: 'muted' }, 'Use the staging inbox above.'));
+    return nodes;
+  }
+
+  if (job.name === 'identify') {
+    // Identify runs per staged file, driven by the inbox; a bare run has no file and errors.
+    nodes.push(el('div', { class: 'muted' }, 'Runs per staged file from the inbox above.'));
     return nodes;
   }
 
@@ -748,8 +929,9 @@ function renderIngests() {
     el('td', { class: 'muted' }, date(i.latestTxnDate) || '\u2014'),
     el('td', { class: 'muted' }, `${i.nStart}\u2013${i.nEnd}`),
     el('td', {}, `${num(i.appended)}/${num(i.duplicate)}/${num(i.flagged)}`),
-    el('td', {}, el('span', { class: 'badge ' + (i.status === 'ok' ? '' : 'POTENTIAL_DUP') },
-      i.status || 'open')),
+    el('td', {}, el('span', { class: 'badge ' + (i.status === 'ok' ? '' : 'POTENTIAL_DUP'),
+      title: i.status === 'guard_refused' ? guardRefusalText(i.guard, i.accountRef) : '' },
+      i.status || 'open'), ...guardMarks(i)),
     el('td', { class: 'muted' }, rel(i.completedMs || i.startedMs)),
     el('td', {}, reReadButton(i))));
   ingestHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
@@ -780,6 +962,20 @@ function reReadButton(row) {
   }, 'Re-read');
 }
 
+/**
+ * The guard's word on a posted batch (V2-ACCOUNT-GUARD-PLAN.md §2.1): unproven posted with nothing to
+ * tie it to the account, so it asks for a look; off is a person's override, said quietly.
+ */
+function guardMarks(row) {
+  if (row.guard === 'unproven') {
+    return [el('div', { class: 'guard-note',
+      title: 'the guard found no overlap and no balance connection with this account\'s history' },
+      'no overlap \u2014 check this statement')];
+  }
+  if (row.guard === 'off') return [el('div', { class: 'muted guard-off' }, 'guard off')];
+  return [];
+}
+
 function jobRunning(name) {
   const job = jobs.find((candidate) => candidate.name === name);
   return !!(job && job.running);
@@ -800,10 +996,11 @@ function renderFrontier() {
   const today = new Date().toISOString().slice(0, 10);
   const newest = new Map();
   for (const i of ingests) {
-    if (i.accountRef && !newest.has(i.accountRef)) newest.set(i.accountRef, i);
+    // A guard-refused batch sits under the account it was wrongly offered as and posted nothing.
+    if (i.accountRef && i.status !== 'guard_refused' && !newest.has(i.accountRef)) newest.set(i.accountRef, i);
   }
   const head = el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Newest file'),
-    el('th', {}, 'Frontier'), el('th', {}, 'Suggested range'));
+    el('th', {}, 'Frontier'), el('th', {}, 'Suggested range'), el('th', {}, 'Fetch from'));
   const body = accounts.map((account) => {
     const imp = newest.get(account.ref);
     const frontier = imp && imp.latestTxnDate ? imp.latestTxnDate : null;
@@ -812,10 +1009,21 @@ function renderFrontier() {
       el('td', { class: 'desc muted', title: imp ? imp.file || '' : '' },
         imp ? imp.file || '(unknown)' : '\u2014'),
       el('td', { class: 'muted' }, date(frontier) || '\u2014'),
-      el('td', { class: 'muted' }, frontier ? `${date(frontier)} \u2192 ${date(today)}` : ''));
+      el('td', { class: 'muted' }, frontier ? `${date(frontier)} \u2192 ${date(today)}` : ''),
+      el('td', { class: 'muted', title: FETCH_FROM_TITLE }, frontier ? date(fetchFrom(frontier)) : ''));
   });
   frontierHost.append(scroll(el('table', { class: 'frontier-table' },
     el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
+const FETCH_FROM_TITLE = 'start the download a week before the frontier, so the file overlaps rows '
+  + 'already ingested: the overlap is how the account guard proves the file is this account\'s';
+
+/** The frontier minus 7 days, as an ISO date; calendar arithmetic in UTC so no zone shifts the day. */
+function fetchFrom(frontier) {
+  const day = new Date(frontier + 'T00:00:00Z');
+  day.setUTCDate(day.getUTCDate() - 7);
+  return day.toISOString().slice(0, 10);
 }
 
 function num(value) {

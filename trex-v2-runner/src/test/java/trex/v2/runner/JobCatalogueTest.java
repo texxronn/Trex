@@ -138,12 +138,16 @@ class JobCatalogueTest {
         byLabel.get("ING_Salary.csv").after().accept(0);
         byLabel.get("ING_Orange.csv").after().accept(1);
         byLabel.get("ING_Loan.csv").after().accept(2);
+        StagingStore.Staged refused = staging.put("d".getBytes(StandardCharsets.UTF_8), "ING_Refused.csv");
+        inbox(dir, staging, LATER).steps().build(Json.mapper().createObjectNode()).stream()
+            .filter(s -> s.label().equals("ING_Refused.csv")).findFirst().orElseThrow().after().accept(4);
 
         Map<String, String> state = staging.list().stream()
             .collect(java.util.stream.Collectors.toMap(StagingStore.Staged::name, StagingStore.Staged::state));
         assertEquals("done", state.get(ok.name()));
         assertEquals("failed", state.get(bad.name()), "bad rows are kept, out of the next sweep");
         assertEquals("staged", state.get(flaky.name()), "a transport failure is retried next sweep");
+        assertEquals("failed", state.get(refused.name()), "a guard refusal is kept, out of the next sweep");
     }
 
     @Test
@@ -201,6 +205,97 @@ class JobCatalogueTest {
         ObjectNode params = Json.mapper().createObjectNode();
         params.putArray("items").addObject().put("file", staged.name()).put("sourceType", "ing-csv");
         assertThrows(IllegalArgumentException.class, () -> ingest.steps().build(params));
+    }
+
+    private static ObjectNode ingestParams(String file, String guard) {
+        ObjectNode params = Json.mapper().createObjectNode();
+        ObjectNode item = params.putArray("items").addObject().put("file", file);
+        if (guard != null) {
+            item.put("guard", guard);
+        }
+        return params;
+    }
+
+    private static RunnerConfig withoutJournal(Path dir) {
+        RunnerConfig c = config(dir, true);
+        return new RunnerConfig(c.host(), c.port(), c.configDir(), c.statementsDir(), c.stagingDir(),
+            c.evidenceDir(), c.archive(), null, c.sequencerUrl(), c.hubUrl(), c.fireflyUrl(), c.ezbUrl(),
+            c.accountsFile(), c.ezbAccounts(), null, true, Duration.ofMinutes(10));
+    }
+
+    @Test
+    void ingestPassesTheJournalAndHonoursTheGuardOverride(@TempDir Path dir) throws Exception {
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        StagingStore.Staged staged = staging.put("x".getBytes(StandardCharsets.UTF_8), "Salary_Account.csv");
+        Files.writeString(dir.resolve("statements.yaml"), """
+            files:
+              - { match: "Salary_Account.csv", sourceType: ing-csv, account: ing-salary }
+            """);
+        JobSpec ingest = JobCatalogue.of(config(dir, true), StatementsMap.load(dir), staging).get("ingest");
+
+        List<String> on = ingest.steps().build(ingestParams(staged.name(), null)).get(0).argv();
+        int j = on.indexOf("--journal");
+        assertTrue(j >= 0, on.toString());
+        assertEquals(dir.resolve("journal.jsonl").toString(), on.get(j + 1));
+        assertTrue(!on.contains("--account-guard"), on.toString());
+        assertTrue(!ingest.steps().build(ingestParams(staged.name(), "on")).get(0).argv()
+            .contains("--account-guard"));
+
+        List<String> off = ingest.steps().build(ingestParams(staged.name(), "off")).get(0).argv();
+        int g = off.indexOf("--account-guard");
+        assertTrue(g >= 0, off.toString());
+        assertEquals("off", off.get(g + 1));
+
+        assertThrows(IllegalArgumentException.class,
+            () -> ingest.steps().build(ingestParams(staged.name(), "check")));
+
+        JobSpec bare = JobCatalogue.of(withoutJournal(dir), StatementsMap.load(dir), staging).get("ingest");
+        assertTrue(!bare.steps().build(ingestParams(staged.name(), null)).get(0).argv().contains("--journal"));
+    }
+
+    private static ObjectNode identifyParams(String file, String sourceType) {
+        ObjectNode params = Json.mapper().createObjectNode().put("file", file);
+        if (sourceType != null) {
+            params.put("sourceType", sourceType);
+        }
+        return params;
+    }
+
+    @Test
+    void identifyBuildsAReadOnlyArgv(@TempDir Path dir) throws Exception {
+        StagingStore staging = new StagingStore(dir.resolve("staging"));
+        Files.writeString(dir.resolve("statements.yaml"), """
+            files:
+              - { match: "Salary_Account.csv", sourceType: ing-csv, account: ing-salary }
+            """);
+        StagingStore.Staged mapped = staging.put("x".getBytes(StandardCharsets.UTF_8), "Salary_Account.csv");
+        StagingStore.Staged other = staging.put("y".getBytes(StandardCharsets.UTF_8), "Other.csv");
+        JobSpec identify = JobCatalogue.of(config(dir, false), StatementsMap.load(dir), staging).get("identify");
+        assertEquals("read", identify.capability());
+
+        List<Step> steps = identify.steps().build(identifyParams(mapped.name(), null));
+        assertEquals(1, steps.size());
+        assertEquals("Salary_Account.csv", steps.get(0).label());
+        assertEquals(List.of("ingest", "--identify", "--format", "json",
+            "--source-type", "ing-csv",
+            "--journal", dir.resolve("journal.jsonl").toString(),
+            dir.resolve("staging").resolve(mapped.name()).toString()), steps.get(0).argv());
+
+        List<String> explicit = identify.steps().build(identifyParams(other.name(), "ing-csv")).get(0).argv();
+        assertEquals("ing-csv", explicit.get(explicit.indexOf("--source-type") + 1));
+
+        IllegalArgumentException none = assertThrows(IllegalArgumentException.class,
+            () -> identify.steps().build(identifyParams(other.name(), null)));
+        assertTrue(none.getMessage().contains("no source type for Other.csv"), none.getMessage());
+        IllegalArgumentException unknown = assertThrows(IllegalArgumentException.class,
+            () -> identify.steps().build(identifyParams(other.name(), "nope")));
+        assertTrue(unknown.getMessage().contains("unknown source type"), unknown.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> identify.steps().build(identifyParams(null, null)));
+
+        JobSpec bare = JobCatalogue.of(withoutJournal(dir), StatementsMap.load(dir), staging).get("identify");
+        IllegalArgumentException noJournal = assertThrows(IllegalArgumentException.class,
+            () -> bare.steps().build(identifyParams(mapped.name(), null)));
+        assertTrue(noJournal.getMessage().contains("--journal is not configured"), noJournal.getMessage());
     }
 
     private static ObjectNode mode(String mode) {

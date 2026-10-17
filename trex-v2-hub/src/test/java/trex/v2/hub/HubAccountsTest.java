@@ -160,7 +160,7 @@ class HubAccountsTest {
         boolean start = IngestEvent.START.equals(phase);
         return new IngestEvent(Envelope.stamped(n, IngestEvent.KIND, AT), phase, batch, "sha256:test",
             file, "ing-savings", "ing-csv", "ing-csv/1",
-            start ? null : 3, start ? null : 0, start ? null : 0, start ? null : "ok");
+            start ? null : 3, start ? null : 0, start ? null : 0, start ? null : "ok", null);
     }
 
     private static String state(AccountsResponse.AccountCoverage account, String key) {
