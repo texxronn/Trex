@@ -99,6 +99,10 @@ export const api = {
   jobRuns: () => request('GET', '/api/jobs/runs'),
   runDetail: (id) => request('GET', '/api/jobs/runs/' + encodeURIComponent(id)),
   runJob: (name, params) => request('POST', `/api/jobs/${encodeURIComponent(name)}/runs`, { params }),
+  // Waits up to timeoutMs for the run to finish: the run detail with its output, or a {runId, state}
+  // handle when it is still queued behind another run (the runner runs one job at a time).
+  runJobSync: (name, params, timeoutMs) => request('POST',
+    `/api/jobs/${encodeURIComponent(name)}/runs?sync=true&timeoutMs=${timeoutMs}`, { params }),
   cancelRun: (id) => request('POST', '/api/jobs/runs/' + encodeURIComponent(id) + '/cancel', {}),
   clearStaged: (name) => request('POST', '/api/jobs/staging/clear?name=' + encodeURIComponent(name), {}),
 };

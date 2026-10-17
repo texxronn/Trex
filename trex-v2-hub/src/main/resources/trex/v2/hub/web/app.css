@@ -550,6 +550,12 @@ tbody tr.read:hover td { opacity: .75; }
 .tick { color: var(--good); font-size: 12px; white-space: nowrap; }
 button.warn { border-color: var(--warn); color: var(--warn); }
 button.warn:hover { background: var(--warn-soft); }
+/* The account guard on the Jobs page (V2-ACCOUNT-GUARD-PLAN.md): an amber line under a row that
+   wants a look, a muted tag where identify chose the account, and a refused row's two actions. */
+.guard-note { color: var(--warn); font-size: 11px; margin-top: 0.15rem; white-space: normal; }
+.guard-off { font-size: 11px; margin-top: 0.15rem; }
+.tag.identified { margin-left: 0.35rem; cursor: help; }
+.guard-actions { margin: 0.3rem 0 0; gap: 0.3rem; }
 
 /* ---- Jobs: ops / staleness strip ---------------------------------------- */
 
