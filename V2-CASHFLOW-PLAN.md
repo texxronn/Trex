@@ -4,6 +4,10 @@ The **Budget** tab becomes **Cash flow**: the month's money in and out of the ho
 accounts, with two views of the mortgage (**Cost** and **Cash**), category exclusion, and a
 Primary/Leaf pivot. It supersedes `V2-BUDGET-VIEW-PLAN.md` D-2, D-3, D-6's boundary and D-7.
 
+**Status:** built (2026-10-16; `V2-SPEC.md` §9.2, §9.3, §12). The `liquid` config flag, the cash-flow
+read, exclusion, the Cash flow page with its Cost/Cash views and the Primary/Leaf pivot are on
+`master` (PRs #181–#183); the ezbookkeeping view and the dormant Firefly egress are unaffected.
+
 **Authority:** `V2-SPEC.md` §9.2 (headroom), §9.3 (the UI modes), §12 (config); `AGENTS.md`.
 Downstream: the hub reads only — the ezbookkeeping view (`trex egress ezb`) is unaffected. Firefly
 is on the backburner and is not considered (operator, 2026-10-16).
