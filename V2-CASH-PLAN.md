@@ -4,7 +4,9 @@
 > build order for one change to it. Where this file and the spec disagree, the spec wins; the spec is
 > amended first (Stage 1), per `AGENTS.md`.
 
-**Status:** planned — nothing built.
+**Status:** built (2026-10-14; Stages 1–5). The wallet pairing, `POST /api/cash`, the derived
+`cash_month` table and `/api/cash/months`, the Cash tab and the `Unrecorded cash` line are on
+`master`. **Stage 6** (the `CASH_ADJUST` Firefly projection, §7) stays deferred (operator, later).
 **Decisions (operator, 2026-10-14):** cash is a wallet account (idea C); the unrecorded figure is
 computed in derive, per calendar month, signed; the Firefly projection of that figure is deferred
 (Stage 6). D-1…D-7 (§3) accepted as recommended (operator, 2026-10-14).

@@ -4,11 +4,12 @@
 > build order for one change to it. Where this file and the spec disagree, the spec wins; the spec is
 > amended first (Stage 2), per `AGENTS.md`.
 
-**Status:** Stage 0/1 ran as a **live spike** on 2026-10-15 against a real
-`mayswind/ezbookkeeping:2.0.1` container: trex's whole book (5701 units + 21 openings) was re-fed
-over the HTTP API and **reconciles to the cent, idempotently** (§9). The decision below is taken
-provisionally: it stands unless the operator's Stage 0 judgement of the charts goes against it.
-Nothing has been built in `trex-v2-egress` yet.
+**Status:** built (2026-10-15; Stages 2–6). Stage 0/1 ran as a **live spike** on 2026-10-15 against a
+real `mayswind/ezbookkeeping:2.0.1` container: trex's whole book (5701 units + 21 openings) was
+re-fed over the HTTP API and **reconciles to the cent, idempotently** (§9). Stages 2–6 are on
+`master`: `EzbMap`/`EzbRows`/`EzbClient`/`EzbView`, `trex egress ezb` (plan/apply/verify) and the
+`egress-ezb` runner job. The Firefly egress stays in the tree, **dormant**. The spike's open counts
+question (§9) is recorded history.
 
 **Decisions (operator, 2026-10-15):** replace Firefly III as the downstream with ezbookkeeping, used
 purely as a chart view (trex owns ingest, categories, review and day-to-day reconciliation). The

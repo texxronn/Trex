@@ -1,5 +1,9 @@
 # V2-AUTH-PLAN.md
 
+> **Archived 2026-10-16 — built (PRs #184, #186); its "proposed; not started" status line below is
+> history.** Stages 1–5 are on `master`; Stage 6 (a machine token for `/mcp`, TLS/`Secure`, a real
+> lockout) stays deferred (A-4). `V2-SPEC.md` §9.5 records the outcome.
+
 > **Personal project, single operator, private.** `V2-SPEC.md` is the specification; this file is the
 > build order for one change to it. Where this file and the spec disagree, the spec wins, and the spec
 > is amended in the same change (Stage 1), per `AGENTS.md`.

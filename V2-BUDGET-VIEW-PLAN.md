@@ -4,8 +4,10 @@
 > build order for one change to it. Where this file and the spec disagree, the spec wins; the spec is
 > amended first (Stage 1), per `AGENTS.md`.
 
-**Status:** Stages 1–3 landed (spec + plan, the `/api/budget` read, the view); Stage 4 (verify on
-Dev1) remaining. The Budget mode existed (§9.3, `V2-REVIEW-FIXES-PLAN.md` §10) and
+**Status:** superseded by `V2-CASHFLOW-PLAN.md` (2026-10-16) — the Budget mode became **Cash flow**.
+Stages 1–3 landed (spec + plan, the `/api/budget` read, the view); its D-2, D-3, D-6's boundary and
+D-7 were superseded there, so the Stage 4 eye-check applies to the Cash flow view instead. The
+Budget mode existed (§9.3, `V2-REVIEW-FIXES-PLAN.md` §10) and
 showed one figure; this file expands it into the month's sheet — Money In, Money Out, Money Left Over
 and a Money Out donut. **D-6 (2026-10-16)** then rewrote the arithmetic it presents: Money In and
 Money Out are the month's **real flows over every account** (whatever the `budget` flag), with the

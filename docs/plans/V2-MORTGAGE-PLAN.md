@@ -1,5 +1,8 @@
 # V2-MORTGAGE-PLAN.md
 
+> **Archived 2026-10-14 — built (PRs #157–#161); its "proposed; not started" status line below is
+> history.** The outcome lives in `V2-SPEC.md` (§9, §12, §17); this file is the record of why.
+
 > **Status:** proposed; not started. `V2-SPEC.md` is the specification; this file is the build order
 > for one change to it. Where this file and the spec disagree, the spec wins, and the spec is
 > amended in the same change (`AGENTS.md`). The design was drafted by the architect on 2026-10-14

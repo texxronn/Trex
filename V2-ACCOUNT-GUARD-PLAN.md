@@ -5,7 +5,7 @@ the account it is being ingested as, and refuse a file that plainly belongs to a
 
 **Authority:** `V2-SPEC.md` §6.7 (the balance chain), §10 (ingest), §16 (runner, staging inbox),
 §9.3 (Jobs); `AGENTS.md`. **Status:** G-1…G-7 accepted as recommended (operator, 2026-10-17);
-**built** on branch `feat/account-guard` (2026-10-17). Where this plan and `V2-SPEC.md` §10 differ, the
+**built and merged to `master`** (PR #188, 2026-10-17). Where this plan and `V2-SPEC.md` §10 differ, the
 spec wins; the as-built differences are in the **As built** section at the end.
 
 ## 0. Why
