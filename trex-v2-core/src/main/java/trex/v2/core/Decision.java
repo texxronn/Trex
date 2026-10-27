@@ -29,7 +29,7 @@ public sealed interface Decision extends LogLine
     permits Decision.Pair, Decision.Unpair, Decision.MarkExternal, Decision.Settle,
             Decision.Dismiss, Decision.Pin, Decision.Unpin, Decision.Supersede,
             Decision.Retire, Decision.MarkNoop, Decision.UnmarkNoop, Decision.AttachAccount,
-            Decision.Revoke,
+            Decision.CloseAccount, Decision.Revoke,
             Decision.UserAck, Decision.UserUnack, Decision.Note,
             Decision.DeclareCommitment, Decision.RetireCommitment, Decision.IgnoreRecurring,
             Decision.PinCommitment, Decision.UnpinCommitment, Decision.NoteCommitment,
@@ -390,6 +390,37 @@ public sealed interface Decision extends LogLine
         @Override
         public Action action() {
             return Action.ATTACH_ACCOUNT;
+        }
+    }
+
+    /**
+     * The account closed at {@code closingBalance} on {@code closedAt}, settled by these real legs
+     * (V2-CLOSE-ACCOUNT-PLAN.md §3.1). A conclusion about a statement account whose final statement
+     * cannot be obtained: its facts stay untouched, and derivation lands the derived closing on the
+     * declared value and pairs {@code settles} with the account side. Never a fact, never evidence;
+     * the latest effective decision per account wins, and {@code REVOKE} is the way back.
+     */
+    record CloseAccount(Envelope envelope, String account, LocalDate closedAt, long closingBalance,
+                        List<String> settles, String comment, Actor actor, String user)
+        implements Decision {
+        public CloseAccount {
+            Envelope.require(envelope);
+            require(account, "account");
+            require(closedAt, "closedAt");
+            Objects.requireNonNull(settles, "settles");
+            settles = List.copyOf(settles);
+            require(actor, "actor");
+        }
+
+        public CloseAccount(long n, String account, LocalDate closedAt, long closingBalance,
+                            List<String> settles, String comment, Actor actor, String user, Instant at) {
+            this(Envelope.stamped(n, KIND, at), account, closedAt, closingBalance, settles, comment,
+                actor, user);
+        }
+
+        @Override
+        public Action action() {
+            return Action.CLOSE_ACCOUNT;
         }
     }
 

@@ -15,6 +15,7 @@ import trex.v2.core.derive.CategoryOrigin;
 import trex.v2.core.derive.CategoryRow;
 import trex.v2.core.derive.CashMonth;
 import trex.v2.core.derive.ClearingLeg;
+import trex.v2.core.derive.ClosedAccount;
 import trex.v2.core.derive.Commitment;
 import trex.v2.core.derive.CommitmentExclusion;
 import trex.v2.core.derive.CommitmentFact;
@@ -806,7 +807,7 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(i++, "        ");    // target
                 ps.setString(i++, "transaction"); // role
                 ps.setString(i++, null);          // rail
-                ps.setString(i++, "MATCHED");     // leg
+                ps.setString(i++, cl.transferId() == null ? "HELD" : "MATCHED"); // leg
                 ps.setString(i++, cl.transferId());
                 ps.setString(i++, "TRANSFER");    // category
                 ps.setString(i++, "STRUCTURAL");  // category_origin
@@ -831,6 +832,21 @@ public final class Indexer implements AutoCloseable {
                 ps.setString(7, t.method().name());
                 ps.setString(8, t.clearingAccount());
                 ps.setString(9, t.matchedAt().toString());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(Sql.INSERT_CLOSED_ACCOUNT)) {
+            for (ClosedAccount c : d.closedAccounts()) {
+                ps.setString(1, c.accountRef());
+                ps.setString(2, c.closedAt().toString());
+                ps.setLong(3, c.closingBalance());
+                ps.setLong(4, c.adjustment());
+                if (c.decisionN() == null) {
+                    ps.setNull(5, java.sql.Types.INTEGER);
+                } else {
+                    ps.setLong(5, c.decisionN());
+                }
                 ps.addBatch();
             }
             ps.executeBatch();

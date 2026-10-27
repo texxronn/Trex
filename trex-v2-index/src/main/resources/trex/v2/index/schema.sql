@@ -116,6 +116,17 @@ CREATE INDEX IF NOT EXISTS txn_current_account ON txn_current(account_ref);
 -- once per row (V2-SPEC.md §9.2).
 CREATE INDEX IF NOT EXISTS txn_current_transfer ON txn_current(transfer_id);
 
+-- A statement account closed by a CLOSE_ACCOUNT decision (V2-CLOSE-ACCOUNT-PLAN.md §3.2). Derived:
+-- the decision is in the log, and a rebuild reproduces this row. The account keeps its facts; the
+-- declared closing lands the chain, and `adjustment` is the derived closure leg's amount.
+CREATE TABLE IF NOT EXISTS closed_account (
+  account_ref     TEXT PRIMARY KEY,
+  closed_at       TEXT NOT NULL,
+  closing_balance INTEGER NOT NULL,
+  adjustment      INTEGER NOT NULL,
+  decision_n      INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS transfer (
   transfer_id TEXT PRIMARY KEY,
   from_leg    TEXT NOT NULL,

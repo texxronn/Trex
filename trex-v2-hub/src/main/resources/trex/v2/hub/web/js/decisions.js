@@ -25,6 +25,12 @@ export const decisions = {
   note: (ctx, id, text) => ({ ...envelope('NOTE', ctx, null), externalId: id, text }),
   attachAccount: (ctx, ids, account, comment) => ({ ...envelope('ATTACH_ACCOUNT', ctx, comment),
     externalIds: ids, account }),
+  // A statement account closed at a declared balance (V2-CLOSE-ACCOUNT-PLAN.md): the settling legs
+  // pair with it directly, so the account's last movement is the one a person named.
+  closeAccount: (ctx, account, closedAt, closingBalance, settles, comment) => ({
+    ...envelope('CLOSE_ACCOUNT', ctx, comment), account, closedAt, closingBalance,
+    externalIds: settles || [],
+  }),
   declareCommitment: (ctx, fields) => {
     const payment = fields.payment || 'auto';
     return { ...envelope('DECLARE_COMMITMENT', ctx, fields.comment),

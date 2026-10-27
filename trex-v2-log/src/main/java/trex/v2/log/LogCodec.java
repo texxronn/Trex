@@ -131,6 +131,13 @@ public final class LogCodec {
                 o.put("account", aa.account());
                 putNullable(o, "comment", aa.comment());
             }
+            case Decision.CloseAccount ca -> {
+                o.put("account", ca.account());
+                o.put("closedAt", ca.closedAt().toString());
+                o.put("closingBalance", ca.closingBalance());
+                array(o, "settles", ca.settles());
+                putNullable(o, "comment", ca.comment());
+            }
             case Decision.Supersede sup -> {
                 o.put("fromId", sup.fromId());
                 o.put("toId", sup.toId());
@@ -313,6 +320,9 @@ public final class LogCodec {
             case UNPIN -> new Decision.Unpin(e, list(n, "externalIds"), opt(n, "comment"), actor, user);
             case ATTACH_ACCOUNT -> new Decision.AttachAccount(e, list(n, "externalIds"),
                 text(n, "account"), opt(n, "comment"), actor, user);
+            case CLOSE_ACCOUNT -> new Decision.CloseAccount(e, text(n, "account"),
+                LocalDate.parse(text(n, "closedAt")), lng(n, "closingBalance"), list(n, "settles"),
+                opt(n, "comment"), actor, user);
             case SUPERSEDE -> new Decision.Supersede(e, text(n, "fromId"), text(n, "toId"), text(n, "reason"), actor, user);
             case RETIRE -> new Decision.Retire(e, text(n, "externalId"), text(n, "reason"), actor, user);
             case MARK_NOOP -> new Decision.MarkNoop(e, text(n, "externalId"), text(n, "reason"), actor, user);

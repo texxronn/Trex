@@ -23,7 +23,12 @@ mortgages:
     observedRatePct: 6.15
     loans:
       - account: ing-mortgage-simplifier
-        label: "Simplifier"
+        # Closed 2026-10-23 (CLOSE_ACCOUNT n=7857): its balance rolled onto ing-variable-rate and the
+        # account reconciles at $0. Kept declared rather than removed — this file is not temporal, so
+        # removing it would restate 2022–2026 (its interest would leave Money Out, its repayments
+        # would read as "Set aside"). Both commitments were retired 2026-10-27, so no occurrence is
+        # projected; the series still render from the facts they claimed.
+        label: "Simplifier (closed)"
         # The commitment that classifies this loan's repayments (a TRANSFER offset → loan) …
         repaymentCommitment: ing-simplifier-repayment
         # … and the one that classifies its recorded interest charges.

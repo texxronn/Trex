@@ -1476,6 +1476,27 @@ public final class HubQueries implements AutoCloseable {
         });
     }
 
+    /**
+     * The closed statement accounts (V2-CLOSE-ACCOUNT-PLAN.md §3.2): the derived closing a person
+     * declared, read by the chain check, the accounts view and the egress anchor.
+     */
+    public Map<String, trex.v2.core.derive.ClosedAccount> closedAccounts() {
+        return read(conn -> {
+            Map<String, trex.v2.core.derive.ClosedAccount> out = new java.util.TreeMap<>();
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(HubSql.CLOSED_ACCOUNTS_SELECT)) {
+                while (rs.next()) {
+                    long decisionN = rs.getLong(5);
+                    boolean nullDecision = rs.wasNull();
+                    out.put(rs.getString(1), new trex.v2.core.derive.ClosedAccount(rs.getString(1),
+                        LocalDate.parse(rs.getString(2)), rs.getLong(3), rs.getLong(4),
+                        nullDecision ? null : decisionN));
+                }
+            }
+            return out;
+        });
+    }
+
     /** Superseded ids and where they resolve now: how the egress re-keys a group instead of orphaning it. */
     public Map<String, String> resolvedIds() {
         return read(conn -> {

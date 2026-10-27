@@ -229,6 +229,8 @@ function rowMenuItems(row) {
       onPick: () => unmarkNoop(row, targets[0]) },
     { label: 'Retire\u2026', enabled: one, hint: 'select exactly one row',
       onPick: () => retire(row, targets[0]) },
+    { label: 'Close account\u2026', enabled: one, hint: 'select exactly one row',
+      onPick: () => closeAccount(row, targets[0]) },
   ];
 }
 
@@ -318,6 +320,41 @@ function retire(row, id) {
 // The one-row summary line the menu and its dialogs show: date · amount · description.
 function rowLine(row) {
   return `${date(row.date)} \u00b7 ${money(row.amount)} \u00b7 ${row.rawDescription || ''}`;
+}
+
+// A row that closed a statement account whose final statement cannot be obtained: the account closes
+// at a declared balance and this row pairs with it directly (V2-CLOSE-ACCOUNT-PLAN.md §3.2).
+function closeAccount(row, id) {
+  const statement = (refdata.accounts || [])
+    .filter((a) => a.balanceSource === 'statement')
+    .map((a) => ({ value: a.ref, label: a.ref }));
+  if (!statement.length) {
+    toast('No statement accounts are configured', 'bad');
+    return;
+  }
+  openSelect({
+    title: 'Close a statement account',
+    summary: rowLine(row),
+    label: 'Account',
+    choices: statement,
+    confirm: 'Next',
+  }, (account) => {
+    openPrompt({
+      title: 'Closing balance',
+      summary: account + ' — the balance it closed at, in dollars (0 for a paid-out loan)',
+      label: 'Balance',
+      placeholder: '0',
+      confirm: 'Close account',
+    }, (value) => {
+      const dollars = Number(value === '' ? '0' : value);
+      if (!Number.isFinite(dollars)) {
+        toast('A balance is a number, e.g. 0', 'bad');
+        return;
+      }
+      submit([decisions.closeAccount(ctx, account, row.date || new Date().toISOString().slice(0, 10),
+        Math.round(dollars * 100), [id], 'final statement unobtainable — closed by this movement')]);
+    });
+  });
 }
 
 function targetSummary(row, targets) {

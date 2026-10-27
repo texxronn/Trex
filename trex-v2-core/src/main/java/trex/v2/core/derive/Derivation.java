@@ -36,7 +36,8 @@ public record Derivation(
     List<CommitmentNote> commitmentNotes,
     List<CommitmentExclusion> commitmentExclusions,
     List<CommitmentFact> commitmentFacts,
-    List<CashMonth> cashMonth) {
+    List<CashMonth> cashMonth,
+    List<ClosedAccount> closedAccounts) {
 
     public Derivation {
         chainResolved = Map.copyOf(new TreeMap<>(chainResolved));
@@ -59,6 +60,7 @@ public record Derivation(
         commitmentExclusions = List.copyOf(commitmentExclusions);
         commitmentFacts = List.copyOf(commitmentFacts);
         cashMonth = List.copyOf(cashMonth);
+        closedAccounts = List.copyOf(closedAccounts);
     }
 
     public Optional<CurrentFact> current(String externalId) {
@@ -73,5 +75,14 @@ public record Derivation(
 
     public Map<String, CurrentFact> currentById() {
         return current.stream().collect(Collectors.toMap(CurrentFact::externalId, Function.identity()));
+    }
+
+    /** The account's closure, when a person concluded one (V2-CLOSE-ACCOUNT-PLAN.md §3.2). */
+    public Optional<ClosedAccount> closure(String accountRef) {
+        return closedAccounts.stream().filter(c -> c.accountRef().equals(accountRef)).findFirst();
+    }
+
+    public Map<String, ClosedAccount> closures() {
+        return closedAccounts.stream().collect(Collectors.toMap(ClosedAccount::accountRef, Function.identity()));
     }
 }

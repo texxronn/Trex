@@ -45,7 +45,8 @@ final class Sql {
     // ---- level 2: dropped and rebuilt wholesale --------------------------------------------
 
     static final List<String> DERIVED_TABLES = List.of(
-        "supersession", "chain_resolved", "txn_current", "transfer", "pending", "review_item",
+        "supersession", "chain_resolved", "txn_current", "transfer", "closed_account", "pending",
+        "review_item",
         "category_current", "pin_current", "note_current", "ineffective_decision", "unit", "user_ack",
         "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
         "commitment_exclusion", "commitment_fact", "cash_month");
@@ -53,7 +54,8 @@ final class Sql {
     /** Mirror and derived tables, for counts and verification. */
     static final List<String> ALL_TABLES = List.of(
         "fact", "decision", "ingest_event", "supersession", "chain_resolved", "txn_current", "transfer",
-        "pending", "review_item", "category_current", "pin_current", "note_current", "ineffective_decision", "unit",
+        "closed_account", "pending", "review_item", "category_current", "pin_current", "note_current",
+        "ineffective_decision", "unit",
         "user_ack", "commitment", "commitment_rule", "commitment_occurrence", "commitment_note",
         "commitment_exclusion", "commitment_fact", "cash_month");
 
@@ -72,6 +74,13 @@ final class Sql {
         + "state_hash, synthetic) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)";
     static final String INSERT_TRANSFER = "INSERT INTO transfer(transfer_id, from_leg, to_leg, confidence, origin, "
         + "decision_n, method, clearing_account, matched_at) VALUES(?,?,?,?,?,?,?,?,?)";
+
+    /** A closed statement account (V2-CLOSE-ACCOUNT-PLAN.md §3.2); derived from the decision. */
+    static final String INSERT_CLOSED_ACCOUNT = "INSERT INTO closed_account(account_ref, closed_at, "
+        + "closing_balance, adjustment, decision_n) VALUES(?,?,?,?,?)";
+
+    static final String SELECT_CLOSED_ACCOUNTS = "SELECT account_ref, closed_at, closing_balance, "
+        + "adjustment, decision_n FROM closed_account ORDER BY account_ref";
     static final String INSERT_PENDING = "INSERT INTO pending(external_id, fact_n, account_ref, date, amount, "
         + "settled_by, state) VALUES(?,?,?,?,?,?,?)";
     static final String INSERT_CASH_MONTH = "INSERT INTO cash_month(account_ref, month, in_from_bank, "

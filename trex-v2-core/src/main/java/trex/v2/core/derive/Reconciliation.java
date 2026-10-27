@@ -30,7 +30,12 @@ public final class Reconciliation {
         /** A declared account: its chain has deliberate gaps; the gap is the finding (§6.1). */
         DECLARED,
         /** A clearing account: opening computed, closing declared, no chain (§6.10). */
-        CLEARING
+        CLEARING,
+        /**
+         * A statement account a person closed (V2-CLOSE-ACCOUNT-PLAN.md §3.2): the facts keep their
+         * history, and the closing is declared, so the chain has nothing to break. Never a fault.
+         */
+        CLOSED
     }
 
     /**
@@ -50,9 +55,9 @@ public final class Reconciliation {
             return status == Status.RECONCILED;
         }
 
-        /** True when nothing is wrong. A DECLARED or CLEARING account is never wrong, only declared. */
+        /** True when nothing is wrong. A DECLARED, CLEARING or CLOSED account is never wrong, only declared. */
         public boolean balances() {
-            return status == Status.DECLARED || status == Status.CLEARING
+            return status == Status.DECLARED || status == Status.CLEARING || status == Status.CLOSED
                 || (status == Status.RECONCILED && sum == closing - opening);
         }
     }
@@ -66,6 +71,12 @@ public final class Reconciliation {
      * (the real leg's amount negated), at the real leg's {@code (date, n)}.
      */
     public record Movement(LocalDate date, long n, long amount) {}
+
+    /**
+     * A statement account's declared closing (V2-CLOSE-ACCOUNT-PLAN.md §3.2): one extra chain edge
+     * {@code closing − adjustment → closing}, so the account still reconciles — to the declared value.
+     */
+    public record Closure(LocalDate date, long adjustment, long closing) {}
 
     /**
      * A clearing account's result (§6.10): its opening is computed backwards from the movements
@@ -92,14 +103,24 @@ public final class Reconciliation {
         return reconcile(transactions, noopExclusions, declaredAccounts, Map.of());
     }
 
+    public static Map<String, AccountResult> reconcile(List<Fact> transactions, List<Fact> noopExclusions,
+                                                       Set<String> declaredAccounts,
+                                                       Map<String, List<Movement>> synthetic) {
+        return reconcile(transactions, noopExclusions, declaredAccounts, synthetic, Map.of());
+    }
+
     /**
      * @param synthetic        per declared account, its synthetic wallet legs as movements between
      *                         counts (§6.7); cleared accounts are unaffected, and an account absent
      *                         here reconciles over its facts alone
+     * @param closures         per statement account, its declared closing (V2-CLOSE-ACCOUNT-PLAN.md
+     *                         §3.2): one extra edge, so the chain still reconciles to one opening and
+     *                         one closing — the declared one
      */
     public static Map<String, AccountResult> reconcile(List<Fact> transactions, List<Fact> noopExclusions,
                                                        Set<String> declaredAccounts,
-                                                       Map<String, List<Movement>> synthetic) {
+                                                       Map<String, List<Movement>> synthetic,
+                                                       Map<String, Closure> closures) {
         Map<String, List<Fact>> byAccount = new TreeMap<>();
         for (Fact f : transactions) {
             byAccount.computeIfAbsent(f.accountRef(), k -> new ArrayList<>()).add(f);
@@ -115,7 +136,7 @@ public final class Reconciliation {
             List<String> ex = excluded.getOrDefault(account, List.of());
             results.put(account, declaredAccounts.contains(account)
                 ? reconcileDeclared(account, facts, ex, synthetic.getOrDefault(account, List.of()))
-                : reconcileStatement(account, facts, ex));
+                : reconcileStatement(account, facts, ex, closures.get(account)));
         });
         // An account whose rows are all noop has no chain to break: report it reconciled, with its
         // exclusions listed, rather than absent from the run.
@@ -127,7 +148,8 @@ public final class Reconciliation {
         return results;
     }
 
-    private static AccountResult reconcileStatement(String account, List<Fact> facts, List<String> excluded) {
+    private static AccountResult reconcileStatement(String account, List<Fact> facts, List<String> excluded,
+                                                    Closure closure) {
         Map<Long, Integer> diff = new HashMap<>();   // +1 per prev, -1 per balance
         long sum = 0;
         for (Fact f : facts) {
@@ -136,6 +158,9 @@ public final class Reconciliation {
             diff.merge(f.balance(), -1, Integer::sum);
             sum += f.amount();
         }
+        // The closure is not a chain edge: a person's declaration is not a statement row, and a loan
+        // that opened at 0 and closed at 0 would otherwise leave the multiset with nothing at all.
+        // The account becomes CLOSED, with the facts' opening when the chain still names one.
         List<Long> openings = new ArrayList<>();
         List<Long> closings = new ArrayList<>();
         diff.forEach((value, count) -> {
@@ -146,6 +171,14 @@ public final class Reconciliation {
                 closings.add(value);
             }
         });
+        if (closure != null) {
+            long opening = openings.size() == 1 ? openings.getFirst()
+                : facts.stream()
+                    .min(Comparator.comparing(Fact::date).thenComparingLong(Fact::n))
+                    .map(f -> f.balance() - f.amount()).orElse(0L);
+            return new AccountResult(account, Status.CLOSED, opening, closure.closing(),
+                sum + closure.adjustment(), 0, excluded);
+        }
         if (openings.size() != 1 || closings.size() != 1) {
             return new AccountResult(account, Status.BROKEN, 0, 0, sum, 0, excluded);
         }

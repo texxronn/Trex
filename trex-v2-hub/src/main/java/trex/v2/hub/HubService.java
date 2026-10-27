@@ -596,7 +596,15 @@ public final class HubService implements HubApi, AutoCloseable {
     @Override
     public OpeningResponse opening() {
         return new OpeningResponse(Opening.of(reads.currentFacts(), refresher.config().registry(),
-            reads.transferRows()));
+            reads.transferRows(), reads.closedAccounts()));
+    }
+
+    /** The statement accounts' declared closings, in the shape the chain check takes (§3.2). */
+    private Map<String, Reconciliation.Closure> closureEdges() {
+        Map<String, Reconciliation.Closure> out = new java.util.TreeMap<>();
+        reads.closedAccounts().forEach((ref, c) -> out.put(ref,
+            new Reconciliation.Closure(c.closedAt(), c.adjustment(), c.closingBalance())));
+        return out;
     }
 
     private static Set<String> declaredAccounts(DeriveConfig c) {
@@ -614,7 +622,8 @@ public final class HubService implements HubApi, AutoCloseable {
         List<Fact> noops = reads.currentNoops();
         Map<String, List<Reconciliation.Movement>> synthetic =
             declaredMovements(reads.transferRows(), transactions);
-        Map<String, ChainHealth.Account> health = ChainHealth.of(transactions, noops, declared, synthetic);
+        Map<String, ChainHealth.Account> health =
+            ChainHealth.of(transactions, noops, declared, synthetic, closureEdges());
         List<ChainsResponse.AccountJson> accounts = new ArrayList<>();
         for (ChainHealth.Account a : health.values()) {
             if (account != null && !account.equals(a.accountRef())) {
@@ -625,7 +634,8 @@ public final class HubService implements HubApi, AutoCloseable {
             a.forks().forEach(f -> candidates.addAll(f.externalIds()));
             List<ChainsResponse.PreviewJson> previews = new ArrayList<>();
             for (String id : candidates) {
-                ChainHealth.Preview p = ChainHealth.preview(transactions, noops, declared, id, synthetic);
+                ChainHealth.Preview p = ChainHealth.preview(transactions, noops, declared, id, synthetic,
+                    closureEdges());
                 if (p != null) {
                     previews.add(new ChainsResponse.PreviewJson(p.externalId(), statusWire(p.status()),
                         p.reconciled(), p.opening(), p.closing(), forksJson(p.remainingForks())));
@@ -657,7 +667,7 @@ public final class HubService implements HubApi, AutoCloseable {
             noopById.put(f.externalId(), f);
         }
         Map<String, Reconciliation.AccountResult> results = Reconciliation.reconcile(transactions, noops,
-            declared, declaredMovements(reads.transferRows(), transactions));
+            declared, declaredMovements(reads.transferRows(), transactions), closureEdges());
         // A clearing account holds no facts: opening computed, closing declared, never broken (§6.10).
         List<trex.v2.core.derive.TransferRow> transferRows = reads.transferRows();
         Map<String, Long> clearingReal = clearingRealAmounts(transferRows, transactions);
@@ -997,7 +1007,7 @@ public final class HubService implements HubApi, AutoCloseable {
 
         Map<String, Opening.PerAccount> openings = new HashMap<>();
         for (Opening.PerAccount p : Opening.of(reads.currentFacts(), refresher.config().registry(),
-                reads.transferRows())) {
+                reads.transferRows(), reads.closedAccounts())) {
             openings.put(p.accountRef(), p);
         }
         List<AccountsResponse.AccountCoverage> accounts = new ArrayList<>();
@@ -1536,6 +1546,26 @@ public final class HubService implements HubApi, AutoCloseable {
                     : (account.get().clearing()
                         || account.get().balanceSource() == BalanceSource.DECLARED ? null
                             : "ATTACH_ACCOUNT must name a clearing or declared account");
+            }
+            case CLOSE_ACCOUNT -> {
+                if (d.account() == null || d.account().isBlank()) {
+                    yield "account is required";
+                }
+                var account = cfg.registry().findAccount(d.account());
+                if (account.isEmpty()) {
+                    yield "unknown account '" + d.account() + "'";
+                }
+                if (account.get().balanceSource() != BalanceSource.STATEMENT) {
+                    yield "CLOSE_ACCOUNT must name a statement account";
+                }
+                if (d.closedAt() == null) {
+                    yield "closedAt is required";
+                }
+                if (d.closingBalance() == null) {
+                    yield "closingBalance is required";
+                }
+                yield d.externalIds() == null || d.externalIds().isEmpty()
+                    ? null : checkIds(d.externalIds(), "externalIds");
             }
             case DECLARE_COMMITMENT -> precheckDeclare(d);
             case RETIRE_COMMITMENT -> {

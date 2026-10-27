@@ -69,6 +69,11 @@ accounts:
     balanceSource: statement
     liquid: false        # a declared loan (mortgages.yaml): never liquid (C-2), explicit here
     chip_color: teal
+    # Closed 2026-10-23: the fixed-rate balance rolled over onto ing-variable-rate. It keeps its
+    # statement rows, so the nudge is turned off rather than deleting the account (the ref is
+    # identity, §2.4). The final statement is unobtainable from ING, so the closing row is the open
+    # item — until it lands the derived balance still reads −$327,921.77 (measured Dev1 2026-10-27).
+    fetchEveryDays: 0
   - ref: "ing-variable-rate"
     currency: "AUD"
     balanceSource: statement
