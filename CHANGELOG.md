@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-27
+
 ### Added
 
 - **`CLOSE_ACCOUNT`** (`V2-SPEC.md` §6.2, §6.3, §6.7, §7, §9.3; `V2-CLOSE-ACCOUNT-PLAN.md`). A
