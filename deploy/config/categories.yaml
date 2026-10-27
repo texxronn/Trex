@@ -55,7 +55,7 @@
 # happens to name a merchant; measured, that is almost always the refund it is.
 
 categories: [BIG_TICKET_PURCHASES, BILLS, BONUS, CASH_WITHDRAW, CELEBRATIONS, CHARITY, CHILDCARE,
-             DISCRETIONARY, FEES, FLIGHTS, FOOD, FUEL, GIFTS_GIVEN, GROCERIES, HEALTH,
+             DISCRETIONARY, FEES, FINES, FLIGHTS, FOOD, FUEL, GIFTS_GIVEN, GROCERIES, HEALTH,
              HEALTH_SUPPLIES, HOBBY, HOME_IMPROVEMENT, HOUSE_WORKS, INSURANCE, INTEREST_EARNED,
              INTEREST_PAID, INVESTMENTS, LEGAL, PERSONAL_CARE, PROFESSIONAL_DEVELOPMENT, REBATES,
              SALARY, SAVINGS, SCHOOL_FEES, SHOPPING, SPORT_AND_LEISURE, SUBSCRIPTIONS, TAXES,
@@ -414,10 +414,20 @@ rules:
     when:
       match: "udemy|amznprime|ebay plus|semrush|google zepp|prime ?au"
 
-  - category: "VEHICLE"
-    comment: "rego, fines and parts — Service NSW, the State Debt Recovery Office, Supercheap"
+  # Penalties kept apart from keeping the car on the road: a fine is a penalty, not a cost of
+  # driving, and 11 rows in the history (2024-06 → 2026-10) hid inside VEHICLE. Direction-blind like
+  # any merchant rule, so a refund of a fine nets out here. Measured descriptors: "SDRO INFRNGMNT
+  # PAYME", "CCWEB SDRO" and "PAYPAL *SNSW". Order is the point: this must precede the VEHICLE rule
+  # that used to own SDRO, and `service nsw` stays there because it is rego and licence renewals.
+  - category: "FINES"
+    comment: "penalties and infringements — SDRO/Revenue NSW; rego and parts stay VEHICLE"
     when:
-      match: "sdro|infrngmnt|super ?cheap|snsw|service nsw"
+      match: "sdro|infrngmnt|infringement"
+
+  - category: "VEHICLE"
+    comment: "rego and parts — Service NSW, Supercheap (fines moved to FINES)"
+    when:
+      match: "super ?cheap|snsw|service nsw"
 
   - category: "TAXES"
     comment: "accountants and tax agents"
