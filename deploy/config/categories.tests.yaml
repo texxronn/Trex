@@ -511,15 +511,20 @@ tests:
     amount: -500
     category: SHOPPING          # eBay AU is retail, eBay Plus is the membership
 
+  # --- FINES ---------------------------------------------------------------------
+  - description: "INFRNGMNT NOTICE"
+    amount: -1000
+    category: FINES
+  - description: "SDRO INFRNGMNT PAYME     MAITLAND     NS"
+    amount: -34500
+    category: FINES
+
   # --- VEHICLE -------------------------------------------------------------------
   - description: "SERVICE NSW"
     amount: -5000
     category: VEHICLE
   - description: "SUPER CHEAP AUTO"
     amount: -3000
-    category: VEHICLE
-  - description: "INFRNGMNT NOTICE"
-    amount: -1000
     category: VEHICLE
 
   # --- TAXES ---------------------------------------------------------------------
