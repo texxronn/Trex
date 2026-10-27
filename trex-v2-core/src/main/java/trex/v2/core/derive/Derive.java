@@ -102,6 +102,8 @@ public final class Derive {
         Map<String, LegState> legState = new HashMap<>();
         Map<String, String> transferIdByLeg = new HashMap<>();
         List<TransferRow> transfers = List.of();
+        Map<String, ClosedAccount> closures = new TreeMap<>();
+        Map<String, String> closureSettles = new TreeMap<>();
         List<ReviewItem> pairingReview = new ArrayList<>();
         List<ReviewItem> pendingReview = new ArrayList<>();
         List<PendingRow> pending = List.of();
@@ -137,6 +139,7 @@ public final class Derive {
             collectRoleOverrides();
 
             Map<String, CurrentFact> currentMap = currentFacts();
+            closures(currentMap);
             pairing(new ArrayList<>(currentMap.values()));
             Map<String, CurrentFact> withPairing = applyPairing(currentMap);
             Map<String, CategoryRow> categories = categories(withPairing);
@@ -178,7 +181,8 @@ public final class Derive {
                 commitmentNotes,
                 commitmentExclusions,
                 commitmentFacts,
-                cashMonth);
+                cashMonth,
+                new ArrayList<>(closures.values()));
         }
 
         /** The latest effective USER_ACK/USER_UNACK per (user, row) (V2-PROPOSAL.md §9.4). */
@@ -351,6 +355,88 @@ public final class Derive {
             return out;
         }
 
+        // ---- P6a: closed accounts (V2-CLOSE-ACCOUNT-PLAN.md §3.2) ---------------------------
+
+        /**
+         * The effective {@code CLOSE_ACCOUNT} per account. The latest decision per account governs;
+         * an invalid one closes nothing and is surfaced, never dropped (§6.8). The declared closing
+         * must be reachable: the settling legs are the movement that produced it, so their sum must
+         * equal {@code closingBalance − the last fact's balance}. With no settling legs the
+         * adjustment stands alone and is reported as an unpaired leg.
+         */
+        private void closures(Map<String, CurrentFact> currentMap) {
+            Map<String, Decision.CloseAccount> latest = new TreeMap<>();
+            for (Decision d : effective) {
+                if (d instanceof Decision.CloseAccount ca) {
+                    latest.put(ca.account(), ca);
+                }
+            }
+            Map<String, CurrentFact> lastFact = new TreeMap<>();
+            for (CurrentFact c : currentMap.values()) {
+                if (c.role() == Role.NOOP) {
+                    continue;
+                }
+                Fact f = c.fact();
+                CurrentFact seen = lastFact.get(f.accountRef());
+                if (seen == null || f.date().isAfter(seen.fact().date())
+                    || (f.date().equals(seen.fact().date()) && f.n() > seen.fact().n())) {
+                    lastFact.put(f.accountRef(), c);
+                }
+            }
+            for (Decision.CloseAccount ca : latest.values()) {
+                Account account = config.registry().findAccount(ca.account()).orElse(null);
+                if (account == null || account.balanceSource() != BalanceSource.STATEMENT) {
+                    ineffective.add(new IneffectiveDecision(ca.n(), ca.action().wire(),
+                        "CLOSE_ACCOUNT must name a statement account, not '" + ca.account() + "'"));
+                    continue;
+                }
+                CurrentFact last = lastFact.get(ca.account());
+                if (last == null) {
+                    ineffective.add(new IneffectiveDecision(ca.n(), ca.action().wire(),
+                        "CLOSE_ACCOUNT names an account with no current facts: " + ca.account()));
+                    continue;
+                }
+                if (ca.closedAt().isBefore(last.fact().date())) {
+                    ineffective.add(new IneffectiveDecision(ca.n(), ca.action().wire(),
+                        "CLOSE_ACCOUNT date " + ca.closedAt() + " is before " + ca.account()
+                            + "'s last fact on " + last.fact().date()));
+                    continue;
+                }
+                long adjustment = ca.closingBalance() - last.fact().balance();
+                long settling = 0;
+                boolean bad = false;
+                for (String raw : ca.settles()) {
+                    String id = resolve(raw);
+                    CurrentFact real = id == null ? null : currentMap.get(id);
+                    if (real == null) {
+                        ineffective.add(new IneffectiveDecision(ca.n(), ca.action().wire(),
+                            "CLOSE_ACCOUNT settles an unknown id " + raw));
+                        bad = true;
+                    } else if (real.fact().accountRef().equals(ca.account())) {
+                        ineffective.add(new IneffectiveDecision(ca.n(), ca.action().wire(),
+                            "CLOSE_ACCOUNT settles a leg on its own account: " + raw));
+                        bad = true;
+                    } else {
+                        settling += -real.fact().amount();
+                    }
+                }
+                if (bad) {
+                    continue;
+                }
+                if (!ca.settles().isEmpty() && settling != adjustment) {
+                    ineffective.add(new IneffectiveDecision(ca.n(), ca.action().wire(),
+                        "CLOSE_ACCOUNT declares " + ca.closingBalance() + " but its settling legs move "
+                            + settling + " from " + last.fact().balance()));
+                    continue;
+                }
+                for (String raw : ca.settles()) {
+                    closureSettles.put(resolve(raw), ca.account());
+                }
+                closures.put(ca.account(), new ClosedAccount(ca.account(), ca.closedAt(),
+                    ca.closingBalance(), adjustment, ca.n()));
+            }
+        }
+
         /**
          * The latest effective {@code MARK_NOOP}/{@code UNMARK_NOOP} per resolved id (V2-PROPOSAL.md
          * §6.9). {@code effective} is n-ordered, so a later decision overwrites an earlier one; a
@@ -469,6 +555,12 @@ public final class Derive {
                     }
                 }
             }
+
+            // A closure's settling legs pair directly with the closed account (V2-CLOSE-ACCOUNT-PLAN.md
+            // §3.2), the clearing shape: a person named the movement, so there is no window and no
+            // ambiguity. clr/declared checks do not apply — the account is a statement account that a
+            // decision closed, and `closures()` already proved the legs sum to the adjustment.
+            attached.putAll(closureSettles);
 
             // Live decision pairs: a PAIR holds only while it is the latest decision for both legs.
             Map<String, TransferRow> rows = new TreeMap<>();            Set<String> livePairLegs = new HashSet<>();
@@ -1831,8 +1923,11 @@ public final class Derive {
                 }
             }
             List<ReviewItem> out = new ArrayList<>();
+            Map<String, Reconciliation.Closure> closureEdges = new TreeMap<>();
+            closures.forEach((ref, c) -> closureEdges.put(ref,
+                new Reconciliation.Closure(c.closedAt(), c.adjustment(), c.closingBalance())));
             for (Reconciliation.AccountResult r :
-                    Reconciliation.reconcile(transactions, noops, declared, synthetic).values()) {
+                    Reconciliation.reconcile(transactions, noops, declared, synthetic, closureEdges).values()) {
                 if (r.status() != Reconciliation.Status.BROKEN) {
                     continue;
                 }
@@ -2026,6 +2121,11 @@ public final class Derive {
                     running.put(e.getKey(), (closing == null ? 0L : closing) - e.getValue());
                 } else if (a.balanceSource() == BalanceSource.DECLARED) {
                     declaredBalances.put(e.getKey(), declaredLegBalances(e.getKey(), byId));
+                } else if (closures.containsKey(e.getKey())) {
+                    // A closed statement account: the chain ends on the declared closing, so the
+                    // synthetic side runs from the balance the closure adjusted away.
+                    ClosedAccount c = closures.get(e.getKey());
+                    running.put(e.getKey(), c.closingBalance() - c.adjustment());
                 }
             }
             ordered.sort(Comparator.comparing((TransferRow t) -> realLegOf(t, byId).fact().date())
@@ -2038,9 +2138,23 @@ public final class Derive {
                 long balance = declaredBalances.containsKey(account)
                     ? declaredBalances.get(account).getOrDefault(t.transferId(), 0L)
                     : running.merge(account, amount, Long::sum);
-                out.add(new ClearingLeg(t.transferId(), "clr|" + account + "|" + real.externalId(),
-                    account, real.date(), amount, balance, "clearing \u00b7 " + real.rawDescription(),
+                boolean closed = closures.containsKey(account);
+                out.add(new ClearingLeg(t.transferId(),
+                    (closed ? "cls|" : "clr|") + account + "|" + real.externalId(),
+                    account, real.date(), amount, balance,
+                    (closed ? "closure \u00b7 " : "clearing \u00b7 ") + real.rawDescription(),
                     real.externalId(), real.n()));
+            }
+            // A closure with no settling leg is a write-off: still a derived row, so the account's
+            // history ends in a labelled movement rather than in silence.
+            for (Map.Entry<String, ClosedAccount> e : closures.entrySet()) {
+                if (movementSum.containsKey(e.getKey()) || e.getValue().adjustment() == 0) {
+                    continue;
+                }
+                ClosedAccount c = e.getValue();
+                out.add(new ClearingLeg(null, "cls|" + c.accountRef() + "|" + c.closedAt(), c.accountRef(),
+                    c.closedAt(), c.adjustment(), c.closingBalance(), "closure \u00b7 account closed",
+                    null, c.decisionN() == null ? 0L : c.decisionN()));
             }
             return out;
         }

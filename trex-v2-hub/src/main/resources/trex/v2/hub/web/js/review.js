@@ -148,6 +148,10 @@ function actionCell(row) {
       : null,
     row.kind === 'UNMATCHED_LEG'
       ? el('button', { type: 'button', class: 'ghost', onclick: () => attach(row) }, 'Attach')
+      : null,
+    row.kind === 'UNMATCHED_LEG'
+      ? el('button', { type: 'button', class: 'ghost', onclick: () => closeAccount(row) },
+          'Close account…')
       : null);
 }
 
@@ -280,6 +284,49 @@ function canAnnotate(row) {
 function annotate(row) {
   const ids = row.members && row.members.length ? row.members.map((m) => m.externalId) : [row.subject];
   openAnnotate(ctx, { ids, summary: row.detail }, load);
+}
+
+// An unmatched leg that settled an account whose final statement cannot be obtained: a
+// CLOSE_ACCOUNT decision names the account and the declared closing, and the leg pairs with it
+// directly (V2-CLOSE-ACCOUNT-PLAN.md §3.2). The balance is the account's closing, not the leg's.
+function closeAccount(row) {
+  const statement = (ctx.refdata.accounts || [])
+    .filter((a) => a.balanceSource === 'statement')
+    .map((a) => ({ value: a.ref, label: a.ref }));
+  if (!statement.length) {
+    toast('No statement accounts are configured', 'bad');
+    return;
+  }
+  openSelect({
+    title: 'Close a statement account',
+    summary: row.subjectDescription || row.subject,
+    label: 'Account',
+    choices: statement,
+    confirm: 'Next',
+  }, (account) => {
+    openPrompt({
+      title: 'Closing balance',
+      summary: account + ' — the balance it closed at, in dollars (0 for a paid-out loan)',
+      label: 'Balance',
+      placeholder: '0',
+      confirm: 'Close account',
+    }, async (value) => {
+      const dollars = Number(value === '' ? '0' : value);
+      if (!Number.isFinite(dollars)) {
+        toast('A balance is a number, e.g. 0', 'bad');
+        return;
+      }
+      try {
+        await api.decisions(ctx.n, [decisions.closeAccount(ctx, account,
+          new Date().toISOString().slice(0, 10), Math.round(dollars * 100), [row.subject],
+          'final statement unobtainable — closed by this movement')]);
+        toast('Closed');
+      } catch (error) {
+        reportError(error);
+      }
+      await load();
+    });
+  });
 }
 
 // An unmatched leg whose counterparty is gone: attach it to a clearing account (§6.10).

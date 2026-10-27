@@ -66,7 +66,7 @@ public final class ChainHealth {
 
     /** Every account's chain, transaction accounts only, with excluded noop rows listed (§6.9). */
     public static Map<String, Account> of(List<Fact> transactions, List<Fact> noops, Set<String> declared) {
-        return of(transactions, noops, declared, Map.of());
+        return of(transactions, noops, declared, Map.of(), Map.of());
     }
 
     /**
@@ -75,13 +75,24 @@ public final class ChainHealth {
      */
     public static Map<String, Account> of(List<Fact> transactions, List<Fact> noops, Set<String> declared,
                                           Map<String, List<Reconciliation.Movement>> synthetic) {
+        return of(transactions, noops, declared, synthetic, Map.of());
+    }
+
+    /**
+     * @param closures per statement account, its declared closing (V2-CLOSE-ACCOUNT-PLAN.md §3.2);
+     *                 forwarded to {@link Reconciliation#reconcile}
+     */
+    public static Map<String, Account> of(List<Fact> transactions, List<Fact> noops, Set<String> declared,
+                                          Map<String, List<Reconciliation.Movement>> synthetic,
+                                          Map<String, Reconciliation.Closure> closures) {
         Map<String, Reconciliation.AccountResult> base =
-            Reconciliation.reconcile(transactions, noops, declared, synthetic);
+            Reconciliation.reconcile(transactions, noops, declared, synthetic, closures);
         Map<String, List<Fact>> byAccount = group(transactions);
         Map<String, Account> out = new LinkedHashMap<>();
         base.forEach((account, r) -> out.put(account, new Account(account, r.status(), r.opening(),
             r.closing(), r.sum(), r.gap(), r.exclusions(),
-            declared.contains(account) ? List.of() : forks(byAccount.getOrDefault(account, List.of())))));
+            declared.contains(account) || closures.containsKey(account)
+                ? List.of() : forks(byAccount.getOrDefault(account, List.of())))));
         return out;
     }
 
@@ -97,6 +108,13 @@ public final class ChainHealth {
     /** As {@link #preview(List, List, Set, String)}, carrying the declared synthetic movements. */
     public static Preview preview(List<Fact> transactions, List<Fact> noops, Set<String> declared,
                                   String externalId, Map<String, List<Reconciliation.Movement>> synthetic) {
+        return preview(transactions, noops, declared, externalId, synthetic, Map.of());
+    }
+
+    /** As above, carrying the statement accounts' declared closures. */
+    public static Preview preview(List<Fact> transactions, List<Fact> noops, Set<String> declared,
+                                  String externalId, Map<String, List<Reconciliation.Movement>> synthetic,
+                                  Map<String, Reconciliation.Closure> closures) {
         List<Fact> remaining = new ArrayList<>();
         String account = null;
         for (Fact f : transactions) {
@@ -110,11 +128,11 @@ public final class ChainHealth {
             return null;
         }
         String ref = account;
-        Reconciliation.AccountResult r = Reconciliation.reconcile(remaining, noops, declared, synthetic).get(ref);
+        Reconciliation.AccountResult r = Reconciliation.reconcile(remaining, noops, declared, synthetic, closures).get(ref);
         if (r == null) {
             r = new Reconciliation.AccountResult(ref, Reconciliation.Status.RECONCILED, 0, 0, 0, 0, List.of());
         }
-        List<Fork> remainingForks = declared.contains(ref) ? List.of()
+        List<Fork> remainingForks = declared.contains(ref) || closures.containsKey(ref) ? List.of()
             : forks(remaining.stream().filter(f -> f.accountRef().equals(ref)).toList());
         return new Preview(externalId, r.status(), r.opening(), r.closing(), remainingForks);
     }

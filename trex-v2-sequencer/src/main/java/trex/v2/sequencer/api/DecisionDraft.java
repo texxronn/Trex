@@ -72,7 +72,10 @@ public record DecisionDraft(
     List<LocalDate> dueDates,
     // DECLARE_COMMITMENT
     String payment,
-    Integer remindDays
+    Integer remindDays,
+    // CLOSE_ACCOUNT (settles reuses externalIds)
+    LocalDate closedAt,
+    Long closingBalance
 ) {
 
     /** One {@code DECLARE_COMMITMENT} match rule; {@code account} is optional. */
@@ -90,7 +93,7 @@ public record DecisionDraft(
         this(action, actor, user, at, comment, legA, legB, externalId, pendingId, postedId, item,
             externalIds, category, fromId, toId, reason, target, configRevision, deriveVersion,
             hashVersion, stateHash, text, account, null, null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null);
     }
 
     /** Previous full action shape, retained for callers that do not set manual-payment fields. */
@@ -107,7 +110,27 @@ public record DecisionDraft(
             externalIds, category, fromId, toId, reason, target, configRevision, deriveVersion,
             hashVersion, stateHash, text, account, commitmentId, name, direction, cadence,
             amountKind, kind, matches, amount, anchor, fromCandidate, endedAt, candidate, dueDates,
-            null, null);
+            null, null, null, null);
+    }
+
+    /**
+     * The pre-closure arity, retained for callers that predate {@code CLOSE_ACCOUNT} (the sequencer
+     * tests build drafts this way). New code uses the canonical constructor.
+     */
+    public DecisionDraft(String action, String actor, String user, Instant at, String comment,
+                         String legA, String legB, String externalId, String pendingId, String postedId,
+                         String item, List<String> externalIds, String category, String fromId, String toId,
+                         String reason, Long target, String configRevision, String deriveVersion,
+                         String hashVersion, String stateHash, String text, String account,
+                         String commitmentId, String name, String direction, String cadence,
+                         String amountKind, String kind, List<MatchDraft> matches, Long amount,
+                         LocalDate anchor, String fromCandidate, LocalDate endedAt, String candidate,
+                         List<LocalDate> dueDates, String payment, Integer remindDays) {
+        this(action, actor, user, at, comment, legA, legB, externalId, pendingId, postedId, item,
+            externalIds, category, fromId, toId, reason, target, configRevision, deriveVersion,
+            hashVersion, stateHash, text, account, commitmentId, name, direction, cadence,
+            amountKind, kind, matches, amount, anchor, fromCandidate, endedAt, candidate, dueDates,
+            payment, remindDays, null, null);
     }
 
     /**
@@ -122,6 +145,6 @@ public record DecisionDraft(
             postedId, item, externalIds, category, fromId, toId, reason, target, configRevision,
             deriveVersion, hashVersion, stateHash, text, account, commitmentId, name, direction,
             cadence, amountKind, kind, matches, amount, anchor, fromCandidate, endedAt, candidate,
-            dueDates, payment, remindDays);
+            dueDates, payment, remindDays, closedAt, closingBalance);
     }
 }

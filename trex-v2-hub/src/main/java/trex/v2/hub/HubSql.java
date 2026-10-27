@@ -68,6 +68,11 @@ final class HubSql {
         SELECT transfer_id, from_leg, to_leg, confidence, origin, decision_n, method, clearing_account, matched_at
         FROM transfer ORDER BY transfer_id""";
 
+    /** The closed statement accounts (V2-CLOSE-ACCOUNT-PLAN.md §3.2); derived from the decision. */
+    static final String CLOSED_ACCOUNTS_SELECT = """
+        SELECT account_ref, closed_at, closing_balance, adjustment, decision_n
+        FROM closed_account ORDER BY account_ref""";
+
     /** The derived per-month unrecorded cash rows (§9.4); all wallets, or one. */
     static final String CASH_MONTHS_SELECT = """
         SELECT account_ref, month, in_from_bank, out_to_bank, recorded_out, recorded_in,

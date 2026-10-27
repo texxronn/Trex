@@ -574,6 +574,11 @@ public final class Sequencer implements AutoCloseable {
             case ATTACH_ACCOUNT -> new Decision.AttachAccount(envelope,
                 requireFacts(d.externalIds(), "externalIds"), requirePairableAccount(d.account()),
                 d.comment(), actor, user);
+            case CLOSE_ACCOUNT -> new Decision.CloseAccount(envelope, requireStatementAccount(d.account()),
+                require(d.closedAt(), "closedAt"), require(d.closingBalance(), "closingBalance"),
+                d.externalIds() == null || d.externalIds().isEmpty()
+                    ? List.of() : requireFacts(d.externalIds(), "externalIds"),
+                d.comment(), actor, user);
             case DECLARE_COMMITMENT -> new Decision.DeclareCommitment(envelope,
                 require(d.commitmentId(), "commitmentId"), require(d.name(), "name"),
                 requireDirection(d.direction()), requireCadence(d.cadence()),
@@ -617,6 +622,27 @@ public final class Sequencer implements AutoCloseable {
         if (!account.get().clearing() && account.get().balanceSource() != BalanceSource.DECLARED) {
             throw new IllegalArgumentException(
                 "ATTACH_ACCOUNT must name a clearing or declared account, not '" + ref + "'");
+        }
+        return ref;
+    }
+
+    /**
+     * The account a closure names must be a statement account (V2-CLOSE-ACCOUNT-PLAN.md §3.2): a
+     * declared wallet closes through its counts and a clearing account through {@code closingBalance}
+     * in accounts.yaml, so either is a meaningless target. The log-dependent checks (the date against
+     * the newest fact, the settling legs) belong to derivation, never to the writer (§6.6).
+     */
+    private String requireStatementAccount(String ref) {
+        if (ref == null || ref.isBlank()) {
+            throw new IllegalArgumentException("account is required");
+        }
+        var account = registry.findAccount(ref);
+        if (account.isEmpty()) {
+            throw new IllegalArgumentException("unknown account '" + ref + "'");
+        }
+        if (account.get().balanceSource() != BalanceSource.STATEMENT) {
+            throw new IllegalArgumentException(
+                "CLOSE_ACCOUNT must name a statement account, not '" + ref + "'");
         }
         return ref;
     }

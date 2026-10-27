@@ -46,6 +46,16 @@ public final class Opening {
      *                  the clearing account's opening (§6.10)
      */
     public static List<PerAccount> of(List<Fact> currentFacts, Registry registry, List<TransferRow> transfers) {
+        return of(currentFacts, registry, transfers, Map.of());
+    }
+
+    /**
+     * @param closures per statement account, its declared closing (V2-CLOSE-ACCOUNT-PLAN.md §3.2): a
+     *                 closed account's latest balance is the declared one, dated by the closure, so
+     *                 the egress anchors on the truth rather than on the last statement row
+     */
+    public static List<PerAccount> of(List<Fact> currentFacts, Registry registry, List<TransferRow> transfers,
+                                      Map<String, ClosedAccount> closures) {
         Map<String, List<Fact>> byAccount = new TreeMap<>();
         for (Fact f : currentFacts) {
             byAccount.computeIfAbsent(f.accountRef(), k -> new ArrayList<>()).add(f);
@@ -58,7 +68,7 @@ public final class Opening {
                 .toList();
             out.add(account.balanceSource() == BalanceSource.DECLARED
                 ? declared(ref, account.currency(), sorted)
-                : statement(ref, account.currency(), sorted));
+                : statement(ref, account.currency(), sorted, closures.get(ref)));
         });
 
         // A clearing account holds no facts: opening = declared closing − Σ movements. The
@@ -94,14 +104,20 @@ public final class Opening {
         return out;
     }
 
-    private static PerAccount statement(String ref, String currency, List<Fact> sorted) {
+    private static PerAccount statement(String ref, String currency, List<Fact> sorted, ClosedAccount closure) {
         long sum = sorted.stream().mapToLong(Fact::amount).sum();
-        long latest = sorted.getLast().balance();
+        if (closure != null) {
+            // The closure is a movement like any other for the opening arithmetic; the latest
+            // balance and date are the declared ones (§3.2).
+            sum += closure.adjustment();
+        }
+        long latest = closure != null ? closure.closingBalance() : sorted.getLast().balance();
         long backward = latest - sum;
         Fact first = sorted.getFirst();
         long forward = first.balance() - first.amount();
+        LocalDate latestAt = closure != null ? closure.closedAt() : sorted.getLast().date();
         return new PerAccount(ref, currency, false, latest, backward, forward, backward - forward,
-            first.date(), sorted.getLast().date(), false);
+            first.date(), latestAt, false);
     }
 
     private static PerAccount declared(String ref, String currency, List<Fact> sorted) {

@@ -82,7 +82,7 @@ migrated from.
 - **Decisions** (`Decision`): `action`, `actor` (`user | migrated | system`), `user` (nullable),
   plus the action's fields; `at` is `envelope.atMs`. The complete action set is `PAIR`, `UNPAIR`,
   `MARK_EXTERNAL`, `SETTLE`, `DISMISS`, `PIN`, `UNPIN`, `SUPERSEDE`, `RETIRE`, `MARK_NOOP`,
-  `UNMARK_NOOP`, `ATTACH_ACCOUNT`, `REVOKE`, `USER_ACK`, `USER_UNACK`, `NOTE`,
+  `UNMARK_NOOP`, `ATTACH_ACCOUNT`, `CLOSE_ACCOUNT`, `REVOKE`, `USER_ACK`, `USER_UNACK`, `NOTE`,
   `DECLARE_COMMITMENT`, `RETIRE_COMMITMENT`, `IGNORE_RECURRING`, `PIN_COMMITMENT`,
   `UNPIN_COMMITMENT`, `NOTE_COMMITMENT`, `SETTLE_OCCURRENCE`, `EXCLUDE_COMMITMENT`,
   `INCLUDE_COMMITMENT`. On the wire, `REVOKE`'s target is
@@ -269,6 +269,8 @@ the target may be `clearing` or `declared`. A `declared` target is the cash-wall
 withdrawal on a bank account pairs to the wallet, a cash deposit pairs the other way. Its synthetic
 leg takes its balance from the declared (attestation) chain, never from a computed opening (that is
 clearing semantics); a `clearing:` target that is a `statement` account is refused on config load. A
+`CLOSE_ACCOUNT` decision's `settles` legs pair directly with the closed statement account the same
+way (§6.7), overriding the matcher. A
 matched pair records the payer leg's rail method; the rail direction is the sign. A T1 pair's id is
 `TRF-<receipt>` for the first pair carrying that receipt and the hashed form (§4) for any later one;
 two pairs never share an id (a collision is a derive error, never an overwrite).
@@ -376,6 +378,16 @@ reports its gap; its reconciliation now includes the synthetic wallet legs as mo
 counts (they are transfers, not facts). A `CLEARING` account holds no facts and reports a computed
 opening (`closing + Σ real movements`), so its derived balance lands on the declared closing.
 
+**A closed statement account** (`CLOSE_ACCOUNT`, §6.2) keeps every fact and its history, but its
+closing is a person's declaration, not a statement row: the account reports `CLOSED` with the
+declared balance and can never raise `BALANCE_BREAK` (a loan that opened at 0 and closed at 0 would
+otherwise leave the chain with neither an opening nor a closing). The decision carries
+`account`, `closedAt`, `closingBalance` and optional `settles`; the latest effective decision per
+account wins and `REVOKE` is the way back. Derivation adds one derived leg (`cls|…`, §7) for
+`closingBalance − the last fact's balance`, pairs each `settles` leg with the account directly — the
+clearing shape, §6.3 — and refuses a decision whose settling legs do not sum to that adjustment
+(`INEFFECTIVE_DECISION`). The egress anchors a closed account on the declared balance and date.
+
 ### 6.8 The state hash
 
 `stateHash` of a current row = SHA-256 over
@@ -411,8 +423,8 @@ the per-account `transferPatterns`.
 
 SQLite, owned by the hub. Level 1 mirrors the log (`meta`, `fact`, `decision`, `ingest_event`); level
 2 is derived and rebuilt wholesale: `supersession`, `chain_resolved`, `txn_current` (carrying the
-derived `role`, rail, and a `synthetic` flag — true only for a derived account side (a clearing account or a declared wallet, §6.3)), `transfer` (carrying the payer `method` and, for a clearing pair, the
-`clearing_account`), `cash_month` (one row per declared account and calendar month; not a unit, §9.4), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
+derived `role`, rail, and a `synthetic` flag — true only for a derived account side (a clearing account, a declared wallet or a closed account's closure leg, §6.3)), `transfer` (carrying the payer `method` and, for a clearing pair, the
+`clearing_account`), `closed_account` (one row per `CLOSE_ACCOUNT`: the declared closing and the derived adjustment, §6.7), `cash_month` (one row per declared account and calendar month; not a unit, §9.4), `pending`, `review_item`, `category_current`, `pin_current`, `note_current`,
 `commitment`, `commitment_rule`, `commitment_occurrence`, `commitment_note`,
 `commitment_exclusion`, `commitment_fact` (the fact → commitment reverse map, §6.5),
 `ineffective_decision`, `unit`, `projection_state` (Firefly only, §11.2), `user_ack`, `source_cursor`, `evidence`, and the
@@ -654,7 +666,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 
 | Mode | What it is for | Detail |
 |---|---|---|
-| **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md` |
+| **Blotter** | every current row, SQL-backed filters, inline decisions (pin, pair, mark external, noop, retire, note, assign to a commitment, **close account** — a `CLOSE_ACCOUNT` naming this row as the movement that settled a statement account, §6.7); the since-cleared line at the top (§9.1) | `V2-ANNOTATIONS-PLAN.md`, `V2-COMMITMENTS-PLAN.md`, `V2-CLOSE-ACCOUNT-PLAN.md` |
 | **Review** | the derived queue, one decision away from clear; clusters expand; `Dismiss` with an optional reason | §6.6 |
 | **Expected** | the declared-expectations checklist: the window's occurrences for **declared commitments only** (a candidate's history is a discovery, not an assertion, §6.5), each amount an unsigned magnitude with an explicit in/out direction, split into **IN** (left) and **OUT** (right) panels with the same columns, each panel's header carrying its row count and its summed amount (the shorter panel takes the taller one's height, and the panels stack under 720px); inside Occurrences, a window-independent Manual payments group lists the `toPay` rows and opens the existing Settle action as **Mark paid** (a decision only: it writes no fact and does not change a transaction); the same occurrences remain in the window tables; **Catch up** (arrears, oldest first, no running total); the commitment registry with its Actions menu, filtered to `active` by default; rule lint; the since-cleared line above the occurrences (§9.1); honours `#expected?window=week` | `V2-EXPECTED-UX-PLAN.md`, `V2-MANUAL-ARREARS-PLAN.md`, `V2-MANUAL-PAY-PLAN.md` |
 | **Cash flow** | the month's money in and out of the **liquid** accounts (§9.2, C-1): Money In, Money Out and Left, with a **Cost / Cash** toggle for the mortgage (Cost: the principal and set-aside in a bridge; Cash: `Mortgage` and `Set aside` slices, a `reconcile` line against the liquid accounts' rows), a Money Out donut and table with a **Primary / Leaf** pivot (`pivot=leaf`, view-only, C-8), a ⊘ exclude toggle per group or leaf (C-7, `exclude=` in the URL, defaults from `cashflow.yaml`); a month stepper (calendar months only; month, `view`, `pivot` and `exclude` in the URL); `#cashflow`, with `#budget` kept as an alias. On a phone (≤720px) the donut comes first and smaller, straight under Left, the legend is dropped for a colour swatch on each Money Out row, and Money Out shows its first 8 category rows with a **Show N more** when that hides 3 or more (presentation only) | `V2-CASHFLOW-PLAN.md` (supersedes `V2-BUDGET-VIEW-PLAN.md` D-2, D-3, D-6's boundary, D-7) |

@@ -11,6 +11,16 @@ everything is under **Unreleased**.
 
 ### Added
 
+- **`CLOSE_ACCOUNT`** (`V2-SPEC.md` §6.2, §6.3, §6.7, §7, §9.3; `V2-CLOSE-ACCOUNT-PLAN.md`). A
+  statement account whose final statement cannot be obtained closes by a person's decision, not by an
+  invented fact: `account`, `closedAt`, `closingBalance`, optional `settles`. Derivation keeps every
+  fact, lands the derived closing on the declared value (`status: closed`, never `BALANCE_BREAK`),
+  pairs each settling leg with the account directly (the clearing shape), and materialises one
+  derived leg (`cls|…`, `synthetic = 1`) so the account's history ends in a labelled movement. A
+  settlement that does not sum to the adjustment is an `INEFFECTIVE_DECISION`; `REVOKE` reopens the
+  account. The Blotter exposes it as **Close account…** on a row, and the egress anchors a closed
+  account on the declared balance and date. First use: ING's fixed-rate loan, rolled onto the
+  variable-rate loan on 2026-10-23.
 - **Sign-in for the hub** (`V2-SPEC.md` §5, §9.1, §9.5, §12; `V2-AUTH-PLAN.md`). Started with
   `--auth <file>` (or `TREX_AUTH_FILE`), the hub requires a signed-in **ron** or **mel**: `POST
   /api/login` checks a per-user PBKDF2-SHA256 hash and sets an `HttpOnly; SameSite=Lax` signed session
