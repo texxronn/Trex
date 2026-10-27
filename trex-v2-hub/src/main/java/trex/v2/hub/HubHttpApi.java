@@ -381,6 +381,10 @@ final class HubHttpApi {
                 serveStatic(ex, "login.html");
             } else if (path.equals("/") || path.equals("/index.html")) {
                 serveStatic(ex, "index.html");
+            } else if (path.equals("/favicon.ico")) {
+                // Browsers ask the root for the icon, and the sign-in page must answer while
+                // anonymous (§9.5's self-contained page), so this one path is open (see isOpen).
+                serveStatic(ex, "favicon.ico");
             } else if (path.startsWith("/ui/")) {
                 serveStatic(ex, path.substring("/ui/".length()));
             } else {
@@ -453,6 +457,12 @@ final class HubHttpApi {
         if (path.endsWith(".svg")) {
             return "image/svg+xml";
         }
+        if (path.endsWith(".ico")) {
+            return "image/x-icon";
+        }
+        if (path.endsWith(".png")) {
+            return "image/png";
+        }
         return "application/octet-stream";
     }
 
@@ -491,6 +501,7 @@ final class HubHttpApi {
     /** The only paths that do not require a session (V2-SPEC.md §9.5, A-4 leaves /mcp outside). */
     private static boolean isOpen(String path, String method) {
         return path.equals("/login")
+            || path.equals("/favicon.ico")
             || (path.equals("/api/login") && "POST".equals(method))
             || (path.equals("/api/logout") && "POST".equals(method));
     }
