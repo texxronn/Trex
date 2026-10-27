@@ -129,6 +129,15 @@ transferPatterns:
     - { match: 'Bankwest Auto Pay',                 rail: BPAY }
     - { match: 'BANKWEST CREDIT CARD.*BPAY',        rail: BPAY }
     - { match: 'BPAY Bill Payment.*BANKWEST CREDIT CARD', rail: BPAY }
+    # The two sides of the 2026-10-23 consolidation (measured on Dev1 2026-10-27). The fixed-rate
+    # loan's balance arrived as "Rollover Advance", and the offset's "Reduce Interest" drawdown
+    # arrived as a plain "Deposit". Neither side repeats the other's receipt (loan 678392/678507,
+    # offset 127819), so the T1 receipt rule cannot pair them, and the loan side names no rail, so
+    # without these it never enters the pool: an unpaired $327,921.77 debit on a declared loan reads
+    # as loan charges (C-3), and the $100,000 credit as Money In. Shaped, they pair by T3 amount and
+    # date (2026-10-22 -> 2026-10-23, inside windowDays).
+    - { match: '^Rollover Advance',                 rail: BANK_TRANSFER }
+    - { match: '^Deposit - Receipt No',             rail: BANK_TRANSFER }
 
   # CommBank writes its own internal transfers with the account form, never a person's name.
   # A Fast Transfer to PayID is money from a person, not our own account: it must match the
