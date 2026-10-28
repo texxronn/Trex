@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-28
+
 ### Added
 
 - **The Jobs inbox detects a statement's type** (`V2-SPEC.md` §9.3, §10, §12). `trex ingest
