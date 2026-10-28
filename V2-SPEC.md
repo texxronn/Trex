@@ -676,7 +676,7 @@ Eleven modes; each one's detail lives in the plan that built it.
 | **Mortgage** | a declared facility: offset liquidity and each loan's balance with its own statement date; per loan the repayment and interest series (count, span, total); principal as a labelled estimate with its residual; the idle offset beyond the loan it shelters; and an **amortiser** — editable loan/offset/rate/repayment, defaulting to the facility's current figures, projecting the linked-offset payoff with an interest-vs-principal chart | `V2-MORTGAGE-PLAN.md` |
 | **Chains** | the balance check per account: forks with both sides, computed clearing openings, a `noop` preview | §6.7 |
 | **Cash** | a wallet's rows — transfers in/out, recorded spends/income and counts, newest first; a quick-add form for spend/income/count; the month's unrecorded figure at the top | `V2-CASH-PLAN.md` |
-| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`, **Clear** on any row — the upload goes, the log does not), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12). **Account guard** (§10): for each staged row the page runs the read-only `identify` job, one file at a time, and prefills the row's account from the single suggestion, marked *identified*, unless a person already picked another account; when the filename map names a different account the row shows an amber line naming both. A `failed` row the guard refused (found by its evidence id among the newest page of `/api/ingests`) shows the verdict and two actions — **Ingest as X** (when the verdict named one account; a plain `ingest` item for X) and **Ingest anyway** (the row's account, `guard: "off"`, after a confirm). In the ingest history an `unproven` batch carries an amber *no overlap — check this statement* and an `off` one a quiet *guard off*. The fetch-frontier table has a **Fetch from** column: the frontier minus 7 days, so the download overlaps rows already ingested (presentation only) | §10, §16, `V2-INGEST-FRONTIER-PLAN.md`, `V2-ACCOUNT-GUARD-PLAN.md` |
+| **Jobs** | the runner: staging inbox (**Ingest inbox**, `failed`, **Clear** on any row — the upload goes, the log does not), the egress Plan/Verify/Apply cards (ezbookkeeping live, Firefly dormant — §11.2/§11.1), snapshot, the ingest history (each row **Re-read**s its evidence: a preview, then a gated Apply) and fetch frontier, the ops strip, the config-drift strip (§12). **Account guard** (§10): for each staged row the page runs the read-only `identify` job, one file at a time — a row with no type is asked without one, so the type is detected — and prefills a detected type into a row that had none and the row's account from the single suggestion, each marked *identified*, unless a person already picked another account (a row whose type nobody could tell shows *type not recognised — pick one*; the `ingest-inbox` sweep never detects, it ingests only what `statements.yaml` names); when the filename map names a different account the row shows an amber line naming both. A `failed` row the guard refused (found by its evidence id among the newest page of `/api/ingests`) shows the verdict and two actions — **Ingest as X** (when the verdict named one account; a plain `ingest` item for X) and **Ingest anyway** (the row's account, `guard: "off"`, after a confirm). In the ingest history an `unproven` batch carries an amber *no overlap — check this statement* and an `off` one a quiet *guard off*. The fetch-frontier table has a **Fetch from** column: the frontier minus 7 days, so the download overlaps rows already ingested (presentation only). On a phone (≤ 720px) the inbox renders one card per file — name and **Clear**, then full-width **Type** and **Account** pickers, then status — and the ingest, frontier and history tables stack each row into label/value cards (presentation only) | §10, §16, `V2-INGEST-FRONTIER-PLAN.md`, `V2-ACCOUNT-GUARD-PLAN.md` |
 
 ### 9.4 Cash
 
@@ -803,9 +803,17 @@ tunnel or a TLS-terminating proxy — which also closes the `/mcp` seam above.
   the file against every account with current facts and prints the candidates and a `suggestion` —
   the single account that fits, else none. It writes nothing (no evidence, no events) and needs no
   account; it exits `0` whenever it ran (`1` for bad rows, `64` for usage). `--format json` prints one
-  line: `{file, sourceType, candidates: [{account, verdict: fits|contradicts|none, overlapRows,
+  line: `{file, sourceType, detected, candidates: [{account, verdict: fits|contradicts|none, overlapRows,
   overlapFrom, overlapTo, connects}], suggestion}` (`suggestion` null when none or several fit). It
   calls the same `AccountGuard.score` as the guard, so the suggestion and a refusal cannot disagree.
+  **Without `--source-type` it detects the type first** (`Adapters.detect`, pure): the type is the one
+  adapter that parses the whole file with no bad row and at least one row — the same test an ingest
+  applies, so a detected type is one the ingest accepts. The four shapes reject each other at the first
+  line (ING and BW by their headers, CBA CSV by having none, CBA PDF by its `%PDF-` bytes — only those
+  are offered to the PDF adapter). One type: the account is scored as above and the line carries
+  `detected: true`. None or several: still exit `0`, with `sourceType: null`, `detected: false`, the
+  matching `types`, no candidates and no suggestion, so the person picks the type. A given
+  `--source-type` is never second-guessed (`detected: false`). Ingest itself still needs a type.
 - **Evidence**: files are stored content-addressed (SHA-256) and never rewritten; a re-parse replays
   stored evidence, diffs it against the facts it produced, and (with `--apply`) posts the new facts
   plus `SUPERSEDE`/`RETIRE`.
@@ -1132,8 +1140,8 @@ scheduled run skips quietly. The runner passes `--journal` to every `ingest` it 
 one, so the guard runs on the sweep too; an `ingest` item may carry `guard: "off"` (and an `account`),
 which is how the Jobs page re-runs a refused file (§9.3). A staged file resolves in the inbox, `done/`
 or `failed/`; a manual ingest never moves it. The **`identify`** job (mode `read`, params `file` and
-`sourceType`, which defaults from `statements.yaml`) runs `ingest --identify --format json` over a
-staged file and nothing more; the hub triggers it per uploaded file and reads the JSON line from the
+`sourceType`, which defaults from `statements.yaml` and is otherwise left out, so the CLI detects it)
+runs `ingest --identify --format json` over a staged file and nothing more; the hub triggers it per uploaded file and reads the JSON line from the
 run's output, so the runner adds no composition and `ingest-inbox` stays the one allowed.
 
 **The staging inbox can be cleared.** `POST /staging/clear?name=` (the hub's `/api/jobs/staging/clear`,

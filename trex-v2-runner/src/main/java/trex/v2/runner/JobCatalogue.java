@@ -296,18 +296,19 @@ public final class JobCatalogue {
     }
 
     /**
-     * Ask the account guard which account a staged file belongs to (read-only). The hub triggers
-     * this when a file lands in the inbox and prefills the row's account from the one-line JSON it
+     * Ask which type and account a staged file belongs to (read-only). The hub triggers this when
+     * a file lands in the inbox and prefills the row's type and account from the one-line JSON it
      * prints; the runner only builds the argv. It writes nothing: no sequencer, no evidence, and
      * the file stays where it is.
      */
     static JobSpec identify(RunnerConfig config, StatementsMap statements, StagingStore staging) {
         List<JobParam> params = List.of(
             JobParam.of("file", "string", true, "the staged file name"),
-            JobParam.of("sourceType", "string", false, "the adapter; default from statements.yaml"));
-        return new JobSpec("identify", "Identify the account",
-            "Score a staged file against each account's current facts and print the best fit "
-                + "(V2-ACCOUNT-GUARD-PLAN.md).",
+            JobParam.of("sourceType", "string", false,
+                "the adapter; default from statements.yaml, else detected from the file"));
+        return new JobSpec("identify", "Identify the type and account",
+            "Detect a staged file's type when none is given, score it against each account's current "
+                + "facts and print the best fit (V2-ACCOUNT-GUARD-PLAN.md).",
             "read", params, p -> {
                 String file = text(p, "file");
                 if (file == null) {
@@ -324,19 +325,19 @@ public final class JobCatalogue {
                 if (sourceType == null) {
                     sourceType = statements.resolve(name).map(StatementsMap.Entry::sourceType).orElse(null);
                 }
-                if (sourceType == null) {
-                    throw new IllegalArgumentException("no source type for " + name + "; set one");
-                }
-                if (!Adapters.types().contains(sourceType)) {
+                if (sourceType != null && !Adapters.types().contains(sourceType)) {
                     throw new IllegalArgumentException("unknown source type '" + sourceType + "'");
                 }
                 if (config.journal() == null) {
                     throw new IllegalArgumentException("--journal is not configured");
                 }
-                return List.of(new Step(name, List.of("ingest", "--identify", "--format", "json",
-                    "--source-type", sourceType,
-                    "--journal", config.journal().toString(),
-                    path.toString())));
+                List<String> argv = new ArrayList<>(List.of("ingest", "--identify", "--format", "json"));
+                // Neither the person nor the map named a type: the CLI detects it from the file.
+                if (sourceType != null) {
+                    argv.addAll(List.of("--source-type", sourceType));
+                }
+                argv.addAll(List.of("--journal", config.journal().toString(), path.toString()));
+                return List.of(new Step(name, argv));
             });
     }
 

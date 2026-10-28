@@ -557,6 +557,51 @@ button.warn:hover { background: var(--warn-soft); }
 .tag.identified { margin-left: 0.35rem; cursor: help; }
 .guard-actions { margin: 0.3rem 0 0; gap: 0.3rem; }
 
+/* Jobs on a phone: each table row stacks into a card (jobs.js cards() copies the column heading
+   onto each cell as data-label), so nothing scrolls sideways. The staging inbox gets its own grid:
+   name and Clear on top, then full-width Type and Account pickers — what a phone upload touches. */
+@media (max-width: 720px) {
+  table.cards thead { display: none; }
+  table.cards, table.cards tbody, table.cards tr, table.cards td { display: block; }
+  table.cards tr { padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line); }
+  table.cards tbody tr:last-child { border-bottom: 0; }
+  table.cards tbody tr:hover td { background: none; }
+  table.cards td { border: 0; padding: 0.12rem 0; white-space: normal; overflow-wrap: anywhere; }
+  /* Label left, value right; a cell with several children (a badge and its note) keeps them all in
+     the value column, and a long label wraps in its own column instead of running into the next. */
+  table.cards:not(.staging-table) td[data-label]:not(:first-child):not(:empty) { display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr); gap: 0 0.5rem; align-items: baseline; }
+  table.cards:not(.staging-table) td[data-label] > * { grid-column: 2; justify-self: start; }
+  table.cards td::before { content: attr(data-label); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--muted); }
+  table.cards td:not([data-label])::before { content: none; }
+  table.cards td:first-child { display: block; font-weight: 600; }
+  table.cards td:first-child::before { content: none; }
+  table.cards td:empty { display: none; }
+
+  table.staging-table tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "tick file clear" "type type type" "account account account" "status status size";
+    gap: 0.35rem 0.6rem; align-items: center; }
+  table.staging-table td { padding: 0; font-weight: normal; }
+  table.staging-table .st-tick { grid-area: tick; }
+  table.staging-table .st-tick input { width: 1.25rem; height: 1.25rem; min-height: 0; }
+  table.staging-table .st-file { grid-area: file; font-weight: 600; }
+  table.staging-table .st-clear { grid-area: clear; }
+  table.staging-table .st-type { grid-area: type; }
+  table.staging-table .st-account { grid-area: account; }
+  table.staging-table .st-status { grid-area: status; }
+  table.staging-table .st-size { grid-area: size; text-align: right; }
+  table.staging-table .st-size::before { content: none; }
+  table.staging-table .st-type, table.staging-table .st-account {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.4rem; }
+  table.staging-table .st-type::before, table.staging-table .st-account::before { flex: 0 0 4.5rem; }
+  table.staging-table .st-type select, table.staging-table .st-account select { flex: 1 1 0; min-width: 0; }
+  table.staging-table .tag.identified { margin-left: 0; }
+  table.staging-table .guard-note { flex-basis: 100%; margin: 0 0 0 4.9rem; }
+  table.staging-table .st-file::before, table.staging-table .st-status::before { content: none; }
+  .drop-zone input[type="file"] { display: block; margin: 0.4rem auto 0; }
+}
+
 /* ---- Jobs: ops / staleness strip ---------------------------------------- */
 
 .ops { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; padding: 0.5rem 0.65rem;

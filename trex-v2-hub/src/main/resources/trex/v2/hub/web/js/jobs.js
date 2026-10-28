@@ -309,7 +309,7 @@ function renderStaging() {
     el('th', {}, selectAll), el('th', {}, 'File'), el('th', {}, 'Type'), el('th', {}, 'Account'),
     el('th', {}, 'Size'), el('th', {}, 'Status'), el('th', {}));
   const body = staged.map((file) => el('tr', { class: file.ingested ? 'read' : '' },
-    el('td', {}, el('input', {
+    el('td', { class: 'st-tick' }, el('input', {
       type: 'checkbox',
       checked: selected.has(file.name),
       onchange: (event) => {
@@ -317,19 +317,20 @@ function renderStaging() {
         syncSelection();
       },
     })),
-    el('td', { class: 'desc', title: file.original }, file.original),
-    el('td', {}, select(adapters, file.sourceType, (value) => {
+    el('td', { class: 'desc st-file', title: file.original }, file.original),
+    el('td', { class: 'st-type' }, select(adapters, file.sourceType, (value) => {
       file.sourceType = value;
       identified.delete(file.name); // the old answer was for the old type
-      identifyStaged(); // a row that had no type can be identified now
-    })),
-    el('td', {}, select((ctx.refdata.accounts || []).map((account) => account.ref), file.account,
+      identifyStaged(); // asked again with this type, or detected again when cleared to —
+    }), ...typeMarks(file)),
+    el('td', { class: 'st-account' }, select((ctx.refdata.accounts || []).map((account) => account.ref), file.account,
       (value) => { file.account = value; }), ...identifyMarks(file)),
-    el('td', { class: 'muted' }, humanSize(file.size)),
-    el('td', {}, statusCell(file)),
-    el('td', {}, el('button', { class: 'ghost', onclick: () => clearFiles([file]) }, 'Clear')),
+    el('td', { class: 'muted st-size' }, humanSize(file.size)),
+    el('td', { class: 'st-status' }, statusCell(file)),
+    el('td', { class: 'st-clear' }, el('button', { class: 'ghost', onclick: () => clearFiles([file]) }, 'Clear')),
   ));
-  stagingHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+  stagingHost.append(scroll(cards(el('table', { class: 'staging-table' },
+    el('thead', {}, head), el('tbody', {}, ...body)))));
   syncSelection();
 }
 
@@ -383,7 +384,8 @@ async function identifyStaged() {
   identifying = true;
   try {
     for (;;) {
-      const file = staged.find((f) => f.state === 'staged' && f.sourceType && !identified.has(f.name));
+      // A row with no type is asked too: the run detects the type from the file's shape.
+      const file = staged.find((f) => f.state === 'staged' && !identified.has(f.name));
       if (!file) break;
       let result = null;
       try {
@@ -405,7 +407,9 @@ async function identifyStaged() {
 
 /** One identify run's output lines; a run queued past the sync wait is polled to its end. */
 async function runIdentify(file) {
-  let detail = await api.runJobSync('identify', { file: file.name, sourceType: file.sourceType }, 30000);
+  const params = { file: file.name };
+  if (file.sourceType) params.sourceType = file.sourceType;
+  let detail = await api.runJobSync('identify', params, 30000);
   for (let tries = 0; !Array.isArray(detail.output) && tries < 300; tries++) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const next = await api.runDetail(detail.runId || detail.id);
@@ -435,12 +439,32 @@ function parseIdentify(output) {
 }
 
 /**
- * Prefill the suggestion over the statements.yaml match — but never over an account a person picked
- * by hand, which is any value other than the map's.
+ * Prefill the detected type into a row that has none, and the suggestion over the statements.yaml
+ * match — but never over an account a person picked by hand, which is any value other than the map's.
+ * A type is only ever detected for a row that had none (a typed row is asked with its type), so a
+ * person's or the map's type is never overwritten.
  */
 function applyIdentified(file) {
   const result = identified.get(file.name);
-  if (result && result.suggestion && file.account === file.mapAccount) file.account = result.suggestion;
+  if (!result) return;
+  if (result.detected && result.sourceType && !file.sourceType) file.sourceType = result.sourceType;
+  if (result.suggestion && file.account === file.mapAccount) file.account = result.suggestion;
+}
+
+/** The type cell's word: *identified* when detection chose it, a hint when nothing could. */
+function typeMarks(file) {
+  const result = identified.get(file.name);
+  if (!result) return [];
+  if (result.detected && file.sourceType === result.sourceType) {
+    return [el('span', { class: 'tag identified', title: 'detected from the file\'s shape' }, 'identified')];
+  }
+  if (!result.detected && !result.sourceType && !file.sourceType) {
+    const several = Array.isArray(result.types) && result.types.length > 1;
+    return [el('div', { class: 'guard-note' }, several
+      ? `several types read it (${result.types.join(', ')}) \u2014 pick one`
+      : 'type not recognised \u2014 pick one')];
+  }
+  return [];
 }
 
 /** The muted "identified" tag and, when the file's name points elsewhere, the amber marker. */
@@ -934,7 +958,7 @@ function renderIngests() {
       i.status || 'open'), ...guardMarks(i)),
     el('td', { class: 'muted' }, rel(i.completedMs || i.startedMs)),
     el('td', {}, reReadButton(i))));
-  ingestHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+  ingestHost.append(scroll(cards(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)))));
 }
 
 /**
@@ -1012,8 +1036,8 @@ function renderFrontier() {
       el('td', { class: 'muted' }, frontier ? `${date(frontier)} \u2192 ${date(today)}` : ''),
       el('td', { class: 'muted', title: FETCH_FROM_TITLE }, frontier ? date(fetchFrom(frontier)) : ''));
   });
-  frontierHost.append(scroll(el('table', { class: 'frontier-table' },
-    el('thead', {}, head), el('tbody', {}, ...body))));
+  frontierHost.append(scroll(cards(el('table', { class: 'frontier-table' },
+    el('thead', {}, head), el('tbody', {}, ...body)))));
 }
 
 const FETCH_FROM_TITLE = 'start the download a week before the frontier, so the file overlaps rows '
@@ -1053,7 +1077,7 @@ function renderHistory() {
       el('td', {}, el('button', { class: 'ghost', onclick: () => showRun(run.id) }, 'Output')),
     );
   });
-  historyHost.append(scroll(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body))));
+  historyHost.append(scroll(cards(el('table', {}, el('thead', {}, head), el('tbody', {}, ...body)))));
 }
 
 async function showRun(runId) {
@@ -1069,6 +1093,22 @@ async function showRun(runId) {
   } catch (error) {
     reportError(error);
   }
+}
+
+/**
+ * On a phone (app.css, max-width 720px) these tables stack each row into a card, and a cell can only
+ * name itself there if it carries its column's label: copy each heading onto its cells, so the
+ * desktop table and the markup stay one thing.
+ */
+function cards(table) {
+  table.classList.add('cards');
+  const labels = [...table.tHead.rows[0].cells].map((cell) => cell.textContent.trim());
+  for (const row of table.tBodies[0].rows) {
+    [...row.cells].forEach((cell, i) => {
+      if (labels[i]) cell.dataset.label = labels[i];
+    });
+  }
+  return table;
 }
 
 function humanSize(bytes) {
