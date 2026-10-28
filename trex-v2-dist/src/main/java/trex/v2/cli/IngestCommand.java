@@ -79,7 +79,8 @@ public final class IngestCommand implements Callable<Integer> {
     String accountGuard;
 
     @Option(names = "--identify",
-        description = "Print which account the FILE fits, from the journal, and write nothing.")
+        description = "Print which account the FILE fits, from the journal, and write nothing; "
+            + "without --source-type, detect the type first.")
     boolean identify;
 
     @Option(names = "--format", defaultValue = "text", description = "With --identify: text | json.")
@@ -94,13 +95,16 @@ public final class IngestCommand implements Callable<Integer> {
             System.out.println(String.join("\n", Adapters.types()));
             return 0;
         }
+        if (identify && sourceType == null) {
+            return identifyType();
+        }
         if (sourceType == null) {
             System.err.println("--source-type is required (known: " + Adapters.types() + ")");
             return IngestRunner.USAGE;
         }
         SourceAdapter adapter = Adapters.byType(sourceType);
         if (identify) {
-            return identify(adapter);
+            return identify(adapter, false);
         }
         if ("check".equals(accountGuard)) {
             return check(adapter);
@@ -158,8 +162,41 @@ public final class IngestCommand implements Callable<Integer> {
         return verdict.refuses() ? IngestRunner.GUARD_REFUSED : 0;
     }
 
+    /**
+     * {@code --identify} with no {@code --source-type}: the type is the one adapter that parses the
+     * whole FILE ({@link Adapters#detect}), then the account as usual. None or several is not an
+     * error — the run still exits 0 and says so, so the person picks the type by hand.
+     */
+    private Integer identifyType() throws Exception {
+        if (journal == null || file == null) {
+            System.err.println("--journal and FILE are required with --identify");
+            return IngestRunner.USAGE;
+        }
+        String name = file.getFileName().toString();
+        List<String> types = Adapters.detect(Files.readAllBytes(file), name);
+        if (types.size() == 1) {
+            sourceType = types.getFirst();
+            return identify(Adapters.byType(sourceType), true);
+        }
+        if ("json".equals(format)) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("file", name);
+            out.put("sourceType", null);
+            out.put("detected", false);
+            out.put("types", types);
+            out.put("candidates", List.of());
+            out.put("suggestion", null);
+            System.out.println(Json.mapper().writeValueAsString(out));
+        } else {
+            System.out.println(name + ": type not recognised"
+                + (types.isEmpty() ? " (no adapter parses it whole)" : " (several parse it: " + types + ")")
+                + "; pass --source-type");
+        }
+        return 0;
+    }
+
     /** {@code --identify}: which account's history the FILE continues; no account needed, nothing written. */
-    private Integer identify(SourceAdapter adapter) throws Exception {
+    private Integer identify(SourceAdapter adapter, boolean detected) throws Exception {
         if (journal == null || file == null) {
             System.err.println("--journal and FILE are required with --identify");
             return IngestRunner.USAGE;
@@ -176,14 +213,17 @@ public final class IngestCommand implements Callable<Integer> {
         List<AccountGuard.Score> scores = AccountGuard.score(parsed.candidates(), current);
         String name = file.getFileName().toString();
         if ("json".equals(format)) {
-            System.out.println(identifyJson(name, scores));
+            System.out.println(identifyJson(name, scores, detected));
         } else {
+            if (detected) {
+                System.out.println(name + ": type " + sourceType + " (detected)");
+            }
             GuardReport.identify(name, scores, current, parsed.candidates()).forEach(System.out::println);
         }
         return 0;
     }
 
-    private String identifyJson(String name, List<AccountGuard.Score> scores) throws Exception {
+    private String identifyJson(String name, List<AccountGuard.Score> scores, boolean detected) throws Exception {
         List<Map<String, Object>> candidates = new ArrayList<>();
         for (AccountGuard.Score s : scores) {
             Map<String, Object> c = new LinkedHashMap<>();
@@ -198,6 +238,7 @@ public final class IngestCommand implements Callable<Integer> {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("file", name);
         out.put("sourceType", sourceType);
+        out.put("detected", detected);
         out.put("candidates", candidates);
         out.put("suggestion", AccountGuard.suggestion(scores).orElse(null));
         return Json.mapper().writeValueAsString(out);

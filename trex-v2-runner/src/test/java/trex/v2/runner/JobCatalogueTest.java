@@ -284,9 +284,11 @@ class JobCatalogueTest {
         List<String> explicit = identify.steps().build(identifyParams(other.name(), "ing-csv")).get(0).argv();
         assertEquals("ing-csv", explicit.get(explicit.indexOf("--source-type") + 1));
 
-        IllegalArgumentException none = assertThrows(IllegalArgumentException.class,
-            () -> identify.steps().build(identifyParams(other.name(), null)));
-        assertTrue(none.getMessage().contains("no source type for Other.csv"), none.getMessage());
+        // No type from the person or the map: the CLI detects it, so the argv carries none.
+        assertEquals(List.of("ingest", "--identify", "--format", "json",
+            "--journal", dir.resolve("journal.jsonl").toString(),
+            dir.resolve("staging").resolve(other.name()).toString()),
+            identify.steps().build(identifyParams(other.name(), null)).get(0).argv());
         IllegalArgumentException unknown = assertThrows(IllegalArgumentException.class,
             () -> identify.steps().build(identifyParams(other.name(), "nope")));
         assertTrue(unknown.getMessage().contains("unknown source type"), unknown.getMessage());

@@ -76,6 +76,27 @@ class AccountGuardE2ETest {
             assertEquals("ing-orange", json.get("suggestion"));
             assertEquals(after, count(journal), "identify writes nothing");
 
+            // No --source-type: the type is detected from the file's shape, then the account as before.
+            Run detected = run(dir, "ingest", "--journal", journal.toString(),
+                "--identify", "--format", "json", second.toString());
+            assertEquals(0, detected.exit(), detected.out());
+            Map<?, ?> typed = Json.mapper().readValue(detected.out().strip(), Map.class);
+            assertEquals("ing-csv", typed.get("sourceType"));
+            assertEquals(true, typed.get("detected"));
+            assertEquals("ing-orange", typed.get("suggestion"));
+            assertEquals(false, json.get("detected"), "a given type is not a detected one");
+
+            // A file no adapter reads whole is not a failure: the person picks the type.
+            Path junk = Files.writeString(dir.resolve("junk.csv"), "hello, world\n");
+            Run unknown = run(dir, "ingest", "--journal", journal.toString(),
+                "--identify", "--format", "json", junk.toString());
+            assertEquals(0, unknown.exit(), unknown.out());
+            Map<?, ?> none = Json.mapper().readValue(unknown.out().strip(), Map.class);
+            assertNull(none.get("sourceType"));
+            assertEquals(false, none.get("detected"));
+            assertNull(none.get("suggestion"));
+            assertEquals(after, count(journal), "identify writes nothing");
+
             Run forced = run(dir, "ingest", "--source-type", "ing-csv", "--account", "ing-salary",
                 "--sequencer-url", url, "--evidence", dir.resolve("evidence").toString(),
                 "--journal", journal.toString(), "--account-guard=off", second.toString());

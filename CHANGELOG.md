@@ -9,6 +9,22 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **The Jobs inbox detects a statement's type** (`V2-SPEC.md` §9.3, §10, §12). `trex ingest
+  --identify` without `--source-type` finds the one adapter that parses the whole file cleanly
+  (`Adapters.detect`), then names the account as before; the `identify` job leaves the type out when
+  neither the person nor `statements.yaml` gives one. A staged file the map does not name — a CBA CSV, a
+  renamed or `(1)`-suffixed download — arrives with both its type and account prefilled, each marked
+  *identified*. UI only: the `ingest-inbox` sweep is unchanged. No derive, identity or unit change; the
+  ezbookkeeping view is unaffected.
+
+### Changed
+
+- **Jobs on a phone.** The staging inbox renders one card per file with full-width Type and Account
+  pickers, and the ingest, frontier and history tables stack into label/value cards, so nothing
+  scrolls sideways.
+
 ## [1.0.0] - 2026-10-27
 
 ### Added
