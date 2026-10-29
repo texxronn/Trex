@@ -172,6 +172,9 @@ services:
       - http://runner:8091
     environment:
       JAVA_TOOL_OPTIONS: ${TREX_JAVA_OPTS:--Xms64m -Xmx512m}
+      # Repeated, not inherited: a service's own environment block replaces the x-trex one, and
+      # the hub reads TREX_ENV for its header badge — without this line Prod would show DEV1.
+      TREX_ENV: ${TREX_ENV:-Dev1}
       TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
       # Sign-in (V2-SPEC.md §9.5). Unset = the hub is open, exactly as before (A-7). Point it at the
       # credential file created by `trex hub passwd` (docs/DEPLOYMENTS.md) to require a signed-in ron
