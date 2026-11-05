@@ -66,7 +66,7 @@ final class McpTools {
         add(map, "/api/review", Set.of("kind", "account"), McpTools::review);
         add(map, "/api/commitments", Set.of(), McpTools::commitments);
         add(map, "/api/commitments/activity", Set.of("id"), McpTools::activity);
-        add(map, "/api/expected", Set.of("window", "asOf"), McpTools::expected);
+        add(map, "/api/expected", Set.of("window", "month", "asOf"), McpTools::expected);
         add(map, "/api/accounts", Set.of("window", "granularity", "asOf"), McpTools::accounts);
         add(map, "/api/opening", Set.of(), McpTools::opening);
         add(map, "/api/reconcile", Set.of(), McpTools::reconcile);
@@ -113,7 +113,7 @@ final class McpTools {
             activityProps(), Set.of("id"), new String[] {"id"}, McpTools::activity));
         tools.put("trex_expected", tool("trex_expected",
             "The expected view: a window's occurrences, the arrears backlog and the totals",
-            expectedProps(), Set.of("window", "asOf"), new String[0], McpTools::expected));
+            expectedProps(), Set.of("window", "month", "asOf"), new String[0], McpTools::expected));
         tools.put("trex_accounts", tool("trex_accounts",
             "The accounts overview: per-account coverage and the newest ingest",
             accountsProps(), Set.of("window", "granularity", "asOf"), new String[0], McpTools::accounts));
@@ -188,7 +188,8 @@ final class McpTools {
 
     static JsonNode expected(HubApi api, JsonNode args) {
         return Json.mapper().valueToTree(
-            api.expected(McpArgs.optionalText(args, "window"), McpArgs.optionalDate(args, "asOf")));
+            api.expected(McpArgs.optionalText(args, "window"), McpArgs.optionalText(args, "month"),
+                McpArgs.optionalDate(args, "asOf")));
     }
 
     static JsonNode accounts(HubApi api, JsonNode args) {
@@ -356,7 +357,7 @@ final class McpTools {
 
     private static ObjectNode expectedProps() {
         ObjectNode p = Json.mapper().createObjectNode();
-        string(p, "window");
+        string(p, "window", "month");
         date(p, "asOf");
         return p;
     }

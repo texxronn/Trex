@@ -57,7 +57,7 @@ interface HubApi {
      * {@code week} or {@code month} (the default); {@code asOf} names the day the window is
      * measured from, or null for today.
      */
-    trex.v2.hub.api.ExpectedResponse expected(String window, java.time.LocalDate asOf);
+    trex.v2.hub.api.ExpectedResponse expected(String window, String month, java.time.LocalDate asOf);
 
     /**
      * The month's cash-flow sheet (V2-SPEC.md §9.2, V2-CASHFLOW-PLAN.md): Money In, Money Out and

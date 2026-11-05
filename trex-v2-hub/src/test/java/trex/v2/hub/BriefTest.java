@@ -89,7 +89,7 @@ class BriefTest {
             assertFalse(brief.reconcile().gaps().isEmpty(), "the fixture leaves a declared gap");
 
             // The month: the committed in/out and the arrears count, matching the Expected view.
-            ExpectedResponse expected = hub.expected("month", null);
+            ExpectedResponse expected = hub.expected("month", null, null);
             assertEquals(YearMonth.from(expected.from()).toString(), brief.expected().month());
             assertEquals(expected.totals().out(), brief.expected().committedOut());
             assertEquals(expected.totals().in(), brief.expected().committedIn());
@@ -113,7 +113,7 @@ class BriefTest {
             long brief = jsonLength(hub.brief());
             long parts = jsonLength(hub.review(null, null))
                 + jsonLength(hub.reconcile())
-                + jsonLength(hub.expected("month", null))
+                + jsonLength(hub.expected("month", null, null))
                 + jsonLength(hub.ingests(null));
             assertTrue(brief < parts,
                 "the brief (" + brief + " bytes) must be smaller than its parts (" + parts + ")");
