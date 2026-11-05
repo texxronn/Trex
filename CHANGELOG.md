@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-05
+
 ### Added
 - **Daily local archive on Prod1** (`V2-ARCHIVE-PLAN.md`, `docs/DEPLOYMENTS.md` "Daily archive"): the
   runner's `journal-snapshot` scheduled at 02:30 Sydney, and `trex-backup.timer` at 03:00 copying
