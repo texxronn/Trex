@@ -188,7 +188,7 @@ class HubAuthTest {
     private static HubService start(Path dir, Path configDir, Path journal, Path auth) {
         // The full twelve-component shape: sign-in on, named by the credential file (A-7).
         return HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
-            "127.0.0.1", 0, 50, null, null, null, null, HubConfig.DEFAULT_ASOF_REFRESH_MS, auth));
+            "127.0.0.1", 0, 50, null, null, null, null, HubConfig.DEFAULT_ASOF_REFRESH, auth));
     }
 
     private static URI base(HubService hub) {

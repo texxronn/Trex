@@ -122,7 +122,7 @@ class HubWhoamiTest {
 
     private static HubService readOnly(Path dir, Path configDir, Path journal, Path auth) {
         return HubService.start(new HubConfig(journal, dir.resolve("trex.sqlite"), configDir,
-            "127.0.0.1", 0, 50, null, null, null, null, HubConfig.DEFAULT_ASOF_REFRESH_MS, auth));
+            "127.0.0.1", 0, 50, null, null, null, null, HubConfig.DEFAULT_ASOF_REFRESH, auth));
     }
 
     private static HubService writer(Path dir, Path configDir, Path journal, SequencerService sequencer) {

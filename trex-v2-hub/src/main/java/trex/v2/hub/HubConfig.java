@@ -14,34 +14,33 @@ import java.nio.file.Path;
  */
 public record HubConfig(Path journal, Path index, Path configDir, String host, int port,
                         long refreshDebounceMs, String sequencerUrl, Path evidenceDir,
-                        String runnerUrl, String runnerToken, long refreshAsOfByMs, Path authFile) {
+                        String runnerUrl, String runnerToken, AsOfCadence asOfRefresh, Path authFile) {
 
     public static final long DEFAULT_DEBOUNCE_MS = 200;
 
     /**
-     * How often the refresher forces a full derive to advance {@code asOf} when no write has moved
-     * it (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). This is a full derive, so a shorter
-     * cadence keeps the time-driven outputs (pending aging, the time-relative review kinds,
-     * commitment faces) fresher at the cost of CPU; 60 s is the default.
+     * The default {@code asOf} refresh: a full derive when the UTC date turns
+     * (V2-ASOF-CADENCE-PLAN.md). Derive reads {@code asOf} only as a UTC date, so a finer timer
+     * reproduces identical output at the cost of CPU and index writes.
      */
-    public static final long DEFAULT_ASOF_REFRESH_MS = 60_000;
+    public static final AsOfCadence DEFAULT_ASOF_REFRESH = AsOfCadence.DAY;
 
     /** A read-only hub with no evidence store. */
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs) {
         this(journal, index, configDir, host, port, refreshDebounceMs, null, null, null, null,
-            DEFAULT_ASOF_REFRESH_MS, null);
+            DEFAULT_ASOF_REFRESH, null);
     }
 
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
                      String sequencerUrl) {
         this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, null, null, null,
-            DEFAULT_ASOF_REFRESH_MS, null);
+            DEFAULT_ASOF_REFRESH, null);
     }
 
     public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
                      String sequencerUrl, Path evidenceDir) {
         this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, evidenceDir, null, null,
-            DEFAULT_ASOF_REFRESH_MS, null);
+            DEFAULT_ASOF_REFRESH, null);
     }
 
     /**
@@ -52,7 +51,15 @@ public record HubConfig(Path journal, Path index, Path configDir, String host, i
                      String sequencerUrl, Path evidenceDir, String runnerUrl, String runnerToken,
                      long refreshAsOfByMs) {
         this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, evidenceDir,
-            runnerUrl, runnerToken, refreshAsOfByMs, null);
+            runnerUrl, runnerToken, AsOfCadence.everyMs(refreshAsOfByMs), null);
+    }
+
+    /** As the canonical shape, with the cadence given as a plain millisecond interval (0 is off). */
+    public HubConfig(Path journal, Path index, Path configDir, String host, int port, long refreshDebounceMs,
+                     String sequencerUrl, Path evidenceDir, String runnerUrl, String runnerToken,
+                     long refreshAsOfByMs, Path authFile) {
+        this(journal, index, configDir, host, port, refreshDebounceMs, sequencerUrl, evidenceDir,
+            runnerUrl, runnerToken, AsOfCadence.everyMs(refreshAsOfByMs), authFile);
     }
 
     public HubConfig {
@@ -65,8 +72,8 @@ public record HubConfig(Path journal, Path index, Path configDir, String host, i
         if (refreshDebounceMs < 0) {
             throw new IllegalArgumentException("refreshDebounceMs must be >= 0");
         }
-        if (refreshAsOfByMs < 0) {
-            throw new IllegalArgumentException("refreshAsOfByMs must be >= 0");
+        if (asOfRefresh == null) {
+            asOfRefresh = AsOfCadence.DAY;
         }
         if (sequencerUrl != null && !sequencerUrl.isBlank()
             && !(sequencerUrl.startsWith("http://") || sequencerUrl.startsWith("https://"))) {

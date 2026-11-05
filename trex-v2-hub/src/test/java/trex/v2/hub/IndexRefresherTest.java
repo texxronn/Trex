@@ -50,7 +50,7 @@ class IndexRefresherTest {
              Indexer indexer = Indexer.open(index, initial);
              HubQueries reads = new HubQueries(index, 1);
              IndexRefresher refresher = new IndexRefresher(journal, configDir, indexer, initial,
-                 20, 200, events, reads, null)) {
+                 20, AsOfCadence.everyMs(200), events, reads, null)) {
             await(() -> readMeta(index, "as_of") != null);
             String first = readMeta(index, "as_of");
             // A 200 ms cadence and the 1 s idle poll advance as_of with no write in between.
@@ -78,7 +78,7 @@ class IndexRefresherTest {
              Indexer indexer = Indexer.open(index, initial);
              HubQueries reads = new HubQueries(index, 1);
              IndexRefresher refresher = new IndexRefresher(journal, configDir, indexer, initial,
-                 20, 0, events, reads, null)) {
+                 20, AsOfCadence.OFF, events, reads, null)) {
             HubEvents.Change first = awaitChange(sub, c -> c.n() >= 1);
             assertTrue(first.patch().isEmpty(), "the initial full derive carries no patch");
 

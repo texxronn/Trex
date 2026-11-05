@@ -36,7 +36,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>The write clock and the time clock are decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3): a
  * row-scoped patch is {@code asOf}-independent and leaves {@code as_of} put, so a write no longer
  * advances {@code asOf}. While the loop polls, it also forces a full derive on
- * {@code asOfRefreshMs} so the time-driven outputs (pending aging, the time-relative review kinds,
+ * the {@link AsOfCadence} (default: the UTC date turn) so the time-driven outputs (pending aging, the time-relative review kinds,
  * commitment faces) stay current without a write.
  */
 final class IndexRefresher implements AutoCloseable {
@@ -48,7 +48,7 @@ final class IndexRefresher implements AutoCloseable {
     private final Path configDir;
     private final Indexer indexer;
     private final long debounceMs;
-    private final long asOfRefreshMs;
+    private final AsOfCadence asOfRefresh;
     private final WatchService watch;
     private final Thread worker;
     private final HubEvents events;
@@ -68,14 +68,14 @@ final class IndexRefresher implements AutoCloseable {
     private volatile boolean running = true;
 
     IndexRefresher(Path journal, Path configDir, Indexer indexer, DeriveConfig initial, long debounceMs,
-                   long asOfRefreshMs, HubEvents events, HubQueries reads, Path evidenceDir) {
+                   AsOfCadence asOfRefresh, HubEvents events, HubQueries reads, Path evidenceDir) {
         this.journal = journal.toAbsolutePath();
         this.journalDir = this.journal.getParent();
         this.configDir = configDir.toAbsolutePath();
         this.indexer = indexer;
         this.config = initial;
         this.debounceMs = debounceMs;
-        this.asOfRefreshMs = asOfRefreshMs;
+        this.asOfRefresh = asOfRefresh;
         this.events = events;
         this.reads = reads;
         this.evidenceDir = evidenceDir;
@@ -125,7 +125,8 @@ final class IndexRefresher implements AutoCloseable {
 
     private void loop() {
         refresh("initial");
-        long lastDerive = System.nanoTime();
+        // Wall clock, not nanoTime: the cadence compares UTC dates / aligned boundaries.
+        Instant lastDerive = Instant.now();
         while (running) {
             try {
                 WatchKey key = watch.poll(1, TimeUnit.SECONDS);
@@ -148,20 +149,19 @@ final class IndexRefresher implements AutoCloseable {
                         // Only a full derive moves as_of; a row-scoped patch does not, so the timer
                         // still owes the time-driven outputs an advance.
                         if (refresh(overflow ? "overflow" : "change")) {
-                            lastDerive = System.nanoTime();
+                            lastDerive = Instant.now();
                         }
                     }
                 }
                 // Advance the time clock even when no append has: patches are asOf-independent, so
                 // nothing else would ever move the time-driven outputs. Full derive per tick, so the
-                // cadence trades freshness for CPU (HubConfig.refreshAsOfByMs).
-                if (asOfRefreshMs > 0
-                    && System.nanoTime() - lastDerive >= TimeUnit.MILLISECONDS.toNanos(asOfRefreshMs)) {
+                // cadence trades freshness for CPU (HubConfig.asOfRefresh).
+                if (asOfRefresh.due(lastDerive, Instant.now())) {
                     if (withIndexWrite(() -> indexer.deriveNow(Instant.now()))) {
-                        log.debug("asOf advanced on the {} ms timer", asOfRefreshMs);
+                        log.debug("asOf advanced on the {} timer", asOfRefresh);
                         publish();
                     }
-                    lastDerive = System.nanoTime();
+                    lastDerive = Instant.now();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
