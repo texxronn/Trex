@@ -227,8 +227,13 @@ account's **frontier** — its newest current posted date at or before `asOf` �
 row-scoped decision (`USER_ACK`/`USER_UNACK`, `PIN`/`UNPIN`, `NOTE`, `DISMISS`) is `asOf`-independent
 and patches only the rows it names, leaving `as_of` put, so the write clock and the time clock are
 decoupled (V2-INCREMENTAL-REFRESH-PLAN.md §2.3, §5 slice 5). The hub re-derives to advance `asOf`
-after any structural write and on `HubConfig.refreshAsOfByMs` (default 60 s) when no write has; a
-shorter cadence keeps the time-driven outputs fresher at the cost of a full derive per tick.
+after any structural write and, when no write has, on a time cadence set by `TREX_ASOF_REFRESH` /
+`hub --asof-refresh`: `day` (the default; blank or unset is `day`) re-derives at the UTC day turn,
+`<n>m` / `<n>h` (n >= 1) at UTC-aligned boundaries (`1h` fires at :00), `off` never; a bad value
+exits 64. `day` loses nothing because `derive()` reads `asOf` only as a UTC date, so the time-driven
+outputs cannot change between turns, so on an idle hub the `as_of` stamp moves only at the turn (a structural write's full derive moves it too). The old fixed
+60 s tick made an idle hub spike ~67% CPU every minute and write ~40 MB/min to the index (measured on
+Prod1). A shorter cadence only costs a full derive per tick. Downstream (ezbookkeeping): none.
 
 **What the change delta carries.** The `/api/events` delta names the log head, the offset and the
 config/derive/hash revisions, and — when the move was a row-scoped patch — `patch`: the changed

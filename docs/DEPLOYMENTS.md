@@ -14,6 +14,7 @@ shell history. No secrets here. Add a section per host.
 | Compose source | `deploy/v2/compose.server.yml` (a copy at `/opt/trex/compose.yml`) |
 | Image | `trex/trex-v2:1.0.1` — tag pinned in `/opt/trex/.env` (`TREX_IMAGE_TAG`) |
 | Environment | `TREX_ENV` in `/opt/trex/.env` — the log envelope's `env` and the header badge (Dev1 / Prod1 / Prod-IN); at most 8 characters. This host is `Prod1` |
+| As-of refresh | `TREX_ASOF_REFRESH` in `/opt/trex/.env` — how often an idle hub re-derives to advance `asOf`: `day` (default, at the UTC day turn), `<n>m` / `<n>h` (UTC-aligned), or `off`. Leave it at `day` unless you need fresher time-relative outputs |
 | Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN, sign-in on), `trex-v2-runner-1` (compose network only) |
 | State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive`, `trex-v2_staging` |
 | History | promoted from Dev1 by volume copy on 2026-11-05 (n=7921); the pre-promotion state is in `/opt/trex/backups/pre-promote-20261105T034522` |
