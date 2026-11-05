@@ -12,10 +12,11 @@ shell history. No secrets here. Add a section per host.
 | Docker context | `trex` → `ssh://deploy@10.10.10.142` (`docker context inspect trex`) |
 | Layout | `/opt/trex/compose.yml`, `/opt/trex/config/*.yaml`, `/opt/trex/.env` |
 | Compose source | `deploy/v2/compose.server.yml` (a copy at `/opt/trex/compose.yml`) |
-| Image | `trex/trex-v2:0.1.0-SNAPSHOT` — tag pinned in `/opt/trex/.env` |
-| Environment | `TREX_ENV` in `/opt/trex/.env` — the log envelope's `env` and the header badge (Dev1 / Prod / Prod-IN); at most 8 characters |
-| Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN) |
-| State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive` |
+| Image | `trex/trex-v2:1.0.1` — tag pinned in `/opt/trex/.env` (`TREX_IMAGE_TAG`) |
+| Environment | `TREX_ENV` in `/opt/trex/.env` — the log envelope's `env` and the header badge (Dev1 / Prod1 / Prod-IN); at most 8 characters. This host is `Prod1` |
+| Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN, sign-in on), `trex-v2-runner-1` (compose network only) |
+| State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive`, `trex-v2_staging` |
+| History | promoted from Dev1 by volume copy on 2026-11-05 (n=7921); the pre-promotion state is in `/opt/trex/backups/pre-promote-20261105T034522` |
 
 ### Network exposure
 
@@ -42,12 +43,14 @@ and holds only PBKDF2 hashes and one `sessionSecret`.
 # as root on the host: create the file and its sessionSecret, then set each password.
 # `passwd` reads users.yaml (to refuse an unknown or inactive user), so mount the config too.
 docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
-  trex/trex-v2:0.1.0-SNAPSHOT \
+  trex/trex-v2:1.0.1 \
   hub passwd --auth /auth/auth.yaml --config /etc/trex --user ron
 docker run --rm -it -v /opt/trex/auth:/auth -v /opt/trex/config:/etc/trex:ro \
-  trex/trex-v2:0.1.0-SNAPSHOT \
+  trex/trex-v2:1.0.1 \
   hub passwd --auth /auth/auth.yaml --config /etc/trex --user mel
-chmod 600 /opt/trex/auth/auth.yaml        # root only
+# The hub runs as uid 1000, so the file is that user's, not root's: a root-owned 0600 file stops
+# the hub at startup (AccessDeniedException).
+chown -R 1000:1000 /opt/trex/auth && chmod 700 /opt/trex/auth && chmod 600 /opt/trex/auth/auth.yaml
 
 # compose mounts the directory read-only and passes the path through the environment:
 #   volumes:     - ${TREX_AUTH_DIR:-/opt/trex/auth}:/etc/trex-auth:ro
@@ -248,6 +251,37 @@ While prod is still a replica, later deltas — more review, further curation �
 own, the two logs diverge and prod becomes the log of record; from then on, streams are for
 backup and restore, not promotion.
 
+### Promoting by volume copy (the Prod1 cutover)
+
+The first cutover (2026-11-05) copied the Dev1 volumes instead of replaying the stream: prod held
+only the day-0 seed, so there was nothing to keep, and a byte copy is the log *as-is* — same `n`,
+same bytes, so `trex verify` on the host proves it. Lines written before the cutover keep their
+`env: Dev1` stamp (the log is never rewritten); lines written on the host stamp `Prod1`. Once prod
+writes on its own, the two logs diverge; a later promotion goes through the stream (above).
+
+On the dev machine, with the stack **stopped** so the copy is quiet:
+
+```sh
+docker stop trex-v2-runner-1 trex-v2-hub-1 trex-v2-sequencer-1
+mkdir promote && cd promote
+for v in journal evidence config; do
+  docker run --rm -v trex-v2_$v:/v:ro -v $PWD:/b alpine tar czf /b/dev1-$v.tgz -C /v .
+done
+docker save trex/trex-v2:1.0.1 | gzip > trex-v2-1.0.1.tar.gz   # the image dev runs
+cp ../deploy/v2/compose.server.yml compose.yml
+mkdir config && cp ../deploy/config/{accounts,users,categories,transfers,pins,firefly,ezb,cashflow,statements,sources,schedule,profiles,mortgages,sequencer}.yaml config/
+cp ../deploy/v2/promote-volumes.sh .
+sha256sum *.tgz *.tar.gz compose.yml > SHA256SUMS
+cd .. && tar cf promote.tar promote && scp promote.tar deploy@10.10.10.142:/tmp/
+```
+
+As root on the host: `cd /tmp && tar xf promote.tar && cd promote && bash promote-volumes.sh`. It
+backs up the host's compose, `.env`, config and volumes to `/opt/trex/backups/pre-promote-<ts>/`,
+wipes the volumes, installs the bundle, sets `TREX_IMAGE_TAG` and `TREX_ENV=Prod1` in `.env`,
+restores the three volumes (owned by uid 1000), starts the stack, and runs `verify` with the hub
+stopped. The index is not copied — the hub rebuilds it. Restart dev afterwards with
+`TREX_IMAGE_TAG=<tag> deploy/v2/dev.sh up` (`dev.sh` otherwise asks for the pom's snapshot tag).
+
 ### The drop folder (statements in, no clicks)
 
 The runner's `ingest-inbox` job ingests every settled file in the staging inbox that
@@ -282,6 +316,10 @@ done
 ```
 
 ### Gotchas already paid for
+
+- **`verify` needs the index to itself.** The running hub holds the index lock, so
+  `docker compose run --rm verify` fails with "the index is locked (is trex-hub running?)". Stop the
+  hub and runner first, verify, then `docker compose up -d` (2026-11-05).
 
 - **Rebuild the shaded jar from `clean`.** An incremental `mvn package` once kept a stale
   `trex/v2/core/Ids.class` in `trex-v2-dist/target/trex-v2.jar` while the module jars were current
