@@ -53,6 +53,7 @@ class AsOfCadenceTest {
         assertEquals(AsOfCadence.DAY, AsOfCadence.parse(" DAY "));
         assertEquals(AsOfCadence.OFF, AsOfCadence.parse("Off"));
         assertEquals("15m", AsOfCadence.parse(" 15M ").toString());
+        assertEquals("15m", AsOfCadence.parse("015m").toString());
         assertEquals("1h", AsOfCadence.parse("1H").toString());
         assertEquals(3_600_000L, AsOfCadence.parse("1h").intervalMs());
     }

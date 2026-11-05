@@ -231,7 +231,7 @@ after any structural write and, when no write has, on a time cadence set by `TRE
 `hub --asof-refresh`: `day` (the default; blank or unset is `day`) re-derives at the UTC day turn,
 `<n>m` / `<n>h` (n >= 1) at UTC-aligned boundaries (`1h` fires at :00), `off` never; a bad value
 exits 64. `day` loses nothing because `derive()` reads `asOf` only as a UTC date, so the time-driven
-outputs cannot change between turns and the `as_of` stamp moves only at the turn. The old fixed
+outputs cannot change between turns, so on an idle hub the `as_of` stamp moves only at the turn (a structural write's full derive moves it too). The old fixed
 60 s tick made an idle hub spike ~67% CPU every minute and write ~40 MB/min to the index (measured on
 Prod1). A shorter cadence only costs a full derive per tick. Downstream (ezbookkeeping): none.
 

@@ -155,11 +155,21 @@ final class IndexRefresher implements AutoCloseable {
                 // nothing else would ever move the time-driven outputs. Full derive per tick, so the
                 // cadence trades freshness for CPU (HubConfig.asOfRefresh).
                 if (asOfRefresh.due(lastDerive, Instant.now())) {
-                    if (withIndexWrite(() -> indexer.deriveNow(Instant.now()))) {
-                        log.debug("asOf advanced on the {} timer", asOfRefresh);
-                        publish();
+                    try {
+                        if (withIndexWrite(() -> indexer.deriveNow(Instant.now()))) {
+                            log.debug("asOf advanced on the {} timer", asOfRefresh);
+                            publish();
+                        }
+                        lastDerive = lastDeriveAsOf();
+                    } catch (RuntimeException e) {
+                        // This thread also applies writes: letting the throw escape would end it and
+                        // freeze the index silently. as_of did not move, so without resetting
+                        // lastDerive the cadence would stay due and retry a full derive every poll;
+                        // waiting for the next boundary bounds the cost of a persistent failure.
+                        log.error("asOf timer derive failed; retrying at the next {} boundary",
+                                asOfRefresh, e);
+                        lastDerive = Instant.now();
                     }
-                    lastDerive = lastDeriveAsOf();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

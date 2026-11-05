@@ -23,6 +23,12 @@ import java.util.regex.Pattern;
  */
 public record AsOfCadence(long intervalMs, String label) {
 
+    public AsOfCadence {
+        if (intervalMs < 0) {
+            throw new IllegalArgumentException("intervalMs must be >= 0, got " + intervalMs);
+        }
+    }
+
     private static final long DAY_MS = 86_400_000L;
     private static final Pattern FORM = Pattern.compile("(\\d+)([mh])");
 
@@ -47,7 +53,7 @@ public record AsOfCadence(long intervalMs, String label) {
                 long n = Long.parseLong(m.group(1));
                 long unit = m.group(2).equals("m") ? 60_000L : 3_600_000L;
                 if (n >= 1 && n <= Long.MAX_VALUE / unit) {
-                    return new AsOfCadence(n * unit, v);
+                    return new AsOfCadence(n * unit, n + m.group(2));
                 }
             } catch (NumberFormatException ignored) {
                 // an absurdly long digit string: falls through to the refusal below
