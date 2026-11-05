@@ -118,8 +118,8 @@ function render() {
   host.append(errorBar, el('div', { class: 'toolbar' }, tabs(), ...stepper()));
   // The since-clear line sits above the occurrences (QOL §5), from the visit's cached read. It
   // drops the "left this month" text — that figure lives in Cash flow now; the Blotter keeps it.
-  const notice = since.line({ left: false });
-  if (notice) host.append(notice);
+  const sinceLine = since.line({ left: false });
+  if (sinceLine) host.append(sinceLine);
   if (!data) {
     host.append(el('p', { class: 'muted' }, 'Loading…'));
     return;
