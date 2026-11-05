@@ -123,7 +123,7 @@ final class HubHttpApi {
             try {
                 String query = ex.getRequestURI().getQuery();
                 String asOf = param(query, "asOf");
-                write(ex, 200, api.expected(param(query, "window"),
+                write(ex, 200, api.expected(param(query, "window"), param(query, "month"),
                     asOf == null ? null : java.time.LocalDate.parse(asOf)));
             } catch (IllegalArgumentException | java.time.DateTimeException e) {
                 sendError(ex, 422, e.getMessage());

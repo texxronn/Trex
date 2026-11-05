@@ -382,21 +382,64 @@ public final class HubService implements HubApi, AutoCloseable {
      * as the default measurement day, exactly as {@link #accounts}.
      */
     @Override
-    public trex.v2.hub.api.ExpectedResponse expected(String window, LocalDate asOf) {
+    public trex.v2.hub.api.ExpectedResponse expected(String window, String month, LocalDate asOf) {
         String win = window == null || window.isBlank() ? "month" : window;
+        String stepped = month == null || month.isBlank() ? null : month;
         LocalDate at = asOf == null ? LocalDate.now() : asOf;
-        Period.Range range = switch (win) {
-            case "today" -> Period.bounds(at.toString());
-            case "week" -> Period.bounds(Period.weekKey(at));
-            case "month" -> Period.bounds(YearMonth.from(at).toString());
+        if (stepped != null && !win.equals("month")) {
+            throw new IllegalArgumentException("month is valid only with window=month");
+        }
+        String minMonth = null;
+        String maxMonth = null;
+        Period.Range range;
+        switch (win) {
+            case "today" -> range = Period.bounds(at.toString());
+            case "week" -> range = Period.bounds(Period.weekKey(at));
+            case "month" -> {
+                // The bounds follow the day the occurrence rows were generated at: the index's as_of
+                // (it matches the wall clock but for a minute around midnight), unless the caller
+                // pinned asOf. The stepped month only moves the range; everything else stays at `at`.
+                LocalDate boundsAt = asOf != null ? asOf : indexAsOf().orElse(at);
+                LocalDate past = boundsAt.minusMonths(PAST_MONTHS);
+                YearMonth min = past.getDayOfMonth() == 1 ? YearMonth.from(past) : YearMonth.from(past).plusMonths(1);
+                YearMonth max = YearMonth.from(boundsAt.plusDays(HORIZON_DAYS));
+                YearMonth ym = stepped == null ? YearMonth.from(at) : parseMonth(stepped);
+                if (stepped != null && (ym.isBefore(min) || ym.isAfter(max))) {
+                    throw new IllegalArgumentException(
+                        "month must be between " + min + " and " + max + ", not '" + stepped + "'");
+                }
+                minMonth = min.toString();
+                maxMonth = max.toString();
+                stepped = ym.toString();
+                range = Period.bounds(stepped);
+            }
             default -> throw new IllegalArgumentException(
                 "window must be today, week or month, not '" + win + "'");
-        };
+        }
         // The manual-pay toPay read is measured at the same day as the window: the explicit asOf when
         // given, else the hub's today. So the strip and the list never disagree for a given asOf.
         ExpectedResponse base = reads.expected(win, range, at);
         return new ExpectedResponse(base.window(), base.from(), base.to(), base.occurrences(), base.arrears(),
-            base.totals(), monthHeadroom(at), base.toPay());
+            base.totals(), monthHeadroom(at), base.toPay(), stepped, minMonth, maxMonth);
+    }
+
+    /** The occurrence span the matcher generates (CommitmentMatcher.PAST_MONTHS / HORIZON_DAYS). */
+    private static final int PAST_MONTHS = 12;
+    private static final int HORIZON_DAYS = 92;
+
+    private static YearMonth parseMonth(String month) {
+        if (!month.matches("\\d{4}-(0[1-9]|1[0-2])")) {
+            throw new IllegalArgumentException("month must be YYYY-MM, not '" + month + "'");
+        }
+        return YearMonth.parse(month);
+    }
+
+    /**
+     * The day the index's occurrence rows were last generated at, if it has derived at all. The
+     * meta value is the derive's instant; the matcher reads its UTC date.
+     */
+    private java.util.Optional<LocalDate> indexAsOf() {
+        return indexer.meta("as_of").map(v -> java.time.Instant.parse(v).atZone(java.time.ZoneOffset.UTC).toLocalDate());
     }
 
     /**
@@ -929,7 +972,7 @@ public final class HubService implements HubApi, AutoCloseable {
         BriefResponse.ReconcileSummary reconcile = new BriefResponse.ReconcileSummary(
             reconciliation.ok(), gaps);
 
-        ExpectedResponse month = expected("month", null);
+        ExpectedResponse month = expected("month", null, null);
         BriefResponse.ExpectedSummary expected = new BriefResponse.ExpectedSummary(
             month.from() == null ? null : YearMonth.from(month.from()).toString(),
             month.totals().out(), month.totals().in(), month.arrears().size());

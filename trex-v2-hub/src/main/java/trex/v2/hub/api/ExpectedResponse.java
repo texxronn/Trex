@@ -7,15 +7,25 @@ import java.util.List;
  * The Expected view (V2-COMMITMENTS-PLAN.md §2.8): the materialised occurrences whose due date
  * falls inside a calendar window, each joined to its commitment; the arrears backlog across every
  * commitment, oldest first, with a running total; and the window's committed totals by direction.
+ * For {@code window=month}, {@code month} is the month read ({@code YYYY-MM}) and
+ * {@code minMonth}/{@code maxMonth} the first wholly generated and the last reachable month the
+ * Expected screen can step to (V2-EXPECTED-MONTH-PLAN.md); all three are null for today/week.
  */
 public record ExpectedResponse(String window, LocalDate from, LocalDate to,
                                List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
-                               Headroom headroom, List<ToPay> toPay) {
+                               Headroom headroom, List<ToPay> toPay,
+                               String month, String minMonth, String maxMonth) {
 
     public ExpectedResponse(String window, LocalDate from, LocalDate to,
                             List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
                             Headroom headroom) {
         this(window, from, to, occurrences, arrears, totals, headroom, List.of());
+    }
+
+    public ExpectedResponse(String window, LocalDate from, LocalDate to,
+                            List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
+                            Headroom headroom, List<ToPay> toPay) {
+        this(window, from, to, occurrences, arrears, totals, headroom, toPay, null, null, null);
     }
 
     /**
