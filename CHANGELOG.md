@@ -9,6 +9,17 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **Expected steps months** (`V2-SPEC.md` §9, §9.3; `V2-EXPECTED-MONTH-PLAN.md`). The This-month
+  window has a `‹ month ›` stepper, so last month's tail can still be checked after the calendar
+  turns. `GET /api/expected` takes `month=YYYY-MM` (with `window=month`), returns `month`,
+  `minMonth`, `maxMonth` and `generatedTo`, and refuses a month outside the generated span with 422;
+  the MCP `trex_expected` tool takes `month` too. Only the occurrences and their totals move — Manual
+  payments, Catch up and headroom stay at today — and a past month shows today's statuses (hindsight),
+  not a snapshot. A read-side filter over existing index rows: no derive, identity or unit change; the
+  ezbookkeeping view is unaffected.
+
 ## [1.0.1] - 2026-10-28
 
 ### Added
