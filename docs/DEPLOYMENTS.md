@@ -389,6 +389,11 @@ docker compose up -d runner                                                     
 
 Then the Jobs page's ezbookkeeping card: **Plan**, **Apply**, **Verify** (verify must be clean).
 
+**Changing the ezbookkeeping password revokes every API token**, so the egress starts failing
+`401 current token is invalid`. Rotate in this order: `userdata user-modify-password -n ron -p …`,
+then a fresh `user-session-new` token, then update `EZB_PASSWORD` and `EZB_TOKEN` in `.env` and
+`docker compose up -d runner`.
+
 **Kept fresh daily** — an `egress-ezb` apply entry in the live `schedule.yaml` (restart the runner
 after an edit), after the 02:30 snapshot and the 03:00 backup. The view only moves when the book
 does (an ingest, a decision), so hourly was noise; after an ingest or a curation session, the Jobs
