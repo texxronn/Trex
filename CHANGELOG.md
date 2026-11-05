@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-05
+
 ### Added
 
 - **Expected steps months** (`V2-SPEC.md` §9, §9.3; `V2-EXPECTED-MONTH-PLAN.md`). The This-month
