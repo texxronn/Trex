@@ -9,6 +9,14 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- **The idle hub no longer re-derives every minute** (`V2-SPEC.md` "When `asOf` advances";
+  `V2-ASOF-CADENCE-PLAN.md`). The fixed 60 s tick made an idle hub spike ~67% CPU each minute and
+  write ~40 MB/min to the index on Prod1. The cadence is now `TREX_ASOF_REFRESH` / `hub
+  --asof-refresh`: `day` (default, UTC day turn), `<n>m` / `<n>h`, or `off`. `derive()` reads `asOf`
+  only as a UTC date, so nothing is lost; the ezbookkeeping view is unaffected.
+
 ## [1.0.2] - 2026-11-05
 
 ### Added
