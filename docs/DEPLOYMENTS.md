@@ -12,7 +12,7 @@ shell history. No secrets here. Add a section per host.
 | Docker context | `trex` → `ssh://deploy@10.10.10.142` (`docker context inspect trex`) |
 | Layout | `/opt/trex/compose.yml`, `/opt/trex/config/*.yaml`, `/opt/trex/.env` |
 | Compose source | `deploy/v2/compose.server.yml` (a copy at `/opt/trex/compose.yml`) |
-| Image | `trex/trex-v2:1.0.3` — tag pinned in `/opt/trex/.env` (`TREX_IMAGE_TAG`) |
+| Image | `trex/trex-v2:1.0.4` — tag pinned in `/opt/trex/.env` (`TREX_IMAGE_TAG`) |
 | Environment | `TREX_ENV` in `/opt/trex/.env` — the log envelope's `env` and the header badge (Dev1 / Prod1 / Prod-IN); at most 8 characters. This host is `Prod1` |
 | As-of refresh | `TREX_ASOF_REFRESH` in `/opt/trex/.env` — how often an idle hub re-derives to advance `asOf`: `day` (default, at the UTC day turn), `<n>m` / `<n>h` (UTC-aligned), or `off`. Leave it at `day` unless you need fresher time-relative outputs |
 | Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN, sign-in on), `trex-v2-runner-1` (compose network only), `trex-v2-ezb-1` on `0.0.0.0:8095` (LAN, ezbookkeeping's own sign-in) |
@@ -389,15 +389,17 @@ docker compose up -d runner                                                     
 
 Then the Jobs page's ezbookkeeping card: **Plan**, **Apply**, **Verify** (verify must be clean).
 
-**Kept fresh by the schedule** — an `egress-ezb` apply entry in the live `schedule.yaml` (restart
-the runner after an edit). A re-apply is idempotent and takes seconds; during it the view is briefly
-empty.
+**Kept fresh daily** — an `egress-ezb` apply entry in the live `schedule.yaml` (restart the runner
+after an edit), after the 02:30 snapshot and the 03:00 backup. The view only moves when the book
+does (an ingest, a decision), so hourly was noise; after an ingest or a curation session, the Jobs
+page's **Apply** refreshes it on demand. A re-apply is idempotent and takes seconds; during it the
+view is briefly empty.
 
 ```yaml
   - job: egress-ezb
     params: { mode: apply }
-    every: 1h
-    at: "00:20"
+    every: 24h
+    at: "03:30"
     zone: Australia/Sydney
 ```
 
