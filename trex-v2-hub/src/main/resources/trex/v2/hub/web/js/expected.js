@@ -27,6 +27,7 @@ let win = localStorage.getItem('trex.expected.window') || 'month';
 // never stored — a fresh open of the tab shows the current month. null = let the hub pick it.
 let month = null;
 let data = null;       // the /api/expected response
+let notice = null;     // an error message that must survive the re-render of a recovery reload
 let registry = [];     // /api/commitments
 let stale = [];        // /api/status stale accounts, oldest first (V2-QOL-IMPROVEMENTS-PLAN.md §2)
 let serverToday = null; // /api/status today: the hub's own day, so "N days left" never guesses (§9.1)
@@ -56,6 +57,11 @@ export function mount(container, context) {
   if (requested && WINDOWS[requested]) win = requested;
   const requestedMonth = context.modeQuery && context.modeQuery.get('month');
   month = /^\d{4}-\d{2}$/.test(requestedMonth || '') ? requestedMonth : null;
+  // A month with no window param is a month link: read the This-month window for this visit, but
+  // do not store that as the device's window preference.
+  if (month && !requested) win = 'month';
+  data = null; // a remount must not render the previous visit's stepper before its read lands
+  notice = null;
   scrollToPay = !!(context.modeQuery && context.modeQuery.get('section') === 'to-pay');
   if (scrollToPay) openSections.occurrences = true;
   if (!WINDOWS[win]) win = 'month';
@@ -82,9 +88,18 @@ async function load() {
     }));
     stale = (status && status.stale) || [];
     serverToday = (status && status.today) || null;
-    errorBar.hidden = true;
+    errorBar.hidden = !notice;
+    if (notice) errorBar.textContent = notice;
   } catch (error) {
     if (generation !== loadGeneration) return;
+    if (error.status === 422 && win === 'month' && month) {
+      // A month the hub refuses (outside the generated span, or hand-typed in the URL): fall back
+      // to its current month once, and keep the message so the jump is explained.
+      notice = error.message || 'that month is outside the expected span';
+      month = null;
+      writeUrl();
+      return load();
+    }
     errorBar.textContent = error.message || 'failed to load the expected view';
     errorBar.hidden = false;
     return;
@@ -99,7 +114,7 @@ async function load() {
 
 function render() {
   clear(host);
-  errorBar = el('div', { class: 'error', hidden: true });
+  errorBar = el('div', { class: 'error', hidden: !notice }, notice || '');
   host.append(errorBar, el('div', { class: 'toolbar' }, tabs(), ...stepper()));
   // The since-clear line sits above the occurrences (QOL §5), from the visit's cached read. It
   // drops the "left this month" text — that figure lives in Cash flow now; the Blotter keeps it.
@@ -120,6 +135,7 @@ function tabs() {
       onclick: () => {
         if (value === win) return;
         win = value;
+        notice = null;
         month = null; // the month belongs to This month alone; leaving it drops it
         localStorage.setItem('trex.expected.window', win);
         writeUrl();
@@ -152,13 +168,15 @@ function stepper() {
 }
 
 function step(delta) {
-  const first = new Date(`${data.month}-01T00:00:00Z`);
+  // From the month already requested, else the one on screen, so rapid clicks accumulate.
+  const first = new Date(`${month || data.month}-01T00:00:00Z`);
   first.setUTCMonth(first.getUTCMonth() + delta);
   goTo(first.toISOString().slice(0, 7));
 }
 
 /** Stepping rewrites the URL in place and re-reads; null returns to the hub's current month. */
 function goTo(key) {
+  notice = null;
   month = key;
   writeUrl();
   load();
@@ -195,6 +213,9 @@ function occurrences() {
     el('span', { class: 'muted' },
       ` · ${shown || WINDOWS[data.window] || data.window} · ${rows.length}`),
     past ? el('span', { class: 'muted' }, ' · statuses as of today') : null,
+    // The newest month is complete only up to the last generated due date.
+    shown && data.generatedTo && data.month === data.maxMonth
+      ? el('span', { class: 'muted' }, ` · generated to ${data.generatedTo}`) : null,
     (data.toPay || []).length
       ? el('span', { class: 'occ-partial' }, ` · ${(data.toPay || []).length} to pay`) : null];
   const body = [manualPayments(), rows.length
