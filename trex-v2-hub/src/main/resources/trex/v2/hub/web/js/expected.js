@@ -23,6 +23,9 @@ const WINDOWS = { today: 'Today', week: 'This week', month: 'This month' };
 let host;
 let ctx;
 let win = localStorage.getItem('trex.expected.window') || 'month';
+// The month the This-month window reads: a URL concern only (#expected?window=month&month=YYYY-MM),
+// never stored — a fresh open of the tab shows the current month. null = let the hub pick it.
+let month = null;
 let data = null;       // the /api/expected response
 let registry = [];     // /api/commitments
 let stale = [];        // /api/status stale accounts, oldest first (V2-QOL-IMPROVEMENTS-PLAN.md §2)
@@ -51,9 +54,12 @@ export function mount(container, context) {
   // device preference for this visit, like the other modes' query params.
   const requested = context.modeQuery && context.modeQuery.get('window');
   if (requested && WINDOWS[requested]) win = requested;
+  const requestedMonth = context.modeQuery && context.modeQuery.get('month');
+  month = /^\d{4}-\d{2}$/.test(requestedMonth || '') ? requestedMonth : null;
   scrollToPay = !!(context.modeQuery && context.modeQuery.get('section') === 'to-pay');
   if (scrollToPay) openSections.occurrences = true;
   if (!WINDOWS[win]) win = 'month';
+  if (win !== 'month') month = null;
   render();
   load();
   return { refresh: load };
@@ -64,7 +70,7 @@ async function load() {
   try {
     // The status read fails open: the nudge is a nicety, not a reason to blank the whole view.
     const [expected, commitments, status] = await Promise.all([
-      api.expected(win), api.commitments(), api.status().catch(() => null)]);
+      api.expected(win, win === 'month' ? month : null), api.commitments(), api.status().catch(() => null)]);
     if (generation !== loadGeneration) return; // superseded: a newer load owns the view
     data = expected;
     registry = commitments.map((commitment) => ({
@@ -94,7 +100,7 @@ async function load() {
 function render() {
   clear(host);
   errorBar = el('div', { class: 'error', hidden: true });
-  host.append(errorBar, el('div', { class: 'toolbar' }, tabs()));
+  host.append(errorBar, el('div', { class: 'toolbar' }, tabs(), ...stepper()));
   // The since-clear line sits above the occurrences (QOL §5), from the visit's cached read. It
   // drops the "left this month" text — that figure lives in Cash flow now; the Blotter keeps it.
   const notice = since.line({ left: false });
@@ -114,10 +120,64 @@ function tabs() {
       onclick: () => {
         if (value === win) return;
         win = value;
+        month = null; // the month belongs to This month alone; leaving it drops it
         localStorage.setItem('trex.expected.window', win);
+        writeUrl();
         load();
       },
     }, label)));
+}
+
+// ---- the month stepper ------------------------------------------------------------------------
+// The look and markup of the Cash flow stepper (cashflow.js), its month-key helpers copied rather
+// than imported: modes do not import each other.
+
+/** ‹ label › and a "this month" link, only on the This-month window and once a read has landed. */
+function stepper() {
+  if (win !== 'month' || !data || !data.month) return [];
+  const key = data.month;
+  const current = serverToday ? serverToday.slice(0, 7) : null;
+  return [
+    el('button', { type: 'button', title: 'Previous month', disabled: key <= data.minMonth,
+      onclick: () => step(-1) }, '\u2039'),
+    el('span', { class: 'period muted' }, monthLabel(key)),
+    el('button', { type: 'button', title: 'Next month', disabled: key >= data.maxMonth,
+      onclick: () => step(1) }, '\u203a'),
+    current && key !== current
+      ? el('a', { href: '#expected?window=month', onclick: (e) => {
+        e.preventDefault();
+        goTo(null);
+      } }, 'this month') : null,
+  ];
+}
+
+function step(delta) {
+  const first = new Date(`${data.month}-01T00:00:00Z`);
+  first.setUTCMonth(first.getUTCMonth() + delta);
+  goTo(first.toISOString().slice(0, 7));
+}
+
+/** Stepping rewrites the URL in place and re-reads; null returns to the hub's current month. */
+function goTo(key) {
+  month = key;
+  writeUrl();
+  load();
+}
+
+/**
+ * history.replaceState, never location.hash: a hash assignment fires `hashchange` and the router
+ * would remount the mode on every step. Only the window and month are written back, so a one-shot
+ * ?section=to-pay deep link is consumed by the visit that followed it.
+ */
+function writeUrl() {
+  const params = new URLSearchParams({ window: win });
+  if (win === 'month' && month) params.set('month', month);
+  history.replaceState(null, '', '#expected?' + params.toString());
+}
+
+function monthLabel(key) {
+  return new Date(`${key}-01T00:00:00Z`)
+    .toLocaleString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
 // ---- the window's occurrences -----------------------------------------------------------------
@@ -128,13 +188,18 @@ function occurrences() {
   const declared = new Set(registry.filter((c) => c.origin === 'declared')
     .map((c) => c.commitmentId));
   const rows = (data.occurrences || []).filter((o) => declared.has(o.commitmentId));
+  // With a month shown, the header names it; a past month's statuses are still read as of today.
+  const shown = data.window === 'month' && data.month ? monthLabel(data.month) : null;
+  const past = shown && serverToday && data.month < serverToday.slice(0, 7);
   const head = ['Occurrences',
-    el('span', { class: 'muted' }, ` · ${WINDOWS[data.window] || data.window} · ${rows.length}`),
+    el('span', { class: 'muted' },
+      ` · ${shown || WINDOWS[data.window] || data.window} · ${rows.length}`),
+    past ? el('span', { class: 'muted' }, ' · statuses as of today') : null,
     (data.toPay || []).length
       ? el('span', { class: 'occ-partial' }, ` · ${(data.toPay || []).length} to pay`) : null];
   const body = [manualPayments(), rows.length
     ? occurrencePanels(rows)
-    : el('p', { class: 'muted' }, 'Nothing due in this window.')];
+    : el('p', { class: 'muted' }, shown ? `Nothing due in ${shown}.` : 'Nothing due in this window.')];
   return fold('occurrences', head, body);
 }
 

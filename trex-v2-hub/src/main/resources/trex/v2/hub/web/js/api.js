@@ -48,8 +48,13 @@ export const api = {
   units: () => request('GET', '/api/units'),
   commitments: () => request('GET', '/api/commitments'),
   activity: (id) => request('GET', '/api/commitments/activity?' + new URLSearchParams({ id })),
-  expected: (window) => request('GET', '/api/expected'
-    + (window ? '?' + new URLSearchParams({ window }) : '')),
+  expected: (window, month) => {
+    const params = new URLSearchParams();
+    if (window) params.set('window', window);
+    if (month) params.set('month', month);
+    const query = params.toString();
+    return request('GET', '/api/expected' + (query ? '?' + query : ''));
+  },
   cashflow: (month, { view, exclude } = {}) => {
     const params = new URLSearchParams();
     if (month) params.set('month', month);
