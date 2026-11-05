@@ -4,7 +4,7 @@ A **month stepper** on the Expected tab's "This month" window, so a past (or com
 occurrences can be read after the calendar has moved on.
 
 **Authority:** `V2-SPEC.md` §6.5 (occurrences), §9.1 (the hub's `today`, `toPay`), §9.3 (Expected),
-the API table (§9); `AGENTS.md`. **Status:** draft, E-1…E-7 open (2026-11-05). Where this plan and
+the API table (§9); `AGENTS.md`. **Status:** E-1…E-7 accepted as recommended (operator, 2026-11-05). Where this plan and
 `V2-SPEC.md` differ, the spec wins.
 
 ## 0. Why
