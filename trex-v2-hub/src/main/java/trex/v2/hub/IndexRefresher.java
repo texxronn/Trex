@@ -125,8 +125,7 @@ final class IndexRefresher implements AutoCloseable {
 
     private void loop() {
         refresh("initial");
-        // Wall clock, not nanoTime: the cadence compares UTC dates / aligned boundaries.
-        Instant lastDerive = Instant.now();
+        Instant lastDerive = lastDeriveAsOf();
         while (running) {
             try {
                 WatchKey key = watch.poll(1, TimeUnit.SECONDS);
@@ -148,9 +147,8 @@ final class IndexRefresher implements AutoCloseable {
                     if (relevant || overflow) {
                         // Only a full derive moves as_of; a row-scoped patch does not, so the timer
                         // still owes the time-driven outputs an advance.
-                        if (refresh(overflow ? "overflow" : "change")) {
-                            lastDerive = Instant.now();
-                        }
+                        refresh(overflow ? "overflow" : "change");
+                        lastDerive = lastDeriveAsOf();
                     }
                 }
                 // Advance the time clock even when no append has: patches are asOf-independent, so
@@ -161,7 +159,7 @@ final class IndexRefresher implements AutoCloseable {
                         log.debug("asOf advanced on the {} timer", asOfRefresh);
                         publish();
                     }
-                    lastDerive = Instant.now();
+                    lastDerive = lastDeriveAsOf();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -170,6 +168,18 @@ final class IndexRefresher implements AutoCloseable {
                 return;
             }
         }
+    }
+
+    /**
+     * The {@code asOf} the index last derived at, as the instant the cadence compares against. It is
+     * read back from {@code as_of} rather than taken from the clock after the derive: a derive that
+     * starts at 23:59:59 and ends at 00:00:02 stored yesterday's date, and stamping "now" would make
+     * {@code day} believe today was already derived and leave the time-driven outputs a day stale. A
+     * row-scoped patch leaves {@code as_of} put, so this also stays truthful when no full derive ran.
+     * The wall clock is only the fallback for an index with no {@code as_of} yet.
+     */
+    private Instant lastDeriveAsOf() {
+        return indexer.meta("as_of").map(Instant::parse).orElseGet(Instant::now);
     }
 
     private boolean relevant(WatchKey key, WatchEvent<?> event) {
