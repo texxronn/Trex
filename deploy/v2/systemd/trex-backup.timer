@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily trex local backup, after the 02:30 journal snapshot
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Australia/Sydney
+Persistent=true
+
+[Install]
+WantedBy=timers.target

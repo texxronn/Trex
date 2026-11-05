@@ -304,16 +304,54 @@ To make it a real drop folder:
 Enable the schedule only once the inbox holds nothing you did not mean to ingest: the log is
 permanent (undo is a `RETIRE`).
 
-### Back up (volume → tarball)
+### Daily archive (local)
 
 The journal, evidence and config volumes are the only irreplaceable state; the index is rebuilt.
+Two pieces, both local to the host (`V2-ARCHIVE-PLAN.md`):
+
+1. **Journal snapshot, 02:30 Sydney** — the runner's `journal-snapshot` job from the live
+   `schedule.yaml` (config volume; the runner reads it at startup, so restart the runner after an
+   edit). It writes `archive/journal/trex-<UTC yyyyMMdd-HHmmss>.jsonl.gz`, a consistent copy of the
+   log. The Jobs page's **Snapshot** button runs the same job on demand.
+
+   ```yaml
+   jobs:
+     - job: journal-snapshot
+       every: 24h
+       at: "02:30"
+       zone: Australia/Sydney
+   ```
+
+2. **`trex-backup.timer`, 03:00 Sydney** — root systemd timer running `deploy/v2/trex-backup.sh`
+   (installed as `/usr/local/sbin/trex-backup.sh`). It copies evidence and config to
+   `/opt/trex/backups/daily/<YYYY-MM-DD>/` with `rsync --link-dest` (unchanged files are hard links,
+   so a quiet day costs almost nothing), then checks the newest snapshot: from today, `gzip -t`
+   clean, and no shorter than the one before (the log only grows). A failed check fails the unit.
+
+   ```sh
+   apt-get install -y rsync
+   install -m 0755 trex-backup.sh /usr/local/sbin/trex-backup.sh
+   install -m 0644 systemd/trex-backup.{service,timer} /etc/systemd/system/
+   systemctl daemon-reload && systemctl enable --now trex-backup.timer
+   systemctl start trex-backup.service; journalctl -u trex-backup -n 20   # a first run
+   ```
+
+Everything is kept (snapshots ~0.5 MB/day; revisit at 1 GB). Health: `systemctl --failed`,
+`systemctl list-timers trex-backup.timer`, `ls /opt/trex/backups/daily`.
+
+**This is on the same disk as the live state.** It protects against a bad write or a deleted file,
+not against losing CT 108's disk; an off-host copy (e.g. a Proxmox vzdump job) is a later step.
+
+**Monthly drill**: verify the newest snapshot with that day's evidence and config copy (a scratch
+index, so the running hub's lock is not in the way):
 
 ```sh
-on_host() { ssh deploy@10.10.10.142 "sudo $*"; }   # or use the root tmux pane
-for v in journal evidence config; do
-  on_host docker run --rm -v trex-v2_$v:/v -v /opt/trex/backups:/b alpine \
-    tar czf /b/trex-$v-\$(date +%F).tgz -C /v .
-done
+A=/var/lib/docker/volumes/trex-v2_archive/_data/journal; D=/opt/trex/backups/daily/$(TZ=Australia/Sydney date +%F)
+gzip -dc "$A/$(ls "$A" | tail -1)" > /tmp/drill.jsonl
+docker run --rm --user 1000:1000 --tmpfs /tmp:exec -v /tmp/drill.jsonl:/d/trex.jsonl:ro \
+  -v "$D/config":/d/config:ro -v "$D/evidence":/d/evidence:ro trex/trex-v2:$(sed -n "s/^TREX_IMAGE_TAG=//p" /opt/trex/.env) \
+  verify --journal /d/trex.jsonl --config /d/config --evidence /d/evidence
+rm /tmp/drill.jsonl
 ```
 
 ### Gotchas already paid for

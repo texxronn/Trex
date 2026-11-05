@@ -1103,7 +1103,9 @@ host-side credential editor, §9.5), `runner`, `index`,
 - **The archive** (`--archive`) holds the byte mirror (kept forever), dated **journal snapshots**
   (`journal/trex-<ts>.jsonl.gz`, a consistent copy taken from the live log — never a rotation), and
   the **source archive** (`sources/…`). Snapshots are pruned by an explicit `prune-archive`
-  (planned).
+  (planned, deferred: everything is kept). Prod1 takes one daily (the runner's scheduled
+  `journal-snapshot`) and copies evidence and config locally beside it (`trex-backup.timer`,
+  `V2-ARCHIVE-PLAN.md`).
 - **Staging** (`trex runner`) is a transient inbox; evidence is the durable copy of the bytes.
 - **`--apply` is opt-in** (`--allow-apply` / `TREX_RUNNER_ALLOW_APPLY`); the base compose leaves it
   locked, and the UI gates it behind a fresh Plan.

@@ -1,0 +1,11 @@
+[Unit]
+Description=trex daily local backup (evidence + config copy, journal snapshot check)
+Documentation=file:///opt/trex/README.md
+# The compose host's variant: docker volumes, run as root. The journal snapshot itself is the
+# runner's scheduled `journal-snapshot` (02:30); this runs after it (V2-ARCHIVE-PLAN.md).
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/trex-backup.sh
