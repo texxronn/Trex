@@ -4,6 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
+import trex.v2.hub.AsOfCadence;
 import trex.v2.hub.HubConfig;
 import trex.v2.hub.HubService;
 
@@ -57,6 +58,11 @@ public final class HubCommand implements Callable<Integer> {
         description = "Credential file for sign-in (or TREX_AUTH_FILE); without it the hub is open.")
     Path auth;
 
+    @Option(names = "--asof-refresh",
+        description = "When the idle hub re-derives to advance asOf (or TREX_ASOF_REFRESH): day (default,"
+            + " on the UTC date turn), off, <n>m or <n>h.")
+    String asOfRefresh;
+
     @Override
     public Integer call() throws Exception {
         if (journal == null || config == null || index == null) {
@@ -71,13 +77,22 @@ public final class HubCommand implements Callable<Integer> {
         String envAuth = System.getenv("TREX_AUTH_FILE");
         Path authFile = auth != null ? auth
             : (envAuth == null || envAuth.isBlank() ? null : Path.of(envAuth));
+        AsOfCadence cadence;
+        try {
+            cadence = AsOfCadence.parse(asOfRefresh != null ? asOfRefresh : System.getenv("TREX_ASOF_REFRESH"));
+        } catch (IllegalArgumentException e) {
+            // No silent fallback: a typo here would quietly change how fresh the time-driven views are.
+            System.err.println(e.getMessage());
+            return 64;
+        }
         HubConfig hubConfig = new HubConfig(journal, index, config, host, port,
             HubConfig.DEFAULT_DEBOUNCE_MS, sequencerUrl, evidence, runnerUrl, token,
-            HubConfig.DEFAULT_ASOF_REFRESH_MS, authFile);
+            cadence, authFile);
         HubService service = HubService.start(hubConfig);
         Runtime.getRuntime().addShutdownHook(new Thread(service::close, "trex-hub-shutdown"));
         System.out.println("trex hub listening on " + host + ":" + service.port()
-            + " (journal " + journal + ", index " + index + ")");
+            + " (journal " + journal + ", index " + index
+            + ", asOf refresh " + cadence + ")");
         Thread.currentThread().join();
         return 0;
     }
