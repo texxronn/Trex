@@ -9,6 +9,8 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-05
+
 ### Changed
 
 - **The idle hub no longer re-derives every minute** (`V2-SPEC.md` "When `asOf` advances";
