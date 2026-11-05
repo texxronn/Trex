@@ -15,6 +15,12 @@ everything is under **Unreleased**.
   evidence and config to `/opt/trex/backups/daily/<date>/` (hard-linked between days) and failing the
   unit if the newest snapshot is missing, corrupt or shorter than the last. Everything is kept;
   off-host copy is later. No code change; downstream (ezbookkeeping): none.
+- **ezbookkeeping view in the stack** (`docs/DEPLOYMENTS.md` "ezbookkeeping view"): an `ezb` compose
+  service behind profile `ezb` (the trex host only; Dev1 keeps `ezb-dev`), reached by the runner as
+  `http://ezb:8080`. Runner apply is now an `.env` opt-in, `TREX_RUNNER_ALLOW_APPLY` (default off).
+- **Service reads under sign-in** (`V2-SPEC.md` §9.5): a `GET` carrying `X-Trex-Runner-Token` equal to
+  `TREX_RUNNER_TOKEN` passes the hub's sign-in gate, so the egress can read `/api/units` from a
+  signed-in hub. POSTs stay anonymous; no secret, no service reads. Downstream (ezbookkeeping): none.
 
 ## [1.0.3] - 2026-11-05
 
