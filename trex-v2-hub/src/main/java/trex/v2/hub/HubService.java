@@ -198,7 +198,8 @@ public final class HubService implements HubApi, AutoCloseable {
             RunnerClient runner = config.runnerUrl() == null ? null : new RunnerClient(config.runnerUrl(), config.runnerToken());
             HubService service = new HubService(config, lock, indexer, reads, refresher, sequencer, events, runner,
                 mortgages);
-            service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner, auth);
+            service.server = HubHttpApi.start(config.host(), config.port(), service, events, runner, auth,
+                config.runnerToken());
             log.info("trex hub listening on {}:{}; journal {}; index {}",
                 config.host(), service.server.getAddress().getPort(), config.journal(), config.index());
             return service;

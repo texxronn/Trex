@@ -28,6 +28,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -65,16 +66,23 @@ final class HubHttpApi {
      */
     private static final String SESSION_USER = "trex.session.user";
 
-    private final Auth auth;
+    /** The header a service read presents (V2-SPEC.md §9.5): the runner's shared secret, reused. */
+    static final String SERVICE_TOKEN_HEADER = "X-Trex-Runner-Token";
 
-    private HubHttpApi(Auth auth) {
+    private final Auth auth;
+    /** The shared runner secret as bytes, or null when none is set (no service reads). */
+    private final byte[] serviceToken;
+
+    private HubHttpApi(Auth auth, String serviceToken) {
         this.auth = auth;
+        this.serviceToken = serviceToken == null || serviceToken.isBlank()
+            ? null : serviceToken.getBytes(StandardCharsets.UTF_8);
     }
 
     static HttpServer start(String host, int port, HubApi api, HubEvents events, RunnerClient runner,
-                            Auth auth) throws IOException {
+                            Auth auth, String serviceToken) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
-        new HubHttpApi(auth).register(server, api, events, runner);
+        new HubHttpApi(auth, serviceToken).register(server, api, events, runner);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
         return server;
@@ -484,6 +492,11 @@ final class HubHttpApi {
         }
         long now = Instant.now().getEpochSecond();
         Session.Principal principal = auth.resolve(ex.getRequestHeaders().getFirst("Cookie"), now);
+        if (principal == null && isServiceRead(ex)) {
+            // A service read (the egress fetching /api/units): GET only, so it names no person
+            // and can stamp no decision; SESSION_USER stays unset (V2-SPEC.md §9.5).
+            return true;
+        }
         if (principal == null) {
             rejectAnonymous(ex, path);
             return false;
@@ -496,6 +509,19 @@ final class HubHttpApi {
             ex.getResponseHeaders().add("Set-Cookie", auth.session().cookie(principal.user(), now));
         }
         return true;
+    }
+
+    /**
+     * A GET carrying the runner's shared secret. Constant-time compare; no secret configured means
+     * no service reads, so a hub without TREX_RUNNER_TOKEN gates exactly as before.
+     */
+    private boolean isServiceRead(HttpExchange ex) {
+        if (serviceToken == null || !"GET".equals(ex.getRequestMethod())) {
+            return false;
+        }
+        String presented = ex.getRequestHeaders().getFirst(SERVICE_TOKEN_HEADER);
+        return presented != null
+            && MessageDigest.isEqual(serviceToken, presented.getBytes(StandardCharsets.UTF_8));
     }
 
     /** The only paths that do not require a session (V2-SPEC.md §9.5, A-4 leaves /mcp outside). */

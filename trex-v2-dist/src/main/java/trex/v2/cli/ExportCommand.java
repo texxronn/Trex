@@ -31,7 +31,7 @@ public final class ExportCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        HubClient hub = new HubClient(hubUrl);
+        HubClient hub = new HubClient(hubUrl, System.getenv("TREX_RUNNER_TOKEN"));
         List<HubClient.LedgerRow> rows = hub.allLedger();
         Map<String, String> currency = hub.currencyByAccount();
         String body;

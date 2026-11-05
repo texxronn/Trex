@@ -138,7 +138,7 @@ public final class EgressCommand implements Callable<Integer> {
                 : apply ? FireflyEgress.Mode.APPLY : FireflyEgress.Mode.PLAN;
             FireflyClient firefly = new FireflyClient(fireflyUrl, token,
                 new FireflyClient.Retry(retries, retryBaseMs, retryMaxMs));
-            HubClient hub = new HubClient(hubUrl);
+            HubClient hub = new HubClient(hubUrl, System.getenv("TREX_RUNNER_TOKEN"));
             AccountMap map = AccountMap.load(accountsFile);
 
             Map<String, FireflyClient.AccountInfo> instance = firefly.accounts();
@@ -292,7 +292,7 @@ public final class EgressCommand implements Callable<Integer> {
             EzbMap map = EzbMap.load(accountsFile);
             EzbClient ezb = new EzbClient(ezbUrl, token, map.zone(),
                 new EzbClient.Retry(retries, retryBaseMs, retryMaxMs));
-            HubClient hub = new HubClient(hubUrl);
+            HubClient hub = new HubClient(hubUrl, System.getenv("TREX_RUNNER_TOKEN"));
             // The fast one-call clear needs a login (EZB_USER + EZB_PASSWORD, §11.2); without them
             // the view clears by id and stores no password.
             String ezbUser = System.getenv("EZB_USER");

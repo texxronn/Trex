@@ -65,6 +65,9 @@ volumes:
   evidence:
   archive:
   staging:
+  # The ezbookkeeping view's own store (profile "ezb" below). Disposable like the index: a lost
+  # volume is re-applied from trex, never restored (V2-SPEC.md §11.2).
+  ezb:
 
 services:
   # Seed a writable config volume and the state directories, then hand them to uid 1000.
@@ -247,6 +250,9 @@ services:
       EZB_USER: ${EZB_USER:-}
       EZB_PASSWORD: ${EZB_PASSWORD:-}
       TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
+      # Locked unless .env says otherwise: apply (egress-ezb, reparse) and any scheduled apply need
+      # it. Unlock only on a stack whose hub has sign-in on (V2-SPEC.md §9.5); dev forces it on.
+      TREX_RUNNER_ALLOW_APPLY: ${TREX_RUNNER_ALLOW_APPLY:-false}
     volumes:
       - config:/etc/trex:ro
       - journal:/var/lib/trex/journal:ro
@@ -261,6 +267,28 @@ services:
         condition: service_healthy
       hub:
         condition: service_started
+
+  # The ezbookkeeping view (V2-SPEC.md §11.2), on the stack's own network: the runner reaches it as
+  # TREX_EZB_URL=http://ezb:8080. Profile "ezb", so it starts only where .env sets
+  # COMPOSE_PROFILES=ezb (the trex host); Dev1 keeps its standalone ezb-dev container. Not its
+  # image's defaults: API tokens on (the egress authenticates with one), import on (the egress
+  # imports in batches). EZB_SECRET_KEY signs its sessions — set it once in .env and keep it, or
+  # every login and API token is invalidated. Published on loopback unless TREX_EZB_BIND says
+  # otherwise; ezbookkeeping has its own sign-in.
+  ezb:
+    image: mayswind/ezbookkeeping:${TREX_EZB_IMAGE_TAG:-2.0.1}
+    profiles: ["ezb"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      EBK_SERVER_DOMAIN: ${TREX_EZB_DOMAIN:-localhost}
+      EBK_SERVER_ROOT_URL: ${TREX_EZB_ROOT_URL:-http://localhost:8095/}
+      EBK_SECURITY_SECRET_KEY: ${EZB_SECRET_KEY:-}
+      EBK_SECURITY_ENABLE_API_TOKEN: "true"
+      EBK_DATA_ENABLE_IMPORT: "true"
+    volumes:
+      - ezb:/ezbookkeeping/data
+    ports:
+      - "${TREX_EZB_BIND:-127.0.0.1}:${TREX_EZB_PORT:-8095}:8080"
 
   # ---- on-demand tools (profile "tools") --------------------------------------------------
 
@@ -371,6 +399,8 @@ services:
       EZB_TOKEN: ${EZB_TOKEN:-}
       EZB_USER: ${EZB_USER:-}
       EZB_PASSWORD: ${EZB_PASSWORD:-}
+      # Presented to a signed-in hub as a service read (V2-SPEC.md §9.5).
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
     volumes:
       - config:/etc/trex:ro
     depends_on:

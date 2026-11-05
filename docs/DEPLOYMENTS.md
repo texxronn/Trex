@@ -15,8 +15,8 @@ shell history. No secrets here. Add a section per host.
 | Image | `trex/trex-v2:1.0.3` — tag pinned in `/opt/trex/.env` (`TREX_IMAGE_TAG`) |
 | Environment | `TREX_ENV` in `/opt/trex/.env` — the log envelope's `env` and the header badge (Dev1 / Prod1 / Prod-IN); at most 8 characters. This host is `Prod1` |
 | As-of refresh | `TREX_ASOF_REFRESH` in `/opt/trex/.env` — how often an idle hub re-derives to advance `asOf`: `day` (default, at the UTC day turn), `<n>m` / `<n>h` (UTC-aligned), or `off`. Leave it at `day` unless you need fresher time-relative outputs |
-| Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN, sign-in on), `trex-v2-runner-1` (compose network only) |
-| State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive`, `trex-v2_staging` |
+| Services | `trex-v2-sequencer-1` on `127.0.0.1:8080` (private), `trex-v2-hub-1` on `0.0.0.0:8090` (LAN, sign-in on), `trex-v2-runner-1` (compose network only), `trex-v2-ezb-1` on `0.0.0.0:8095` (LAN, ezbookkeeping's own sign-in) |
+| State | docker volumes `trex-v2_config`, `trex-v2_journal`, `trex-v2_index`, `trex-v2_evidence`, `trex-v2_archive`, `trex-v2_staging`; `trex-v2_ezb` is the disposable ezbookkeeping view |
 | History | promoted from Dev1 by volume copy on 2026-11-05 (n=7921); the pre-promotion state is in `/opt/trex/backups/pre-promote-20261105T034522` |
 
 ### Network exposure
@@ -352,6 +352,53 @@ docker run --rm --user 1000:1000 --tmpfs /tmp:exec -v /tmp/drill.jsonl:/d/trex.j
   -v "$D/config":/d/config:ro -v "$D/evidence":/d/evidence:ro trex/trex-v2:$(sed -n "s/^TREX_IMAGE_TAG=//p" /opt/trex/.env) \
   verify --journal /d/trex.jsonl --config /d/config --evidence /d/evidence
 rm /tmp/drill.jsonl
+```
+
+### ezbookkeeping view
+
+The downstream chart view (V2-SPEC.md §11.2) runs in the same stack as the `ezb` service, behind
+the compose profile `ezb` (Dev1 keeps its standalone `ezb-dev` container, so the profile is off
+there). The runner reaches it on the compose network as `http://ezb:8080`; the LAN reaches it at
+**http://10.10.10.142:8095/**. It is a disposable view: every apply clears its transactions and
+re-imports the whole book, so the `trex-v2_ezb` volume is never backed up — a lost one is re-applied.
+
+`/opt/trex/.env`:
+
+```
+COMPOSE_PROFILES=ezb
+TREX_EZB_BIND=0.0.0.0
+TREX_EZB_DOMAIN=10.10.10.142
+TREX_EZB_ROOT_URL=http://10.10.10.142:8095/
+EZB_SECRET_KEY=…              # openssl rand -hex 32, once; changing it voids every login and token
+TREX_EZB_URL=http://ezb:8080
+EZB_TOKEN=…                   # the API token below
+EZB_USER=ron                  # with EZB_PASSWORD: the one-call clear
+EZB_PASSWORD=…
+TREX_RUNNER_ALLOW_APPLY=true  # the scheduled apply needs it; safe only because the hub has sign-in
+TREX_RUNNER_TOKEN=…           # openssl rand -hex 32: hub↔runner secret; also lets the egress read a signed-in hub
+```
+
+First run, as root in `/opt/trex` (the user and token are made inside the container):
+
+```sh
+docker compose up -d ezb
+docker compose exec ezb ./ezbookkeeping userdata user-add -n ron -e <email> -p '<password>' -i ron -c AUD
+docker compose exec ezb ./ezbookkeeping userdata user-session-new -n ron -t api -e 0   # -> EZB_TOKEN
+docker compose up -d runner                                                             # picks up .env
+```
+
+Then the Jobs page's ezbookkeeping card: **Plan**, **Apply**, **Verify** (verify must be clean).
+
+**Kept fresh by the schedule** — an `egress-ezb` apply entry in the live `schedule.yaml` (restart
+the runner after an edit). A re-apply is idempotent and takes seconds; during it the view is briefly
+empty.
+
+```yaml
+  - job: egress-ezb
+    params: { mode: apply }
+    every: 1h
+    at: "00:20"
+    zone: Australia/Sydney
 ```
 
 ### Gotchas already paid for
