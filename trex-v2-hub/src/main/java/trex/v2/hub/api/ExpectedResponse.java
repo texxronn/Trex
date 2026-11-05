@@ -9,12 +9,14 @@ import java.util.List;
  * commitment, oldest first, with a running total; and the window's committed totals by direction.
  * For {@code window=month}, {@code month} is the month read ({@code YYYY-MM}) and
  * {@code minMonth}/{@code maxMonth} the first wholly generated and the last reachable month the
- * Expected screen can step to (V2-EXPECTED-MONTH-PLAN.md); all three are null for today/week.
+ * Expected screen can step to (V2-EXPECTED-MONTH-PLAN.md); {@code generatedTo} is the last due date
+ * the occurrence rows were generated to (the bounds day + 92 days), so the screen can say where the
+ * newest month stops being complete. All four are null for today/week.
  */
 public record ExpectedResponse(String window, LocalDate from, LocalDate to,
                                List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
                                Headroom headroom, List<ToPay> toPay,
-                               String month, String minMonth, String maxMonth) {
+                               String month, String minMonth, String maxMonth, LocalDate generatedTo) {
 
     public ExpectedResponse(String window, LocalDate from, LocalDate to,
                             List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
@@ -25,7 +27,7 @@ public record ExpectedResponse(String window, LocalDate from, LocalDate to,
     public ExpectedResponse(String window, LocalDate from, LocalDate to,
                             List<Occurrence> occurrences, List<Arrear> arrears, Totals totals,
                             Headroom headroom, List<ToPay> toPay) {
-        this(window, from, to, occurrences, arrears, totals, headroom, toPay, null, null, null);
+        this(window, from, to, occurrences, arrears, totals, headroom, toPay, null, null, null, null);
     }
 
     /**

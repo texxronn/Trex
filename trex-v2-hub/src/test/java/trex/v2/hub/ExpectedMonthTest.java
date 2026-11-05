@@ -30,6 +30,7 @@ import java.util.function.BooleanSupplier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -140,6 +141,8 @@ class ExpectedMonthTest {
             assertEquals("2025-12", nov5.minMonth());
             assertEquals("2027-02", nov5.maxMonth());
             assertEquals("2026-11", nov5.month());
+            assertEquals(LocalDate.of(2027, 2, 5), nov5.generatedTo());
+            assertNull(hub.expected("week", null, LocalDate.of(2026, 11, 5)).generatedTo());
             // A past that lands on the 1st keeps its own month whole.
             var first = hub.expected("month", null, LocalDate.of(2026, 11, 1));
             assertEquals("2025-11", first.minMonth());

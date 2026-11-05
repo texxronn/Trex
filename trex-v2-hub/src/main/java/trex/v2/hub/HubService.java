@@ -391,18 +391,21 @@ public final class HubService implements HubApi, AutoCloseable {
         }
         String minMonth = null;
         String maxMonth = null;
+        LocalDate generatedTo = null;
         Period.Range range;
         switch (win) {
             case "today" -> range = Period.bounds(at.toString());
             case "week" -> range = Period.bounds(Period.weekKey(at));
             case "month" -> {
                 // The bounds follow the day the occurrence rows were generated at: the index's as_of
-                // (it matches the wall clock but for a minute around midnight), unless the caller
-                // pinned asOf. The stepped month only moves the range; everything else stays at `at`.
+                // (it matches the hub's today when the JVM runs in UTC, as the deploy does; elsewhere
+                // the two can differ by a day near midnight UTC, which only shifts the bounds at a
+                // month edge), unless the caller pinned asOf. The stepped month only moves the range; everything else stays at `at`.
                 LocalDate boundsAt = asOf != null ? asOf : indexAsOf().orElse(at);
                 LocalDate past = boundsAt.minusMonths(PAST_MONTHS);
                 YearMonth min = past.getDayOfMonth() == 1 ? YearMonth.from(past) : YearMonth.from(past).plusMonths(1);
-                YearMonth max = YearMonth.from(boundsAt.plusDays(HORIZON_DAYS));
+                generatedTo = boundsAt.plusDays(HORIZON_DAYS);
+                YearMonth max = YearMonth.from(generatedTo);
                 YearMonth ym = stepped == null ? YearMonth.from(at) : parseMonth(stepped);
                 if (stepped != null && (ym.isBefore(min) || ym.isAfter(max))) {
                     throw new IllegalArgumentException(
@@ -420,7 +423,7 @@ public final class HubService implements HubApi, AutoCloseable {
         // given, else the hub's today. So the strip and the list never disagree for a given asOf.
         ExpectedResponse base = reads.expected(win, range, at);
         return new ExpectedResponse(base.window(), base.from(), base.to(), base.occurrences(), base.arrears(),
-            base.totals(), monthHeadroom(at), base.toPay(), stepped, minMonth, maxMonth);
+            base.totals(), monthHeadroom(at), base.toPay(), stepped, minMonth, maxMonth, generatedTo);
     }
 
     /** The occurrence span the matcher generates (CommitmentMatcher.PAST_MONTHS / HORIZON_DAYS). */
