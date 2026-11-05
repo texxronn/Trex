@@ -38,10 +38,17 @@ public final class HubClient {
 
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final URI base;
+    /** The runner's shared secret, presented on reads so a signed-in hub serves them (V2-SPEC.md §9.5). */
+    private final String serviceToken;
 
     public HubClient(String baseUrl) {
+        this(baseUrl, null);
+    }
+
+    public HubClient(String baseUrl, String serviceToken) {
         String trimmed = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.base = URI.create(trimmed);
+        this.serviceToken = serviceToken == null || serviceToken.isBlank() ? null : serviceToken;
     }
 
     /** The units current at the hub's instant, optionally only those at or after {@code sinceN}. */
@@ -111,8 +118,12 @@ public final class HubClient {
 
     private <T> T get(String path, Class<T> type) {
         try {
-            HttpResponse<String> response = http.send(HttpRequest.newBuilder(base.resolve(path))
-                .timeout(Duration.ofMinutes(2)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            HttpRequest.Builder request = HttpRequest.newBuilder(base.resolve(path))
+                .timeout(Duration.ofMinutes(2)).GET();
+            if (serviceToken != null) {
+                request.header("X-Trex-Runner-Token", serviceToken);
+            }
+            HttpResponse<String> response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) {
                 throw new IllegalStateException("hub GET " + path + " answered " + response.statusCode()
                     + ": " + response.body());

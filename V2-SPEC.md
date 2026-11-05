@@ -730,9 +730,20 @@ carries the user id verbatim, so an id containing `.`, `|`, `;` or whitespace ca
 invalidates every session at the next restart, and that is the whole revocation model. A failed sign-in
 is a `401` after a fixed 250 ms delay; there is no lockout.
 
-**What is gated.** `/login`, `POST /api/login` and `POST /api/logout` are open; nothing else is. An
-anonymous `/api/…`, `/head` or `/api/events` is `401 {"error":"not signed in"}`; an anonymous `GET /`
-or `/ui/…` is a `302` to `/login?next=<path>`, because a browser clicking a link should land on a form.
+**What is gated.** `/login`, `POST /api/login` and `POST /api/logout` are open; nothing else is,
+short of a service read (below). An anonymous `/api/…`, `/head` or `/api/events` is `401
+{"error":"not signed in"}`; an anonymous `GET /` or `/ui/…` is a `302` to `/login?next=<path>`,
+because a browser clicking a link should land on a form.
+
+**Service reads.** One non-person caller is let through: a `GET` carrying the header
+`X-Trex-Runner-Token` equal to the hub's runner secret (`TREX_RUNNER_TOKEN`, the one the hub already
+presents to the runner as the same header), compared in constant time. It is how the egress reads
+`/api/units` and `/api/opening` from a signed-in hub — the runner's jobs and the one-off tool both
+pass the secret through `TREX_RUNNER_TOKEN`. It is **reads only**: a `POST` with the header is
+anonymous, so the secret can carry no decision and names no person. A hub with no runner secret
+admits no service read. The ezbookkeeping view is unchanged by this — the egress reads the same feed
+it always did.
+
 `GET /api/whoami` is the shell's first call: `{user, name, signedIn}` — `signedIn: true` once signed
 in, `401` before, and `signedIn: false` with a default user when sign-in is off (below).
 

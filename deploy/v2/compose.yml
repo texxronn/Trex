@@ -399,6 +399,8 @@ services:
       EZB_TOKEN: ${EZB_TOKEN:-}
       EZB_USER: ${EZB_USER:-}
       EZB_PASSWORD: ${EZB_PASSWORD:-}
+      # Presented to a signed-in hub as a service read (V2-SPEC.md §9.5).
+      TREX_RUNNER_TOKEN: ${TREX_RUNNER_TOKEN:-}
     volumes:
       - config:/etc/trex:ro
     depends_on:

@@ -22,11 +22,16 @@ public final class FakeHub implements AutoCloseable {
     public volatile Map<String, String> resolved = new java.util.HashMap<>();
     public volatile List<Map<String, Object>> openings = new ArrayList<>();
     public volatile Map<String, String> currencies = new java.util.HashMap<>();
+    /** The X-Trex-Runner-Token the last /api/units read carried, or null. */
+    public volatile String lastServiceToken;
 
     public FakeHub() throws Exception {
-        server.createContext("/api/units", exchange -> respond(exchange, 200, Json.mapper().writeValueAsString(
-            map("asOfN", 1, "configRevision", configRevision, "deriveVersion", "derive/1",
-                "hashVersion", "statehash/1", "units", units, "resolved", resolved))));
+        server.createContext("/api/units", exchange -> {
+            lastServiceToken = exchange.getRequestHeaders().getFirst("X-Trex-Runner-Token");
+            respond(exchange, 200, Json.mapper().writeValueAsString(
+                map("asOfN", 1, "configRevision", configRevision, "deriveVersion", "derive/1",
+                    "hashVersion", "statehash/1", "units", units, "resolved", resolved)));
+        });
         server.createContext("/api/opening", exchange -> respond(exchange, 200,
             Json.mapper().writeValueAsString(map("accounts", openings))));
         server.createContext("/api/refdata", exchange -> {

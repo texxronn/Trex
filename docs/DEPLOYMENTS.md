@@ -375,6 +375,7 @@ EZB_TOKEN=…                   # the API token below
 EZB_USER=ron                  # with EZB_PASSWORD: the one-call clear
 EZB_PASSWORD=…
 TREX_RUNNER_ALLOW_APPLY=true  # the scheduled apply needs it; safe only because the hub has sign-in
+TREX_RUNNER_TOKEN=…           # openssl rand -hex 32: hub↔runner secret; also lets the egress read a signed-in hub
 ```
 
 First run, as root in `/opt/trex` (the user and token are made inside the container):

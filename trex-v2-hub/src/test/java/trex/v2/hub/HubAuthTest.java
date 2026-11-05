@@ -142,6 +142,37 @@ class HubAuthTest {
     }
 
     @Test
+    void theRunnerTokenOpensReadsOnlyAndOnlyWhenSet(@TempDir Path dir) throws Exception {
+        Path configDir = config(dir, true);
+        Path auth = writeAuth(dir, SECRET);
+        String token = "runner-shared-secret";
+        try (HubService hub = HubService.start(new HubConfig(journal(dir), dir.resolve("trex.sqlite"),
+                configDir, "127.0.0.1", 0, 50, null, null, null, token, HubConfig.DEFAULT_ASOF_REFRESH, auth))) {
+            URI base = base(hub);
+            // The egress's feed reads with the shared secret and no session (V2-SPEC.md §9.5).
+            assertEquals(200, getWithToken(base, "/api/units?sinceN=0", token).statusCode());
+            assertEquals(200, getWithToken(base, "/api/opening", token).statusCode());
+            // A wrong secret, or none, is anonymous.
+            assertEquals(401, getWithToken(base, "/api/units?sinceN=0", "nope").statusCode());
+            assertEquals(401, get(base, "/api/units?sinceN=0", null).statusCode());
+            // GET only: the secret can never carry a decision.
+            HttpResponse<String> write = HTTP.send(HttpRequest.newBuilder(base.resolve("/api/decisions"))
+                .header(HubHttpApi.SERVICE_TOKEN_HEADER, token)
+                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, write.statusCode());
+        }
+        // A hub with no runner secret gates the header like any anonymous call.
+        try (HubService hub = start(dir, configDir, journal(dir), auth)) {
+            assertEquals(401, getWithToken(base(hub), "/api/units?sinceN=0", token).statusCode());
+        }
+    }
+
+    private static HttpResponse<String> getWithToken(URI base, String path, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(base.resolve(path)).header(HubHttpApi.SERVICE_TOKEN_HEADER, token)
+            .GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void anOverLimitBodyIsRefusedWith413(@TempDir Path dir) throws Exception {
         Path configDir = config(dir, true);
         Path auth = writeAuth(dir, SECRET);
