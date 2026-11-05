@@ -9,6 +9,13 @@ everything is under **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+- **Daily local archive on Prod1** (`V2-ARCHIVE-PLAN.md`, `docs/DEPLOYMENTS.md` "Daily archive"): the
+  runner's `journal-snapshot` scheduled at 02:30 Sydney, and `trex-backup.timer` at 03:00 copying
+  evidence and config to `/opt/trex/backups/daily/<date>/` (hard-linked between days) and failing the
+  unit if the newest snapshot is missing, corrupt or shorter than the last. Everything is kept;
+  off-host copy is later. No code change; downstream (ezbookkeeping): none.
+
 ## [1.0.3] - 2026-11-05
 
 ### Changed
